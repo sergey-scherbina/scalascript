@@ -189,18 +189,40 @@ function exec(cmd, argsList, opts) {
     // (rozum `process-needs-a-stdin-pipe`: without it a secret can only travel through argv, where
     // any local process can read it off the command line.)
     //
-    // THE OTHER FIELDS ARE STILL IGNORED HERE, and that is not fixed by this line. `cwd`, `env`,
-    // `timeout` and `inheritEnv` are dropped on this lane exactly as they were dropped on the rust
-    // lane until 2026-08-16 — accepted, silently unused, no diagnostic. Filed as
-    // `js-exec-ignores-every-processoptions-field-but-stdin`; it is a bigger change than one
-    // property because `inheritEnv` needs the parent env scrubbed and rebuilt, and it deserves its
-    // own gate rather than riding along here.
     // `_Some(v)` is `{_type: '_Some', value: v}` here (core-dispatch.mjs) — NOT a `$tag`/`_1`
     // shape, which is what a case object uses two functions up in this same file. Reading the wrong
-    // one would leave `stdin` silently unset on this lane, which is the exact failure this feature
-    // exists to avoid.
-    var _sscStdin = (opts && opts.stdin && opts.stdin._type === '_Some') ? opts.stdin.value : undefined;
-    var result = _nodeProc.spawnSync(cmd, argsList, { encoding: 'utf8', shell: false, input: _sscStdin });
+    // one would leave the option silently unset, which is the failure these options exist to avoid.
+    var _sscOpt = function(o) {
+      return (o && o._type === '_Some') ? o.value : undefined;
+    };
+    var _sscStdin = opts ? _sscOpt(opts.stdin) : undefined;
+    var _sscCwd   = opts ? _sscOpt(opts.cwd)   : undefined;
+    var _sscTmo   = opts ? _sscOpt(opts.timeout) : undefined;
+    // `env` is a ScalaScript Map, which on this lane is a HAMT (`_Map` -> `_hamtOf`), not a plain
+    // object — so it is walked through the `entries()` the HAMT exposes rather than with
+    // `Object.keys`, which would silently see nothing and hand the child an EMPTY environment.
+    var _sscEnvPairs = [];
+    if (opts && opts.env && typeof opts.env.entries === 'function') {
+      for (var _e of opts.env.entries()) { _sscEnvPairs.push([_e[0], _e[1]]); }
+    }
+    // `inheritEnv === false` SCRUBS BEFORE `env` IS APPLIED, never after: the flag means the child
+    // sees only what the caller listed, and clearing afterwards would throw those away too. Same
+    // ordering as every other lane, and the row that catches getting it backwards prints `[][]`
+    // instead of `[][only]`.
+    var _sscEnv = undefined;
+    if (_sscEnvPairs.length > 0 || (opts && opts.inheritEnv === false)) {
+      var _base = (opts && opts.inheritEnv === false) ? {} : Object.assign({}, process.env);
+      for (var _i = 0; _i < _sscEnvPairs.length; _i++) { _base[_sscEnvPairs[_i][0]] = _sscEnvPairs[_i][1]; }
+      _sscEnv = _base;
+    }
+    // `timeout` in MILLISECONDS, matching the declaration and the other lanes. spawnSync kills on
+    // expiry and reports it through `signal`, which the exitCode line below already maps to -1 —
+    // the answer `run`, `--v1`, jvm and build-rust all give for a timed-out child.
+    var _sscSpawnOpts = { encoding: 'utf8', shell: false, input: _sscStdin };
+    if (_sscCwd !== undefined) { _sscSpawnOpts.cwd = _sscCwd; }
+    if (_sscEnv !== undefined) { _sscSpawnOpts.env = _sscEnv; }
+    if (_sscTmo !== undefined && _sscTmo > 0) { _sscSpawnOpts.timeout = _sscTmo; }
+    var result = _nodeProc.spawnSync(cmd, argsList, _sscSpawnOpts);
     return {
       stdout:   result.stdout || '',
       stderr:   result.stderr || '',

@@ -19,12 +19,19 @@
 # the lane could not run), and `spawn` proves `__spawnPid` resolves to the preamble function rather
 # than to the shim's `const`.
 #
-# WHAT THIS GATE DELIBERATELY DOES NOT ASSERT: `cwd`, `env`, `timeout`, `inheritEnv`. They are
-# accepted and dropped on this lane — `spawnSync` is called without an options object — and that is
-# open as `js-exec-ignores-every-processoptions-field-but-stdin`. Measured here for the first time
-# rather than read off the source, because until the SyntaxError was fixed the lane could not run at
-# all and the entry was an inference. A row for them would fail forever; naming them is the honest
-# alternative to a green that means less than it looks.
+# `cwd`, `env`, `timeout` and `inheritEnv` WERE what this gate refused to assert, because they were
+# accepted and dropped here — `spawnSync` was called without an options object. They are honoured now
+# (`js-exec-ignores-every-processoptions-field-but-stdin`) and rows 4-7 cover them, which completes
+# std/process across all five lanes.
+#
+# ROW 6 IS THE ONE THAT ORDERS THE IMPLEMENTATION, as it does on every other lane: `inheritEnv=false`
+# must scrub the parent environment BEFORE the caller's `env` is applied. Clearing afterwards throws
+# the caller's own variables away too, and prints `[][]` instead of `[][only]` — a difference
+# invisible to any check that only asks whether `$HOME` is gone.
+#
+# ROW 5 EXISTS BECAUSE A MAP IS NOT AN OBJECT HERE. `env` arrives as a HAMT (`_Map` -> `_hamtOf`), so
+# `Object.keys` would see nothing and hand the child an EMPTY environment — silently, and the row
+# would still be green if it only checked that the process ran.
 #
 # COST: two node runs, ~10 s. No cargo, no sbt.
 set -uo pipefail
@@ -56,6 +63,14 @@ def main(): Unit =
   println("stdin reaches: " + b.stdout.trim)
   val c = spawn("sleep", List("2"), ProcessOptions())
   println("spawn pid    : " + (c.pid > 0))
+  val d = exec("pwd", List(), ProcessOptions(Some("/tmp"), Map(), None, true, None))
+  println("cwd honoured : " + d.stdout.trim.endsWith("tmp"))
+  val e = exec("sh", List("-c", "echo $SSC_PROBE"), ProcessOptions(None, Map("SSC_PROBE" -> "yes"), None, true, None))
+  println("env honoured : " + (e.stdout.trim == "yes"))
+  val f = exec("sh", List("-c", "echo [$HOME][$SSC_PROBE]"), ProcessOptions(None, Map("SSC_PROBE" -> "only"), None, false, None))
+  println("env scrubbed : " + f.stdout.trim)
+  val g = exec("sleep", List("5"), ProcessOptions(None, Map(), Some(600), true, None))
+  println("timeout kills: " + g.exitCode)
 
 main()
 SSC
@@ -73,7 +88,7 @@ if [[ -z "$int_out" ]]; then
   exit 1
 fi
 
-echo "── std/process on the js lane: the bundle parses and the three fixed pieces work"
+echo "── std/process on the js lane: the bundle parses and every option is honoured"
 while IFS= read -r want; do
   label=${want%%:*}
   got=$(printf '%s\n' "$js_out" | grep -F "$label:" || true)
@@ -86,8 +101,11 @@ while IFS= read -r want; do
 done <<< "$int_out"
 
 # The oracle must still be right — two lanes that had both regressed would agree on every row above.
-if printf '%s\n' "$int_out" | grep -q 'stdin reaches: piped'; then
-  echo "  ✓ the oracle itself is right: a child does receive what stdin was given"
+if printf '%s\n' "$int_out" | grep -q 'stdin reaches: piped' &&
+   printf '%s\n' "$int_out" | grep -q 'env scrubbed : \[\]\[only\]' &&
+   printf '%s\n' "$int_out" | grep -q 'timeout kills: -1'; then
+  echo "  ✓ the oracle itself is right: stdin arrives, the scrub keeps only the caller's vars,"
+  echo "    and a timed-out child answers -1"
 else
   echo "  ✗ the interpreter no longer answers 'piped' — the oracle regressed, so agreement between"
   echo "    the lanes proves nothing here"
