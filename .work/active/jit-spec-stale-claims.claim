@@ -1,0 +1,11 @@
+slug: jit-spec-stale-claims
+branch: feature/jit-spec-stale-claims
+agent: claude-code
+started: 2026-08-17T08:16:36Z
+heartbeat: 2026-08-17T08:16:36Z
+status: claimed-before-planning
+items: ssc3-jit-spec-says-superinstructions-were-never-built
+paths: file:specs/ssc3-jit.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
