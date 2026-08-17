@@ -1,4 +1,5 @@
-# generation: 2572
+# generation: 2573
 #slug	agent	started	items	paths
 ssc-http-bind-address	claude-code	2026-08-14T21:39:49Z	serve-binds-all-interfaces	file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/HttpRs file:v1/runtime/http-server/jvm/src/main/scala/scalascript/server/jvm/JdkServerBackend.scala file:v1/runtime/http-server/jvm-fast/src/main/scala/scalascript/server/jvm/fast/FastServerBackend.scala file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/NioNativeHttpServerHost.scala file:tests/e2e/http-bind-address-gate.sh file:.github/workflows/ci.yml file:INBOX.md file:BUGS.md
 agree-gate-ref-cache-key	claude-code	2026-08-16T18:50:06Z	agree-gate-ref-cache-key-is-invalidated-by-files-the-reference-never-reads	file:tests/e2e/f-output-agreement-gate.sh file:v2/SPRINT.md
+js-exec-options	claude-code	2026-08-17T00:03:12Z	js-exec-ignores-every-processoptions-field-but-stdin	file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsRuntimeFs.scala file:tests/e2e/js-std-process-gate.sh file:BUGS.md
