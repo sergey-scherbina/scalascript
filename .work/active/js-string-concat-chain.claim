@@ -1,0 +1,11 @@
+slug: js-string-concat-chain
+branch: feature/js-string-concat-chain
+agent: claude-code
+started: 2026-08-17T08:14:12Z
+heartbeat: 2026-08-17T08:14:12Z
+status: claimed-before-planning
+items: js-string-concat-chain-answers-a-tuple
+paths: file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala file:v2/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
