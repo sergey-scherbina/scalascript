@@ -1,0 +1,11 @@
+slug: typer-coroutine-intrinsics
+branch: feature/typer-coroutine-intrinsics
+agent: claude-code
+started: 2026-08-17T15:12:37Z
+heartbeat: 2026-08-17T15:12:37Z
+status: claimed-before-planning
+items: typer-does-not-know-the-coroutine-intrinsics
+paths: file:v1/lang/core/src/main/scala/scalascript/typer/Typer.scala file:tests/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
