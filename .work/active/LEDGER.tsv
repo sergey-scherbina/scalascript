@@ -1,8 +1,7 @@
-# generation: 2583
+# generation: 2584
 #slug	agent	started	items	paths
 ssc-http-bind-address	claude-code	2026-08-14T21:39:49Z	serve-binds-all-interfaces	file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/HttpRs file:v1/runtime/http-server/jvm/src/main/scala/scalascript/server/jvm/JdkServerBackend.scala file:v1/runtime/http-server/jvm-fast/src/main/scala/scalascript/server/jvm/fast/FastServerBackend.scala file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/NioNativeHttpServerHost.scala file:tests/e2e/http-bind-address-gate.sh file:.github/workflows/ci.yml file:INBOX.md file:BUGS.md
 js-string-concat-chain	claude-code	2026-08-17T08:14:12Z	js-string-concat-chain-answers-a-tuple	file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala file:v2/BUGS.md
 mcp-spec-11-review	claude-code	2026-08-17T08:14:56Z	mcp-spec-open-questions-review mcp-undeclared-capability-predicates	file:specs/mcp.md file:std/mcp/server.ssc file:tests/e2e/v21-standard-mcp-smoke.sh file:BACKLOG.md
 agree-gate-flaky-subjects	claude-code	2026-08-17T08:15:41Z	agree-gate-judges-nondeterministic-subjects	file:tests/e2e/f-output-agreement-gate.sh
-jit-spec-stale-claims	claude-code	2026-08-17T08:16:36Z	ssc3-jit-spec-says-superinstructions-were-never-built	file:specs/ssc3-jit.md file:v3/src/Main.scala
 js-preamble-bindings	claude-code	2026-08-17T08:17:26Z	js-preamble-binding-list-is-hand-maintained	file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala file:tests/e2e/js-preamble-collision-gate.sh file:.github/workflows/ci.yml file:BUGS.md
