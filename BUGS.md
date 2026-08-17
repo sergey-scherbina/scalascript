@@ -84,12 +84,12 @@ empty js output, which is what a bundle that never ran looks like.
 
 ## js-preamble-binding-list-is-hand-maintained — every new preamble function is a SyntaxError waiting for whoever imports it
 
-<!-- status: open
+<!-- status: fixed
      lane: js
      area: codegen
      kind: apparatus
-     gate: -
-     fixed-in: -
+     gate: tests/e2e/js-preamble-collision-gate.sh
+     fixed-in: 3440cab4c
      reported-by: claude-code
      reported-at: 2026-08-17
      ssc-version: c314e871e
@@ -120,6 +120,47 @@ failure than the one being fixed, because it compiles.
 that a `.ssc` module in this repository also defines at top level? If the answer is zero, deriving is
 safe and the list can go. If it is not zero, the fix is a CHECK — a gate that fails when a preamble
 function is not in the list — rather than a derivation.
+
+### Measured 2026-08-17 — 30 missing, and the answer is the CHECK
+
+```text
+preamble top-level functions      224
+std/**/*.ssc exported names      1452
+overlap                            47
+already listed                     17
+MISSING                            30
+```
+
+And the 30 are not theoretical. One `emit-js` per name, then `node --check`:
+
+```text
+emit-js parses: 0   does NOT parse: 30
+```
+
+**Thirty of thirty.** `args cwd env envOrElse exit homedir hostname jsonParse jsonRead lookup
+lookupOpt parseYaml pathBasename pathDirname pathExtname pathIsAbsolute pathJoin pathResolve platform
+sep setLocale tempDir tempFile toYaml yamlArr yamlBool yamlGet yamlNum yamlStr yamlType` — every one
+a `SyntaxError: Identifier 'x' has already been declared` for whoever imported it. The two instances
+this entry was filed on were not a pair of oversights; they were the two that happened to be noticed.
+
+**WHY NOBODY HIT THEM: `run-js` AND `emit-js` DISAGREE, PER PROGRAM.** `run-js` tree-shakes the
+preamble, so a colliding `function` is sometimes dropped and the program runs. Measured: a one-line
+program importing only `env` PASSES under `run-js` and fails to parse under `emit-js`; a four-import
+program fails under both. My own first probe of four names used `run-js` and read a clean all-clear —
+an artefact of the lane chosen and of how little that program imported. Neither command is the safe
+one to test with, which is why the gate runs both.
+
+**The 30 names are added, and the CHECK is the real fix.** `tests/e2e/js-preamble-collision-gate.sh`
+recomputes the intersection from the tree every run, so the next preamble function added beside an
+exported name fails there rather than for whoever imports it. The derivation this entry warned
+against is still not done, and the warning stands: `declaredBindings` makes an import RESOLVE to the
+preamble function, so seeding it from every `function name(` would bind a user module's own name to
+the runtime's — a failure that compiles.
+
+**One more thing the gate now carries, learned from its own first draft.** A row using
+`jsonParse(…).toString` made the ORACLE stop after three of four lines, and the comparison loop
+silently checked three rows while still printing PASS. The gate asserts its own row count now: a gate
+must fail when its coverage shrinks, not quietly cover less than its header claims.
 
 ## v3-extension-vocab-gate-reads-a-comment-as-vocabulary — a prose example turned main RED
 
