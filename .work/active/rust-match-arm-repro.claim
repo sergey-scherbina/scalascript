@@ -2,10 +2,28 @@ slug: rust-match-arm-repro
 branch: feature/rust-match-arm-repro
 agent: claude-code
 started: 2026-08-17T08:56:13Z
-heartbeat: 2026-08-17T08:56:13Z
-status: claimed-before-planning
-items: rust-multi-statement-match-arm-emitted-without-braces
+heartbeat: 2026-08-17T09:42:22Z
+status: in-progress
+items: rust-multi-statement-match-arm-emitted-without-braces rust-any-returning-call-scrutinee-keeps-the-typed-match-path backendRust-test-stood-at-276-of-278-while-two-entries-here-quoted-it-as-278 rust-toint-parity-gate-compiled-v2-output-with-a-bare-rustc
 paths: file:BUGS.md file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:tests/e2e/rust-match-arm-braces-gate.sh file:tests/e2e/rust-toint-parity-gate.sh file:.github/workflows/ci.yml dir:v1/runtime/backend/rust/src/test
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  Reduce `rust-multi-statement-match-arm-emitted-without-braces` to a repro, as its own entry
+  demands, then take the fix the repro makes falsifiable.
+
+  The reduction lands at 14 lines and refutes the entry's framing: no refusal bypass, no
+  `std/json-core.ssc`, no case class. The trigger is a def DECLARED `Any`, whose body-as-match
+  renders arms through `renderValueTail` — a statement sequence, spliced straight after `=>`.
+
+  Three defects, each with a control:
+    1. the missing braces (`renderMatch` arm assembly) — the reported one;
+    2. `subjectIsAny` asked only of a bare `Term.Name`, so a CALL to an `Any`-declared def kept the
+       typed path and emitted a struct pattern against a `Value` (E0308). Invisible until 1 was
+       fixed, because a parse error stops rustc before type-checking. Filed separately;
+    3. a lone match guard wrapped twice — `if ((x > 0i64))` — which had `RustGenControlFlowTest`
+       standing red.
+
+  New gate `tests/e2e/rust-match-arm-braces-gate.sh` (4 rows x 3 lanes), wired into ci.yml, with an
+  ANTI-ROW that passes with the fix reverted. Two pre-existing reds also cleared, both proved
+  pre-existing by control: `backendRust/test` 276/278 -> 278/278, and `rust-toint-parity-gate`'s two
+  v2 rows, red on `E0433 num_bigint` — a caller left behind by the cargo migration, third instance.
+next: final 17-gate sweep, then commit and push
