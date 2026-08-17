@@ -6,34 +6,36 @@ belong in the repository-root `BUGS.md` instead, not here.
 
 Query: `scripts/bugs-report --module v3`.
 
-## v3-a-plugin-global-that-is-a-plain-value-cannot-answer-a-zero-arg-extern — `cwd` is a datum, not a function
+## v3-a-plugin-global-that-is-a-plain-value-cannot-answer-a-zero-arg-extern — it can now
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      kind: bug
      area: runtime
+     fixed-in: c8138d90c
      gate: v3/corpus-report.sh --exec (std-os-doc-import)
      found-by: claude-code
      found-at: 2026-08-17 -->
 
-**`std/os.ssc:59` declares `extern def cwd: String` and host-plugin provides it as a VALUE:**
+**FIXED IN c8138d90c.**
 
-    context.registerValue("cwd", Value.StrV(System.getProperty("user.dir", ".")))
+    exec    257 DIFF 1 CRASH 5   ->   258 DIFF 1 CRASH 4
+    bridge  255 DIFF 2 CRASH 1   ->   256 DIFF 2 CRASH 1
 
-So the program CALLS a name the provider stored as a datum. `V2Fleet.installGlobals` bridges only
-`ClosV` entries — deliberately, since assuming every global is callable would turn a wrong shape
-into a class-cast crash — and skips this one, leaving `std-os-doc-import` a CRASH on the executor
-lane with `the host function 'cwd' is not implemented on this lane`.
+Against a control taken on origin/main immediately before the change; every gate green.
 
-**A ZERO-ARGUMENT EXTERN AND A CONSTANT ARE THE SAME THING FROM THE CALLER'S SIDE**, which is what
-makes this a gap rather than a design question: `cwd` takes nothing and answers a string, and whether
-the provider computed it once at install or computes it per call is not observable through that
-declaration. Bridging a non-`ClosV` global as a nullary function — and REFUSING it when arguments
-are passed — is the whole of it.
+**A ZERO-ARGUMENT EXTERN AND A CONSTANT ARE THE SAME THING FROM THE CALLER'S SIDE.** `extern def
+cwd: String` does not say whether the provider computed the value once at install or would compute
+it per call, and no program can tell — so a datum in `globalValues` answers a nullary call. Arguments
+are still refused BY NAME: the reason the `ClosV` test existed stands, since passing a datum
+arguments is a program error that must say so rather than become a class cast inside the bridge.
 
-**`v2NativeHostPlugin` IS ALSO NOT IN `v3/plugin-classpath.sh`.** Both are needed: the module supplies
-the value and the bridge has to admit it.
+**BOTH LANES, because lowering is shared** and emits one `Prim` for both — the same arm goes into
+v2's handler table through `V2Cli`.
 
+**`v2NativeHostPlugin` IS WIRED HERE FOR THE FIRST TIME**, the eighth module of the twenty-six the
+fleet could carry. The rule from `v3-the-fleet-wires-two-plugin-modules-of-twenty-six` is unchanged:
+a provider joins the list when v3 can both call it and carry what it returns.
 ## v3-uniml-reads-a-line-ending-name-and-the-next-line-string-as-an-interpolator — fixed; front-diff is green
 
 <!-- status: fixed
