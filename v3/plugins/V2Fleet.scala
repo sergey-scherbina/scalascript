@@ -68,7 +68,23 @@ object V2Fleet:
         ssc.V2PluginRegistry.lookupGlobal(name) match
           case Some(c: ssc.Value.ClosV) =>
             Plugins.register(name, (m, args) => call(m, as => applyClos(c, as), args))
-          case _ => ()
+          // A PLAIN DATUM ANSWERS A ZERO-ARGUMENT CALL, and that is not a relaxation of the rule
+          // above but the same rule read from the caller's side. `std/os.ssc` declares
+          // `extern def cwd: String`; host-plugin provides it with
+          // `registerValue("cwd", StrV(user.dir))`. Whether the provider computed the value once at
+          // install or would compute it per call is not observable through that declaration, so a
+          // nullary extern and a constant are the same thing to the program — and `std-os-doc-import`
+          // was a CRASH for want of this.
+          //
+          // ARGUMENTS ARE STILL REFUSED. The reason the `ClosV` test was there in the first place
+          // stands: a datum is not a function, and passing one arguments is a program error that
+          // must say so rather than become a class cast inside the bridge.
+          case Some(v) =>
+            Plugins.register(name, (m, args) =>
+              if args.isEmpty then toV3(m, v)
+              else throw ssc3.ExecError(
+                "the host value '" + name + "' is not a function — it takes no arguments"))
+          case None => ()
     }
 
   /** A GLOBAL WHOSE ONLY BEHAVIOUR IS TO REDIRECT THE CALLER IS NOT AN IMPLEMENTATION.
@@ -103,7 +119,14 @@ object V2Fleet:
         ssc.V2PluginRegistry.lookupGlobal(name) match
           case Some(c: ssc.Value.ClosV) =>
             ssc.V2PluginRegistry.register(name, args => applyClos(c, args))
-          case _ => ()
+          // The same on the bridge, so the two lanes answer a nullary extern alike — lowering is
+          // shared and emits one `Prim` for both.
+          case Some(v) =>
+            ssc.V2PluginRegistry.register(name, args =>
+              if args.isEmpty then v
+              else throw new IllegalArgumentException(
+                "the host value '" + name + "' is not a function"))
+          case None => ()
     }
 
   /** Apply a v2 closure whose environment is empty. The body answers a trampoline step; a plugin

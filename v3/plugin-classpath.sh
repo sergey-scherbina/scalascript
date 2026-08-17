@@ -46,6 +46,9 @@ MODULES=(
   # COROUTINES AND GENERATORS, which reach v3 through the registry's `globalValues` table rather
   # than through Prim handlers: `suspend`, `coroutineCreate`, `coroutineResume` are all
   # `registerGlobal`, and six corpus cases wait on the first of them.
+  # HOST supplies `cwd` and the rest of the ambient environment, as VALUES rather than functions —
+  # see the nullary-call arm in V2Fleet.
+  v2NativeHostPlugin
   v2NativeGeneratorPlugin
   v2NativeDatasetPlugin
 )
