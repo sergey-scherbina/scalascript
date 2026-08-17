@@ -1021,17 +1021,18 @@ measurement rather than a silence.
 
 ## json-parse-has-no-fallible-spelling — a caller cannot ask "was this text JSON at all?": the strict parse aborts and the tolerant one answers `isNull` for invalid input AND for the literal `null`
 
-<!-- status: open
+<!-- status: fixed
      lane: multi
      area: runtime
      kind: feature
-     gate: -
-     fixed-in: -
+     gate: tests/e2e/json-parse-either-gate.sh
+     fixed-in: a291c4014
      reported-by: rozum (sergey-scherbina/rozum, agent claude-code)
      reported-at: 2026-08-16
      ssc-version: bin/ssc-tools built from 539079f43
      repro: none
-     impact: workaround -->
+     impact: workaround
+     confirmed: no -->
 
 Split out of `rust-serve-dies-permanently-after-one-handler-panic` (BUGS.md), whose second ask this
 is. That entry is closed on its first ask — a handler panic no longer takes the server down — and
@@ -1074,6 +1075,46 @@ fixed, this feature would land on a lane that cannot call it.
 open on applies here — total variants add surface to `std`, and the sibling entry records a reporter
 arguing AGAINST making a library total by default for exactly this reason: a caller must be able to
 tell "empty" from "not there". These two should be decided together rather than one at a time.
+
+### Decided and done 2026-08-17 — `jsonParseEither`
+
+Sergiy chose `Either[String, Any]` over an `Option` or an `isInvalid` accessor, and the reason it is
+the right pick shows in the gate: `Left` carries the parser's own message, so a handler can answer
+400 with something the caller can act on rather than a bare "bad request".
+
+```text
+""            Left    not JSON
+"not json"    Left    not JSON
+"{"a":"     Left    not JSON (truncated)
+"null"        Right   VALID JSON whose value is null
+"{"a":1}"   Right   valid
+```
+
+That fourth row is the entire feature. Every other row would pass on an implementation that simply
+called the tolerant parser and reported `isNull` as failure — and that implementation tells a caller
+their valid `null` is malformed.
+
+**ONE DEF, NOT FIVE IMPLEMENTATIONS.** `jsonParseEither` is ordinary ScalaScript over
+`__jsonParseError`, which is itself a def written on json-core. So int, `--v1`, jvm and js get it
+from one body. Only the rust lane needs anything: `__jsonParseError` is replaced there by an
+INTRINSIC over serde, the same arrangement `jsonParse` already relies on — which is why this feature
+works on rust even though `std/json-core.ssc` cannot be lowered there at all
+(`rust-lane-refuses-the-tolerant-json-parse-while-the-panicking-one-builds`, still open). The
+dependency this entry was assumed to have on that one does not exist.
+
+**THE MESSAGE TEXT DIFFERS ON RUST, and the gate does not pretend otherwise.** json-core says
+`invalid JSON at 5: expected JSON value`; serde says `invalid JSON: EOF while parsing a value at line
+1 column 5`. Both name where it broke. Asserting one exact string would fail on a lane doing the
+right thing, so the classification rows are compared exactly and the message row asserts only that
+it is present and substantial.
+
+**Verified:** `tests/e2e/json-parse-either-gate.sh` PASS — 30 rows, six per lane, across `run`,
+`--v1`, `run-jvm`, `run-js` and `build-rust`. Negative control with std/json.ssc and the rust
+intrinsic reverted: every lane red, `build-rust` refusing `jsonParseEither` by name. Corpus unmoved:
+`rust-std-survey-gate` 77 REFUSED / 55 COMPILES with BADRUST not grown; `v1-jit-size` PASS;
+`rust-json-core-gate` still PASS.
+
+`confirmed: no` — rozum has not checked this against their own build.
 
 ## std-fs-failure-contract — std.fs's failure behaviour is undocumented and differs per backend: specs/std-fs-os.md maps listDir to Files.list / fs.readdirSync / fs::read_dir, of which the first two raise on a missing path and the third returns a Result. Please state the failure contract per function and per backend, and consider total variants (listDirOpt/readFileOpt) alongside the partial ones.
 
