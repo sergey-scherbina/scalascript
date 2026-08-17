@@ -7,6 +7,43 @@ grepping for status.
 
 Newest first.
 
+## v2-persisted-signal-declares-its-stored-value-as-its-default — re-declaring one after a write is refused
+
+<!-- status: open
+     lane: v2
+     kind: bug
+     area: runtime
+     gate: v3/corpus-report.sh --exec (tkv2-offline)
+     found-by: claude-code
+     found-at: 2026-08-17 -->
+
+**`UiNativePlugin` passes the value it read from STORAGE as the signal's DECLARED DEFAULT:**
+
+    native(context, "persistedSignal") { case StrV(name) :: StrV(default) :: Nil =>
+      val initial = Value.StrV(storage.getOrElse(name, default))
+      makeSignal(name, "persisted", initial, …)      // `initial` lands in `declaredDefault`
+
+`makeSignal` then compares that against any existing cell and refuses a mismatch, so declaring the
+same signal twice around a write is rejected:
+
+    val p1 = persistedSignal("draft", "empty")   // declares default "empty"
+    p1.set("hello")                              // storage("draft") = "hello"
+    val p2 = persistedSignal("draft", "empty")   // declares "hello" — conflict, RuntimeException
+
+`tests/conformance/tkv2-offline.ssc` does exactly this and expects `p2()` to read `hello`; it dies
+six lines into eight. Both of v3's lanes fail identically, which is what says the defect is in the
+provider and not in either lane's bridge.
+
+**THE TWO VALUES ARE DIFFERENT THINGS.** The DECLARED default is what the program wrote and is what
+makes a re-declaration compatible or not; the INITIAL value is storage-or-default and is what the
+cell starts at. Conflating them makes a signal's declared default change whenever anybody writes to
+it — so the second declaration of an unchanged program becomes an error, and the error is about a
+line the author did not write.
+
+**A LANE NOTE:** the case declares `backends: [int, js]`, so the v2 lane is not held to it and the
+bridge reports it LANE-EXCLUDED. It reaches v3's EXECUTOR because `v3/plugin-classpath.sh` wires
+`v2NativeUiPlugin` — the provider is v2 code either way, which is why the entry is here.
+
 ## mixed-concat-operands-mean-three-things-on-three-lanes — `"x" ++ 1` is a tuple, a string, or a tuple
 
 <!-- status: open
