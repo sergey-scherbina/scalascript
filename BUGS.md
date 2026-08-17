@@ -3271,7 +3271,7 @@ wrong is worse than no stream.
      found-by: claude-code
      found-at: 2026-08-16
      fixed-at: 2026-08-17
-     fixed-in: f6a51988c
+     fixed-in: d7212b37e
      repro: read the two call sites named below
      confirmed: yes -->
 
