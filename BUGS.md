@@ -1049,6 +1049,12 @@ val base = Nil; ("x" :: base).reverse  chain rooted in a local Nil
    **43 rustc errors** — 22 × E0308, 5 × E0599, 4 × E0271, 2 × E0277, 2 × E0004. The gate's own rule
    applies and is right: "a refusal is a message the user can act on; bad generated code is not."
 
+   **Re-measured 2026-08-17: 43 -> 32**, and the conclusion is unchanged. `679c66b17` (a sibling's
+   `rust-multi-statement-match-arm-emitted-without-braces` fix, which also reads an Any-declared call
+   as an Any subject) removed both syntax errors and nine type errors. json-core is still BADRUST, so
+   the trade this entry refuses is still a bad one — but the number here is dated evidence and moves
+   when other work lands. Re-measure before quoting it.
+
 **Two of those 43 were not type errors — they were INVALID RUST SYNTAX**, and pulling that thread
 is what re-measured this whole number. Filed as
 `rust-multi-statement-match-arm-emitted-without-braces`, reduced to fourteen lines, and fixed in
