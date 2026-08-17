@@ -518,9 +518,12 @@ object UniFront:
     // `s"…"` — the dialect keeps the raw text with the holes still inside it, so this is a RE-LEX.
     // `Parser.interp` is reused rather than reimplemented: two implementations of `${…}` nesting is
     // two implementations that will disagree about a brace inside a string.
-    case U.Interp(prefix, raw, s) =>
-      if prefix != "s" then no("the `" + prefix + "\"…\"` interpolator", s)
-      Parser.interpFor(raw, pos(s))
+    // `s` IS THE BUILT-IN ONE; any other prefix becomes a CALL to a function of that name, so
+    // `html"…"` is a library definition rather than a kernel feature. Both fronts go through
+    // `Parser`, for the reason the line below already gave: two implementations of `${…}` nesting
+    // would drift.
+    case U.Interp("s", raw, s) => Parser.interpFor(raw, pos(s))
+    case U.Interp(prefix, raw, s) => Parser.interpCallFor(prefix, raw, pos(s))
 
     case U.Infix(op, l, r, s) => Expr.Bin(op, expr(l), expr(r), pos(s))
     // `-1` is a LITERAL in v3, not a negation of one — its lexer folds the sign in. UniML keeps the

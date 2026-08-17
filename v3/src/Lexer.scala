@@ -21,7 +21,11 @@ enum Tok:
   case TChar(code: Int, pos: Pos)
   /** `s"…"` — the RAW content, unescaped-but-unsplit. Splitting it needs the expression parser,
     * which the lexer does not have, so it hands the whole thing over. */
-  case TInterp(raw: String, pos: Pos)
+  /** An interpolated string AND ITS PREFIX. The prefix used to be discarded and every one but `s`
+    * refused here, which is what made an interpolator a kernel feature: a program could not define
+    * one. It is carried now so the parser can turn `pfx"…"` into an ordinary CALL — see
+    * `Parser.interpCallFor`. */
+  case TInterp(prefix: String, raw: String, pos: Pos)
   case TId(s: String, pos: Pos)
   case TOp(s: String, pos: Pos)
   case TPunct(s: String, pos: Pos)
@@ -286,8 +290,9 @@ object Lexer:
             t = adv(e)
           else
             raw = raw + at(t); t = adv(t)
-        if text != "s" then throw LexError(p, "the `" + text + "` interpolator is outside SSC3 core Tier 0; `s` is supported")
-        (Tok.TInterp(raw, p), t)
+        // NO REFUSAL BY PREFIX. `s` stays the built-in one; any other prefix becomes a call to a
+        // function of that name, so `html"…"` is defined in a library rather than in the kernel.
+        (Tok.TInterp(text, raw, p), t)
       else (Tok.TId(text, p), s)
     // `'x'` — a CHARACTER literal. Told apart from nothing: `'` has no other use in the language,
     // so there is no ambiguity to resolve (Scala's `'sym` and type-parameter ticks are not Tier 0).
@@ -380,7 +385,7 @@ object Lexer:
     case Tok.TFloat(t, _) => t
     case Tok.TStr(v, _)   => "\"" + v + "\""
     case Tok.TChar(c, _)  => "'" + c.toChar + "'"
-    case Tok.TInterp(v, _) => "s\"" + v + "\""
+    case Tok.TInterp(pfx, v, _) => pfx + "\"" + v + "\""
     case Tok.TId(s, _)    => s
     case Tok.TOp(s, _)    => s
     case Tok.TPunct(s, _) => s
@@ -394,7 +399,7 @@ object Lexer:
     case Tok.TFloat(_, p) => p
     case Tok.TStr(_, p)   => p
     case Tok.TChar(_, p)  => p
-    case Tok.TInterp(_, p) => p
+    case Tok.TInterp(_, _, p) => p
     case Tok.TId(_, p)    => p
     case Tok.TOp(_, p)    => p
     case Tok.TPunct(_, p) => p

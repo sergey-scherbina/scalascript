@@ -330,7 +330,7 @@ object Parser:
 
   private def startsOperand(ts: List[Tok]): Boolean = ts match
     case Tok.TInt(_, _) :: _ | Tok.TFloat(_, _) :: _ | Tok.TStr(_, _) :: _ => true
-    case Tok.TChar(_, _) :: _ | Tok.TInterp(_, _) :: _                     => true
+    case Tok.TChar(_, _) :: _ | Tok.TInterp(_, _, _) :: _                  => true
     case Tok.TId(n, _) :: _   => !keywords.contains(n) || n == "true" || n == "false"
     case Tok.TPunct("(", _) :: _                                           => true
     // Prefix minus and not. `a to -1` is an operand; `a to )` is not.
@@ -814,7 +814,11 @@ object Parser:
     case Tok.TFloat(text, p) => (Expr.DoubleLit(text.toDouble, p), ts.tail)
     case Tok.TStr(v, p) => (Expr.StrLit(v, p), ts.tail)
     case Tok.TChar(c, p) => (Expr.CharLit(c, p), ts.tail)
-    case Tok.TInterp(raw, p) => (interp(raw, p), ts.tail)
+    // `s` IS THE BUILT-IN ONE and stays a node; every other prefix is a CALL, so a program can
+    // define `def html(parts: List[String], args: List[Any])` and use `html"…"` with nothing added
+    // to the kernel.
+    case Tok.TInterp("s", raw, p) => (interp(raw, p), ts.tail)
+    case Tok.TInterp(pfx, raw, p) => (interpCallFor(pfx, raw, p), ts.tail)
     case Tok.TId("true", p)  => (Expr.BoolLit(true, p), ts.tail)
     case Tok.TId("false", p) => (Expr.BoolLit(false, p), ts.tail)
     case Tok.TId("if", p)    => parseIf(ts.tail, p)
@@ -891,7 +895,27 @@ object Parser:
     * `${…}` nesting is two implementations that will disagree about a brace inside a string. */
   def interpFor(raw: String, p: Pos): Expr = interp(raw, p)
 
+  /** `pfx"a${x}b"` AS AN ORDINARY CALL — `pfx(List("a", "b"), List(x))`.
+    *
+    * Scala's model is `StringContext(parts).pfx(args)`; this is the same idea in the shape Tier 0
+    * already has, so an interpolator is a FUNCTION rather than a kernel feature. Both fronts share
+    * this, for the reason `interpFor` exists: two implementations of `${…}` nesting would drift.
+    *
+    * The parts list is always one longer than the args list, as in Scala, so a definition can rely
+    * on the shape without checking it. */
+  def interpCallFor(pfx: String, raw: String, p: Pos): Expr =
+    val (parts, exprs) = interpParts(raw, p)
+    Expr.Call(pfx, List(
+      Expr.Call("List", parts.map(s => Expr.StrLit(s, p)), p),
+      Expr.Call("List", exprs, p)), p)
+
   private def interp(raw: String, p: Pos): Expr =
+    val (parts, exprs) = interpParts(raw, p)
+    if exprs.isEmpty then Expr.StrLit(parts.head, p)
+    else Expr.Interp(parts, exprs, p)
+
+  /** The parts and the holes, split — the one place `${…}` nesting is implemented. */
+  private def interpParts(raw: String, p: Pos): (List[String], List[Expr]) =
     var parts: List[String] = Nil
     var exprs: List[Expr] = Nil
     var cur = ""
@@ -935,8 +959,7 @@ object Parser:
         cur = cur + c
         i = i + 1
     parts = cur :: parts
-    if exprs.isEmpty then Expr.StrLit(parts.head, p)
-    else Expr.Interp(parts.reverse, exprs.reverse, p)
+    (parts.reverse, exprs.reverse)
 
   private def parseHole(src: String, p: Pos): Expr =
     val toks = Lexer.lex(src)
