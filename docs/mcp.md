@@ -242,11 +242,14 @@ broken member:
 timeoutMs]])`, and the predicates `clientSupportsRoots()`, `clientSupportsElicitation()`,
 `clientSupportsTasks()`.
 
-> **These block. Use them over HTTP with SSE, not over stdio.** A server-to-client request waits for
-> a reply, and over stdio that reply can only arrive through the single-threaded serve loop the call
-> is currently blocking, so it times out instead of answering — tracked as
-> `mcp-elicit-deadlocks-the-serve-loop`. Over HTTP each request runs on its own thread and the client
-> answers on a second connection, which is exactly the duplex these need; see *Streaming with SSE*.
+> **These block the handler that calls them, and they work on both transports.** Over stdio the
+> client answers on a later line; over HTTP it answers on a second connection, with the stream held
+> open by `Accept: text/event-stream` (see *Streaming with SSE*). Either way the caller resumes with
+> the answer, or gives up at its `timeoutMs`.
+>
+> One thing to know over stdio: handlers run one at a time, so while yours waits for an answer the
+> server still HEARS the client — that is how the answer gets in — but it will not reply to an
+> unrelated request until your handler returns.
 
 **Lifecycle and paging**
 
@@ -260,8 +263,9 @@ timeoutMs]])`, and the predicates `clientSupportsRoots()`, `clientSupportsElicit
 this one resolves its argument through the v1 oauth plugin's registry and `v2/runtime/providers/`
 has no oauth plugin, so it is interpreter-only.
 
-**Server-to-client over stdio.** Works over HTTP with SSE (see *Streaming with SSE*). Over stdio the
-blocking asks still deadlock, because the reply can only come through the loop the call is holding.
+**Concurrent handlers over stdio.** Requests are handled one at a time, in arrival order. The loop
+keeps reading while a handler runs — so a client answer to `elicit` gets in — but an unrelated
+request waits its turn. Over HTTP each request already runs on its own thread.
 
 **Streaming resources.** One response is one full payload. Generator-backed streaming is a backlog
 item now that `std/generators.ssc` has landed.

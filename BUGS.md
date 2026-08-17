@@ -3431,13 +3431,14 @@ it resolves through `OAuthBridge.authServers`, and `v2/runtime/providers/` has n
 
 ## mcp-elicit-deadlocks-the-serve-loop — the answer can only arrive through the loop `elicit` blocks
 
-<!-- status: open
+<!-- status: fixed
      lane: multi
      area: runtime
      kind: bug
-     gate: none
+     gate: tests/e2e/v21-standard-mcp-smoke.sh
      found-by: claude-code
      found-at: 2026-08-16
+     fixed-at: 2026-08-17
      ssc-version: c5615f9ca
      repro: the driver in the body
      confirmed: yes -->
@@ -3471,6 +3472,49 @@ Found while implementing `elicit` on v2, which is why the backlog asked for the 
 there. That measurement came out positive on its own terms — a Throwable raised inside a v2 handler
 DOES propagate through `context.invoke` to the shared core — so the park path is reachable from v2;
 `elicit` simply does not take it on either lane.
+
+FIXED, and the sentence above is where this entry was WRONG about its own cause. `elicit` does not
+"wait synchronously instead of raising the signal": read it and it takes the MRTR path whenever
+`mrtrTL` is set, parking on a virtual thread exactly as designed. What gates that path is
+`withRequestTracking`, one line — `if !ctx.isModern then onThisThread(null)`. A request from a
+2025-06-18 client is not modern, the scope is never installed, and the legacy blocking branch is the
+only one it can reach. So the machinery was not "not being used" out of oversight; it was reachable
+only from the modern era, and routing a legacy request through it would answer `input_required` to a
+client that cannot read it. The park path was the wrong fix.
+
+WHAT ACTUALLY LANDED is in the loop, where the entry's own title said the problem was. Reading and
+handling are now separate in `McpServerCore.serve`: the calling thread reads and routes, and
+requests are dispatched to ONE handler thread. The reader is therefore free to route an inbound
+Response while a handler is parked. One file in `mcp/common`, so both lanes are fixed by it — which
+the measurement below confirms rather than assumes.
+
+    before, --v1 and --v2 byte for byte:
+      → elicitation/create goes out
+      → the client's answer, sent one second later, is IGNORED
+      → {"text":"srv.elicit: srv.request 'elicitation/create' timed out after 6000ms"}
+      → and an unrelated tools/list sent in that same second is answered only AFTER the timeout
+    after, --v1 and --v2 byte for byte:
+      → {"text":"action=accept"}
+
+ONE HANDLER THREAD, NOT A POOL, and the difference is visible: with nobody answering, an unrelated
+`tools/list` sent while the handler is parked is still not answered until that handler finishes —
+measured at t=6s against a 5s elicit timeout. So the server is no longer DEAF (it hears and routes
+the answer) but it is still SERIAL. That is deliberate: a pool would let unrelated requests answer
+during a parked one, but replies could then leave out of order — legal in JSON-RPC, and a needless
+break for every gate that compares a transcript. It is recorded here as a property rather than
+asserted in the gate, so improving it later does not have to fight a test.
+
+Two smaller things the change owes its shape to. Frames now originate on two threads, so `write` is
+taken under a lock — two half-written lines spliced together are not two frames, and the gate parses
+every output line to check it. And EOF now has to DRAIN: work queued before the client left is still
+owed a reply. The drain is bounded at 90s rather than unbounded, because a handler parked on a
+server-initiated ask after the client is gone is waiting for something that can never arrive, and
+every such ask carries its own timeout (60s by default) — waiting forever would be a hang where the
+old code merely lost the reply.
+
+Over HTTP this same family works through a different mechanism entirely (`mcp-v2-http-transport-has-no-sse`):
+each POST already runs on its own thread, so what was missing there was the outbound channel, not
+the free reader.
 
 ## interp-summon-over-an-anonymous-given — the reference lane answers `unbound global` where Scala 3 resolves
 

@@ -156,15 +156,18 @@ grep -q 'surface-ok' "$tmp/mrtr.v2" || {
 
 # ── elicit: the REQUEST must go out, on both lanes, identically ──────────────
 #
-# `srv.elicit` cannot SUCCEED over stdio on either lane — it blocks the handler waiting for an answer
-# that only the single-threaded serve loop it is blocking could deliver
-# (mcp-elicit-deadlocks-the-serve-loop). So this asserts what is actually true: the member RESOLVES
-# on both lanes and puts `elicitation/create` on the wire with the message and schema it was given.
+# This asserts the OUTBOUND half only: the member resolves on both lanes and puts
+# `elicitation/create` on the wire with the message and schema it was given. Nobody answers it here,
+# so it times out — that is the point, and `timeoutMs` is 1 so the row costs a second.
 #
-# ASSERTING THE REQUEST RATHER THAN THE ANSWER IS THE POINT. A case demanding the answer would have
-# to be deleted or weakened the moment it ran, and a case asserting only that the member exists would
-# pass on a member that resolves and sends nothing. `timeoutMs` is 1 so the row costs a second rather
-# than the builder's 60.
+# It was written when elicit could not succeed over stdio at all: the loop handled a request inline,
+# so the answer could only arrive through the thread the handler was blocking
+# (mcp-elicit-deadlocks-the-serve-loop). That is fixed — reading and handling are separate now, and
+# the row near the end of this file drives the full round trip with a client that answers.
+#
+# THIS ROW STAYS ANYWAY, and not out of sentiment: it is the cheap half. The round-trip row proves
+# the answer gets IN, and can pass while the request carries the wrong message or schema, because it
+# only reads the tool's final text. This one reads the request frame itself. Two rows, two halves.
 cat > "$tmp/elicit.ssc" <<'SSC'
 [mcpServer, serveMcp, Transport, Tool](std/mcp/server.ssc)
 
@@ -752,4 +755,81 @@ grep -qF 'no active client subscribers' <<<"$sse_ctl" \
 kill $sse_pid 2>/dev/null || true
 wait $sse_pid 2>/dev/null || true
 
-echo 'PASS v21-standard-mcp-smoke (2 rows VM/ASM + server vs int + 2026 surface both lanes + elicit on the wire + prompts/resource bodies + toolWithSchema/resourceTemplate + 8 notification members + subscriptions/paging/completions + roots both ways + raw request + the documented example + Transport.Http with auth + SSE with an answer on a second connection)'
+# ── stdio: the serve loop keeps READING while a handler waits ────────────────
+#
+# `srv.elicit` used to be unanswerable over stdio — not slow, unanswerable. The loop read a line,
+# handled it inline, and only then read the next, so while a handler waited for the client's answer
+# the thread that would deliver that answer was inside the handler
+# (mcp-elicit-deadlocks-the-serve-loop). Reading and handling are separate now, and this row asserts
+# the consequence rather than the mechanism: the client answers on a LATER line and the tool
+# receives the value.
+#
+# BOTH LANES, because the loop is one file — `McpServerCore.serve` in mcp/common — and both the
+# interpreter's transport and the native provider call it. A fix that only showed on one lane would
+# mean the lane, not the loop, was doing the work.
+#
+# THE CONTROL IS THE SAME PROGRAM AND THE SAME DRIVER with the answer line deleted, so the only
+# difference is whether the client replies. It must time out and say so. Without it "action=accept"
+# proves nothing: a server that fabricated an acceptance, or a driver that matched its own echo,
+# would pass the positive just as well.
+elicit_prog=$tmp/stdio-elicit.ssc
+cat > "$elicit_prog" <<'SSC'
+[mcpServer, serveMcp, Transport, Tool](std/mcp/server.ssc)
+
+def main(): Unit =
+  mcpServer(srv =>
+    srv.tool("ask", "asks the client")(args =>
+      val r = srv.elicit("your name?", Map("type" -> "object"), 6000)
+      Tool.text("action=" + r.action)))
+  serveMcp(Transport.Stdio)
+SSC
+# The pauses are what make this a test of the LOOP: the answer is written a second after the call,
+# by which time the handler is already parked inside elicit. Sending both at once would pass on a
+# server that read its whole input before dispatching anything.
+elicit_driver() {
+  printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"probe","version":"1"}}}'
+  sleep 1
+  printf '%s\n' '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"ask","arguments":{}}}'
+  sleep 1
+  if [[ ${1:-} == answer ]]; then
+    printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"action":"accept","content":{"name":"ann"}}}'
+    sleep 3
+  else
+    sleep 8
+  fi
+}
+for lane in --v1 --v2; do
+  if [[ $lane == --v1 ]]; then el_launcher=$ROOT/bin/ssc-tools; else el_launcher=$LAUNCHER; fi
+
+  elicit_driver answer | "$el_launcher" run $lane "$elicit_prog" >"$tmp/roundtrip$lane.out" 2>"$tmp/roundtrip$lane.err" || {
+    echo "v21-standard-mcp-smoke: the stdio elicit case FAILED to run on $lane" >&2
+    cat "$tmp/roundtrip$lane.err" >&2; exit 1
+  }
+  grep -qF '"text":"action=accept"' "$tmp/roundtrip$lane.out" || {
+    echo "v21-standard-mcp-smoke: on $lane a client answer sent while the handler was parked did" >&2
+    echo "  not reach it — the serve loop stopped reading. Got:" >&2
+    cut -c1-160 "$tmp/roundtrip$lane.out" >&2; exit 1
+  }
+
+  # THE CONTROL.
+  elicit_driver silent | "$el_launcher" run $lane "$elicit_prog" >"$tmp/elicitctl$lane.out" 2>/dev/null || true
+  grep -qF 'timed out' "$tmp/elicitctl$lane.out" || {
+    echo "v21-standard-mcp-smoke: on $lane an UNANSWERED elicit should time out and say so; the" >&2
+    echo "  positive case above therefore proves nothing. Got:" >&2
+    cut -c1-160 "$tmp/elicitctl$lane.out" >&2; exit 1
+  }
+
+  # Frames are written from the reader thread and the handler thread now, so a missing lock would
+  # show up as two half-lines spliced together. Every line must still parse on its own.
+  node -e '
+    const fs = require("fs");
+    const lines = fs.readFileSync(process.argv[1], "utf8").split("\n").filter(s => s.length);
+    for (const l of lines) { try { JSON.parse(l); } catch (e) {
+      console.error("not a JSON-RPC frame: " + l.slice(0, 120)); process.exit(1); } }
+  ' "$tmp/roundtrip$lane.out" || {
+    echo "v21-standard-mcp-smoke: on $lane the stdio output is not one JSON frame per line —" >&2
+    echo "  concurrent writers spliced a line" >&2; exit 1
+  }
+done
+
+echo 'PASS v21-standard-mcp-smoke (2 rows VM/ASM + server vs int + 2026 surface both lanes + elicit on the wire + prompts/resource bodies + toolWithSchema/resourceTemplate + 8 notification members + subscriptions/paging/completions + roots both ways + raw request + the documented example + Transport.Http with auth + SSE with an answer on a second connection + stdio elicit answered on a later line)'

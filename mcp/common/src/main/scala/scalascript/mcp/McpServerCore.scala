@@ -905,11 +905,39 @@ object McpServerCore:
     serverName:    String,
     serverVersion: String
   ): Unit =
+    // READING AND HANDLING ARE SEPARATE, and that is the whole point of this loop's shape.
+    //
+    // Handling a request inline made the server DEAF for as long as the handler ran, because the
+    // thread that would read the next line was inside the handler. For `srv.elicit` / `listRoots` /
+    // `request` that is not slowness, it is a deadlock: the answer they wait for can only arrive on
+    // the stream nobody is reading (mcp-elicit-deadlocks-the-serve-loop). Measured before the fix,
+    // both lanes byte for byte — the elicitation went out, the client's answer sent one second later
+    // was ignored, `elicit` timed out at its full timeout, and an unrelated `tools/list` sent in the
+    // same second was answered only after that.
+    //
+    // The `subscriptions/listen` case below already carried this reasoning for itself ("we MUST NOT
+    // block: the loop has to keep reading"). This generalises it instead of repeating it per method.
+    //
+    // ONE handler thread, not a pool. Requests are handled in arrival order and their replies leave
+    // in that order, so nothing about an existing transcript changes; what changes is that the
+    // reader is free to route an inbound Response while a handler is parked. A pool would also let
+    // an unrelated request answer DURING a parked one, but replies could then leave out of order —
+    // legal in JSON-RPC and a needless break for every gate that compares a transcript.
+    val handlers = java.util.concurrent.Executors.newSingleThreadExecutor { r =>
+      val t = Thread(r, "mcp-serve-handler")
+      t.setDaemon(true)
+      t
+    }
+    // Frames now originate on two threads (the reader writes subscription acks, the handler writes
+    // replies, and `notify` can come from a third). A JSON-RPC frame is a line; two half-written
+    // lines interleaved are not two frames.
+    val writeLock = Object()
+    val syncWrite: String => Unit = line => writeLock.synchronized(write(line))
     // Register the writer as a notification subscriber for the lifetime
     // of this serve loop so `builder.notify(method, params)` reaches the
     // connected peer.  Stdio is single-connection — exactly one
     // subscriber active while serve() runs.
-    val unsubscribe = builder.addSubscriber(write)
+    val unsubscribe = builder.addSubscriber(syncWrite)
     try
       var initialized = false
       var running     = true
@@ -940,14 +968,31 @@ object McpServerCore:
                   // hold open and we MUST NOT block: the loop has to keep
                   // reading, or the client could never send the cancellation
                   // that ends the subscription.
-                  McpServerCore.openSubscription(builder, params, id, write)
+                  McpServerCore.openSubscription(builder, params, id, syncWrite)
                 else
-                  write(dispatch(builder, method, params, id, serverName, serverVersion))
-      // EOF: the transport is gone, so every stream on it is over. Without this
+                  handlers.execute { () =>
+                    // A handler that throws must not kill the executor and silently stop every
+                    // later request; `dispatch` already turns errors into frames, so this is the
+                    // backstop for anything it cannot.
+                    try syncWrite(dispatch(builder, method, params, id, serverName, serverVersion))
+                    catch case _: Throwable => ()
+                  }
+      // EOF: the client is gone. Anything still queued or in flight was asked for BEFORE that, and
+      // its reply is still owed for as long as the pipe accepts writes — so drain rather than drop.
+      // Bounded, because a handler parked on a server-initiated ask is now waiting for an answer
+      // that can never come: every such ask carries its own timeout (60s by default), so this waits
+      // past the longest legitimate one and then stops. Blocking forever here would be a hang where
+      // the old code merely lost the reply.
+      handlers.shutdown()
+      try handlers.awaitTermination(90, java.util.concurrent.TimeUnit.SECONDS)
+      catch case _: InterruptedException => Thread.currentThread().interrupt()
+      // The transport is gone, so every stream on it is over. Without this
       // a subscription outlives its channel and its writer targets a closed pipe.
       builder.liveSubscriptions.values.forEach(_.close())
       try builder.onDisconnected() catch case _: Throwable => ()
-    finally unsubscribe()
+    finally
+      handlers.shutdownNow()
+      unsubscribe()
 
   /** MCP 2026-07-28 — open a `subscriptions/listen` stream.
    *
