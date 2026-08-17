@@ -529,24 +529,36 @@ done
 # someone edits the example into something that no longer works, this goes red; if someone changes
 # the API, the same. A doc that is only proofread is a doc that rots.
 #
-# WHICH block: the one that is a COMPLETE PROGRAM — it has `def main` and calls `serveMcp`. Not
-# "the first one", which is what this row used to say and what broke the moment the page grew an
-# authorisation SNIPPET above the full example: position is the wrong key for "the runnable one",
-# and the gate caught it rather than a reader. Fragments can now be added anywhere on the page.
+# WHICH block: the one the page MARKS, with an HTML comment naming it. Two earlier keys were both
+# wrong, and each was found by a red rather than by reading:
+#   "the first fenced block" broke the moment the page grew an authorisation SNIPPET above the full
+#   example — position does not mean runnable;
+#   "the first block with def main and serveMcp(" survived only by accident once the SSE section
+#   landed, because that example happens to be fenced ```ssc rather than ```scalascript. Shape does
+#   not mean runnable either, and a gate held up by a fence spelling is a trap for whoever
+#   normalises fences next.
+# A marker says which one is MEANT to run, so the page can grow any number of illustrative
+# programs — including ones that never terminate, like the streaming server.
 #
 # Backticks are kept out of every double-quoted string in this row on purpose: inside double quotes
 # bash reads them as command substitution, which is how the first draft died with
 # 'unexpected EOF while looking for matching'.
 doc_md="$ROOT/docs/mcp.md"
 [[ -f $doc_md ]] || { echo "v21-standard-mcp-smoke: docs/mcp.md is missing" >&2; exit 1; }
+grep -q 'gate:runnable-example' "$doc_md" || {
+  echo 'v21-standard-mcp-smoke: docs/mcp.md lost the gate:runnable-example marker, so nothing says' >&2
+  echo '  which block this row is supposed to run. Put it back above the complete example.' >&2
+  exit 1
+}
 awk '
-  /^```scalascript$/ { inblk=1; blk=""; next }
-  inblk && /^```$/   { if (blk ~ /def main/ && blk ~ /serveMcp\(/) { printf "%s", blk; exit }
-                       inblk=0; next }
-  inblk              { blk = blk $0 "\n" }
+  /gate:runnable-example/ { armed=1; next }
+  armed && /^```/         { inblk=1; armed=0; next }
+  inblk && /^```$/        { printf "%s", blk; exit }
+  inblk                   { blk = blk $0 "\n" }
 ' "$doc_md" > "$tmp/doc.ssc"
 [[ -s $tmp/doc.ssc ]] || {
-  echo 'v21-standard-mcp-smoke: no fenced scalascript block found in docs/mcp.md' >&2; exit 1
+  echo 'v21-standard-mcp-smoke: the gate:runnable-example marker is not followed by a fenced block' >&2
+  exit 1
 }
 # The doc claims a specific surface; if the extracted block lost it, say so here rather than let a
 # vaguer failure downstream explain it.
@@ -631,6 +643,13 @@ code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -X POST "http://127.
          -H 'Authorization: Bearer nope' -d "$http_req")
 [[ $code == 401 ]] || http_fail "a REJECTED token should be 401 on the v2 HTTP route, got $code"
 
+# Asking for a STREAM must not be a way around the token. The order in the handler is what makes
+# this true — authorise, then choose the branch — and order is exactly the kind of thing a later
+# edit reverses without noticing, so it is asserted rather than left to reading.
+code=$(curl -sN -o /dev/null -w '%{http_code}' --max-time 10 -X POST "http://127.0.0.1:$http_port/mcp" \
+         -H 'Accept: text/event-stream' -d "$http_req")
+[[ $code == 401 ]] || http_fail "an unauthenticated SSE request should be 401, not a stream, got $code"
+
 body=$(curl -s --max-time 10 -X POST "http://127.0.0.1:$http_port/mcp" \
          -H 'Authorization: Bearer good' -d "$http_req")
 grep -qF '"text":"auth=true"' <<<"$body" \
@@ -646,4 +665,91 @@ code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
 kill $http_pid 2>/dev/null
 wait $http_pid 2>/dev/null || true
 
-echo 'PASS v21-standard-mcp-smoke (2 rows VM/ASM + server vs int + 2026 surface both lanes + elicit on the wire + prompts/resource bodies + toolWithSchema/resourceTemplate + 8 notification members + subscriptions/paging/completions + roots both ways + raw request + the documented example + Transport.Http with auth)'
+# ── SSE on the v2 HTTP route: server->client frames, and an answer on a SECOND connection ─────
+#
+# A route that only ever answers the POST it was given can carry requests INWARD. Everything the
+# server initiates — notifications, and `srv.elicit`/`srv.request` — needs a channel that stays open,
+# which is what `Accept: text/event-stream` opens here.
+#
+# The assertion that matters is `action=accept`, and it is not a check on a string: the tool is
+# PARKED inside `srv.elicit` while the stream is open, so the only way the elicited value can reach
+# it is if the frame left the server BEFORE the response closed and the answer arrived on a
+# different connection while the first was still in flight. A buffered-until-close implementation
+# cannot produce it — the second POST would be too late and the tool would time out instead. That
+# is the difference from stdio, where the one loop the call blocks is the loop that would deliver
+# the reply (mcp-elicit-deadlocks-the-serve-loop).
+#
+# THE CONTROL IS THE LAST REQUEST HERE, not a rebuild: the same server, the same tool, one header
+# removed. Without the stream there is no subscriber and `srv.request` refuses by name. It fails
+# with its OWN message, distinct from the timeout an unanswered elicit gives, so the row cannot
+# pass by having both halves break the same way.
+sse_port=$(( 29000 + RANDOM % 3000 ))
+cat > "$tmp/sse.ssc" <<SSC
+[mcpServer, serveMcp, Transport, Tool, Content](std/mcp/server.ssc)
+
+def main(): Unit =
+  mcpServer(srv =>
+    srv.tool("ask", "asks the client")(args =>
+      val r = srv.elicit("your name?", Map("type" -> "object"), 8000)
+      Tool.text("action=" + r.action + " content=" + r.content.isDefined.toString)))
+  serveMcp(Transport.Http($sse_port, "/mcp"))
+SSC
+"$LAUNCHER" run --v2 "$tmp/sse.ssc" >"$tmp/sse.log" 2>&1 &
+sse_pid=$!
+sse_up=no
+for _ in $(seq 1 60); do
+  if curl -s -o /dev/null --max-time 1 "http://127.0.0.1:$sse_port/mcp" 2>/dev/null; then sse_up=yes; break; fi
+  sleep 0.5
+done
+[[ $sse_up == yes ]] || {
+  echo "v21-standard-mcp-smoke: the v2 HTTP transport never came up on port $sse_port" >&2
+  cat "$tmp/sse.log" >&2; kill $sse_pid 2>/dev/null; exit 1
+}
+sse_fail() { echo "v21-standard-mcp-smoke: $1" >&2; cat "$tmp/sse.log" >&2; kill $sse_pid 2>/dev/null; exit 1; }
+
+sse_call='{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"ask","arguments":{}}}'
+# -N so curl does not buffer: the id has to be readable while the request is still open.
+curl -sN -D "$tmp/sse.hdr" --max-time 25 -X POST "http://127.0.0.1:$sse_port/mcp" \
+  -H 'Accept: text/event-stream' -H 'Content-Type: application/json' \
+  -d "$sse_call" > "$tmp/sse.out" &
+sse_curl=$!
+srv_req_id=""
+for _ in $(seq 1 40); do
+  # `|| true` is load-bearing under `set -e`: waiting for a frame means grep finds nothing on the
+  # early passes, and a bare assignment from a failing command substitution kills the whole gate
+  # with no output at all. Silencing stderr does not silence the exit status.
+  sse_line=$(grep 'elicitation/create' "$tmp/sse.out" 2>/dev/null | head -1 || true)
+  if [[ -n $sse_line ]]; then
+    srv_req_id=$(printf '%s' "$sse_line" | sed 's/.*"id"://' | tr -cd '0-9')
+    break
+  fi
+  sleep 0.5
+done
+[[ -n $srv_req_id ]] || {
+  kill $sse_curl 2>/dev/null || true
+  sse_fail "the server-initiated elicitation/create never appeared on the open stream"
+}
+# Answering on a SECOND connection, while the first is still parked inside the tool.
+code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -X POST "http://127.0.0.1:$sse_port/mcp" \
+         -H 'Content-Type: application/json' \
+         -d "{\"jsonrpc\":\"2.0\",\"id\":$srv_req_id,\"result\":{\"action\":\"accept\",\"content\":{\"name\":\"ann\"}}}" || true)
+[[ $code == 204 ]] || sse_fail "a client Response posted back should be accepted with 204, got $code"
+wait $sse_curl 2>/dev/null || true
+
+grep -qi 'content-type:.*text/event-stream' "$tmp/sse.hdr" \
+  || sse_fail "the streaming reply did not carry Content-Type: text/event-stream"
+grep -q '^data: {"jsonrpc"' "$tmp/sse.out" \
+  || sse_fail "frames on the stream are not SSE-framed with a data: prefix"
+grep -qF '"text":"action=accept content=true"' "$tmp/sse.out" \
+  || sse_fail "the parked tool never received the elicited value; stream was: $(cat "$tmp/sse.out")"
+
+# The control. Same tool, no Accept header, so no stream and no subscriber to ask.
+sse_ctl=$(curl -s --max-time 20 -X POST "http://127.0.0.1:$sse_port/mcp" -H 'Content-Type: application/json' \
+            -d '{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"ask","arguments":{}}}' || true)
+grep -qF 'no active client subscribers' <<<"$sse_ctl" \
+  || sse_fail "without a stream srv.elicit must refuse by name, not succeed; got: $sse_ctl"
+
+kill $sse_pid 2>/dev/null || true
+wait $sse_pid 2>/dev/null || true
+
+echo 'PASS v21-standard-mcp-smoke (2 rows VM/ASM + server vs int + 2026 surface both lanes + elicit on the wire + prompts/resource bodies + toolWithSchema/resourceTemplate + 8 notification members + subscriptions/paging/completions + roots both ways + raw request + the documented example + Transport.Http with auth + SSE with an answer on a second connection)'

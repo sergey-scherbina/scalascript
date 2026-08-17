@@ -721,6 +721,67 @@ final class McpNativePlugin extends NativePlugin:
         try os.write(bytes) finally os.close()
       ex.close()
 
+    /** `Accept: text/event-stream` — the response IS the stream.
+     *
+     *  WHAT THIS UNLOCKS, and it is more than tidier notifications. `McpServerCore.request` refuses
+     *  outright when there is no unfiltered subscriber ("srv.request: no active client
+     *  subscribers"), so without a stream `elicit`, `listRoots` and `request` could not even leave
+     *  the building. With one they can — AND their answers can come back, because
+     *  `handleHttpRequest` already routes an inbound JSON-RPC Response into the pending map, and
+     *  because each POST here runs on its own thread. That is the difference from stdio, where the
+     *  single serve loop the call blocks is the same loop that would deliver the reply
+     *  (mcp-elicit-deadlocks-the-serve-loop). Over HTTP the client answers on a SECOND POST while
+     *  the first is still parked.
+     *
+     *  THE SUBSCRIBER IS REGISTERED BEFORE DISPATCH, not after: a notification emitted while the
+     *  handler runs — which is the whole point of `notifyProgress` — would otherwise be written to
+     *  nobody and silently lost.
+     */
+    def streamed(
+      ex:      HttpExchange,
+      builder: McpServerBuilder,
+      body:    String,
+      headers: Map[String, String],
+      claims:  Option[McpAuth.AuthClaims]
+    ): Unit =
+      ex.getResponseHeaders.add("Content-Type", "text/event-stream")
+      ex.getResponseHeaders.add("Cache-Control", "no-cache")
+      // 0 means chunked: the JDK server keeps the connection open and we decide when it ends.
+      ex.sendResponseHeaders(200, 0)
+      val os = ex.getResponseBody
+      def writeSse(line: String): Unit =
+        os.write(s"data: ${line.stripSuffix("\n")}\n\n".getBytes(java.nio.charset.StandardCharsets.UTF_8))
+        os.flush()
+      // UNFILTERED on purpose, and it has to be: `McpServerCore.request` refuses outright unless
+      // some subscriber has an empty filter, so a filtered listen stream would carry notifications
+      // and still leave `elicit`/`listRoots`/`request` unable to ask anything.
+      //
+      // TEARDOWN, because the transport is only as good as what it does when the client vanishes.
+      // This subscriber lives for exactly one POST — the `finally` below removes it — so a dead
+      // client cannot accumulate in the broadcast set. What it does NOT do is notice the death
+      // promptly: `addSubscriber` swallows writer-side exceptions by design (one dead peer must not
+      // silence the others), so a client that disappears while a handler is parked inside `elicit`
+      // is discovered when that call's own timeout fires. That wait is bounded, never indefinite —
+      // `request` always parks on `poll(timeoutMs, ...)`, and a 0 there returns immediately rather
+      // than blocking forever. Prompt cancellation would need a heartbeat frame to make the death
+      // observable; that is a separate change, not something this one half-does.
+      val unsubscribe = builder.addSubscriber(writeSse)
+      try
+        val reply = builder.withAuth(claims) {
+          McpServerCore.handleHttpRequest(builder, body, "ssc-mcp-native", "2.1", headers)
+        }
+        // A notification produced no reply frame; the stream still carried whatever the handler
+        // emitted, so an empty reply is not an empty response.
+        //
+        // The final write is guarded for the same reason the broadcast one is: by the time a
+        // handler finishes, the client that asked may be gone, and that is a disconnect, not a
+        // server error to propagate out of the handler.
+        if reply.nonEmpty then try writeSse(reply) catch case _: Throwable => ()
+      finally
+        unsubscribe()
+        try os.close() catch case _: Throwable => ()
+        ex.close()
+
     server.createContext(path, ex =>
       try
         if ex.getRequestMethod != "POST" then
@@ -738,12 +799,16 @@ final class McpNativePlugin extends NativePlugin:
                 ujson.Obj("error" -> code, "error_description" -> descr).render(),
                 Map("WWW-Authenticate" -> www, "Content-Type" -> "application/json"))
             case McpServerCore.AuthOutcome.Allowed(claims) =>
+              val wantsSse = headers.exists((k, v) =>
+                k.equalsIgnoreCase("Accept") && v.toLowerCase.contains("text/event-stream"))
               // withAuth so a handler can read `srv.currentAuth` for the request it is serving.
-              val reply = builder.withAuth(claims) {
-                McpServerCore.handleHttpRequest(builder, body, "ssc-mcp-native", "2.1", headers)
-              }
-              if reply.isEmpty then respond(ex, 204, "", Map.empty)
-              else respond(ex, 200, reply, Map("Content-Type" -> "application/json"))
+              if wantsSse then streamed(ex, builder, body, headers, claims)
+              else
+                val reply = builder.withAuth(claims) {
+                  McpServerCore.handleHttpRequest(builder, body, "ssc-mcp-native", "2.1", headers)
+                }
+                if reply.isEmpty then respond(ex, 204, "", Map.empty)
+                else respond(ex, 200, reply, Map("Content-Type" -> "application/json"))
       catch
         case e: Throwable =>
           // A handler that throws must not take the server down with it, and the client is owed an

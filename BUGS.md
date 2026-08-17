@@ -3235,13 +3235,14 @@ lines of `awk` plus `test -f` would have caught all 107 the day the first one br
 
 ## mcp-v2-http-transport-has-no-sse — no server-to-client channel, so notify and the blocking asks stay one-way
 
-<!-- status: open
+<!-- status: fixed
      lane: v2-jvm
      area: runtime
      kind: feature
-     gate: none
+     gate: tests/e2e/v21-standard-mcp-smoke.sh
      found-by: claude-code
      found-at: 2026-08-17
+     fixed-at: 2026-08-17
      repro: the body
      confirmed: yes -->
 
@@ -3263,6 +3264,55 @@ cancellation, not an error to swallow, and v1's route comments say so at length.
 
 Deliberately left out of the transport claim rather than half-built: a stream whose teardown is
 wrong is worse than no stream.
+
+FIXED. `Accept: text/event-stream` now takes a different branch: `sendResponseHeaders(200, 0)`,
+`builder.addSubscriber` for the lifetime of that one POST, every frame written as `data: ...`, and
+the handler's own result written last. The subscriber is UNFILTERED because `McpServerCore.request`
+refuses unless one exists with an empty filter — a filtered listen stream would have carried the
+notifications and still left the asks unable to ask.
+
+The claim to test was never "a stream appears". It was that `elicit` COMPLETES over HTTP, and the
+gate row asserts it end to end: the tool parks inside `srv.elicit`, `elicitation/create` is read off
+the open stream, the answer is posted on a SECOND connection, and the parked tool returns
+`action=accept content=true`. A buffered-until-close implementation cannot produce that line — the
+second POST would arrive too late and the row would see a timeout. The inbound half needed no work:
+`handleHttpRequest` already routed a client Response into the pending map and answered 204. What was
+missing was only the outbound channel.
+
+WHY IT WORKS HERE AND DEADLOCKS OVER STDIO (`mcp-elicit-deadlocks-the-serve-loop`): each POST runs on
+its own thread, so the loop that would deliver the reply is not the loop the call is blocking. The
+control in the gate is the same server and the same tool with the `Accept` header removed: no stream,
+no subscriber, and the call refuses with `no active client subscribers` — its own message, not the
+timeout the other half would give, so the row cannot pass by having both halves break alike.
+
+ON THE TEARDOWN THIS ENTRY DEMANDED. The subscriber is removed in a `finally`, so its lifetime is one
+request and a dead client cannot accumulate in the broadcast set. A client that disappears while a
+handler is parked is still not noticed PROMPTLY — `addSubscriber` swallows writer-side exceptions by
+design so one dead peer cannot silence the others — but the wait is bounded rather than indefinite:
+`request` always parks on `poll(timeoutMs, ...)`, where 0 returns at once instead of blocking
+forever. Making the death observable needs a heartbeat frame, which is a separate change and is
+recorded as such rather than half-done here.
+
+TWO MEASUREMENT TRAPS, both mine, both recorded because each one imitated a different verdict.
+
+`curl` without `-N` buffers, so the first probes read an empty file, failed to extract the request
+id, and reported a timeout that looked exactly like the defect still being present. The gate reads
+the id from the growing file with `-N` for that reason.
+
+Then the row itself killed the gate SILENTLY: waiting for a frame means `grep` finds nothing on the
+early passes, and under `set -euo pipefail` a bare `x=$(grep ... | head -1)` exits 1 on no-match and
+takes the whole script down. Redirecting stderr hides the message, not the status. Two full runs
+reported "rc=1, no output" — which reads like an early crash, not like a check that never got to
+speak. Every command substitution in that row now ends in `|| true`.
+
+A THIRD THING WAS GREEN BY ACCIDENT, and is worth more than the two above. The doc-example row picks
+the block to run, and its key was "the first block with `def main` and `serveMcp(`". The SSE example
+added to `docs/mcp.md` has BOTH, sits above the complete server, and never terminates — so that row
+should have started running a server that parks forever. It did not, only because the new block
+happened to be fenced ```ssc while the selector matches ```scalascript. Passing on a fence spelling
+is not passing. The selector now reads an explicit `gate:runnable-example` marker in the page, so
+the page can carry any number of illustrative programs; a missing marker is its own refusal, and a
+marker moved onto the wrong block is caught by the surface checks, which stayed independent of it.
 
 ---
 

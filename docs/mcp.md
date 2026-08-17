@@ -30,10 +30,58 @@ over a network or to check a token — see below.
 `POST /mcp` and answers with one frame. A `GET` on that path is `405`; a request that produced no
 reply (a notification) is `204`.
 
-**It does NOT do SSE.** `Accept: text/event-stream` gets the same single JSON reply as anything
-else. That matters for exactly one thing: server-to-client pushes still have nowhere to go, so
-`notify` reaches no HTTP client and `elicit` / `listRoots` / `request` still cannot receive their
-answers. Tracked as `mcp-v2-http-transport-has-no-sse`.
+#### Streaming with SSE
+
+Send `Accept: text/event-stream` and the reply is held open as an event stream instead: every frame
+the server emits while your call is running arrives as a `data:` event, and the tool's own result
+comes last. That is what gives the server a way to speak first, so `notify`, and the blocking asks
+`elicit` / `listRoots` / `request`, work over HTTP.
+
+Their answers come back on a **separate** `POST` to the same path, while the first request is still
+open. Post the JSON-RPC response frame with the `id` of the server's request; the route matches it
+up and answers `204`.
+
+A tool that asks the client a question:
+
+```scalascript
+[mcpServer, serveMcp, Transport, Tool, Content](std/mcp/server.ssc)
+
+def main(): Unit =
+  mcpServer(srv =>
+    srv.tool("ask", "asks the client")(args =>
+      val r = srv.elicit("your name?", Map("type" -> "object"), 8000)
+      Tool.text("action=" + r.action + " content=" + r.content.isDefined.toString)))
+  serveMcp(Transport.Http(8080, "/mcp"))
+```
+
+Calling it with a stream open:
+
+```text
+$ curl -sN -X POST http://127.0.0.1:8080/mcp -H 'Accept: text/event-stream' \
+    -d '{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"ask","arguments":{}}}'
+data: {"jsonrpc":"2.0","method":"elicitation/create","params":{"message":"your name?","requestedSchema":{"type":"object"}},"id":1}
+```
+
+The stream stops there — the tool is parked inside `elicit`. Answer it on another connection:
+
+```text
+$ curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8080/mcp \
+    -d '{"jsonrpc":"2.0","id":1,"result":{"action":"accept","content":{"name":"ann"}}}'
+204
+```
+
+and the first request finishes:
+
+```text
+data: {"jsonrpc":"2.0","id":7,"result":{"content":[{"type":"text","text":"action=accept content=true"}],"isError":false}}
+```
+
+Without the header there is no stream, so there is no one to ask, and the call refuses rather than
+hanging:
+
+```text
+{"jsonrpc":"2.0","id":8,"result":{"content":[{"type":"text","text":"srv.elicit: srv.request: no active client subscribers"}],"isError":true}}
+```
 
 ### Authorisation
 
@@ -72,6 +120,10 @@ the v1 oauth plugin's registry, and there is no oauth plugin on this lane.
 ## A complete server
 
 Save as `notes.ssc` and run it with `ssc run notes.ssc`.
+
+<!-- gate:runnable-example — v21-standard-mcp-smoke extracts the NEXT fenced block and runs it on
+     both lanes. Keep this marker on the one complete, terminating program; other blocks on the page
+     may declare `def main` and call `serveMcp` without being the one to run. -->
 
 ```scalascript
 [mcpServer, serveMcp, Transport, Tool, Resource, Prompt,
@@ -190,10 +242,11 @@ broken member:
 timeoutMs]])`, and the predicates `clientSupportsRoots()`, `clientSupportsElicitation()`,
 `clientSupportsTasks()`.
 
-> **These block, and over stdio they deadlock.** A server-to-client request waits for a reply that
-> can only arrive through the single-threaded serve loop it is currently blocking. The call times out
-> instead of answering. Tracked as `mcp-elicit-deadlocks-the-serve-loop`; the request itself does
-> reach the client, so it is usable from a duplex transport, not from a stdio tool handler.
+> **These block. Use them over HTTP with SSE, not over stdio.** A server-to-client request waits for
+> a reply, and over stdio that reply can only arrive through the single-threaded serve loop the call
+> is currently blocking, so it times out instead of answering — tracked as
+> `mcp-elicit-deadlocks-the-serve-loop`. Over HTTP each request runs on its own thread and the client
+> answers on a second connection, which is exactly the duplex these need; see *Streaming with SSE*.
 
 **Lifecycle and paging**
 
@@ -207,8 +260,8 @@ timeoutMs]])`, and the predicates `clientSupportsRoots()`, `clientSupportsElicit
 this one resolves its argument through the v1 oauth plugin's registry and `v2/runtime/providers/`
 has no oauth plugin, so it is interpreter-only.
 
-**Server-to-client over HTTP.** No SSE, so `notify` does not reach an HTTP client and the blocking
-asks cannot receive answers there either.
+**Server-to-client over stdio.** Works over HTTP with SSE (see *Streaming with SSE*). Over stdio the
+blocking asks still deadlock, because the reply can only come through the loop the call is holding.
 
 **Streaming resources.** One response is one full payload. Generator-backed streaming is a backlog
 item now that `std/generators.ssc` has landed.
