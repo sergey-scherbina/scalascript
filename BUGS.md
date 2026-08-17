@@ -1611,12 +1611,13 @@ cannot be used as a control without rebuilding first.
 
 ## bugs-index-gate-hides-the-enum-it-rejects-against — three agents, one day, the same rejected value
 
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: docs
      kind: apparatus
      gate: tests/e2e/bugs-index-gate.sh --self-test
-     fixed-in: -
+     fixed-in: af3775ab6
+     confirmed: yes
      reported-by: claude-code
      reported-at: 2026-08-17
      repro: tests/e2e/bugs-index-gate.sh --self-test, fixtures `bad-lane` and `bad-area`
