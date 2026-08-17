@@ -1915,7 +1915,18 @@ def parseAtBindArm(ts, menv, cx) = parseAtBind1(snd(hd(ts)), tl(ts), menv, cx)
 def parseAtBind1(q, ts, menv, cx) = ctorTag(ts) match { case (nm, r) => parseAtBind2(q, nm, r, menv, cx) }
 def parseAtBind2(q, nm, ts, menv, cx) = if isTok(hd(ts), 2, 21) then parsePatVars(tl(ts), Nil) match { case (vs, r) => parseAtBindBody(q, nm, dlen(vs), vs, r, menv, cx) } else parseAtBindBody(q, nm, 0, Nil, ts, menv, cx)
 def parseAtBindBody(q, nm, ar, vs, ts, menv, cx) = armBodyExpr(tl(ts), appEnv(vs, bindScrut(q, menv)), cx) match { case (body, r) => parseArmsMore("(arm " ++ nm ++ " " ++ ar ++ " " ++ erase(body, cx) ++ ")", r, menv, cx) }
-def parseArm(ts, menv, cx) = if isWild(hd(ts)) then parseWildArm(tl(ts), menv, cx) else (if fst(hd(ts)) == 3 then parseCtorArm(ts, menv, cx) else (if isTok(hd(ts), 2, 21) then parseTupArm(ts, menv, cx) else (if isBindArm(ts) then parseBindArm(ts, menv, cx) else (if isAtBindArm(ts) then parseAtBindArm(ts, menv, cx) else parseConsArm(ts, menv, cx)))))
+// A CONS ARM IS TESTED BEFORE THE WILDCARD, because `case _ :: t =>` starts with one. It used to fall
+// into `parseWildArm` at the very first test: the arm collapsed to a catch-all, the body was then
+// parsed from the LEFTOVER `:: t => body`, and `t => body` is a LAMBDA — so the match answered
+// `<closure>` and the arm body never ran. A silent wrong answer on the default lane, for ordinary
+// Scala; v1 and the rust lane both answer correctly, which is how it was found.
+// `parseConsArm` was already the last resort here, reachable only by a head that is none of the
+// above, so a wildcard head could never reach it. `parseGenArm` — the ordered resolver, the SECOND
+// dispatcher over the same syntax — already tests `isConsArmHead` first; this mirrors that ordering
+// and reuses its predicate so the two stay in step. That predicate also requires an UNGUARDED arm,
+// so `case _ :: t if g` keeps declining instead of starting to answer wrongly.
+// (v2-cons-pattern-with-a-wildcard-head-returns-a-closure.)
+def parseArm(ts, menv, cx) = if isConsArmHead(ts) then parseConsArm(ts, menv, cx) else (if isWild(hd(ts)) then parseWildArm(tl(ts), menv, cx) else (if fst(hd(ts)) == 3 then parseCtorArm(ts, menv, cx) else (if isTok(hd(ts), 2, 21) then parseTupArm(ts, menv, cx) else (if isBindArm(ts) then parseBindArm(ts, menv, cx) else (if isAtBindArm(ts) then parseAtBindArm(ts, menv, cx) else parseConsArm(ts, menv, cx))))))
 // A single-line match-arm body can be a statement-position ASSIGNMENT (`case Left(e) => adA = adA`):
 // the front's finishAssignment (:1536) makes `id = e`/`id += e` an assign EXPRESSION, so it is the arm's
 // value. parseExpr alone stops at `=` (not a binop) and drops the RHS; armBodyExpr parses the assign when

@@ -1460,40 +1460,148 @@ because the bypass removed it. The other 30 are the real queue that entry descri
      lane: v2-jvm
      area: front
      kind: bug
-     gate: -
+     gate: tests/e2e/v2-cons-wildcard-head-gate.sh
      fixed-in: -
      reported-by: claude-code
      reported-at: 2026-08-17
-     repro: see below, four defs
+     repro: tests/e2e/v2-cons-wildcard-head-gate.sh, row `wildhead`
      impact: wrong-answer -->
 
 Found while choosing rows for `rust-list-pattern-gate`: two lanes agreed and the default one did
 not. On `bin/ssc run`, an infix cons pattern whose HEAD is `_` evaluates to a closure instead of the
 arm body — silently, with no diagnostic.
 
-```scalascript
-def bothWild(xs: List[Int]): String = xs match { case _ :: _ => "A" ; case _ => "z" }
-def headWild(xs: List[Int]): String = xs match { case _ :: t => "B" ; case _ => "z" }
-def tailWild(xs: List[Int]): String = xs match { case h :: _ => "C" ; case _ => "z" }
-def named(xs: List[Int]): String    = xs match { case h :: t => "D" ; case _ => "z" }
-```
-
 | spelling | v2 (`ssc run`) | v1 | rust |
 |---|---|---|---|
-| `_ :: _` | `<closure>` | A | A |
-| `_ :: t` | `<closure>` | B | B |
-| `h :: _` | C | C | C |
-| `h :: t` | D | D | D |
+| `case _ :: _` | `<closure>` | A | A |
+| `case _ :: t` | `<closure>` | B | B |
+| `case h :: _` | C | C | C |
+| `case h :: t` | D | D | D |
+| `case h :: _ :: t` | ok | ok | ok |
+| `case Cons(_, t)` | ok | ok | ok |
 
-The trigger is the HEAD, not the tail: `h :: _` is fine. The shape of the wrong value names the
-likely cause — a LEADING `_` in an infix expression is Scala's placeholder-lambda syntax, so the
-front appears to be reading the pattern as an expression and handing back the lambda. That is a
-guess from the symptom and is NOT measured; whoever takes this should check the front's pattern/
-expression split before believing it.
+Every neighbouring spelling is correct and only this cell is wrong, which is why it survived: the
+extractor spelling works, a named head works, and a wildcard in any NESTED position works.
 
-**Worth its priority for what it is, not what it costs:** a wrong answer with no diagnostic, on the
-DEFAULT lane, for a spelling that is ordinary Scala. The extractor spelling `Cons(_, _)` is correct
-on all three lanes, so there is a working alternative — which is also why this went unnoticed.
+### The cause is dispatcher ORDER, and it corrects the guess this entry was filed with
+
+`parseArm` in the F front dispatched on the first token, wildcard first and cons LAST:
+
+```
+def parseArm(ts, menv, cx) =
+  if isWild(hd(ts)) then parseWildArm(tl(ts), ...)
+  else if ... else if ... else parseConsArm(ts, ...)     // unreachable for a wildcard head
+```
+
+So `case _ :: t => body` collapsed to a catch-all `_`, and the body was then parsed from the
+LEFTOVER `:: t => body`. `t => body` is a LAMBDA — which is where the closure comes from, and why the
+arm body never runs. The original guess here was "a leading `_` is being read as placeholder-lambda
+syntax"; the lambda reading is real but it is the SYMPTOM of the arm never being seen as a cons arm,
+not a placeholder rule firing.
+
+**The other dispatcher over the same syntax already had it right.** `parseGenArm`, the ordered
+resolver, tests `isConsArmHead` first. The fix mirrors that ordering and reuses that predicate, so
+the two stay in step — and because the predicate requires an UNGUARDED arm, `case _ :: t if g` keeps
+DECLINING (an honest fallback) instead of starting to answer wrongly. `parseHArm` was checked and is
+a different syntax family (typed handler arms, no cons at all).
+
+### Still wrong, measured, and left: a PARENTHESISED wildcard head
+
+`case (_) :: t` answers the catch-all arm on v2 (`z`) where v1 answers correctly. `isConsArmHead`
+peeks exactly two tokens, so it cannot see the `::` past `(_)`. The obvious repair — parse a full
+atom first and test the RESULT — would also reroute every `case Cons(a, b)` from `parseCtorArm` to
+`parseConsArm`, a different lowering path, which is a larger change than this one and wants its own
+measurement. Not attempted here; the gate says so in its header rather than leaving it to be
+rediscovered.
+
+## v2-front-fallback-runs-the-program-twice — every side effect happens twice, silently
+
+<!-- status: open
+     lane: v2-jvm
+     area: cli
+     kind: bug
+     gate: -
+     fixed-in: -
+     reported-by: claude-code
+     reported-at: 2026-08-17
+     repro: any file F declines — see below
+     impact: wrong-answer -->
+
+When the F front declines a file, `bin/ssc run` says so and compiles with the reference front — and
+the program's output then appears TWICE.
+
+```scalascript
+def guar(xs: List[Int]): String = xs match { case _ :: t if true => "guard" ; case _ => "z" }
+
+def main(): Unit =
+  println(guar(List(1)))
+main()
+```
+
+```text
+$ bin/ssc run g1.ssc 2>/dev/null
+guard
+guard
+```
+
+Exit code 0. The full output repeats in PROGRAM ORDER, not line by line: a three-print program
+prints 1,2,3,1,2,3. Measured on the main checkout with no local changes, so this is not a side
+effect of anything in flight.
+
+**Why it matters more than a doubled line.** `println` is the visible case; the same path runs
+whatever else the program does. A file write, an HTTP request, a database call — anything with an
+effect happens twice, and the only signal is a notice on stderr that says the program "still ran
+correctly".
+
+**What I did NOT establish** — the mechanism. The notice appears once while the output appears
+twice, and for this file F declines at lowering, so F never ran it; both copies therefore come from
+the reference front. Whether the harness runs the reference pipeline twice, or runs once and replays
+captured output, is unmeasured. A probe that writes to a FILE rather than stdout would settle it in
+one run and should be the first step for whoever takes this.
+
+Found while re-checking a cross-lane comparison: a probe file printed six lines where both lanes
+should print three, and the doubling — not the values — was the anomaly.
+
+## f-curried-def-gate-red-on-varargs-after-a-fixed-parameter — red IN CI, and unfiled
+
+<!-- status: open
+     lane: v2-jvm
+     area: front
+     kind: bug
+     gate: tests/e2e/f-curried-def-gate.sh
+     fixed-in: -
+     reported-by: claude-code
+     reported-at: 2026-08-17
+     repro: tests/e2e/f-curried-def-gate.sh, rows `varargs-after-fixed` and `varargs-curried`
+     impact: workaround -->
+
+Found as an unexplained red in a regression sweep for an unrelated front change, and it is not that
+change: the failing programs contain no `match` and no `case`, and `parseArm` is reachable only from
+`parseArms0` behind a `case` token.
+
+```scalascript
+def f(n: Int, xs: String*): Int = n + xs.toList.length
+def main(): Unit = println(f(1, "a", "b"))
+```
+
+```text
+ssc: TYPEERR: in def main: cannot unify Int: Int vs (String -> t4)
+```
+
+Same for the curried spelling `def f(n: Int)(xs: String*)`. **Varargs alone are fine** — the gate's
+`varargs-plain`, `varargs-single` and `varargs-empty` rows pass — so the defect is a vararg
+parameter that FOLLOWS a fixed one. The unification message reading `(String -> t4)` says the
+vararg parameter is being typed as a function rather than a sequence at the call site.
+
+**It runs in CI** (`.github/workflows/ci.yml:2196`) and is red there, which is the part worth
+recording: two rows of a wired gate have been failing with nobody's name on them.
+
+**A note on how nearly this was mis-attributed.** The first control run — the same gate in the main
+checkout — reproduced the failure, which looked conclusive. It was not: that checkout's toolchain
+was built from `4b717804c` while its HEAD was `b1cb21fe6`, and the gate exports
+`SSC_NO_BUILD_CHECK=1`, so the staleness warning that would have said so was suppressed. The
+argument that actually holds is the reachability one above. A gate that silences the build check
+cannot be used as a control without rebuilding first.
 
 ## uniml-markdown-left-the-portable-subset-while-its-guard-ran-nowhere
 

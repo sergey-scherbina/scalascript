@@ -653,12 +653,19 @@ jobs:
           tests/e2e/v21-native-dynamic-tostring-smoke.sh
           tests/e2e/v21-native-md-interpolator-smoke.sh
 
+      # `case _ :: t =>` answered `<closure>` on the DEFAULT lane and never ran its arm body: the F
+      # front's `parseArm` tested the wildcard before the cons and `parseConsArm` was its last
+      # resort, so a wildcard head could never reach it. Every neighbouring spelling was right,
+      # which is why it lasted. The `catchall` row is the anti-row — a bare `case _ =>` must stay a
+      # catch-all now that a cons test runs first — and it passes with the fix reverted. ~10 s, two
+      # lanes, no cargo.
       - name: Gates without a home — v2 diagnostics and fast paths
         if: always()          # see the block above this job's steps
         run: |
           tests/e2e/v2-error-diagnostic.sh
           tests/e2e/v2-f-nested-bytecode-fast-path.sh
           tests/e2e/v2-swift-cli.sh
+          tests/e2e/v2-cons-wildcard-head-gate.sh
 
       - name: Gates without a home — conformance flags and the scljet corpus
         if: always()          # see the block above this job's steps
