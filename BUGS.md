@@ -363,12 +363,12 @@ which is not `failure`.
 
 ## js-exec-ignores-every-processoptions-field-but-stdin — `cwd`, `env`, `timeout` and `inheritEnv` are accepted and dropped on the js lane
 
-<!-- status: open
+<!-- status: fixed
      lane: js
      area: runtime
      kind: bug
-     gate: -
-     fixed-in: -
+     gate: tests/e2e/js-std-process-gate.sh
+     fixed-in: ef6bf0a7c
      reported-by: claude-code
      reported-at: 2026-08-16
      ssc-version: 3debf7393
@@ -418,9 +418,36 @@ spawn pid > 0    true    true
 ```
 
 `stdin` and `spawn` work; `cwd` — and by the same reading of the source, `env`, `timeout` and
-`inheritEnv` — do not, because `spawnSync` is called with no options object. That half is what stays
-open here. `tests/e2e/js-std-process-gate.sh` now covers the lane and deliberately asserts only the
-working rows, naming this entry for the rest rather than adding a row that would fail forever.
+`inheritEnv` — do not, because `spawnSync` is called with no options object.
+
+### Fixed the same day the measurement became possible
+
+An options object is now built and passed. Three details, none of them optional:
+
+* **`env` is a HAMT, not an object.** A ScalaScript `Map` on this lane is `_Map` -> `_hamtOf`, so
+  `Object.keys` sees NOTHING and would hand the child an empty environment — silently, and a check
+  that only asked whether the process ran would still be green. It is walked through the `entries()`
+  the HAMT exposes.
+* **`inheritEnv = false` scrubs BEFORE `env` is applied**, as on every other lane: the flag means the
+  child sees only what the caller listed, and clearing afterwards throws those away too. The row
+  pins `[][only]` rather than "HOME is gone", because a clear-after implementation passes the weaker
+  check and prints `[][]`.
+* **`timeout` is milliseconds**, and `spawnSync` reports the kill through `signal`, which the
+  existing exitCode line already maps to -1 — the same answer `run`, `--v1`, jvm and build-rust give.
+  Nothing new had to be decided.
+
+`Option` is read with the `{_type: '_Some', value}` shape, not `$tag`/`_1` — the wrong one is two
+functions up in the same file and would leave every option silently unset, which is the failure
+these options exist to prevent.
+
+**Verified:** `tests/e2e/js-std-process-gate.sh` PASS, 7 rows compared against `run` row by row, plus
+an oracle row pinning stdin, the scrub and the timeout answer. Negative control with the runtime
+reverted and the launcher rebuilt: the four new rows go red — `cwd false`, `env false`,
+`[/Users/sergiy][]`, `timeout 0` — while the three earlier rows stay green, so the control separates
+this fix from the SyntaxError one. `scripts/smoke-ci` green.
+
+**This completes `std/process` across all five lanes**: `cwd`, `env`, `inheritEnv`, `timeout` and
+`stdin` are now honoured on int, --v1, jvm, js and build-rust.
 
 ## rust-exec-silently-ignores-every-processoptions-field — `cwd`, `env` and `inheritEnv` were obeyed under `run` and dropped under `build-rust`, with no diagnostic
 
