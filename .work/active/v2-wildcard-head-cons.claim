@@ -1,0 +1,11 @@
+slug: v2-wildcard-head-cons
+branch: feature/v2-wildcard-head-cons
+agent: claude-code
+started: 2026-08-17T11:00:35Z
+heartbeat: 2026-08-17T11:00:35Z
+status: claimed-before-planning
+items: v2-cons-pattern-with-a-wildcard-head-returns-a-closure
+paths: file:BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
