@@ -1,5 +1,6 @@
-# generation: 2639
+# generation: 2640
 #slug	agent	started	items	paths
 ssc-http-bind-address	claude-code	2026-08-14T21:39:49Z	serve-binds-all-interfaces	file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/HttpRs file:v1/runtime/http-server/jvm/src/main/scala/scalascript/server/jvm/JdkServerBackend.scala file:v1/runtime/http-server/jvm-fast/src/main/scala/scalascript/server/jvm/fast/FastServerBackend.scala file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/NioNativeHttpServerHost.scala file:tests/e2e/http-bind-address-gate.sh file:.github/workflows/ci.yml file:INBOX.md file:BUGS.md
 agree-gate-flaky-subjects	claude-code	2026-08-17T08:15:41Z	agree-gate-judges-nondeterministic-subjects	file:tests/e2e/f-output-agreement-gate.sh
 v3-interpolator-as-a-call	claude-code	2026-08-17T14:36:28Z	v3-an-interpolator-prefix-is-hardcoded-in-both-fronts	file:v3/src/Lexer.scala file:v3/src/Parser.scala file:v3/uniml/UniFront.scala file:v3/BUGS.md file:v3/BACKLOG.md
+paren-wildcard-cons	claude-code	2026-08-17T14:42:36Z	v2-parenthesised-head-in-a-cons-pattern-misses-the-arm	file:BUGS.md file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/v2-cons-wildcard-head-gate.sh
