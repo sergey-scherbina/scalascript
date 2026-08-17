@@ -1,0 +1,11 @@
+slug: v3-interpolator-as-a-call
+branch: feature/v3-interpolator-as-a-call
+agent: claude-code
+started: 2026-08-17T14:36:28Z
+heartbeat: 2026-08-17T14:36:28Z
+status: claimed-before-planning
+items: v3-an-interpolator-prefix-is-hardcoded-in-both-fronts
+paths: file:v3/src/Lexer.scala file:v3/src/Parser.scala file:v3/uniml/UniFront.scala file:v3/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
