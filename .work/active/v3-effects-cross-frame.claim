@@ -1,0 +1,11 @@
+slug: v3-effects-cross-frame
+branch: feature/v3-effects-cross-frame
+agent: claude-code
+started: 2026-08-17T15:17:01Z
+heartbeat: 2026-08-17T15:17:01Z
+status: claimed-before-planning
+items: v3-handler-arm-value-dropped-when-the-perform-is-a-statement v3-an-escaped-continuation-resumes-without-the-return-clause
+paths: file:BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
