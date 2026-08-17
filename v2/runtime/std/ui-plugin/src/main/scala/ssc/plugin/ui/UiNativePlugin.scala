@@ -362,6 +362,22 @@ final class UiNativePlugin extends NativePlugin:
     counters(key) = occurrence + 1
     occurrence
 
+  /** The id of an ANONYMOUS signal: its lexical site, plus an occurrence index from the second time
+    * that site is reached in a scope.
+    *
+    * Exactly two primitives name a signal from its position rather than from something the program
+    * supplies — `computedSignal` and `eqSignal`. Everything else here takes a name from the caller
+    * (`signal`, `persistedSignal`, the fetch family) or is a singleton (`__hash__`, `__online__`),
+    * which is why those never collided and these two both did.
+    *
+    * The suffix starts at the SECOND occurrence so every id that works today is byte-identical
+    * tomorrow: these ids are compared across the two fronts and asserted in backend tests, and
+    * renaming every anonymous signal would be a far larger change than the defect being fixed. */
+  private def anonymousSignalId(prefix: String, site: String): String =
+    val id = s"$prefix$site"
+    val occurrence = nextSiteOccurrence(id)
+    if occurrence == 0 then id else s"$id#$occurrence"
+
   private def nextSiteOccurrence(site: String): Int =
     val key = currentOwnerPath -> site
     val occurrence = siteOccurrences.getOrElse(key, 0)
@@ -575,7 +591,19 @@ final class UiNativePlugin extends NativePlugin:
     siteNative(context, "computedSignal") { (site, _, args) => args match
       case (compute: Value.ClosV) :: Nil =>
         val initial = Runtime.run(compute.code, compute.env)
-        makeSignal(s"__computed__$site", "computed", initial,
+        // ONE LEXICAL SITE, MANY SIGNALS. A helper that wraps `computedSignal` — `std/ui/form.ssc`'s
+        // `fieldError`, called once per field — reaches this primitive repeatedly from the SAME
+        // source position, so every call produced the same id. `makeSignal` reuses a cell when kind
+        // and declared default match, which is what makes a re-render idempotent, and throws when
+        // they differ: so a form with two fields died on
+        // `duplicate native UI signal '__computed__d64:doubled/root/body' … conflicting kind/default`.
+        // Reduced to eight lines: `def doubled(s) = computedSignal(() => s() * 2)` called twice.
+        //
+        // The occurrence counter already existed for keyed views (`renderKeyed`) and is cleared by
+        // `resetEvaluationState`, so it restarts every evaluation pass and a signal keeps its
+        // identity across re-renders as long as the call order does — the contract keyed views
+        // already rely on. `eqSignal` had the identical defect and takes the same route.
+        makeSignal(anonymousSignalId("__computed__", site), "computed", initial,
           Value.DataV("NativeUiSignalMetaComputed", Vector(compute)), writable = false,
           configure = cell => cell.dynamicRead = () => Runtime.run(compute.code, compute.env))
       case _ => throw new RuntimeException("computedSignal(callback)")
@@ -583,7 +611,7 @@ final class UiNativePlugin extends NativePlugin:
     siteNative(context, "eqSignal") { (site, _, args) => args match
       case source :: expected :: Nil =>
         signalFields(source, "eqSignal source")
-        makeSignal(s"__equality__$site", "equality", Value.BoolV(NativeUiPortable.portableEquals(readSignal(source, "eqSignal"), expected)),
+        makeSignal(anonymousSignalId("__equality__", site), "equality", Value.BoolV(NativeUiPortable.portableEquals(readSignal(source, "eqSignal"), expected)),
           Value.DataV("NativeUiSignalMetaEquality", Vector(source, expected)), writable = false,
           configure = cell => cell.dynamicRead = () => Value.BoolV(NativeUiPortable.portableEquals(readSignal(source, "eqSignal"), expected)))
       case _ => throw new RuntimeException("eqSignal(signal, value)")

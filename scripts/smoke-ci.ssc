@@ -494,6 +494,14 @@ val suite = List(
   // is structural and is what this gate holds. The zero-check is not decoration: SSC_DUMP_DEFS was
   // wired on one lane only, and an empty list reads as "zero definitions" rather than "never wired".
   Check("v2", "f-ui-signal-counter", "tests/e2e/f-ui-signal-counter-gate.sh", List(), 500000),
+  // A helper that wraps an anonymous signal may be called more than once. `std/ui/form.ssc`'s
+  // `fieldError` is called per FIELD, and every call reached the same lexical `computedSignal` site,
+  // so a form with two fields died on "duplicate native UI signal … conflicting kind/default".
+  // Exactly two primitives name a signal from its position — `computedSignal` and `eqSignal` — and
+  // fixing only the first moved `styled-primitives` from failing on `__computed__` to failing on
+  // `__equality__`, which is why both are covered. The values in each row DIFFER, so a fix that
+  // collapsed the calls onto one signal fails instead of passing.
+  Check("v2", "ui-computed-signal", "tests/e2e/ui-computed-signal-gate.sh", List(), 400000),
   // An `extern def`'s declared DEFAULT reaches the call site — and nothing else about an extern
   // call is rewritten. The front skipped an extern whole (it is a signature), so its parameter list
   // was never parsed and `f(x)` on `extern def f(a, b = d)` died `arity: 2 expected, 1 given`
