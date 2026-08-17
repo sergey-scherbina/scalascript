@@ -1,8 +1,7 @@
-# generation: 2608
+# generation: 2609
 #slug	agent	started	items	paths
 ssc-http-bind-address	claude-code	2026-08-14T21:39:49Z	serve-binds-all-interfaces	file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/HttpRs file:v1/runtime/http-server/jvm/src/main/scala/scalascript/server/jvm/JdkServerBackend.scala file:v1/runtime/http-server/jvm-fast/src/main/scala/scalascript/server/jvm/fast/FastServerBackend.scala file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/NioNativeHttpServerHost.scala file:tests/e2e/http-bind-address-gate.sh file:.github/workflows/ci.yml file:INBOX.md file:BUGS.md
 agree-gate-flaky-subjects	claude-code	2026-08-17T08:15:41Z	agree-gate-judges-nondeterministic-subjects	file:tests/e2e/f-output-agreement-gate.sh
-v2-wildcard-head-cons	claude-code	2026-08-17T11:00:35Z	v2-cons-pattern-with-a-wildcard-head-returns-a-closure	file:BUGS.md file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/v2-cons-wildcard-head-gate.sh file:.github/workflows/ci.yml
 v2-persisted-signal-default	claude-code	2026-08-17T11:07:15Z	v2-persisted-signal-declares-its-stored-value-as-its-default	file:v2/runtime/std/ui-plugin/src/main/scala/ssc/plugin/ui/UiNativePlugin.scala file:v2/BUGS.md
 mcp-v2-http-transport	claude-code	2026-08-17T11:09:58Z	mcp-v2-serve-http mcp-v2-auth-members	file:v2/runtime/providers/mcp-plugin/src/main/scala/ssc/plugin/mcp/McpNativePlugin.scala file:tests/e2e/v21-standard-mcp-smoke.sh file:docs/mcp.md file:BACKLOG.md file:BUGS.md
 rust-unreachable-census	claude-code	2026-08-17T11:15:14Z	generated-rust-unreachable-pattern-is-an-unread-diagnostic	file:tests/e2e/rust-std-survey-gate.sh file:BUGS.md
