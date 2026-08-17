@@ -1402,12 +1402,13 @@ found.
 
 ## rust-cons-pattern-with-a-wildcard-tail-emits-an-invalid-at-pattern — `[_, _ @ ..]` does not parse
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: codegen
      kind: bug
      gate: tests/e2e/rust-list-pattern-gate.sh
-     fixed-in: -
+     fixed-in: 1e5f68446
+     confirmed: yes
      reported-by: claude-code
      reported-at: 2026-08-17
      repro: tests/e2e/rust-list-pattern-gate.sh, rows `consw` and `infixw`
