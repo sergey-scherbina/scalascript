@@ -7,6 +7,45 @@ grepping for status.
 
 Newest first.
 
+## js-string-concat-chain-answers-a-tuple — the LIVE v1 emitter, not the deprecated wrapper
+
+<!-- status: fixed
+     fixed-in: 15718485a
+     lane: js
+     area: codegen
+     kind: bug
+     gate: tests/e2e/list-concat-chain-gate.sh (js-v1 lane, added with the fix) -->
+
+**FIXED, and the scope in the old body was wrong in the way that mattered.** It called this "the
+DEPRECATED js wrapper" and the gate's own comment repeated it, so the whole v1 emitter went
+unmeasured. `bin/jssc`, `run-js` (without `--v2`) and `emit-js` are ONE emitter, and `emit-js` is how
+`tests/conformance/run.sc` defines its **js column** — the lane 211 corpus cases are scored on.
+
+**MEASURED on a fresh build, four lanes:**
+
+    "x" ++ "y" ++ "z"     int xyz    native xyz    jvm xyz    v1 js (x, y, z)
+
+Two strings fell through `_tupleConcat`'s array path, which wraps each non-array and marks the
+result `_isTuple`. Fixed there — `typeof a === 'string' && typeof b === 'string'` concatenates —
+rather than in `JsGen`, because JS is dynamically typed and the emitter cannot know.
+
+**WHY IT SURVIVED EIGHT DAYS WITH A GREEN GATE BESIDE IT.** `list-concat-chain-gate.sh` measured
+`run-js --v2` and deliberately skipped the v1 lane *because row 3 was red there* — the note said so
+in as many words. A gate that routes around a red lane reports the lane it chose, not the language.
+The lane is measured now; all seven rows agree, so adding it cost nothing.
+
+**Control:** with the string arm removed and the toolchain rebuilt, the gate FAILS and prints its
+row-3 advice; with it, PASS on every lane including `js-v1`. Conformance 368 / 0 — and no corpus
+case writes a string `++` chain, which is the other half of why this lived.
+
+**NOT FIXED HERE, deliberately:** `"x" ++ 1` and `"x" ++ List(1)`. The answering lanes disagree three
+ways on those, so a fix here would invent a fourth answer rather than join a consensus. Filed with
+the matrix as `mixed-concat-operands-mean-three-things-on-three-lanes`.
+
+**MOVED HERE FROM `v2/BUGS.md` 2026-08-17**, on `tests/e2e/area-map-gate.sh`'s instruction: the
+fix lands in `v1/runtime/backend/js/`, and a board that does not own the code is where an entry
+goes unread by the people who would fix it.
+
 ## js-mathround-is-not-in-isIntExpr — `math.round(x) / 2` divided as a FLOAT here and as an integer everywhere else
 
 <!-- status: fixed
