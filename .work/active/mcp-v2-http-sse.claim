@@ -1,0 +1,11 @@
+slug: mcp-v2-http-sse
+branch: feature/mcp-v2-http-sse
+agent: claude-code
+started: 2026-08-17T12:13:06Z
+heartbeat: 2026-08-17T12:13:06Z
+status: claimed-before-planning
+items: mcp-v2-http-transport-has-no-sse
+paths: file:v2/runtime/providers/mcp-plugin/src/main/scala/ssc/plugin/mcp/McpNativePlugin.scala file:tests/e2e/v21-standard-mcp-smoke.sh file:docs/mcp.md file:BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
