@@ -406,6 +406,29 @@ class JsGen(
         // suppress a user module's own definition of a name the preamble happens to use, and that
         // blast radius wants measuring rather than guessing.
         "exec", "__spawnPid",
+        // THE THIRTY BELOW WERE MEASURED, NOT GUESSED, and every one of them was a reproducible
+        // SyntaxError before this line existed. Census 2026-08-17: intersect the names the js
+        // preamble defines (`^function name(` in an emitted bundle, 222 of them) with the names
+        // `std/**/*.ssc` EXPORTS (1452) — 47 overlap, 17 were already listed above, and all 30 of
+        // the remainder produced a bundle that does not parse. 30 of 30, not "some":
+        //
+        //     for each name: emit-js a one-line program importing it, then `node --check`
+        //     emit-js parses: 0   does NOT parse: 30
+        //
+        // THEY WERE INVISIBLE BECAUSE ONLY ONE COMMAND SHOWS THEM. `run-js` tree-shakes the
+        // preamble, so the colliding `function` is often dropped and the program runs; `emit-js`
+        // keeps it and the bundle fails to parse. Same source, two answers — and `emit-js` is the
+        // one whose output a user ships. My first probe of four of these names used `run-js` and
+        // read a clean all-clear that was an artefact of the lane I picked.
+        //
+        // Adding a name here does NOT hide anything: it makes the import resolve to the preamble
+        // function, which IS the implementation — exactly what the std/fs names above have always
+        // done.
+        "args", "cwd", "env", "envOrElse", "exit", "homedir", "hostname",
+        "jsonParse", "jsonRead", "lookup", "lookupOpt",
+        "parseYaml", "toYaml", "yamlArr", "yamlBool", "yamlGet", "yamlNum", "yamlStr", "yamlType",
+        "pathBasename", "pathDirname", "pathExtname", "pathIsAbsolute", "pathJoin", "pathResolve",
+        "platform", "sep", "setLocale", "tempDir", "tempFile",
         // `Signal` is std/ui/primitives' opaque TYPE; its runtime value is the signals.mjs
         // preamble `function Signal`. Importing it (`[Signal, …](std/ui/primitives.ssc)`)
         // must not emit `const Signal = std.ui.primitives.Signal` — that redeclares the

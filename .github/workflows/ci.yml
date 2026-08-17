@@ -815,6 +815,18 @@ jobs:
         if: always()          # see the block above this job's steps
         run: tests/e2e/js-std-process-gate.sh
 
+      # The general form of the defect above, as a CHECK rather than a fixture. `declaredBindings`
+      # lists names the js preamble already defines so an import does not emit `const X` beside
+      # `function X`; it is hand-maintained and nothing verified it. Census: 224 preamble functions,
+      # 1452 std exports, 47 overlap — 30 of them were missing, and all 30 produced a bundle that
+      # does not parse. This gate recomputes that intersection every run, so the NEXT preamble
+      # function added beside an exported name fails here instead of failing for whoever imports it.
+      # Functional rows run under BOTH `run-js` and `emit-js` because the two can disagree per
+      # program. ~20 s, node only.
+      - name: every std name the js preamble defines is declared-bound
+        if: always()          # see the block above this job's steps
+        run: tests/e2e/js-preamble-collision-gate.sh
+
       # `Ctor(field = v)` built a struct literal from the NAMED fields alone, so the spelling
       # `std/process.ssc` itself documents — `ProcessOptions(cwd = Some("/tmp"))` — did not compile
       # (E0063, missing fields). It surfaced right after two rozum requests added fields to that very
