@@ -6,6 +6,34 @@ belong in the repository-root `BUGS.md` instead, not here.
 
 Query: `scripts/bugs-report --module v3`.
 
+## v3-a-plugin-global-that-is-a-plain-value-cannot-answer-a-zero-arg-extern — `cwd` is a datum, not a function
+
+<!-- status: open
+     lane: v3
+     kind: bug
+     area: runtime
+     gate: v3/corpus-report.sh --exec (std-os-doc-import)
+     found-by: claude-code
+     found-at: 2026-08-17 -->
+
+**`std/os.ssc:59` declares `extern def cwd: String` and host-plugin provides it as a VALUE:**
+
+    context.registerValue("cwd", Value.StrV(System.getProperty("user.dir", ".")))
+
+So the program CALLS a name the provider stored as a datum. `V2Fleet.installGlobals` bridges only
+`ClosV` entries — deliberately, since assuming every global is callable would turn a wrong shape
+into a class-cast crash — and skips this one, leaving `std-os-doc-import` a CRASH on the executor
+lane with `the host function 'cwd' is not implemented on this lane`.
+
+**A ZERO-ARGUMENT EXTERN AND A CONSTANT ARE THE SAME THING FROM THE CALLER'S SIDE**, which is what
+makes this a gap rather than a design question: `cwd` takes nothing and answers a string, and whether
+the provider computed it once at install or computes it per call is not observable through that
+declaration. Bridging a non-`ClosV` global as a nullary function — and REFUSING it when arguments
+are passed — is the whole of it.
+
+**`v2NativeHostPlugin` IS ALSO NOT IN `v3/plugin-classpath.sh`.** Both are needed: the module supplies
+the value and the bridge has to admit it.
+
 ## v3-uniml-reads-a-line-ending-name-and-the-next-line-string-as-an-interpolator — fixed; front-diff is green
 
 <!-- status: fixed
