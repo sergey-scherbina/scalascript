@@ -48,17 +48,32 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Setup Scala CLI
-        uses: VirtusLab/scala-cli-setup@v1
-        with:
-          power: true
-          jvm: temurin:21
-
+      # JAVA FIRST, AND `jvm: system` — BOTH HALVES ARE THE FIX. `scala-cli-setup` used to run first
+      # with `jvm: temurin:21`, and resolving that NAME into a download URL makes coursier fetch
+      # https://raw.githubusercontent.com/coursier/jvm-index/master/index.json. On 2026-08-17 GitHub
+      # rate-limited that URL — 429 — and coursier reports a 429 as `NotFound: not found`, so the
+      # step died with a message about a missing file that is not missing. Twelve consecutive runs
+      # by different agents went red in `Setup Scala CLI` BEFORE a single test executed; a docs-only
+      # commit was among them, which is what proved it was not anyone's change.
+      #
+      # With Java installed first, `jvm: system` means scala-cli uses the JVM already on the runner —
+      # the same Temurin 21 — and the index is never consulted. Pinning the version was not the
+      # problem; asking a rate-limited service to translate the pin was.
+      #
+      # KEEP THE ORDER. Swapping these back re-introduces the dependency even if `jvm: system` stays,
+      # because then "system" is whatever the image happened to ship rather than the Java this
+      # workflow asked for.
       - name: Setup Java 21
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
+
+      - name: Setup Scala CLI
+        uses: VirtusLab/scala-cli-setup@v1
+        with:
+          power: true
+          jvm: system
 
       - name: Setup sbt
         uses: sbt/setup-sbt@v1

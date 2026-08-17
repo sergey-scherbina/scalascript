@@ -23,6 +23,62 @@ Newest first.
 
 
 
+## smoke-red-for-everyone-on-coursier-jvm-index-429 — every push failed in `Setup Scala CLI`, before a test ran
+
+<!-- status: open
+     lane: apparatus
+     area: build
+     kind: apparatus
+     gate: -
+     fixed-in: -
+     reported-by: claude-code
+     reported-at: 2026-08-17
+     ssc-version: 5b767c82e
+     repro: none — an external service outage; see the measurement below
+     impact: blocks -->
+
+From 14:19 on 2026-08-17, TWELVE consecutive `smoke.yml` runs by different agents failed, every one
+in `Setup Scala CLI` or `Set up job` — before a single check executed. Last green: `8d58ef010`,
+12:49.
+
+**It was not anyone's change, and the proof is in the red list itself:** `692d13f0e` is in it, and
+that commit edits `BUGS.md` and nothing else. A docs-only commit cannot break a toolchain setup step.
+
+The step's own message pointed the wrong way:
+
+```text
+Error while getting https://github.com/coursier/jvm-index/raw/master/index.json:
+coursier.cache.ArtifactError$NotFound: not found
+```
+
+**I first read that as "the file is gone". It is not.** The file is present in the upstream repo and
+the branch was never renamed — checked both. Fetched directly:
+
+```text
+raw.githubusercontent.com/coursier/jvm-index/master/index.json   429   (later 503)
+```
+
+GitHub is rate-limiting / failing that URL, and coursier reports a 429 as `NotFound: not found`. A
+message naming a missing file for a service that is merely refusing you is what cost the first hour.
+
+**Why pinning did not help.** The workflows already said `jvm: temurin:21`. The pin fixes the
+VERSION; coursier still has to translate that NAME into a download URL, and the translation is the
+index fetch. Pinning was never the dependency — asking a rate-limited service to resolve the pin was.
+
+**The fix, in all five workflows (seven Scala CLI steps):** install Java FIRST, then
+`jvm: system`, so scala-cli uses the JVM already on the runner and the index is never consulted. The
+`validate` job in `ci.yml` had no `setup-java` at all, so it gained one — otherwise `system` would
+have meant "whatever the image happens to ship" rather than the Temurin 21 every other job asks for.
+
+**This can only be verified by pushing, and that is stated rather than hidden.** A CI change has no
+local test; the first run after the push IS the experiment. Pushing while CI is already red is a
+bounded risk — the worst case is one more red in a sequence of twelve.
+
+**The timing makes the attribution honest.** Checked immediately before the push: the index still
+answers 503. So a green run cannot be the outage having quietly healed — the service is still
+down, and the workflow simply no longer asks it anything. Had the limit cleared first, a green would
+have proved nothing and this note would say so.
+
 ## js-exec-import-is-a-syntax-error — `[exec, …](std/process.ssc)` emits a bundle that does not PARSE
 
 <!-- status: fixed
