@@ -1049,17 +1049,32 @@ val base = Nil; ("x" :: base).reverse  chain rooted in a local Nil
    **43 rustc errors** — 22 × E0308, 5 × E0599, 4 × E0271, 2 × E0277, 2 × E0004. The gate's own rule
    applies and is right: "a refusal is a message the user can act on; bad generated code is not."
 
-**Two of those 43 are not type errors — they are INVALID RUST SYNTAX**, and that is new information
-this entry did not have. A match arm whose body is more than one statement is emitted with no braces:
+**Two of those 43 were not type errors — they were INVALID RUST SYNTAX**, and pulling that thread
+is what re-measured this whole number. Filed as
+`rust-multi-statement-match-arm-emitted-without-braces`, reduced to fourteen lines, and fixed in
+`679c66b17`; the reduction also turned up a second defect behind it
+(`rust-any-returning-call-scrutinee-keeps-the-typed-match-path`). Fixing those exposed a THIRD
+syntax error at `json_core.rs:437` — `[_, _ @ ..]`, an invalid `@` pattern from `case Cons(_, _)` at
+`std/json-core.ssc:474` — filed and fixed as
+`rust-cons-pattern-with-a-wildcard-tail-emits-an-invalid-at-pattern`.
 
-```rust
-JsonCoreOk { value, next } => let separator = jsonCoreSkipWhitespace(source.clone(), next);
-//                            ^^^ error: expected expression, found `let` statement
-```
+RE-COUNTED, refusal bypassed for diagnosis only, three trees:
 
-It does NOT reproduce standalone — a case-class match with a `val` + `if` arm body builds and runs
-correctly on this lane — so it needs a narrower repro before it can be fixed, and it is filed
-separately as `rust-multi-statement-match-arm-emitted-without-braces`.
+| tree | errors | uncoded (SYNTAX) |
+|---|---|---|
+| as filed, 2026-08-16 | 43 | 2 |
+| after the two match fixes | 36 | 2 (a different pair) |
+| after the `@` fix | **32** | **0** |
+
+**The crate now PARSES**, and every remaining error is a type error, which changes what a reader
+should expect from this entry: the "unreadable output" argument below is still true, but it is
+about 30 type errors rather than a file rustc will not even read. Two of the 32 are
+`E0615: attempted to take value of method reverse` — this refusal's own justification, present only
+because the bypass removed it.
+
+Each syntax error hid the next one, which is the pattern worth carrying forward: rustc stops at the
+first parse error, so a count taken behind one is a LOWER BOUND on the distinct defects and says
+nothing about what follows.
 
 **So the true shape is a chain of at least three, not one defect:** the cons refusal, then 43
 codegen errors in json-core (two of them syntactic), then an unimplemented provider boundary. The
@@ -1384,6 +1399,100 @@ was corrected rather than left standing: it is now true of the v1 half only.
 one outside `v2/backend` (`grep -rln 'v2/backend/rust' tests/e2e/*.sh`), so a census is cheap; a gate
 that pins that number would be cheaper than finding the fourth instance the way the first three were
 found.
+
+## rust-cons-pattern-with-a-wildcard-tail-emits-an-invalid-at-pattern — `[_, _ @ ..]` does not parse
+
+<!-- status: open
+     lane: native
+     area: codegen
+     kind: bug
+     gate: tests/e2e/rust-list-pattern-gate.sh
+     fixed-in: -
+     reported-by: claude-code
+     reported-at: 2026-08-17
+     repro: tests/e2e/rust-list-pattern-gate.sh, rows `consw` and `infixw`
+     impact: workaround -->
+
+The tail of a cons pattern lowers to a slice rest-binding. Rust requires a BINDING left of `@` —
+`x`, `mut x`, `ref x`, `ref mut x` — and `_` is a pattern, not a binding:
+
+```scalascript
+def describe(xs: List[Int]): String =
+  xs match { case Cons(_, _) => "many" ; case _ => "none" }
+```
+
+```text
+[_, _ @ ..] => "many".to_string(),
+error: left-hand side of `@` must be a binding
+```
+
+The correct emission for an ignored tail is a bare `..`. Nine lines, a clean tree, no bypass.
+
+**A PARSE error, which is the reason it is filed separately from the type errors around it.** rustc
+stops, so nothing else in the crate is reported — the same property that kept
+`rust-multi-statement-match-arm-emitted-without-braces` hidden, and this one was hidden BEHIND that:
+it only became visible once the crate got far enough to reach line 437.
+
+**Two spellings, and each built the tail string itself.** `case h :: t` (infix) and `case Cons(h, t)`
+(extractor) are separate arms in `renderPattern`; a fix to one is half a fix. Both now call one
+`sliceTail` helper. `std/json-core.ssc:474` uses the extractor spelling, which is where this came
+from.
+
+### Found by re-counting, and the count is the other half of the result
+
+`rust-lane-refuses-the-tolerant-json-parse-while-the-panicking-one-builds` records **43 rustc errors**
+for `std/json-core.ssc` behind its refusal. Re-measured with the refusal bypassed for diagnosis only:
+
+| tree | errors | uncoded (SYNTAX) |
+|---|---|---|
+| as filed, 2026-08-16 | 43 | 2 — `expected expression, found let` |
+| after the two match fixes (679c66b17) | 36 | 2 — `left-hand side of @ must be a binding` |
+| after this fix | **32** | **0** |
+
+So the crate PARSES for the first time, and every remaining error is a type error. Two of the 32 are
+`E0615: attempted to take value of method reverse` — the refusal's own justification, present only
+because the bypass removed it. The other 30 are the real queue that entry describes.
+
+## v2-cons-pattern-with-a-wildcard-head-returns-a-closure — a wrong ANSWER, not a refusal
+
+<!-- status: open
+     lane: v2-jvm
+     area: front
+     kind: bug
+     gate: -
+     fixed-in: -
+     reported-by: claude-code
+     reported-at: 2026-08-17
+     repro: see below, four defs
+     impact: wrong-answer -->
+
+Found while choosing rows for `rust-list-pattern-gate`: two lanes agreed and the default one did
+not. On `bin/ssc run`, an infix cons pattern whose HEAD is `_` evaluates to a closure instead of the
+arm body — silently, with no diagnostic.
+
+```scalascript
+def bothWild(xs: List[Int]): String = xs match { case _ :: _ => "A" ; case _ => "z" }
+def headWild(xs: List[Int]): String = xs match { case _ :: t => "B" ; case _ => "z" }
+def tailWild(xs: List[Int]): String = xs match { case h :: _ => "C" ; case _ => "z" }
+def named(xs: List[Int]): String    = xs match { case h :: t => "D" ; case _ => "z" }
+```
+
+| spelling | v2 (`ssc run`) | v1 | rust |
+|---|---|---|---|
+| `_ :: _` | `<closure>` | A | A |
+| `_ :: t` | `<closure>` | B | B |
+| `h :: _` | C | C | C |
+| `h :: t` | D | D | D |
+
+The trigger is the HEAD, not the tail: `h :: _` is fine. The shape of the wrong value names the
+likely cause — a LEADING `_` in an infix expression is Scala's placeholder-lambda syntax, so the
+front appears to be reading the pattern as an expression and handing back the lambda. That is a
+guess from the symptom and is NOT measured; whoever takes this should check the front's pattern/
+expression split before believing it.
+
+**Worth its priority for what it is, not what it costs:** a wrong answer with no diagnostic, on the
+DEFAULT lane, for a spelling that is ordinary Scala. The extractor spelling `Cons(_, _)` is correct
+on all three lanes, so there is a working alternative — which is also why this went unnoticed.
 
 ## uniml-markdown-left-the-portable-subset-while-its-guard-ran-nowhere
 

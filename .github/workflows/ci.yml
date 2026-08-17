@@ -929,6 +929,18 @@ jobs:
         if: always()          # see the block above this job's steps
         run: tests/e2e/rust-match-arm-braces-gate.sh
 
+      # The tail of a cons pattern lowers to a slice rest-binding, and Rust wants a BINDING left of
+      # `@` — `_` is a pattern, so `case Cons(_, _)` emitted `[_, _ @ ..]` and the crate did not
+      # PARSE. `std/json-core.ssc:474` is spelled exactly that way. Two rows because the infix and
+      # extractor spellings each built the tail string themselves; the third is the anti-row, a
+      # BOUND tail that must keep its binding and is read by the row so a dropped binding fails.
+      # A wildcard HEAD is deliberately not here: v2 answers `<closure>` where v1 and rust are
+      # right, filed as v2-cons-pattern-with-a-wildcard-head-returns-a-closure. ~45 s, three cargo
+      # builds.
+      - name: a cons pattern with a wildcard tail emits Rust that parses
+        if: always()          # see the block above this job's steps
+        run: tests/e2e/rust-list-pattern-gate.sh
+
       # `map + (k -> v)` reached rustc as an ADDITION — E0369 — and `std/http.ssc`'s `withHeader` is
       # written exactly that way, so no builder chain compiled on this lane. The lowering was never
       # missing, only unreachable: `.updated(k, v)` a few arms below renders the same operation. The

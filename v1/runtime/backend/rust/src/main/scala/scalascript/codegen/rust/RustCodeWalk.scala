@@ -6438,6 +6438,16 @@ object RustCodeWalk:
         s"$enumName::$field"
       case _ => s"$q.${rustIdent(field)}"
 
+  /** A WILDCARD TAIL IS `..`, NOT `_ @ ..`. Rust requires a BINDING left of `@` — `x`, `mut x`,
+   *  `ref x` — and `_` is a pattern, so `[_, _ @ ..]` is
+   *  ``error: left-hand side of `@` must be a binding`` and the crate stops PARSING, taking every
+   *  other diagnostic in the file with it. `case Cons(_, _)` is ordinary ScalaScript —
+   *  `std/json-core.ssc:474` spells it exactly that way — and it reached rustc as invalid syntax.
+   *  Both spellings go through this helper on purpose: the `::` infix arm and the `Cons` extractor
+   *  arm are two cells of one feature, and a fix to one of them is half a fix.
+   *  (rust-cons-pattern-with-a-wildcard-tail-emits-an-invalid-at-pattern.) */
+  private def sliceTail(tp: String): String = if tp == "_" then ".." else s"$tp @ .."
+
   private def renderPattern(p: m.Pat, ctx: Ctx): Either[List[Diagnostic], String] = p match
     // A QUALIFIED enum pattern — `case Content.Text(t)`. The TWIN of a defect already fixed on the
     // other side of the same feature: `19ebadf00` made the qualified CONSTRUCTOR lower, and nobody
@@ -6473,7 +6483,7 @@ object RustCodeWalk:
       argClause.values match
         case List(t) =>
           for hp <- renderPattern(h, ctx); tp <- renderPattern(t, ctx)
-          yield s"[$hp, $tp @ ..]"
+          yield s"[$hp, ${sliceTail(tp)}]"
         case _ => Left(List(unsupported(s"def `${ctx.defName}`: `::` pattern takes exactly one tail")))
     // `case Cons(h, t)` — the same shape spelled as an extractor. Only when `Cons` is not a user
     // enum constructor: a program that defines its OWN `Cons` means that one, and the ctorMap arm
@@ -6483,7 +6493,7 @@ object RustCodeWalk:
       argClause.values match
         case List(h, t) =>
           for hp <- renderPattern(h, ctx); tp <- renderPattern(t, ctx)
-          yield s"[$hp, $tp @ ..]"
+          yield s"[$hp, ${sliceTail(tp)}]"
         case other => Left(List(unsupported(
           s"def `${ctx.defName}`: `Cons` pattern takes a head and a tail, got ${other.size}")))
     case m.Pat.Wildcard()           => Right("_")
