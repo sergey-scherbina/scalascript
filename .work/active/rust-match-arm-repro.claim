@@ -1,0 +1,11 @@
+slug: rust-match-arm-repro
+branch: feature/rust-match-arm-repro
+agent: claude-code
+started: 2026-08-17T08:56:13Z
+heartbeat: 2026-08-17T08:56:13Z
+status: claimed-before-planning
+items: rust-multi-statement-match-arm-emitted-without-braces
+paths: file:BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
