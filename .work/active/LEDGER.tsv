@@ -1,7 +1,8 @@
-# generation: 2586
+# generation: 2587
 #slug	agent	started	items	paths
 ssc-http-bind-address	claude-code	2026-08-14T21:39:49Z	serve-binds-all-interfaces	file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/HttpRs file:v1/runtime/http-server/jvm/src/main/scala/scalascript/server/jvm/JdkServerBackend.scala file:v1/runtime/http-server/jvm-fast/src/main/scala/scalascript/server/jvm/fast/FastServerBackend.scala file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/NioNativeHttpServerHost.scala file:tests/e2e/http-bind-address-gate.sh file:.github/workflows/ci.yml file:INBOX.md file:BUGS.md
 js-string-concat-chain	claude-code	2026-08-17T08:14:12Z	js-string-concat-chain-answers-a-tuple	file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala file:v2/BUGS.md
 agree-gate-flaky-subjects	claude-code	2026-08-17T08:15:41Z	agree-gate-judges-nondeterministic-subjects	file:tests/e2e/f-output-agreement-gate.sh
 js-preamble-bindings	claude-code	2026-08-17T08:17:26Z	js-preamble-binding-list-is-hand-maintained	file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala file:tests/e2e/js-preamble-collision-gate.sh file:.github/workflows/ci.yml file:BUGS.md
 v3-plugin-value-global	claude-code	2026-08-17T08:28:41Z	v3-a-plugin-global-that-is-a-plain-value-cannot-answer-a-zero-arg-extern	file:v3/plugins/V2Fleet.scala file:v3/plugin-classpath.sh file:v3/BUGS.md
+mcp-user-docs	claude-code	2026-08-17T08:54:32Z	mcp-docs-page mcp-tutorial-example-does-not-run mcp-readme-broken-links	file:docs/mcp.md file:docs/README.md file:docs/tutorial.md file:tests/e2e/v21-standard-mcp-smoke.sh file:BACKLOG.md file:BUGS.md

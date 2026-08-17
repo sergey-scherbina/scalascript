@@ -1,0 +1,11 @@
+slug: mcp-user-docs
+branch: feature/mcp-user-docs
+agent: claude-code
+started: 2026-08-17T08:54:32Z
+heartbeat: 2026-08-17T08:54:32Z
+status: claimed-before-planning
+items: mcp-docs-page mcp-tutorial-example-does-not-run mcp-readme-broken-links
+paths: file:docs/mcp.md file:docs/README.md file:docs/tutorial.md file:tests/e2e/v21-standard-mcp-smoke.sh file:BACKLOG.md file:BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
