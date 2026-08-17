@@ -5,7 +5,7 @@ started: 2026-08-17T08:56:13Z
 heartbeat: 2026-08-17T08:56:13Z
 status: claimed-before-planning
 items: rust-multi-statement-match-arm-emitted-without-braces
-paths: file:BUGS.md
+paths: file:BUGS.md file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
