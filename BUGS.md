@@ -1690,6 +1690,66 @@ still carried `lane: v2` and no claim held that file any more. Set to `native` �
 `UiNativePlugin` registration gap, the same lane as the sibling entry about that plugin, rather than
 to `v2-jvm` which I typed first and corrected after reading what the entry is actually about.
 
+## v2-parenthesised-head-in-a-cons-pattern-misses-the-arm — and the obvious repair was TRIED
+
+<!-- status: open
+     lane: v2-jvm
+     area: front
+     kind: bug
+     gate: -
+     fixed-in: -
+     reported-by: claude-code
+     reported-at: 2026-08-17
+     repro: four defs, below
+     impact: wrong-answer -->
+
+```scalascript
+def paren(xs: List[Int]): String  = xs match { case (_) :: t => "paren"  ; case _ => "z" }
+def parenN(xs: List[Int]): String = xs match { case (h) :: t => "parenN" ; case _ => "z" }
+def tup(p: (Int, Int)): String    = p match { case (a, b) => "tup" }
+def plain(xs: List[Int]): String  = xs match { case h :: t => "plain" ; case _ => "z" }
+```
+
+| spelling | v2 | v1 |
+|---|---|---|
+| `case (_) :: t` | `z` — the catch-all | `paren` |
+| `case (h) :: t` | `z` — the catch-all | `parenN` |
+| `case (a, b)` (tuple) | ok | ok |
+| `case h :: t` | ok | ok |
+
+**Both spellings miss, so this is about the PARENTHESES, not the wildcard** it was first noticed
+with (in `v2-cons-pattern-with-a-wildcard-head-returns-a-closure`, now fixed). A silent wrong answer:
+the arm simply does not match and the catch-all answers.
+
+### The obvious repair is not enough, and that is measured rather than guessed
+
+`isConsArmHead` peeks exactly two tokens, so it cannot see the `::` past `(_)`. Extending it to parse
+a full pattern when the arm starts with `(` — narrowly, so every other arm keeps the cheap test — was
+implemented and measured. **The arm is then recognised and the answer changes from `z` to
+`<closure>`**: one wrong answer for another.
+
+The reason is one line further on, and the source comment above `parseArms0` names it: `parseConsArm`
+*"assumes the shape `h :: t` and indexes blind: head at token 0"*.
+
+```
+def parseConsArm(ts, menv, cx) = parseConsArm1(snd(hd(ts)), snd(hd(tl(tl(ts)))), tl(tl(tl(ts))), …)
+```
+
+Head = token 0's text, tail = token 2's text, body = from token 3. For `(_) :: t` that reads `(` as
+the head binder and `)` as the tail. It works today only because a wildcard or a name is exactly ONE
+token.
+
+**So a real fix has to move `parseConsArm` off token positions and onto the parsed pattern** — and
+then a parenthesised sub-pattern raises its own question, since `(_)` reaches `parsePatTuple` and
+becomes a one-element tuple pattern rather than a bare `wpat`. The nested path `parseGenCons` ->
+`parseNestedArm` already works from a parsed pattern and does not index blind; the promising shape is
+to reuse it rather than to teach `parseConsArm` a second way of finding binders.
+
+Not attempted here: two wrong answers for one spelling is worse than one, and choosing between "teach
+`parseConsArm` the pattern" and "route these arms to the nested resolver" is a design call with a
+lowering difference behind it. The dispatch change was reverted, so the tree carries the honest `z`
+rather than a `<closure>` that looks closer to working.
+
 ## uniml-markdown-left-the-portable-subset-while-its-guard-ran-nowhere
 
 <!-- status: fixed
