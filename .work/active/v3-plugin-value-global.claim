@@ -1,0 +1,11 @@
+slug: v3-plugin-value-global
+branch: feature/v3-plugin-value-global
+agent: claude-code
+started: 2026-08-17T08:28:41Z
+heartbeat: 2026-08-17T08:28:41Z
+status: claimed-before-planning
+items: v3-a-plugin-global-that-is-a-plain-value-cannot-answer-a-zero-arg-extern
+paths: file:v3/plugins/V2Fleet.scala file:v3/plugin-classpath.sh file:v3/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
