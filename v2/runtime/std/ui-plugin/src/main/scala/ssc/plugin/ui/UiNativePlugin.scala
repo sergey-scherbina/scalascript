@@ -236,13 +236,21 @@ final class UiNativePlugin extends NativePlugin:
     case Value.StrV(id) => id
     case _ => throw new RuntimeException(s"$operation signal id must be String")
 
+  /** `initial` IS NOT `declaredDefault`, and conflating them was a defect. The DECLARED default is
+    * what the program wrote and is what makes a re-declaration compatible; the INITIAL value is
+    * where the cell starts, which for a persisted signal is whatever storage already holds. When
+    * one stood for both, a signal's declared default changed the moment anybody WROTE to it, so
+    * declaring the same signal twice around a write was refused with a message about a line the
+    * author never wrote (`tkv2-offline`). Defaults to the declared value, which is what every
+    * caller but the persisted one wants. */
   private def makeSignal(
       id: String,
       kind: String,
       declaredDefault: Value,
       signalMetadata: Value,
       writable: Boolean = true,
-      configure: SignalCell => Unit = _ => ()): Value =
+      configure: SignalCell => Unit = _ => (),
+      initial: Option[Value] = None): Value =
     val scope = scopes.last
     val portableDefault = NativeUiPortable.canonical(declaredDefault, s"NativeUiSignal[$id].default")
     val key = SignalKey(ScopeKey(rootId, scope), id)
@@ -253,6 +261,8 @@ final class UiNativePlugin extends NativePlugin:
         existing
       case None =>
         val created = SignalCell(id, scope, kind, portableDefault, writable)
+        initial.foreach(v =>
+          created.current = NativeUiPortable.canonical(v, s"NativeUiSignal[$id].initial"))
         configure(created)
         signals(key) = created
         created
@@ -755,8 +765,11 @@ final class UiNativePlugin extends NativePlugin:
     native(context, "localStorageRemove") { case Value.StrV(key) :: Nil => storage.remove(key); Value.UnitV; case _ => throw new RuntimeException("localStorageRemove(key)") }
     native(context, "onlineSignal") { case Nil => makeSignal("__online__", "online", Value.BoolV(true), Value.DataV("NativeUiSignalMetaOnline", Vector.empty), writable = false); case _ => throw new RuntimeException("onlineSignal()") }
     native(context, "persistedSignal") { case Value.StrV(name) :: Value.StrV(default) :: Nil =>
-      val initial = Value.StrV(storage.getOrElse(name, default))
-      makeSignal(name, "persisted", initial, Value.DataV("NativeUiSignalMetaPersisted", Vector(Value.StrV(name))), configure = cell => cell.afterWrite = {
+      // The DECLARED default is the argument; the INITIAL value is storage-or-default. Passing the
+      // latter as the former made the second `persistedSignal("draft", "empty")` after a write
+      // declare "hello" and collide with itself.
+      makeSignal(name, "persisted", Value.StrV(default), Value.DataV("NativeUiSignalMetaPersisted", Vector(Value.StrV(name))),
+                 initial = Some(Value.StrV(storage.getOrElse(name, default))), configure = cell => cell.afterWrite = {
         case Value.StrV(value) => storage(name) = value
         case other => throw new RuntimeException(s"persisted signal '$name' requires String, got ${Show.show(other)}")
       }); case _ => throw new RuntimeException("persistedSignal(name, default)") }
