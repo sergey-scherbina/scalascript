@@ -849,8 +849,23 @@ that does, proven in both directions.
       is narrower than it looked: one signature with a default is still the right shape for a v2
       member, because `getField(name)` produces the value BEFORE arguments exist and every `ClosV`
       carries a fixed arity — that is about the v2 plugin protocol, not about the interpreter.
-- [ ] **`specs/mcp.md` §11 — 13 open design questions**, written before this migration. Some are
-      answered by it; none has been re-read against the code. A review, not a build.
+- [x] **`specs/mcp.md` §11 — the open design questions** ✓ 2026-08-17 — re-read against the tree,
+      every bullet now carries a measured verdict (ANSWERED / UNBLOCKED / STILL OPEN / SUPERSEDED).
+      Three corrections fell out, and the count was one of them: **ELEVEN bullets, not thirteen** —
+      the number lived in this line and had never been recounted.
+      * §11.4's premise is half false. "Hide the init handshake" is not what the code does: three
+        capability predicates read it, and TWO of them (`clientSupportsElicitation`,
+        `clientSupportsTasks`) were implemented on both lanes and declared NOWHERE. Declared here,
+        and the smoke gate now drives all three against a deliberately PARTIAL advertisement
+        (roots + elicitation advertised, tasks not) — a predicate wired to a constant or to the
+        wrong key cannot produce `roots=true elicit=true tasks=false`.
+      * §11.5 is UNBLOCKED, not blocked: it defers "once Generators land" and `std/generators.ssc`
+        ships at 0.1.0. **A deferral with a named precondition has to be re-read when that
+        precondition lands, and nothing did.** Streaming resources are now a build, not a wait.
+      * §11.2 is half answered by `toolWithSchema`, which shipped by another route; what remains is
+        DERIVING the schema from a type.
+- [ ] **Generator-backed streaming resources** — §11.5's precondition is met (`std/generators.ssc`
+      0.1.0) and nothing in `std/mcp/` consumes it. This is the item §11.5 was waiting for.
 - [ ] **User-facing MCP documentation.** `docs/` has no MCP page and MCP has been part of the
       STANDARD surface since 2026-07-31, so the `.ssc` contracts that now matter — `srv.asTask()`,
       the three MRTR modes, and the idempotence precondition two of them carry — live only in

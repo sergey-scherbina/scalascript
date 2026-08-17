@@ -518,14 +518,36 @@ Same shape as Phase 4 but for the Java SDK.
 
 ## 11. Open questions
 
+> **RE-READ AGAINST THE CODE, 2026-08-17.** These were written before the 2026-07-28 migration and
+> before the v2 provider grew its server surface, and nothing had checked them since. Each bullet
+> below now carries a verdict measured against the tree, not against memory. Three corrections came
+> out of the exercise and are worth reading even if the bullets are not:
+>
+> * **There are ELEVEN bullets here, not the thirteen the backlog claimed.** The count was carried
+>   in prose and never recounted.
+> * **§11.4's "hide the handshake" decision has already been partly reversed in practice** — three
+>   capability predicates expose it, and until this review two of them were implemented on both
+>   lanes and DECLARED NOWHERE. Fixed here.
+> * **§11.5's blocker is gone.** It said "tackle once Generators land"; `std/generators.ssc` ships
+>   at 0.1.0. The item moved from blocked to actionable without anyone noticing, which is the
+>   failure mode a deferral with a named precondition has.
+>
+> Verdicts use: **ANSWERED** (the code decided it), **UNBLOCKED** (its stated precondition is now
+> met), **STILL OPEN** (unchanged and still undecided), **SUPERSEDED** (the question no longer
+> applies in the form asked).
+
+
 ### 11.1 API shape — REST vs typeclass vs declarative
 
 Decided: REST-shaped for v1 (§3 rationale).  But:
 
-- **Should the type-class layer ship at v1.17.1, v1.18, or never?**
+- **STILL OPEN.** *Should the type-class layer ship at v1.17.1, v1.18, or never?*
+  Nothing typeclass-shaped exists in `std/mcp/` today; the surface is still the REST-shaped one.
   Depends on whether real apps want typed tool args.  Defer
   the call until v1.17 ships and we see usage.
-- **Declarative (front-matter) tool registration**?
+- **STILL OPEN, leaning to the answer already written.** *Declarative (front-matter) tool
+  registration*? Nothing reads a `tools:` key in `std/mcp/`. The "probably skip" below is unchanged
+  after a year, which is itself an answer.
   `tools:` in YAML front-matter, auto-wired at startup.
   Cute but inconsistent with the REST-shaped runtime API.
   Probably skip.
@@ -535,13 +557,13 @@ Decided: REST-shaped for v1 (§3 rationale).  But:
 Decided for v1: `Map[String, Any]` with `requireString` /
 `requireInt` etc.  Same as v1.15 REST validation.  Open:
 
-- **`tool[WeatherArgs, WeatherResult]("get_weather") { args
-  => … }`** typed form via v1.14 `derives Codec`.  Add when
-  v1.14 lands.
-- **JSON Schema generation from typed args** — derives a
-  `JsonSchema` instance, sends it to the SDK at registration.
-  Powerful but couples MCP layer to `derives`; consider once
-  v1.14 stabilises.
+- **STILL OPEN.** *`tool[WeatherArgs, WeatherResult]("get_weather") { args => … }`* typed form via
+  `derives Codec`. No typed `tool[...]` form is declared in `std/mcp/server.ssc`.
+- **PARTLY ANSWERED.** *JSON Schema generation from typed args.* The half that mattered to callers
+  shipped by another route: `srv.toolWithSchema(name[, description], schema)` publishes a schema to
+  `tools/list` on both lanes. What remains open is DERIVING that schema from a type rather than
+  writing it — so the coupling to `derives` this bullet worried about has not been taken on, and
+  callers are not blocked meanwhile.
 
 ### 11.3 Error handling
 
@@ -550,19 +572,24 @@ Decided: tool/resource/prompt handlers can return
 hard errors (lifted to `isError = true` by the runtime).
 Open:
 
-- **`throws[ToolResult, McpError]`** as the canonical handler
-  return type (v1.15 integration).  Cleaner than the current
-  `Tool.error` factory.  Wait until v1.15 stabilises.
+- **STILL OPEN.** *`throws[ToolResult, McpError]` as the canonical handler return type.* `throws[`
+  appears nowhere in `std/mcp/`; handlers still return `ToolResult` and use the `Tool.error`
+  factory.
 
 ### 11.4 Initialization handshake exposure
 
 Decided: hide the MCP init handshake (capabilities exchange,
 client info) from user code.  Open:
 
-- **`srv.onInitialize { clientInfo => … }`** hook for apps
-  that want to log / restrict / customise per-client?
-  Probably yes but defer to v1.17.1 — needs a concrete use
-  case to design the right shape.
+- **SUPERSEDED IN PART, and the section's premise is now half false.** *`srv.onInitialize
+  { clientInfo => … }`* does not exist. But "hide the MCP init handshake from user code" is no
+  longer what the code does: `clientSupportsRoots`, `clientSupportsElicitation` and
+  `clientSupportsTasks` each read the client's `initialize` capabilities, and the concrete use case
+  the bullet asked for arrived three times over — each predicate exists because a member needed to
+  know whether calling it was pointless. Two of the three were implemented on BOTH lanes and
+  declared nowhere until this review; all three are declared now and driven by the smoke gate
+  against a deliberately PARTIAL advertisement. What is still genuinely open is the general hook:
+  `clientInfo` (name/version) and arbitrary capability keys remain unreachable.
 
 ### 11.5 Streaming responses for large resources
 
@@ -570,21 +597,22 @@ MCP supports streaming resource content for large payloads.
 v1 ships **non-streaming only** (one response = one full
 payload).  Open:
 
-- **Generator-based streaming** via v1.10 `Generator[T]` —
-  `srv.resource("largeData://...") { uri => Generator.of(...).toMcpStream }`.
-  Natural fit; tackle in v1.17.x once Generators land.
+- **UNBLOCKED — its precondition is met.** *Generator-based streaming.* The bullet defers "once
+  Generators land"; `std/generators.ssc` ships at 0.1.0 (`generator { body }` / `suspend(v)` plus
+  `Generator[T]` combinators). Nothing in `std/mcp/` consumes it yet, so the feature is absent, but
+  it is now a build rather than a wait. **A deferral whose precondition is named should be re-read
+  when that precondition lands, and nothing did that here** — this bullet sat blocked-looking for
+  as long as it took someone to check.
 
 ### 11.6 Connection lifecycle for clients
 
 Decided: `mcpConnect(...)` returns an `McpClient`; user
 calls `.close()` explicitly.  Open:
 
-- **`using mcpConnect(...) { client => … }`** RAII-style?
-  Cleaner but requires a `using`-resource construct that
-  doesn't exist today (separate language feature).
-- **Auto-reconnect on transport failure** for long-lived
-  clients.  Useful but specific; add when a real consumer
-  needs it.
+- **STILL OPEN, still correctly blocked.** *`using mcpConnect(...) { client => … }` RAII-style.*
+  The `using`-resource construct still does not exist; the stated blocker is real and unchanged.
+- **STILL OPEN.** *Auto-reconnect on transport failure.* Nothing in `mcp/` or `std/mcp/`
+  reconnects; the only mention is a comment noting that a client *may* reconnect after a drop.
 
 ### 11.7 Authentication
 
@@ -594,9 +622,15 @@ the existing REST auth stack (`req.headers["authorization"]`).
 For stdio, auth doesn't apply (parent process implicitly
 trusted).  Open:
 
-- **Server-side per-tool authorisation** (`srv.tool("admin/op") {
-  args => if !isAdmin(...) then McpError.forbidden(...) }`) —
-  user-implementable today; do we ship a helper?
+- **STILL OPEN, and the section needs a caveat this review found.** *Server-side per-tool
+  authorisation — do we ship a helper?* No helper exists. The caveat: this section says auth is
+  transport-level and "for stdio, auth doesn't apply". That is true, and it has a consequence the
+  section does not draw — **the entire auth surface is unreachable on the v2 provider**, which
+  serves `Transport.Stdio` and refuses every other transport by name, while the validator runs only
+  in `McpServerCore.authorizeHttp`. Filed as
+  `mcp-v2-auth-cannot-be-ported-until-v2-serves-http`. A per-tool helper would be the one form of
+  authorisation that could work on stdio, which makes this bullet MORE interesting than when it was
+  written, not less.
 
 ### 11.8 Logging / observability
 
@@ -609,9 +643,10 @@ Decided: MCP request / response logging hooks into existing
 `std/middleware.ssc` via a `withMcpLog` middleware analogue.
 Open:
 
-- **`mcpServer` `onRequest` / `onResponse` hooks** for
-  structured logging?  Probably; defer specifics to first
-  user request.
+- **STILL OPEN.** *`onRequest` / `onResponse` hooks for structured logging.* Neither exists on the
+  server side. Note the section header above already records that MCP 2026-07-28 deprecated the
+  logging method these hooks were imagined alongside, so the shape should be designed against the
+  modern era's per-request `_meta` level, not against `logging/setLevel`.
 
 ## 12. Conformance plan
 

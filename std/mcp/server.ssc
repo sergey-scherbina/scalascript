@@ -180,7 +180,13 @@ extern class McpServer:
   // a real duplex transport; from a stdio tool handler they will time out.
   //
   // `timeoutMs = 0` means "the builder's own default" for both.
+  // All three capability predicates, declared TOGETHER. Two of them — elicitation and tasks — were
+  // implemented on both lanes and described nowhere, which is how `elicit` and `prompt` started
+  // too. They are named in the prose above and below; being named in a comment is not being
+  // declared. Each answers one question: did the client advertise this in its `initialize`?
   def clientSupportsRoots(): Boolean
+  def clientSupportsElicitation(): Boolean
+  def clientSupportsTasks(): Boolean
   def onRootsListChanged(handler: () => Unit): Unit
   def listRoots(timeoutMs: Long = 0): List[Root]
 

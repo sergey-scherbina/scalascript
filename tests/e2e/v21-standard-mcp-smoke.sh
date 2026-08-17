@@ -474,13 +474,16 @@ def main(): Unit =
   mcpServer(srv =>
     srv.onRootsListChanged(() => srv.notify("notifications/roots-changed", Map()))
     srv.tool("caps")(args =>
-      ToolResult(List(Content.Text("roots=" + srv.clientSupportsRoots().toString))))
+      ToolResult(List(Content.Text(
+        "roots=" + srv.clientSupportsRoots().toString +
+        " elicit=" + srv.clientSupportsElicitation().toString +
+        " tasks=" + srv.clientSupportsTasks().toString))))
     srv.tool("ask")(args =>
       val r = srv.request("sampling/createMessage", Map("k" -> "v"), 1)
       ToolResult(List(Content.Text("unreachable")))))
   serveMcp(Transport.Stdio)
 SSC
-roots_yes='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"capabilities":{"roots":{}}}}
+roots_yes='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"capabilities":{"roots":{},"elicitation":{}}}}
 {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"caps","arguments":{}}}
 {"jsonrpc":"2.0","method":"notifications/roots/list_changed","params":{}}
 {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"ask","arguments":{}}}'
@@ -490,12 +493,16 @@ for lane in --v1 --v2; do
   if [[ $lane == --v1 ]]; then bin="$ROOT/bin/ssc-tools"; else bin="$LAUNCHER"; fi
   printf '%s\n' "$roots_yes" | "$bin" run $lane "$tmp/roots.ssc" >"$tmp/roots$lane.yes" 2>&1 || true
   printf '%s\n' "$roots_no"  | "$bin" run $lane "$tmp/roots.ssc" >"$tmp/roots$lane.no"  2>&1 || true
-  grep -qF '"text":"roots=true"' "$tmp/roots$lane.yes" || {
-    echo "v21-standard-mcp-smoke: clientSupportsRoots did not see the advertised capability on $lane" >&2
+  # ALL THREE predicates, and the advertised set is deliberately PARTIAL: roots and elicitation
+  # yes, tasks no. A predicate wired to the wrong capability key, or to a constant, cannot produce
+  # `roots=true elicit=true tasks=false` — an all-or-nothing case could.
+  grep -qF '"text":"roots=true elicit=true tasks=false"' "$tmp/roots$lane.yes" || {
+    echo "v21-standard-mcp-smoke: the capability predicates misread a PARTIAL advertisement on $lane" >&2
+    echo '  wanted roots=true elicit=true tasks=false' >&2
     tail -3 "$tmp/roots$lane.yes" >&2; exit 1
   }
-  grep -qF '"text":"roots=false"' "$tmp/roots$lane.no" || {
-    echo "v21-standard-mcp-smoke: clientSupportsRoots answered true for a client that advertised nothing on $lane" >&2
+  grep -qF '"text":"roots=false elicit=false tasks=false"' "$tmp/roots$lane.no" || {
+    echo "v21-standard-mcp-smoke: a capability predicate answered true for a client that advertised nothing on $lane" >&2
     tail -3 "$tmp/roots$lane.no" >&2; exit 1
   }
   grep -qF '"method":"notifications/roots-changed"' "$tmp/roots$lane.yes" || {
