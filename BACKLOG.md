@@ -943,12 +943,12 @@ unrelated claim. Blocked on that decision.
 
 ## generated-rust-unreachable-pattern-is-an-unread-diagnostic — rustc names a whole class of walker defects in every build and nothing reads it
 
-<!-- status: open
+<!-- status: fixed
      lane: native
-     area: apparatus
+     area: build
      kind: apparatus
-     gate: -
-     fixed-in: -
+     gate: tests/e2e/rust-std-survey-gate.sh
+     fixed-in: 0f1d8046b
      reported-by: claude-code
      reported-at: 2026-08-16
      ssc-version: 8f8c65b1d
@@ -987,6 +987,37 @@ questions to settle first, and neither is answered here:
 Until then, individual gates assert it for their own crate (`rust-type-pattern-local-val-gate.sh`
 has such a row), which covers one file each and is why this entry exists rather than being closed by
 that gate.
+
+### Measured 2026-08-17 — the corpus is at ZERO, and this entry's own proposal was wrong
+
+**How many corpus crates emit it today: none.** 55 of 55 compiling modules, 0 warnings. So no
+baseline and no ratchet — a check can start green and stay there. The assumption this entry warned
+against ("surely only a few") was not needed; the number is zero, and it is measured.
+
+**But `build-rust` must NOT refuse on it, which corrects the proposal above.** Measured with a plant:
+a three-arm `match` on a Boolean with a trailing `case _` is a LEGAL ScalaScript program, compiles on
+every lane, and emits exactly this warning. Failing the compiler on it would break working user code
+to catch a codegen defect. So the check went into `rust-std-survey-gate.sh`, over the corpus we own —
+where an unreachable arm really does mean the walker lost a discriminator — and it costs NOTHING
+extra, because that sweep already builds all 132 modules and the warning is already in the log it
+already captures.
+
+**THE FIRST PLANT DID NOT FIRE, AND THAT IS THE PART WORTH CARRYING.** I added a dead-armed
+`def __plantDead` to `std/bench.ssc`, rebuilt, ran the survey — GREEN. The check was not blind; the
+PLANT was. The walker does not emit an unreferenced def, so `__plantDead` never reached rustc
+(`grep -c '__plantDead'` in that build log: 0). A plant has to land in code that is actually EMITTED.
+The second — a redundant `case _` inside `isRight` in `std/either.ssc`, a def the module really
+emits — produced 1 warning and turned the survey RED, naming the file and the count. Reading the
+first green as "corpus clean, check works" would have shipped a check that cannot fail.
+
+**Still not done, deliberately:** the other lints. `unused_variables` fires on every emitted arm
+binder and is noise; `unreachable_code` may deserve the same argument. They need the same
+measure-first treatment and are not bundled here.
+
+**Verified:** `rust-std-survey-gate.sh` PASS on a clean tree — 77 REFUSED / 55 COMPILES, BADRUST not
+grown, no unreachable arms. Plant control: exit 1 with `std/either.ssc  1 warning(s)`. Instrument
+control: the same plant built standalone shows the warning the gate's grep counts, so the zero is a
+measurement rather than a silence.
 
 ## json-parse-has-no-fallible-spelling — a caller cannot ask "was this text JSON at all?": the strict parse aborts and the tolerant one answers `isNull` for invalid input AND for the literal `null`
 

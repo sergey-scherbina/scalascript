@@ -10,7 +10,7 @@ Newest first.
 ## v2-persisted-signal-declares-its-stored-value-as-its-default — declared and initial are separate now
 
 <!-- status: fixed
-     lane: v2
+     lane: multi
      kind: bug
      area: runtime
      fixed-in: efb22941b
