@@ -324,6 +324,20 @@ array per call would otherwise make every call-heavy program worse to speed up a
 The design above was implemented, measured and **reverted from the executor**. The analysis stays,
 the lane does not.
 
+> **SO "STILL OWED" MEANS A RE-IMPLEMENTATION, NOT A RE-RUN — and half of it is still here.**
+> Checked 2026-08-17 on the quietest window this file has seen (load 6.9). What survives is the
+> ANALYSIS: `Specialize.longBanks(m, f)` still computes, per register, whether every write to it is a
+> proved `I64`, and `Specialize` still uses it — but only to COUNT (`longs`/`total`, the 34.5 % figure
+> quoted above). What was reverted is the executor's half: `grep -c 'longBank\|banks' v3/src/Exec.scala`
+> is 0, so nothing reads the answer, and there is no flag to turn one on: no env var switches v3's
+> executor behaviour (`Loader`'s `SSC_STD`/`SSC3_PRELUDE` locate files; `Exec`'s `sys.env` implements
+> the `env()` intrinsic), and toggles are CLI flags on `Main` by design.
+>
+> That matters for the estimate in both directions. J1b was re-run on a quiet host and overturned the
+> board, which is why the table asks for the same here — but J1b's executor code was still in the
+> tree and J1c's is not. Whoever takes it writes the two-bank frame again, against an analysis that
+> is already there and already measured.
+
 **The mechanism did exactly what it promised.** `arith-loop` went from ~4 087 MB of young generation
 to **~391 MB — 10.5× less allocated** — with the answers unchanged. That number is load-independent
 and it is not in dispute.
@@ -362,8 +376,15 @@ existing dispatch *inlinable*. The executor is dispatch-bound, and the dispatch 
 **What that says to do next, and it is not more of this:** stop trying to make a dispatch cheaper
 and reduce the NUMBER of dispatches. Superinstructions — fusing `Bin(Lt); BrIf` and `Const; Bin`
 into single instructions at load time — keep the exact loop J0c tuned and simply push fewer
-instructions through it. That is the one item from §3 J1 that was never built, and it is now the
-only one the evidence points at.
+instructions through it.
+
+> **BUILT SINCE, 2026-08-15 — do not read the paragraph above as an open invitation.** The
+> `Bin(cmp); BrIf` half is in the executor as `fuseCmpBr` (`5ef9c49af`; search this file for
+> `fuseCmpBr` — its section numbers are not sequential, so a `§n` here would rot): `arith-loop`
+> 20 of 20 at 0.770 with the control at exactly 10 of 20, p ≈ 9.5e-7. `Const; Bin` is the half still
+> unbuilt, and the loop-invariant const hoist (J4a) already removes much of what it would have
+> caught, so measure before assuming anything is left there. Corrected because this sentence read
+> "never built" for a day after it was, and a reader following it would have rebuilt it.
 
 ## 10 · J1d — fewer instructions, and the honest state of the ladder
 

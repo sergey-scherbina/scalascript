@@ -225,11 +225,18 @@ object Cli:
     * hands a module to the executor has to agree about whether the pass ran — two subcommands
     * answering differently is the shape this repository keeps paying for.
     *
-    * A CLI FLAG AND NOT AN ENV VAR, deliberately. The v3 kernel reads no environment anywhere
-    * (`grep -rn 'sys.env\|getenv' v3/src` is empty), and it must run on ScalaScript 2 as well as on
+    * A CLI FLAG AND NOT AN ENV VAR, deliberately. No env var switches EXECUTOR BEHAVIOUR, and it
+    * must run on ScalaScript 2 as well as on
     * scalac — invariant I-2. Putting an ambient toggle in `Exec` would add a host dependency to the
     * most portability-sensitive file in the module to save typing a flag. `Main` is the driver: it
     * already parses arguments and reads files, so the choice belongs to it.
+    *
+    * This used to read "the v3 kernel reads no environment anywhere (`grep -rn 'sys.env|getenv'
+    * v3/src` is empty)". That grep now returns five lines and the sentence was quoted onward as
+    * fact, so it is narrowed to what is actually true and checkable: `Loader` reads `SSC_STD` and
+    * `SSC3_PRELUDE` to LOCATE files, and `Exec` reads `sys.env` only to implement the `env()`
+    * INTRINSIC — a language feature, not a switch. A comment that states a grep result dates
+    * itself; state the invariant instead.
     *
     * `--no-specialize` is what makes the A/B possible at all: it is the OFF arm of every measurement
     * of this tier, and the two arms have to be the same binary.
