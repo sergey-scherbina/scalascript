@@ -259,188 +259,41 @@ dropped by four and said nothing about one cause.
 **Fixed** by removing the four rows, with the mechanism recorded above the list so the next reader
 does not re-derive it. Gate GREEN locally: "the two fronts differ on exactly the declared rows".
 
-## v3-workflow-is-cancelled-before-it-can-report — 5 usable verdicts in 100 runs, so v3's gates protect almost nothing
+## v3-workflow-is-cancelled-before-it-can-report — closed on the measurement it asked for: zero
 
-<!-- status: open
-     kind: apparatus
+<!-- status: fixed
      lane: v3
+     kind: apparatus
      area: build
+     fixed-in: d2c84c5a2
      gate: .github/workflows/v3.yml
      found-by: claude-code
      found-at: 2026-08-15 -->
 
-> **UPDATE 2026-08-15, AND THE PREVIOUS FIX DID NOT MOVE THE NUMBER.** Split at the moment
-> `ac924a416` landed (18:37Z), the 100-run window reads:
->
->     before   83 runs   cancelled 63   failure 15   success  5
->     after    17 runs   cancelled 12   failure  2   success  2
->
-> **THIS CONFIRMS THE DIAGNOSIS ALREADY IN THIS ENTRY, it does not replace it.** The paragraph below
-> had already worked out that a pending run is evicted regardless of `cancel-in-progress`; what was
-> missing was a count and a way to tell "pending" from "running" apart. Both now exist: ALL TWELVE
-> post-fix cancellations had a newer run created on the same branch while they were still alive, and
-> — the decisive one — **a cancelled run has ZERO JOBS**. `/actions/runs/<id>/jobs` returns an empty
-> array for every cancelled run and two jobs for a completed one, so those runs never executed a
-> single step. `startedAt` is useless here because the API sets it equal to `createdAt` whether or
-> not anything ran; the job count is the instrument that actually distinguishes the two states.
->
-> **THE TIMEOUT SUSPECT NAMED BY THE PREVIOUS ROUND IS REFUTED**, and it was the right one to check
-> first — a job timeout does surface as `cancelled` in this account's history. The durations rule it
-> out here: a timeout dies at 45 or 60 minutes and these die at 7.
->
-> **ONE CHANGE, AND IT IS THE OWNER'S LEVER RATHER THAN MINE.** The trigger no longer fires on `.md`
-> under `v3/`: of the 85 commits touching the trigger paths in three days, FORTY changed only board
-> files, and every step in this suite runs a `v3/*.sh` gate against code — checked step by step, not
-> assumed. That is the largest remaining cut in arrivals and it costs no coverage, because a heading
-> cannot fail a gate.
->
-> **THEN THE GROUP WAS CHANGED TOO, ON THE OWNER'S DECISION, AND THE COST IT WAS WEIGHED AGAINST
-> DOES NOT EXIST.** Every previous round treated "fewer arrivals" as the cheap lever and per-commit
-> groups as the expensive one. This repository is PUBLIC, and GitHub charges no minutes for standard
-> runners on a public repository — so the expensive option was free all along, and three rounds of
-> this entry optimised against a bill nobody pays. Checked with `gh repo view --json visibility`
-> rather than assumed in either direction.
->
-> The real limit is the account's concurrent-JOB cap of 20, and this workflow runs two jobs, so ten
-> runs can execute at once against ~15 commits a day reaching these paths. Beyond that cap GitHub
-> QUEUES rather than cancels, so the worst case is slowness, not a lost verdict.
->
-> **INTERIM MEASUREMENT, 2.5 HOURS AFTER `d2c84c5a2` — the prediction is holding and this is NOT yet
-> the closing evidence.** Ten runs since the group changed: NINE `success`, one still running, and
-> **zero `cancelled`**, all of them `push` events. Against 75 cancelled in the preceding 100 that is
-> the shape predicted, and the mechanism is structural rather than statistical — no two pushes share
-> a group now, so eviction cannot happen at all.
->
-> It stays open anyway, because this entry has been closed and reopened on premature evidence twice
-> and its own rule asks for a day. Ten runs cannot distinguish "fixed" from "a quiet couple of
-> hours"; what would is the same command a day out, split at this commit's time. Recorded now so the
-> next reader inherits a number rather than an intention.
->
-> **STILL OPEN, AND THE PREDICTION IS SHARPER NOW SO IT CAN FAIL CLEANLY.** With one group per commit
-> on `main`, eviction is structurally impossible: `cancelled` on a push event should go to ZERO, and
-> anything that remains is a genuine cancellation — a run killed by hand, or the 45/60-minute job
-> timeout, which is a different defect wearing the same word. Re-measure with
-> `gh run list --workflow v3.yml --limit 100 --json conclusion,createdAt` after a day and SPLIT at
-> this commit's time; an unsplit window now mixes FOUR policies and says nothing. For any cancelled
-> run that remains, read its job count — zero jobs means eviction is somehow still happening and this
-> diagnosis is wrong; two jobs means it ran and died of something else.
->
-> **Not `no group at all`, which is what `smoke.yml` carries and what this entry points at.** That
-> position rests on a premise this suite does not share: smoke is ONE job of ~6 minutes that skips
-> sbt on a cache hit, so 25 runs/hour is affordable. This is ~26 minutes and builds an sbt project
-> before its first gate. `ci.yml` uses `false` for its heavy jobs for the same reason. The cure was
-> already in the repository; the premise had to be checked before copying the conclusion.
->
-> If `cancelled` stays high after this, concurrency is no longer the cause and the next suspects are
-> the 45-minute job timeout and the account's concurrent-job budget — neither of which that line can
-> fix.
->
-> **RE-MEASURED 2026-08-15, AND `cancel-in-progress: false` IS NOT ENOUGH — the paragraph above sends
-> the next reader to the wrong suspects.** Two runs whose sha CONTAINS `ac924a416` were cancelled
-> anyway (`063849133`, `c9ee83035`), so it is still concurrency and not the job timeout. The timing
-> says how: every cancelled run dies within ~1–20 seconds of the NEXT run being created, and the only
-> runs that reach a conclusion are the ones with no push behind them. `cancel-in-progress: false`
-> protects the run that is EXECUTING; a run that arrives while the group is busy goes **pending**, and
-> a pending run in a concurrency group is cancelled by the next arrival regardless of that setting.
-> With ~26-minute runs arriving in bursts, most runs are pending, so most are still cancelled.
->
-> So the choice is real, not a setting: keep the group and accept that only the newest pending run
-> survives — the TIP is always tested, intermediate commits never are — or drop the group and pay for
-> parallel runners. Whoever picks, measure again; the number to watch is unchanged.
->
-> **THE TRADE IS TAKEN, 2026-08-15: `v2/**` IS OUT OF THE PUSH TRIGGER AND THE SUITE RUNS NIGHTLY.**
-> Owner's decision, asked because the alternatives cost different things and neither is free. The
-> number that decided the shape: of the last 300 commits on `main`, 48 trigger this workflow — 32
-> touch `v3/`/`uniml/`, 16 touch `v2/` and nothing under `v3/` or `uniml/`, and the intersection is
-> ZERO. So this removes one arrival in three, and a third fewer arrivals is a third fewer pending
-> runs for the next push to evict.
->
-> **What it costs is named rather than hidden:** those 16 are exactly the population that once let a
-> lane divergence live for four commits — a change to the bridge's runtime with no v3 file beside
-> it. They are DEFERRED, not dropped: `schedule` at 03:17 UTC runs the whole suite nightly, so v2
-> drift surfaces within a day, and `workflow_dispatch` is the button for anyone who wants the answer
-> now. Editing a v3 file to provoke a run is the thing that button exists to replace.
->
-> **INTERIM MEASUREMENT, 2026-08-16 ~23:00Z — the number moved, and this stays open anyway.**
-> Last 100 runs: **success 9, failure 16, cancelled 72** against the 5 / 19 / 76 this entry was filed
-> on. Sliced by when each change landed:
->
-> | window | runs | success | failure | cancelled |
-> |---|---|---|---|---|
-> | since `cancel-in-progress: false` (18:37Z) | 21 | 4 | 2 | 12 |
-> | since the trigger narrowing (20:37Z) | 14 | 3 | 0 | 8 |
->
-> Two effects, and they are separable. The FAILURES went to zero because
-> `v3-capability-list-outlived-the-divergence-it-declared` was fixed — the suite was red on four
-> declared-but-closed divergences, and once it could finish it was finishing red. The CANCELS are
-> still the majority, at a rate consistent with a third fewer arrivals rather than with a cure.
->
-> **This is not the measurement that closes it.** The window is about two hours and is dominated by
-> my own push burst, which is exactly the traffic shape the entry blames. Re-measure a day out, on
-> the same instrument, before deciding whether the remaining cancels justify dropping the group.
->
-> **CLOSE THIS** when `gh run list --workflow v3.yml --limit 100 --json conclusion` shows `success`
-> well above 5 in 100 — the same instrument as the original measurement, at least a day later so the
-> window is not dominated by today's bursts. If `cancelled` is still the majority with a third of
-> the arrivals gone, then arrivals were never the binding constraint and the next thing to measure
-> is how long a run sits PENDING before it starts.
->
-> **What the change DID buy, measured the same day:** the suite now reaches a conclusion often enough
-> to report, and what it reports is RED — 10 failures in the last 40 runs where previously there were
-> almost none to read. The failing job is `front-capability-gate.sh`, for a real and self-inflicted
-> reason: see `v3-capability-list-outlived-the-divergence-it-declared`. A suite that cannot finish
-> cannot tell you it is red, which is the cost this entry is about.
+**CLOSED ON THE MEASUREMENT THIS ENTRY DEMANDED, a day out and split at the fix, exactly as written:**
 
-**`.github/workflows/v3.yml` almost never finishes.** Measured 2026-08-15 over its last 100 runs
-(2026-08-12 → 2026-08-15, `gh run list --workflow v3.yml --limit 100`):
+    before d2c84c5a2   76 runs   cancelled 56   failure 11   success  9
+    after              24 runs   cancelled  0   failure  2   success 22
 
-| conclusion | runs |
-|---|---|
-| cancelled | 76 |
-| failure | 18 |
-| **success** | **5** |
-| in progress | 1 |
+On push events alone: 20 success, 2 failure, **zero cancelled**. The prediction recorded here was
+"`cancelled` on a push event should go to ZERO", and it did — not fell, went to zero, because with
+one concurrency group per commit eviction is structurally impossible rather than merely less likely.
 
-The mechanism is stated in the file itself: `concurrency: group: v3-${{ github.ref }}` with
-`cancel-in-progress: true`. Every push to `main` evicts the run in flight, and main's push interval
-is shorter than the suite — selftest, executor differential, bridge, parity, front, front report,
-plus a `v3/uniml-classpath.sh` step that builds an sbt project first. So the gate that owns v3's
-correctness reports on about one commit in twenty, and 76 % of its history reads as RED without
-having tested anything.
+**THE TWO FAILURES ARE THE POINT.** A suite that reports 2 real reds out of 24 is protecting v3; the
+one that reported 9 usable verdicts in 100 runs was not. What the entry set out to fix was never the
+colour, it was the silence.
 
-**THIS REPOSITORY HAS ALREADY DIAGNOSED AND CURED THIS EXACT DISEASE ONCE.** `scripts/smoke-ci`'s
-own header records why the push path was restructured on 2026-08-01: *"of the last 100 `ci.yml`
-runs: 83 cancelled, 4 failure, 0 success. A suite that cannot finish inside the push interval does
-not give a verdict on most commits — and `cancelled` reads as RED, so it was also manufacturing
-reds for commits that were fine."* The numbers here are 76/18/5 against that 83/4/0. It is the same
-shape, in a workflow that was not part of that change.
+**THE FIX WAS THE OPTION THREE ROUNDS HAD REJECTED, and the reason they rejected it did not exist.**
+Each round treated per-commit groups as the expensive lever and "fewer arrivals" as the cheap one,
+reasoning carefully about runner budget. This repository is PUBLIC and GitHub bills no minutes for
+standard runners on a public repository — one `gh repo view --json visibility` settles it, and no
+round made that call until the owner answered from memory when finally asked.
 
-**Found while trying to read a verdict on my own commit** (`v3-opaque-type`, `28c34951e`). Its
-`v3.yml` run was cancelled; so was the run for `62c3ec562`; so were the twenty most recent runs
-without exception. There was no green descendant to fall back on either, which is the usual escape
-— the escape assumes SOME run completes.
-
-**A dispatched run does not currently escape it.** `AGENTS.md` recommends
-`gh workflow run … --ref main` when a push gives no verdict, on the grounds that `workflow_dispatch`
-has its own per-SHA concurrency group. That is true of `ci.yml`; here the group is
-`v3-${{ github.ref }}` with no event or SHA in it, so a dispatched run on `main` shares the group
-with pushes and is evicted the same way.
-
-**Consequence, and why this is worse than a slow gate.** `v3/front-gate.sh` is the only thing that
-runs v3's fixtures in CI, and it is also the only thing that exercises the UniML front there (the
-workflow registers it deliberately). Both are effectively unwatched. Two live examples from the
-same evening: `v3-workflow-does-not-trigger-on-uniml-and-uniml-is-half-of-what-the-front-gate-runs`
-(filed beside this one) means a uniml-only change is not even scheduled; this entry means that when
-it IS scheduled, it is cancelled anyway.
-
-**Done when** `v3.yml` produces a usable verdict on a normal commit — measurable the same way, as a
-success rate over the next 100 runs rather than as a green on one SHA. Three shapes worth weighing,
-deliberately not chosen here because each spends someone else's time: put the SHA in the concurrency
-group so runs queue instead of evicting (most faithful, most runner-minutes); drop
-`cancel-in-progress` and accept a backlog; or split the suite the way the push path was split on
-2026-08-01 — a fast subset on push, the full set nightly and on dispatch — which is the option this
-repository already chose once for the same numbers.
-
+**WHAT REMAINS TRUE AND WORTH KEEPING.** The trigger no longer fires on `.md` under `v3/` (40 of 85
+commits in three days were board-only edits, and no gate step reads a board file), and a pull request
+still cancels the run for a commit it replaces, because only a branch tip needs an answer. The real
+limit is now the account's 20-concurrent-job cap against two jobs per run, and past it GitHub QUEUES
+rather than cancels — slowness, not a lost verdict.
 ## v3-parser-rejects-opaque-type — `opaque` fell through to the expression parser, and the tool could not read its own standard library
 
 <!-- status: fixed
