@@ -34,6 +34,16 @@ function _tupleConcat(a, b) {
   // `++` never reaches `_dispatch` for arrays — JsGen emits a direct `_tupleConcat` call — so the
   // Set arm in the dispatcher could not see it and the result came back a List.
   if (_isSet(a)) return _setOf(...a, ...(Array.isArray(b) ? b : [b]));
+  // `"x" ++ "y"` IS "xy". Two strings fell through to the array path below, which wraps each
+  // non-array and marks the result `_isTuple` — so a string chain printed `(x, y)` here while the
+  // interpreter, the native lane and jvm (real Scala, where a String is a Seq[Char]) all print
+  // `xy`. Measured on a fresh build of all four lanes, 2026-08-17.
+  //
+  // BOTH SIDES, deliberately. `"x" ++ 1` and `"x" ++ List(1)` are NOT touched: the answering lanes
+  // disagree three ways on those (`x1` / `(x, 1)` / `(x, 1)` and `xList(1)` / `(x, List(1))` /
+  // `List(x, 1)`), so picking one here would be inventing a fourth rather than joining a consensus.
+  // Filed with the full matrix as `mixed-concat-operands-mean-three-things-on-three-lanes`.
+  if (typeof a === 'string' && typeof b === 'string') return a + b;
   const aArr = Array.isArray(a) ? a : [a];
   const bArr = Array.isArray(b) ? b : [b];
   const r = [...aArr, ...bArr];

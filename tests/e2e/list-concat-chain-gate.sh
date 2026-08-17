@@ -114,8 +114,20 @@ run_lane "bytecode " "$ssc" run --bytecode
 # (v2/BUGS.md js-string-concat-chain-answers-a-tuple).
 if [ -x "$tools" ] && command -v node >/dev/null 2>&1; then
   run_lane "js       " "$tools" run-js --v2
+  # THE v1 JS LANE TOO, added 2026-08-17, and the note above was wrong about what it is. It called
+  # `bin/jssc` "the deprecated v1 hybrid" and left the whole v1 emitter unmeasured — but `run-js`
+  # without `--v2` and `emit-js` are that same emitter, and `emit-js` is how the CONFORMANCE suite
+  # defines its js column (`tests/conformance/run.sc`). So the lane this gate skipped is the lane
+  # 211 corpus cases are scored on.
+  #
+  # It skipped it because row 3 was RED there — `"x" ++ "y" ++ "z"` answered `(x, y, z)`, a tuple —
+  # which is exactly what a gate should be reporting rather than routing around. Fixed in
+  # `core-collections.mjs` (v2/BUGS.md `js-string-concat-chain-answers-a-tuple`); all seven rows
+  # agree here now, so adding the lane costs nothing and closes the hole that let the defect live
+  # for eight days with a green gate beside it.
+  run_lane "js-v1    " "$tools" run-js
 else
-  echo "note: run-js --v2 not measured (needs the optional tools tier and node)"
+  echo "note: run-js not measured (needs the optional tools tier and node)"
 fi
 
 if [ "$fail" -ne 0 ]; then
