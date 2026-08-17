@@ -3439,6 +3439,7 @@ it resolves through `OAuthBridge.authServers`, and `v2/runtime/providers/` has n
      found-by: claude-code
      found-at: 2026-08-16
      fixed-at: 2026-08-17
+     fixed-in: aae4ef34ccc90fe8941aab5de8327df150767e03
      ssc-version: c5615f9ca
      repro: the driver in the body
      confirmed: yes -->
