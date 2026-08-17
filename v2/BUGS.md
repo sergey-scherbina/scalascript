@@ -10,7 +10,7 @@ Newest first.
 ## v2-ui-provider-lacks-forJsonView-and-blocks-eight-unrelated-tests — five primitives, and each needs THREE parts
 
 <!-- status: open
-     lane: v2
+     lane: native
      kind: bug
      area: runtime
      gate: v3/corpus-report.sh (tkv2-button-size and seven more)

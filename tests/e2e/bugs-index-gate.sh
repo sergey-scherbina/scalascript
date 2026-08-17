@@ -113,9 +113,18 @@ for head, body in entries:
     if st is not None and st not in STATUS:
         problems.append((slug, f"status `{st}` not in {sorted(STATUS)}"))
     if fields.get("lane") not in (None,) and fields["lane"] not in LANE:
-        problems.append((slug, f"lane `{fields['lane']}` not in the enum"))
+        # NAME THE ENUM, the way `status` and `kind` already do. "not in the enum" sent three
+        # different agents to read this script on 2026-08-17 alone, and all three had written the
+        # same value: `lane: v2`. That is not carelessness, it is what the project calls the thing
+        # in prose everywhere else, so the hint below names the two it can mean rather than making
+        # the reader guess which half of the split applies.
+        hint = ""
+        if fields["lane"] == "v2":
+            hint = (" — `v2` is not a lane here: the v2 INTERPRETER on the JVM is `v2-jvm`, "
+                    "a v2 native/plugin defect is `native`")
+        problems.append((slug, f"lane `{fields['lane']}` not in {sorted(LANE)}{hint}"))
     if fields.get("area") not in (None,) and fields["area"] not in AREA:
-        problems.append((slug, f"area `{fields['area']}` not in the enum"))
+        problems.append((slug, f"area `{fields['area']}` not in {sorted(AREA)}"))
     if fields.get("kind") is None:
         problems.append((slug, "no `kind:` — required since 2026-08-16; see specs/bugs-index.md"))
     elif fields["kind"] not in KIND:
@@ -275,6 +284,18 @@ Prose starts here with no terminator above it. Before 2026-08-04 this PASSED: th
      lane: int
      area: runtime -->
 
+## bad-lane — `v2`, the value three agents wrote in one day; the message must NAME the enum
+<!-- status: open
+     kind: bug
+     lane: v2
+     area: front -->
+
+## bad-area — an area outside the enum; same check, other field
+<!-- status: open
+     kind: bug
+     lane: native
+     area: parser -->
+
 ## bad-no-kind — no kind at all, which every other planted entry now avoids on purpose
 <!-- status: open
      lane: int
@@ -308,7 +329,13 @@ STALE
   # and the absence message are different checks, and an entry with no kind at all used to trip
   # NEITHER. Asserting only the shared substring would let the required-kind check be deleted while
   # this self-test stayed green.
-  for want in "no header comment" "not in" "requires" "not a commit sha" "not terminated" "no \`kind:\`"; do
+  # `v2-jvm` and `conformance` are asserted BY NAME, and that is the point of the two fixtures above:
+  # the lane and area checks already rejected bad values, they just would not say WHAT was allowed.
+  # A substring like "not in" passes either way, so it cannot tell a helpful message from a useless
+  # one — only demanding a member of the enum in the output can. `v2` also gets its own hint, since
+  # it is the value that actually keeps being written.
+  for want in "no header comment" "not in" "requires" "not a commit sha" "not terminated" "no \`kind:\`" \
+              "v2-jvm" "conformance" "not a lane here"; do
     if ! printf '%s' "$out" | grep -q "$want"; then
       echo "SELF-TEST FAILED: expected a problem mentioning '$want'"; exit 1
     fi
@@ -335,7 +362,7 @@ STALE
   elif ! printf '%s' "$out" | grep -q "STALE? \[stale-open-entry\]"; then
     echo "SELF-TEST FAILED: the stale-open report did not name an entry whose fix has landed"; exit 1
   fi
-  echo "--- self-test ok (7 planted defects all caught); checking ${#FILES[@]} file(s) ---"
+  echo "--- self-test ok (9 planted defects all caught); checking ${#FILES[@]} file(s) ---"
 fi
 
 run_check "${FILES[@]}"

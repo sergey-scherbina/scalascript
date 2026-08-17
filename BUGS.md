@@ -1609,6 +1609,54 @@ was built from `4b717804c` while its HEAD was `b1cb21fe6`, and the gate exports
 argument that actually holds is the reachability one above. A gate that silences the build check
 cannot be used as a control without rebuilding first.
 
+## bugs-index-gate-hides-the-enum-it-rejects-against — three agents, one day, the same rejected value
+
+<!-- status: open
+     lane: apparatus
+     area: docs
+     kind: apparatus
+     gate: tests/e2e/bugs-index-gate.sh --self-test
+     fixed-in: -
+     reported-by: claude-code
+     reported-at: 2026-08-17
+     repro: tests/e2e/bugs-index-gate.sh --self-test, fixtures `bad-lane` and `bad-area`
+     impact: none -->
+
+On 2026-08-17 three different agents wrote `lane: v2` in a new entry and turned `bugs-index-gate`
+RED on main — me first, then `rust-unreachable-census`, then `v2-ui-forjsonview`, each within a few
+hours of the last. Each had to open the script to find out what was allowed.
+
+That is not three careless agents. **`v2` is what this project calls the thing in prose
+everywhere** — "the v2 lane", "the v2 front" — while the enum splits it into `v2-jvm` and `v2-rust`,
+and a plugin defect belongs to neither (`native`). The gate said only:
+
+```text
+lane `v2` not in the enum
+```
+
+`status` and `kind` in the very same function already print their allowed values
+(`not in {sorted(STATUS)}`). Lane and area did not — an asymmetry nobody chose, and the one that
+happened to cover the field people get wrong.
+
+**The self-test had no fixture for either check**, which is why the message quality was never
+exercised: the checks were known to REJECT, but nothing asserted they explained. Both now have one,
+and the assertion demands a MEMBER of the enum in the output (`v2-jvm`, `conformance`) rather than
+the substring `not in`, which passes either way and cannot tell a helpful message from a useless one.
+Verified in the failing direction: with the old messages restored the self-test fails on
+`expected a problem mentioning 'v2-jvm'`.
+
+`v2` additionally gets a named hint, because it is the value that actually keeps being written:
+
+```text
+lane `v2` not in ['apparatus', 'int', … 'v2-jvm', 'v2-rust', 'v3'] — `v2` is not a lane here:
+the v2 INTERPRETER on the JVM is `v2-jvm`, a v2 native/plugin defect is `native`
+```
+
+**The board was unstuck in the same commit.** `v2/BUGS.md`'s `v2-ui-provider-lacks-forJsonView…`
+still carried `lane: v2` and no claim held that file any more. Set to `native` — it is a
+`UiNativePlugin` registration gap, the same lane as the sibling entry about that plugin, rather than
+to `v2-jvm` which I typed first and corrected after reading what the entry is actually about.
+
 ## uniml-markdown-left-the-portable-subset-while-its-guard-ran-nowhere
 
 <!-- status: fixed
