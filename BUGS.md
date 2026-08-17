@@ -3228,7 +3228,7 @@ lines of `awk` plus `test -f` would have caught all 107 the day the first one br
 
 ---
 
-## mcp-v2-auth-cannot-be-ported-until-v2-serves-http — the members would set state nothing reads
+## mcp-v2-http-transport-has-no-sse — no server-to-client channel, so notify and the blocking asks stay one-way
 
 <!-- status: open
      lane: v2-jvm
@@ -3236,7 +3236,42 @@ lines of `awk` plus `test -f` would have caught all 107 the day the first one br
      kind: feature
      gate: none
      found-by: claude-code
+     found-at: 2026-08-17
+     repro: the body
+     confirmed: yes -->
+
+`Transport.Http` on the native provider answers one JSON-RPC frame per POST. `Accept:
+text/event-stream` gets that same single reply — there is no held-open stream.
+
+CONSEQUENCE, stated because the transport landing makes it easy to assume otherwise: nothing the
+SERVER initiates reaches an HTTP client. `srv.notify(...)` and the list-changed notifications go
+nowhere, and `elicit` / `listRoots` / `request` still cannot receive an answer — over HTTP they fail
+for a different reason than over stdio (no channel, rather than the deadlock in
+`mcp-elicit-deadlocks-the-serve-loop`) but they fail either way.
+
+v1's route HAS this: `McpIntrinsics` checks `Accept` for `text/event-stream`, returns a
+`StreamResponse`, and wires `builder.addSubscriber` / `McpServerCore.openSubscription` to the
+stream. So the server-side machinery exists in mcp-common; what the native provider lacks is the
+streaming response, which `com.sun.net.httpserver` can do (`sendResponseHeaders(200, 0)` then keep
+writing) but which needs the subscriber lifetime handled — a client that disappears is a
+cancellation, not an error to swallow, and v1's route comments say so at length.
+
+Deliberately left out of the transport claim rather than half-built: a stream whose teardown is
+wrong is worse than no stream.
+
+---
+
+## mcp-v2-auth-cannot-be-ported-until-v2-serves-http — the members would set state nothing reads
+
+<!-- status: fixed
+     lane: v2-jvm
+     area: runtime
+     kind: feature
+     gate: tests/e2e/v21-standard-mcp-smoke.sh
+     found-by: claude-code
      found-at: 2026-08-16
+     fixed-at: 2026-08-17
+     fixed-in: f6a51988c
      repro: read the two call sites named below
      confirmed: yes -->
 
@@ -3269,6 +3304,17 @@ SO THE ORDER IS: v2 gains an HTTP transport first; the six validator/metadata me
 are gateable the day it exists; `useAuthServer` additionally waits on a v2 oauth plugin. Recorded
 as a FEATURE gap rather than a bug: nothing is broken, and the six members are absent for a reason that
 would not be improved by adding them.
+
+
+FIXED — the order the entry named turned out to be the right one, and both halves landed together
+because neither can be shown to work alone. `Transport.Http` now serves on the native provider, and
+six of the seven members came with it: `setTokenValidator`, `useHmacValidator`, `setAuthRealm`,
+`setProtectedResourceMetadata`, `authEnabled`, `currentAuth`. Measured against one running server —
+no token 401 with `WWW-Authenticate`, a rejected token 401, an accepted token 200 and the tool's
+answer.
+
+`useAuthServer` is STILL absent, for the second blocker this entry named and which has not moved:
+it resolves through `OAuthBridge.authServers`, and `v2/runtime/providers/` has no oauth plugin.
 
 ---
 
