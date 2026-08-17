@@ -7,6 +7,36 @@ grepping for status.
 
 Newest first.
 
+## v2-ui-provider-lacks-forJsonView-and-blocks-eight-unrelated-tests — one name, eight cases
+
+<!-- status: open
+     lane: v2
+     kind: bug
+     area: runtime
+     gate: v3/corpus-report.sh (tkv2-button-size and seven more)
+     found-by: claude-code
+     found-at: 2026-08-17 -->
+
+**`std/ui/primitives.ssc:111` declares `extern def forJsonView(items: Signal[String], key: String,
+render: Any => View): View` and `UiNativePlugin` never implemented it.** `std/ui/lower.ssc:209` calls
+it, so EVERY program importing the UI lowering reaches the name — and the refusal is positioned and
+honest, which is why it went unnoticed as a single-name problem.
+
+**EIGHT CORPUS CASES STAND ON IT AND NONE OF THEM IS ABOUT IT:** `tkv2-button-size`,
+`tkv2-button-variant`, `tkv2-keyed-for`, `tkv2-raw-html`, `tkv2-select`, `tkv2-select-reactive`,
+`tkv2-textfield-reactive-label`, `tkv2-tri-state`. It is the largest single named gap left in the
+host-function bucket, at eight against two for the next.
+
+**IT IS A DESCRIPTOR, NOT AN ALGORITHM, which is what makes it small.** Its twin `forKeyedView`
+(`UiNativePlugin.scala:645`) packages `NativeUiForKeyed(site, items, keyClosure, renderClosure)` and
+does no diffing whatsoever — the CONSUMER does that. `forJsonView` differs only in taking a field
+NAME where the twin takes a key closure.
+
+**WHAT IS NOT COVERED BY WRITING IT:** the descriptor's consumers — `SwiftNativeUiApple` and
+`SwiftNativeUiHost` — would not know the new tag. Whether the eight cases need that depends on what
+they assert, and unblocking them is what will show it: this is the "unblocking reveals the next
+defect" shape, and the floors are the instrument.
+
 ## v2-persisted-signal-declares-its-stored-value-as-its-default — declared and initial are separate now
 
 <!-- status: fixed
