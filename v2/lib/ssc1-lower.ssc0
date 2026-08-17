@@ -6169,8 +6169,36 @@ def lowerProg = (stmts) =>
   let entryExprs = appendL(caseFieldRegs(#cell.get(caseFieldOrderCell)),
     appendL(mirrorMethodRegs(#cell.get(caseFieldOrderCell)),
     appendL(caseMethodRegs(#cell.get(caseMethodsCell)), topExprs(stmts)))) in
+  -- DO NOT APPEND `main()` IF THE ENTRY ALREADY CALLS IT. Two features landed next to each other
+  -- and were never reconciled: this append is older than T5.7, which made top-level EXPRESSION
+  -- statements run (they used to be silently dropped). Once they ran, a file ending in `main()` --
+  -- which most of this repository's .ssc files do -- got the explicit call from `topExprs` AND this
+  -- appended one, and `main` executed TWICE. Only visible since F became the default: this front is
+  -- now reached as the FALLBACK, so the doubling needed BOTH an F decline and an explicit `main()`,
+  -- which is why it read as "the fallback runs the program twice". Measured 2x2: F-accepted runs
+  -- once with or without the trailing call, F-declined runs once WITHOUT it and twice WITH it.
+  -- F already guards this (`callsMain(docEntry)` at specs/v2.2-p6.5-fsub.ssc), which is why F was
+  -- right and this front was not; this is that guard mirrored, asked of the IR instead of the
+  -- rendered string. (v2-front-fallback-runs-the-program-twice.)
+  let rec entryCallsMain = (es) =>
+    match es {
+      case Nil => false
+      case Cons(e, rest) =>
+        match e {
+          case IrApp(fexpr, fargs) =>
+            match fexpr {
+              case IrGlobal(gn) =>
+                if #seq(gn, "main") then
+                  match fargs { case Nil => true case Cons(a, b) => entryCallsMain(rest) }
+                else entryCallsMain(rest)
+              case _ => entryCallsMain(rest)
+            }
+          case _ => entryCallsMain(rest)
+        }
+    } in
   let mainCall =
-    if hasZeroArgMain(stmts) then Cons(IrApp(IrGlobal("main"), Nil), Nil)
+    if hasZeroArgMain(stmts) then
+      (if entryCallsMain(entryExprs) then Nil else Cons(IrApp(IrGlobal("main"), Nil), Nil))
     else Nil in
   let seqItems = appendL(entryExprs, mainCall) in
   let entry =

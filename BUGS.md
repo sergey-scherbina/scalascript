@@ -1519,49 +1519,53 @@ rediscovered.
 
 <!-- status: open
      lane: v2-jvm
-     area: cli
+     area: front
      kind: bug
-     gate: -
+     gate: tests/e2e/v2-entry-no-double-main-gate.sh
      fixed-in: -
      reported-by: claude-code
      reported-at: 2026-08-17
-     repro: any file F declines — see below
+     repro: tests/e2e/v2-entry-no-double-main-gate.sh, row `legacy / trailing main()`
      impact: wrong-answer -->
 
-When the F front declines a file, `bin/ssc run` says so and compiles with the reference front — and
-the program's output then appears TWICE.
+**The title is the symptom and it is not the cause — the fallback is innocent.** Filed as "when F
+declines a file the program runs twice", with the mechanism explicitly left unmeasured. Measured
+now, and it takes a 2x2 rather than a single probe:
 
-```scalascript
-def guar(xs: List[Int]): String = xs match { case _ :: t if true => "guard" ; case _ => "z" }
+|              | trailing `main()` | no trailing `main()` |
+|---|---|---|
+| F front      | once | once |
+| legacy front | **TWICE** | once |
 
-def main(): Unit =
-  println(guar(List(1)))
-main()
-```
+So the doubling needs BOTH halves: the legacy front AND an explicit top-level `main()`. The fallback
+only ever supplied the first half, which is why it looked responsible.
 
-```text
-$ bin/ssc run g1.ssc 2>/dev/null
-guard
-guard
-```
+### The cause: two features that landed apart and were never reconciled
 
-Exit code 0. The full output repeats in PROGRAM ORDER, not line by line: a three-print program
-prints 1,2,3,1,2,3. Measured on the main checkout with no local changes, so this is not a side
-effect of anything in flight.
+`v2/lib/ssc1-lower.ssc0` builds its entry as `Seq(top-level exprs…, main() if a zero-arg main
+exists)`. The appended call is the OLDER half. T5.7 later made top-level EXPRESSION statements run —
+its own comment says they "used to be silently dropped (~190/194 real .ssc files became no-ops)".
+From that day a file ending in `main()` got the call twice: once from the statements, once appended.
 
-**Why it matters more than a doubled line.** `println` is the visible case; the same path runs
-whatever else the program does. A file write, an HTTP request, a database call — anything with an
-effect happens twice, and the only signal is a notice on stderr that says the program "still ran
-correctly".
+Most .ssc files in this repository end in `main()`, so this was not an exotic shape. It stayed
+invisible because F became the default front and **F already guards it** —
+`callsMain(docEntry)` in `specs/v2.2-p6.5-fsub.ssc` emits nothing when the doc-order entry already
+calls main. A two-front pair in which F is the correct half.
 
-**What I did NOT establish** — the mechanism. The notice appears once while the output appears
-twice, and for this file F declines at lowering, so F never ran it; both copies therefore come from
-the reference front. Whether the harness runs the reference pipeline twice, or runs once and replays
-captured output, is unmeasured. A probe that writes to a FILE rather than stdout would settle it in
-one run and should be the first step for whoever takes this.
+**`println` is only the visible part.** The same entry runs whatever else the program does: a file
+write, an HTTP call, a database insert would double identically, under a stderr notice reading "the
+program still ran correctly".
 
-Found while re-checking a cross-lane comparison: a probe file printed six lines where both lanes
-should print three, and the doubling — not the values — was the anomaly.
+### The fix, and how the gate reaches it
+
+F's guard, mirrored — asked of the IR rather than of the rendered string, because this front has IR
+at that point.
+
+The gate SELECTS the front with `SSC_FRONT=legacy` (`RunNativeV2.frontIsF`) instead of provoking a
+fallback through an F coverage gap. The first draft did the latter, and that row would have gone
+quiet the day F learned the construct: still green, testing nothing. The `no trailing main()` rows
+are the anti-rows — with no explicit call the APPENDED one is the only thing that runs the program,
+so a fix that dropped it unconditionally prints nothing and fails there.
 
 ## f-curried-def-gate-red-on-varargs-after-a-fixed-parameter — red IN CI, and unfiled
 

@@ -666,6 +666,7 @@ jobs:
           tests/e2e/v2-f-nested-bytecode-fast-path.sh
           tests/e2e/v2-swift-cli.sh
           tests/e2e/v2-cons-wildcard-head-gate.sh
+          tests/e2e/v2-entry-no-double-main-gate.sh
 
       - name: Gates without a home — conformance flags and the scljet corpus
         if: always()          # see the block above this job's steps
