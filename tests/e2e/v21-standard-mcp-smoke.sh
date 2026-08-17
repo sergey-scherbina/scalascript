@@ -496,6 +496,12 @@ for lane in --v1 --v2; do
   # ALL THREE predicates, and the advertised set is deliberately PARTIAL: roots and elicitation
   # yes, tasks no. A predicate wired to the wrong capability key, or to a constant, cannot produce
   # `roots=true elicit=true tasks=false` — an all-or-nothing case could.
+  #
+  # WHAT THIS ROW ADDS OVER THE 2026-SURFACE ROW ABOVE, stated because the first control did not
+  # show it: that row is a LANE DIFFERENTIAL and already calls `clientSupportsTasks`, so disabling
+  # that member reds it first and says nothing about this one. This row pins ABSOLUTE answers, and
+  # it is the only coverage `clientSupportsElicitation` has anywhere. The control that demonstrates
+  # it: making `clientSupportsElicitation` a constant `false` on v2 reds THIS row, by name.
   grep -qF '"text":"roots=true elicit=true tasks=false"' "$tmp/roots$lane.yes" || {
     echo "v21-standard-mcp-smoke: the capability predicates misread a PARTIAL advertisement on $lane" >&2
     echo '  wanted roots=true elicit=true tasks=false' >&2
