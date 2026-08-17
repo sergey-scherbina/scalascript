@@ -863,6 +863,19 @@ jobs:
         if: always()          # see the block above this job's steps
         run: tests/e2e/process-stdin-gate.sh
 
+      # `jsonParseEither` — rozum's `json-parse-has-no-fallible-spelling`. `jsonParse` aborts the
+      # thread and `jsonValue` is total but cannot DISCRIMINATE: "", "not json", a truncated object
+      # and the literal `null` all answered `isNull`, so a server could not refuse input it did not
+      # write. The `literal null` row is the point of the gate — every other row would pass on an
+      # implementation that just called the tolerant parser and reported `isNull` as failure, and
+      # that implementation tells a caller their VALID null is malformed. Five lanes, because a
+      # fallible parse that exists on four is a trap for whoever ships on the fifth; rust matters
+      # most, since json-core cannot be lowered there and the feature is built to work without it.
+      # ~90 s: one cargo build, one jvm run, three interpreter runs.
+      - name: a caller can tell 'not JSON' from the literal null
+        if: always()          # see the block above this job's steps
+        run: tests/e2e/json-parse-either-gate.sh
+
       # `spawn`, the other half of the rozum std/process pair (`process-needs-a-detached-spawn`):
       # `exec` WAITS by construction, so an HTTP handler starting a five-minute agent run could hold
       # the connection for five minutes or not start it — every launch route of their port stopped

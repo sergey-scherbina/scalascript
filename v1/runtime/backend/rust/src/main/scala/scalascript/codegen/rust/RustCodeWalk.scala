@@ -5010,6 +5010,9 @@ object RustCodeWalk:
     // R.3.3 — jsonParse takes `&str`. jsonStringify does NOT: it takes a VALUE now (it renders a
     // ScalaScript value as JSON rather than reformatting JSON text), so it must not be borrowed.
     "crate::runtime::_json_parse",
+    // Same reason and same signature: `__jsonParseError` takes `&str` so the caller keeps its
+    // String — `jsonParseEither` reads `s` again on the very next line to build the `Right`.
+    "crate::runtime::_json_parse_error",
     // R.3.4 — env() takes its arg by reference.
     "crate::runtime::_env",
     "crate::runtime::_env_or_else",

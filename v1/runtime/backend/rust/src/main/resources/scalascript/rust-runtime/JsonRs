@@ -11,6 +11,24 @@
       |///   `{"a": 1, "b": [true, null, 2.5]}` -> `Map(a -> 1, b -> List(true, None, 2.5))`
       |///
       |/// Panics on a parse error, matching the interpreter's fail-fast contract.
+      |/// `__jsonParseError(s)` — the parse error for `s`, or `""` when it parses.
+      |///
+      |/// The counterpart of `_json_parse` below: same parser, but it REPORTS instead of panicking.
+      |/// `jsonParseEither` in std/json.ssc is built on this plus `jsonParse`, so a caller can refuse
+      |/// input it did not write — reported from rozum, where a server had no spelling for
+      |/// "was this text JSON at all?" and their workaround was to inspect the first byte.
+      |///
+      |/// The message carries serde's own text, which names the offset and what it expected. That is
+      |/// the point of `Either` over `Option` here: a handler can answer 400 with something the
+      |/// caller can act on.
+      |#[allow(dead_code)]
+      |pub fn _json_parse_error(input: &str) -> String {
+      |    match serde_json::from_str::<serde_json::Value>(input) {
+      |        Ok(_)  => String::new(),
+      |        Err(e) => format!("invalid JSON: {}", e),
+      |    }
+      |}
+      |
       |#[allow(dead_code)]
       |pub fn _json_parse(input: &str) -> crate::value::Value {
       |    let v: serde_json::Value = serde_json::from_str(input)

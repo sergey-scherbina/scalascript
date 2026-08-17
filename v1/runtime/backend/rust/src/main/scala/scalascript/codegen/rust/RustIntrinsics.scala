@@ -39,6 +39,13 @@ val RustIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
   QualifiedName("base64Decode")     -> RuntimeCall("crate::runtime::_base64_decode"),
   // R.3.3 — JSON.  Pulls `serde_json` into Cargo.toml only when reached.
   QualifiedName("jsonParse")        -> RuntimeCall("crate::runtime::_json_parse"),
+  // `__jsonParseError` is a DEF in std/json.ssc, written on json-core — and this lane cannot lower
+  // json-core at all (`rust-lane-refuses-the-tolerant-json-parse-while-the-panicking-one-builds`),
+  // so the def would be refused here. Replacing it with an intrinsic is the same arrangement
+  // `jsonParse` above already relies on: the intrinsic wins, the def's body is never walked, and
+  // `jsonParseEither` — ordinary ScalaScript built on this one name — works on this lane without
+  // json-core compiling.
+  QualifiedName("__jsonParseError") -> RuntimeCall("crate::runtime::_json_parse_error"),
   QualifiedName("jsonStringify")    -> RuntimeCall("crate::runtime::_json_stringify"),
   // R.3.4 / std.os — process & env (pure std, no extra crate deps).
   QualifiedName("args")             -> RuntimeCall("crate::runtime::_args"),

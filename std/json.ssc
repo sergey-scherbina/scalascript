@@ -7,6 +7,7 @@ exports:
   - JsonValue
   - jsonValue
   - jsonParse
+  - jsonParseEither
   - jsonRead
   - jsonStringify
   - lookup
@@ -33,6 +34,7 @@ absence must be distinguished. Money is exact: read amounts with `asDecimal`
 (lossless), never `asDouble`. See [`specs/std-ui-typed-json.md`](../../specs/std-ui-typed-json.md).
 
 [JsonCoreErr, jsonCoreParseStrict, jsonCoreParseTolerant, jsonCoreRender](json-core.ssc)
+[Either, Left, Right](either.ssc)
 
 ```scalascript
 opaque type JsonValue = Any
@@ -64,6 +66,37 @@ def jsonValue(s: String): JsonValue =
 /** Strict parse into ordinary ScalaScript values. */
 def jsonParse(s: String): Any =
   __jsonCoreRawStrict(jsonCoreParseStrict(s))
+
+/** Parse, and say WHY when it fails, instead of aborting the thread.
+ *
+ *  Reported from rozum (`json-parse-has-no-fallible-spelling`): a server handling
+ *  input it did not write could not refuse it. `jsonParse` aborts, and `jsonValue` is total but
+ *  cannot DISCRIMINATE — `""`, `"not json"`, a truncated object and the literal `null` all answer
+ *  `isNull`, so "was this text JSON at all?" had no spelling on any lane. Their workaround was to
+ *  inspect the first byte, which cannot be right in general.
+ *
+ *  `Left` carries the parser's own message and offset, so a handler can answer 400 with something
+ *  the caller can act on rather than a bare "bad request".
+ *
+ *  BUILT ON `__jsonParseError` RATHER THAN ON A NEW EXTERN, and that is the whole design: the error
+ *  text comes from one place, the success value comes from `jsonParse` which every lane already
+ *  implements, and there is nothing new for four backends to get subtly different. */
+def jsonParseEither(s: String): Either[String, Any] =
+  val err = __jsonParseError(s)
+  if err == "" then Right(jsonParse(s)) else Left(err)
+
+/** The parse error for `s`, or `""` when it parses. ONE def, and the reason it is a def rather than
+ *  an `extern` is that json-core already knows the answer on every lane that runs json-core.
+ *
+ *  On the rust lane it is replaced by an INTRINSIC, exactly as `jsonParse` is — that lane cannot
+ *  lower `std/json-core.ssc` at all today (`rust-lane-refuses-the-tolerant-json-parse-while-the-
+ *  panicking-one-builds`), so a def written on json-core would be refused there. Because the
+ *  intrinsic replaces the def, this body is never walked on rust and the feature works regardless of
+ *  that entry. */
+def __jsonParseError(s: String): String =
+  jsonCoreParseStrict(s) match
+    case JsonCoreErr(message, offset) => "invalid JSON at " + offset + ": " + message
+    case _                            => ""
 
 /** Strict parse into the total navigable wrapper. */
 def jsonRead(s: String): JsonValue =
