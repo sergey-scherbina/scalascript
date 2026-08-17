@@ -1517,12 +1517,13 @@ rediscovered.
 
 ## v2-front-fallback-runs-the-program-twice — every side effect happens twice, silently
 
-<!-- status: open
+<!-- status: fixed
      lane: v2-jvm
      area: front
      kind: bug
      gate: tests/e2e/v2-entry-no-double-main-gate.sh
-     fixed-in: -
+     fixed-in: ae5b09418
+     confirmed: yes
      reported-by: claude-code
      reported-at: 2026-08-17
      repro: tests/e2e/v2-entry-no-double-main-gate.sh, row `legacy / trailing main()`
