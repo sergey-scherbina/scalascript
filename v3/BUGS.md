@@ -6,6 +6,35 @@ belong in the repository-root `BUGS.md` instead, not here.
 
 Query: `scripts/bugs-report --module v3`.
 
+## v3-a-marker-is-a-compile-time-rewrite-nothing-in-a-library-can-answer — Focus, direct, prism
+
+<!-- status: open
+     lane: v3
+     kind: feature
+     area: front
+     gate: v3/corpus-report.sh (lenses, optic-polish, tagless-direct-syntax and six more)
+     found-by: claude-code
+     found-at: 2026-08-17 -->
+
+**Nine corpus cases are refused with `the marker '…' is outside SSC3 core Tier 0`, and the name in
+that message is not a construct — it is a placeholder the front leaves where a REWRITE should have
+happened.** Identified 2026-08-17 because neither the owner nor I could say what a "marker" was:
+
+- `focusmarker` (5 cases — `lenses.ssc:31`, `optic-polish.ssc:23`): `Focus[Person](_.age)`, an
+  OPTICS constructor. `_.age` is a field selector that has to become a lens over the named field.
+- `direct` (3 cases — `tagless-direct-syntax.ssc:17`): `direct[Option] { x = Some(10); … }`, a
+  DIRECT-STYLE monadic block that has to become a `flatMap` chain.
+- `prism` (1): the same family as `Focus`.
+
+**SO NO LIBRARY CAN ANSWER THEM.** Both are compile-time rewrites over the shape of the expression —
+a field selector into a name, a block of bindings into a chain — and a function in `std` never sees
+either shape. This is what separates them from the interpolator question, where the answer WAS a
+library function once the front stopped hardcoding prefixes.
+
+**THE REFUSAL IS CORRECT AS IT STANDS**, which is why this is a feature entry and not a bug: v3 says,
+with a position, that it will not pretend. Nine cases is the largest single group behind the Tier 0
+boundary, and closing it means designing front rewrites rather than widening a list.
+
 ## v3-an-interpolator-prefix-is-hardcoded-in-both-fronts — make it an ordinary call instead
 
 <!-- status: open
@@ -295,6 +324,9 @@ then produce wrong answers, which is the trade the DIFF floor exists to refuse.
 `V2Fleet.toV3` cannot convert to anything v3 has. Carrying it as a `VFloat` or a string would be a
 wrong answer with a plausible shape — the one trade the DIFF floor exists to refuse — so the module
 is commented out of `v3/plugin-classpath.sh` and the program is told at the host-function boundary.
+
+**APPROVED BY THE OWNER 2026-08-17.** The decision asked for was whether v3 should gain an exact
+decimal at all; the answer is yes. See `v3/BACKLOG.md` → "Owner decisions, 2026-08-17".
 
 **THIS IS A LANGUAGE QUESTION, NOT AN ADAPTER ONE.** A decimal would be a runtime value like
 `VBytes` — reachable only through prims that consume it in the same expression — or a Tier 0 type,

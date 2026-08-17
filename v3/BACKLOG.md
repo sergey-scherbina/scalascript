@@ -4,6 +4,56 @@ Work that can wait, and **alternatives that were considered and parked with thei
 (P-4.2). A parked alternative costs nothing and is there the day it becomes right; the same
 alternative held as "I should ask about this someday" is lost at the next reboot.
 
+## Owner decisions, 2026-08-17 — four questions put and answered
+
+Put to the owner after a census showed v3 has no defect of its own left in the corpus: 259/369 on
+the executor and 257 on the bridge, with the four unclosed cases belonging to another claim or
+deliberate. What remains is 106 honest refusals, and they are not one problem — these are the four
+that needed a decision rather than a slice.
+
+**APPROVED — JVM-package imports.** `std/mapreduce/typed.ssc:25` writes
+`import scalascript.typeddata.{DatasetCodec, DatasetWirePartition}` — a Scala PACKAGE, not an `.ssc`
+module. v2 resolves it through its interop descriptor; v3 treats it as a file path and refuses with
+four candidate paths, which is what the 5-case `typeddata` bucket in the refusal histogram is. The
+door has to keep invariant I-1: the kernel gains no dependency, so this belongs behind the plugin SPI
+or an explicit import form, not in `v3/src`.
+
+**APPROVED — an exact decimal.** `v2` has `DecimalV` and v3 has no counterpart at all, so
+`json-self-hosted-import` cannot cross: it exists to pin `jsonParse("0.0")` printing `0.0` rather
+than a float. Entry: `v3-has-no-decimal-so-the-json-core-cannot-cross`. It is a runtime value like
+`VBytes` rather than a Tier 0 type addition — the program never names it, prims consume it.
+
+**APPROVED — the plugin fleet ON by default.** It is opt-in today through
+`v3/.jars/plugins.cp`, measured to cost nothing and to gain cases, and the reason it stayed opt-in
+was a build-time cost: `plugin-classpath.sh` runs sbt per module. Turning it on makes that cost
+default.
+
+**INTERPOLATORS — the owner asked the right question and it is now a design.** `html"…"`, `md"…"`
+and `f"…"` are refused because both fronts hardcode `s`. Rather than widen Tier 0, an interpolator
+becomes an ordinary CALL — `pfx"a${x}b"` lowers to `pfx(List("a","b"), List(x))` — so `def html(parts,
+args)` in `std` or a plugin defines one with nothing added to the kernel. Entry:
+`v3-an-interpolator-prefix-is-hardcoded-in-both-fronts`.
+
+**STILL OPEN — the Tier 0 boundary itself, and the markers are no longer a mystery.** The 24 Tier-0
+refusals are five different questions:
+
+| construct | cases | what it is |
+|---|---|---|
+| markers | 9 | `Focus[Person](_.age)` (5, `lenses`, `optic-polish`), `direct[Option] { … }` (3, tagless direct style), `prism` (1) |
+| interpolators | 6 | `html` 4, `md` 1, `f` 1 — answered by the design above |
+| abstract `val` | 2 | `val name: String` with no value, `std/http.ssc:170` |
+| `finally` | 1 | `try`/`catch` are in the core, `finally` is not |
+| other | 1 | a handler expression in `std-ui-jobpanel` |
+
+**THE MARKERS ARE MACRO-SHAPED, WHICH IS WHY THEY ARE REFUSED BY NAME.** `Focus[T](_.field)` must
+become a lens over a named field and `direct[F] { x = … }` must become a flatMap chain: both are
+COMPILE-TIME REWRITES, not runtime features, so no amount of library code answers them. That is a
+front feature to design, and the largest single group of the five.
+
+**CHEAPEST OF THE REST:** `finally` and the abstract `val` are three cases between them and neither
+needs a rewrite. `html"…"` is deliberately NOT proposed for Tier 0 — the interpolator design covers
+it without putting markup into the language.
+
 ## v3's own front cannot lex `@` — two fixtures are uniml-only because of it
 
 `annotation-own-line` and `object-nested-class` are the two fixtures `front-diff.sh` counts as
