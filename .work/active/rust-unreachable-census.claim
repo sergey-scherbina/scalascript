@@ -2,10 +2,10 @@ slug: rust-unreachable-census
 branch: feature/rust-unreachable-census
 agent: claude-code
 started: 2026-08-17T11:15:14Z
-heartbeat: 2026-08-17T11:15:14Z
-status: claimed-before-planning
+heartbeat: 2026-08-17T11:58:57Z
+status: in-progress
 items: generated-rust-unreachable-pattern-is-an-unread-diagnostic
-paths: file:tests/e2e/rust-std-survey-gate.sh file:BUGS.md
+paths: file:tests/e2e/rust-std-survey-gate.sh file:BUGS.md file:BACKLOG.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+next: close the entry in BACKLOG.md and land
