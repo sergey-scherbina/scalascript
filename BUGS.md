@@ -2380,12 +2380,13 @@ Verified here rather than taken on trust: `def main` plus a trailing `main()` pr
 
 ## v3-bridge-lags-the-executor-on-cross-frame-effects — the two v3 lanes now disagree
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      area: runtime
      kind: bug
      gate: v3/effects-gate.sh, v3/corpus-report.sh
-     fixed-in: -
+     fixed-in: 1015e3865
+     confirmed: yes
      reported-by: claude-code
      reported-at: 2026-08-17
      repro: v3/tests/effects/escaped-continuation.ssc; the refused shape is below
@@ -2447,12 +2448,13 @@ The DIFF bucket — the report's word for a silent wrong answer — is empty on 
 
 ## corpus-report-files-a-named-bridge-refusal-as-a-CRASH — the bucket that means "tells you nothing"
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      area: conformance
      kind: apparatus
      gate: v3/corpus-report.sh
-     fixed-in: -
+     fixed-in: 1015e3865
+     confirmed: yes
      reported-by: claude-code
      reported-at: 2026-08-18
      repro: v3/corpus-report.sh --list-crash on a clean checkout
