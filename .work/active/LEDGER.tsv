@@ -1,6 +1,5 @@
-# generation: 2731
+# generation: 2732
 #slug	agent	started	items	paths
 f-private-object-member	claude-code	2026-08-18T17:51:18Z	f-loses-a-private-def-in-an-object	file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/f-private-member-gate.sh file:scripts/smoke-ci.ssc file:tests/BUGS.md
-v3-entry-and-bridge	claude-code	2026-08-18T18:14:36Z	v3-trailing-main-call-runs-main-twice v3-bridge-lags-the-executor-on-cross-frame-effects	file:BUGS.md file:v3/src/BridgeV2.scala file:v3/corpus-report.sh file:v3/tests/effects/escaped-continuation.ssc file:v3/tests/effects/escaped-continuation.expected
 native-undefined-pattern-name	claude-code	2026-08-18T18:53:18Z	an-undefined-name-in-a-pattern-means-three-different-things	file:specs/v2.2-p6.5-fsub.ssc file:v2/lib/ssc1-lower.ssc0 file:tests/e2e/pattern-undefined-name-gate.sh file:BUGS.md
 v3-jvm-interop	claude-code	2026-08-18T19:54:08Z	v3-jvm-package-imports	file:v3/src/Loader.scala file:v3/src/Lower.scala file:v3/plugins/JvmInterop.scala file:v3/plugins/V2Fleet.scala file:v3/SPRINT.md file:v3/BUGS.md
