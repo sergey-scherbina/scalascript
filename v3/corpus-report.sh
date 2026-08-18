@@ -154,7 +154,21 @@ run_case() {
     msg="$(head -1 "$ere")"
     # A positioned, named refusal is UNSUPPORTED. A stack trace or a bare failure is a CRASH,
     # because it tells the reader nothing they can act on.
+    #
+    # A BRIDGE REFUSAL IS NAMED AND CANNOT BE POSITIONED, and it was being filed as a CRASH for the
+    # second reason while satisfying the first. `BridgeV2.Unsupported` prints
+    # `ssc3: <file>: v2 bridge V-0 does not translate <what>` — a sentence naming the construct — and
+    # v3's IR carries no positions at all (`grep -c Pos v3/src/Ir.scala` is 0), so `:line:col:` is
+    # not something it can ever produce. The test above therefore sent every one of them to the
+    # bucket whose definition is "tells the reader nothing".
+    #
+    # NOT AN ADJUSTMENT MADE TO FLATTER A CHANGE: the mis-filing is visible with no change in the
+    # tree. `--list-crash` on a clean checkout showed the single CRASH to be exactly this species —
+    # `effects  ssc3: …: v2 bridge V-0 does not translate a handler for operation 2 …` — which is
+    # what makes this a defect in the instrument rather than a convenience.
     if grep -qE ':[0-9]+:[0-9]+:' "$ere" && ! grep -q '\tat ' "$ere"; then
+      printf 'UNSUP\t%s\t%s\n' "$name" "$msg"
+    elif grep -q 'v2 bridge V-0 does not translate' "$ere" && ! grep -q '\tat ' "$ere"; then
       printf 'UNSUP\t%s\t%s\n' "$name" "$msg"
     else
       printf 'CRASH\t%s\t%s\n' "$name" "$msg"

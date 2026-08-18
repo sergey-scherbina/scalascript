@@ -2356,53 +2356,27 @@ the two.
      lane: v3
      area: front
      kind: bug
-     gate: v3/front-gate.sh
+     gate: -
      fixed-in: 609b217f1
+     confirmed: yes
      reported-by: claude-code
-     reported-at: 2026-08-17
-     repro: any file with `def main` and a trailing `main()`
-     impact: wrong-answer -->
+     reported-at: 2026-08-17 -->
 
 ```scalascript
 def main(): Unit = println("once")
 main()
 ```
 
-v3 prints `once` twice; without the trailing call, once. Native prints it once either way.
+v3 printed `once` twice; without the trailing call, once. Native prints it once either way.
 
-Found while reading the output of an effects probe that printed its answer twice — the doubling, not
-the value, was the anomaly. **The same defect was measured and fixed on the v2 legacy front the same
-day** (`v2-front-fallback-runs-the-program-twice`, `ae5b09418`): the entry is built as
-`Seq(top-level exprs…, main() if present)` and the explicit call is already among the exprs. F guards
-it with `callsMain(docEntry)`; v3 appears to have neither guard.
+**Fixed by a sibling within the day, from the pointer this entry carried.** `609b217f1` mirrors F's
+`callsMain(docEntry)` into `Lower.scala`'s entry synthesis, and its comment cites the v2 half
+(`v2-front-fallback-runs-the-program-twice`, `ae5b09418`) as the same shape — which is what the entry
+was written to make possible. It also had to look through `__autoOutput__`, since the trailing
+`main()` is usually already wrapped by the time the guard sees it: matching the bare call would have
+found nothing in exactly the files that had the bug.
 
-Not fixed here because this claim is about the effects machinery and the fix belongs with whoever
-owns v3's lowering — but the shape is known, the v2 fix is one line, and the guard to mirror is named
-above.
-
-### FIXED 2026-08-18 — the guard mirrored, and it had to look through `__autoOutput__`
-
-`Lower.programOf` built the entry as `Block(objectInit ++ hoisted, userMain.map(_ => Call("main")))`
-— the appended call fired whenever the file DEFINED a zero-arg `main`, whether or not the file also
-called it. Now it fires only when the top-level statements do not already call it, which is F's
-`callsMain(docEntry)` and v2's `entryCallsMain` asked of v3's statement list.
-
-**One thing did not carry over from the v2 fix and would have made this a no-op**: v3 rewrites the
-LAST top-level expression of each block into `__autoOutput__(v)` before the entry is built, so by the
-time the guard looks, a trailing `main()` is usually `__autoOutput__(main())`. Matching the bare call
-alone finds nothing in exactly the files that have the defect.
-
-**Two fixtures, and the second one is the one with teeth.** `trailing-main-runs-once` is the reported
-shape. `main-called-then-more` puts the call in the MIDDLE — `main(); println("after")` — because the
-appended call runs LAST, so the pre-fix output is `mid/after/mid`: a fixture that only counted
-occurrences of "mid" would pass on a fix that merely moved the duplicate. Negative control, with the
-lowering reverted and both fixtures kept: `once/once` and `mid/after/mid`.
-
-Not one of the 96 front fixtures ended in `main()` before these two, which is why nothing caught it —
-while most `.ssc` files in the repository are written that way.
-
-Verified: `v3/front-gate.sh` GREEN (96 cases), and `v3/exec-gate.sh` (92), `v3/bridge-gate.sh` (7),
-`v3/parity-gate.sh` (65) and `v3/effects-gate.sh` (13, both lanes) all green with the change in.
+Verified here rather than taken on trust: `def main` plus a trailing `main()` prints `once`.
 
 ## v3-bridge-lags-the-executor-on-cross-frame-effects — the two v3 lanes now disagree
 
@@ -2410,30 +2384,96 @@ Verified: `v3/front-gate.sh` GREEN (96 cases), and `v3/exec-gate.sh` (92), `v3/b
      lane: v3
      area: runtime
      kind: bug
-     gate: v3/effects-gate.sh (would go red if these were fixtures)
+     gate: v3/effects-gate.sh, v3/corpus-report.sh
      fixed-in: -
      reported-by: claude-code
      reported-at: 2026-08-17
-     repro: the three programs below
+     repro: v3/tests/effects/escaped-continuation.ssc; the refused shape is below
      impact: workaround -->
 
-Fixing `v3-handler-arm-value-dropped-when-the-perform-is-a-statement` and
-`v3-an-escaped-continuation-resumes-without-the-return-clause` in the EXECUTOR left the v2 BRIDGE
-answering the old way. Measured, executor vs bridge vs expected:
+Fixing the executor's two effects defects left the v2 BRIDGE answering the old way, so the two v3
+lanes disagreed — and before that work they had agreed and been wrong together, which is why no
+fixture caught it. Three symptoms, and they turned out to have three different natures.
 
-| program | executor | bridge |
-|---|---|---|
-| a perform in a callee, caller has a remainder | `H:a|H:b|END` | `END` |
-| an escaped continuation with a return clause | `8` | refused |
-| `handle { program(); List() }` | `List(first, second)` | `List()` |
+| program | executor | bridge before | bridge now |
+|---|---|---|---|
+| an escaped continuation with a return clause | `8` | a Java stack trace | **`8`** |
+| a perform in a callee whose caller has a remainder | `H:a|H:b|END` | `END` | **a named refusal** |
+| `handle { program(); List() }` | `List(first, second)` | `List()` | **a named refusal** |
 
-**Before this work the two lanes agreed — both wrong.** That is why no fixture caught it and why
-these three are NOT in `v3/effects-gate.sh`: that gate requires executor, bridge and expectation to
-agree three ways, by design, and adding them would make it red for a defect it correctly reports as
-the bridge's.
+### Fixed: the continuation carries its own handler record
 
-The executor's half is `Exec.PendingFrame`/`Value.VCont`; the bridge translates v3 IR for v2's VM,
-whose effect machinery is v2's, so the fix is not a translation of this one.
+The bridge does not map effects onto v2 primitives — it re-emits the executor's machinery as v2
+CoreIR, so the same defect was there in the same shape. `__ssc3_eff_after_resume__` read the return
+clause off the TOP of the handler stack, which is right only while the continuation is resumed inside
+its own `handle`. An arm that returns a closure is resumed with the stack empty, and the lifting was
+silently skipped.
+
+`k` is now the pair `(closure, record)` — `__ssc3_eff_find__` parks the record it is about to run an
+arm under and `armClos` reads it in its FIRST binding, before anything can perform and park another.
+`__ssc3_eff_resume__` reads the clause and the perform counter from that record and reinstalls the
+handler for the resume's duration, which is what lets a deep handler's second tick find it.
+`tests/conformance/effect-deep-handler-state` moved DIFF → PASS.
+
+### Refused, because emitted v2 code cannot capture a caller's remainder
+
+`Exec` captures the caller frames at run time; a v2 function has no way to hand over "the rest of
+me". So the bridge now says so by name instead of answering. The static test took three narrowings,
+each paid for by a measurement:
+
+  * a call inside a `Handle`'s BODY is the normal shape and must not be refused — six of the
+    fourteen effects fixtures went red on that;
+  * a function that HANDLES an effect does not propagate "may perform" outward, or
+    `println(workload())` is refused for an effect `workload` already absorbed;
+  * only a NON-TAIL-RESUMPTIVE arm needs the rest. When the arm resumes once as its last act, "run
+    the arm and use its value" and "capture the rest and resume it" are the same computation — the
+    class this bridge was always right about. `head-field-effect-shadow` is exactly that, CPS-encoded
+    and cross-frame, and refusing it cost a corpus PASS until the test learned the difference.
+
+**A real fix is one pass and would serve both lanes:** split callers at such calls the way `Cps`
+splits at performs, thread the caller's continuation and compose. That would also let `Exec`'s
+run-time frame capture go, which is the only reason the two lanes need two mechanisms today.
+
+### Measured, as a controlled A/B
+
+Same tree, same classifier, only `BridgeV2.scala` reverted and restored:
+
+| | PASS | DIFF | UNSUP | CRASH |
+|---|---|---|---|---|
+| before | 257 | 2 | 108 | 0 |
+| after | **258** | **0** | 109 | 0 |
+
+The DIFF bucket — the report's word for a silent wrong answer — is empty on the bridge lane.
+
+## corpus-report-files-a-named-bridge-refusal-as-a-CRASH — the bucket that means "tells you nothing"
+
+<!-- status: open
+     lane: v3
+     area: conformance
+     kind: apparatus
+     gate: v3/corpus-report.sh
+     fixed-in: -
+     reported-by: claude-code
+     reported-at: 2026-08-18
+     repro: v3/corpus-report.sh --list-crash on a clean checkout
+     impact: none -->
+
+`corpus-report.sh` sorts a failing case by its stderr: *"A positioned, named refusal is UNSUPPORTED.
+A stack trace or a bare failure is a CRASH, because it tells the reader nothing they can act on."*
+The test is `grep -qE ':[0-9]+:[0-9]+:'`.
+
+**A bridge refusal is named and can never be positioned.** `BridgeV2.Unsupported` prints
+`ssc3: <file>: v2 bridge V-0 does not translate <what>` — a sentence naming the construct — and v3's
+IR carries no positions at all (`grep -c Pos v3/src/Ir.scala` is 0). So every one of them landed in
+the bucket defined as telling the reader nothing, and CRASH is the report's own "worse than DIFF".
+
+**Not noticed while making a change look good, and that is checkable:** on a clean checkout
+`--list-crash` shows the single CRASH to be exactly this species —
+`effects  ssc3: …: v2 bridge V-0 does not translate a handler for operation 2 …`. The mis-filing
+predates any of the work that ran into it.
+
+The classifier now recognises that one sentence, and only it, as UNSUPPORTED — a second, narrow test
+rather than a loosening of the first, so a genuine stack trace still counts as a CRASH.
 
 ## uniml-markdown-left-the-portable-subset-while-its-guard-ran-nowhere
 

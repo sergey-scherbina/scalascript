@@ -1,0 +1,14 @@
+```scalascript
+effect C:
+  def w(n: Int): Unit
+
+def prog(): Int ! C =
+  C.w(1)
+  7
+
+val f = handle(prog()) {
+  case C.w(n, resume) => (s: Int) => resume(())(s + n)
+  case Return(x)      => (s: Int) => x + s
+}
+println(f(0))
+```
