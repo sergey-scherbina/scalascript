@@ -1,3 +1,3 @@
-# generation: 2696
+# generation: 2697
 #slug	agent	started	items	paths
-install-channels-are-fiction	claude-code	2026-08-18T16:57:43Z	releases-install-sh-downloads-an-asset-no-release-has	file:releases/install.sh file:releases/homebrew/ssc.rb file:releases/coursier.json file:install.sh file:docs/getting-started-standalone.md file:docs/user-guide.md file:specs/arch-ssc-new.md file:README.md file:tests/e2e/install-channels-are-real.sh file:.github/workflows/ci.yml file:BUGS.md
+install-channels-are-fiction	claude-code	2026-08-18T16:57:43Z	releases-install-sh-downloads-an-asset-no-release-has	file:releases/install.sh file:releases/homebrew/ssc.rb file:releases/coursier.json file:install.sh file:docs/getting-started-standalone.md file:docs/user-guide.md file:specs/arch-ssc-new.md file:README.md file:tests/e2e/install-channels-are-real.sh file:scripts/smoke-ci.ssc file:tests/smoke-baseline.tsv file:.github/workflows/ci.yml file:BUGS.md
