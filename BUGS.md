@@ -1352,6 +1352,26 @@ Whoever takes this should land the cons lowering TOGETHER with the json-core wor
 The patch is 12 lines in `isKnownVecReceiver` and `collectLocalSeqs`; re-deriving it is cheaper than
 carrying it, so it is described rather than parked.
 
+### 2026-08-18 — the 32 have a NAME now, and the first half of the fix cannot help json-core alone
+
+Classified the 32 by rustc message rather than by count: **8 are `expected i64, found SscChar`, 6 are
+`expected i64` / `expected Vec<i64>, found Value`, 3 are `expected Value, found JsonCoreField`.** The
+first two families — fourteen errors — are ONE cause, and it is not in json-core at all:
+`std/json-core.ssc` carries `package: std.json.core`, and a packaged module gets NO argument
+coercion whatsoever. Filed as `rust-packaged-module-loses-every-argument-coercion` with a 20-line
+repro; five other hypotheses are falsified there so nobody repeats them.
+
+The `SscChar` -> `i64` arm those 8 errors ask for is LANDED (`51cbbbccb`, gated by
+`tests/e2e/rust-charat-arg-gate.sh`) — **and it moves json-core's count by zero**, which is the
+useful part of this note. The arm lives inside the very coercion block that `package:` switches off,
+so it cannot fire here until the packaged-module defect is fixed. The two fixes only pay together:
+one re-opens the coercion site, the other supplies the arm it needs. Anyone re-measuring json-core
+after `51cbbbccb` and seeing 32 again should read that as expected, not as a failed fix.
+
+The cons lowering was re-applied locally to reach json-core for this measurement and was NOT landed,
+for the same two reasons as above — the survey still moves json-core and yaml-core REFUSED ->
+BADRUST.
+
 Not gated: no gate is filed with an open entry here. The gate that closes this asserts a
 `jsonValue` program BUILDS and answers `isNull` for `""` — a compile-only row would pass on a
 binary that then panics.
