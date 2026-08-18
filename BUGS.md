@@ -8847,6 +8847,28 @@ another lane can distinguish "mutated" from "did not".
 > no-match, the fix lives in v2's front or pattern lowering) and `js` (a run-time `ReferenceError`;
 > its emitter writes the unresolved name verbatim into the test).** Both rows stay frozen in
 > `tests/e2e/pattern-undefined-name-gate.sh`.
+>
+> **THE NATIVE HALF IS MAPPED, 2026-08-18, AND PARKED — not abandoned — for a live claim conflict.**
+> What the dig established, so the next taker starts here and not at the decoy:
+>
+> - **`bin/ssc run` compiles the probe with F** (`bin/ssc info --front-report` says `pat1.ssc F`),
+>   NOT with `v2/lib/ssc1-front.ssc0`. The first hour of this dig went into ssc1-front/ssc1-lower —
+>   the exact trap `ask-which-front-compiles-it-before-editing-a-front` records.
+> - **In F** (`specs/v2.2-p6.5-fsub.ssc`): a bare uppercase name parses to `("cpat", (tag, Nil))`
+>   (`finishCtorPatF` ~:2238) and is emitted UNCONDITIONALLY as a CoreIR text arm by
+>   `dischCpat3`/`genArmStr` (~:2321) — an unknown tag becomes an arm that never fires. F keeps NO
+>   declared-constructor registry today; the fix needs one (case classes + enum cases + imports).
+> - **The twin in the reference lowering** (`v2/lib/ssc1-lower.ssc0`): `ctorPatternArms` (:3479),
+>   equally unconditional — but there the registry ALREADY EXISTS: `collectCaseClassOrder` (:5391)
+>   fills `caseFieldOrderCell` with every case class and enum case, objects included, BEFORE
+>   `lowerStmts` runs. A fix must land in BOTH fronts or the divergence changes shape (two-front
+>   pairs).
+> - **The refusal channel on the self-hosted path** is `#__throw__` — the only error prim the ssc0
+>   runtime exposes (`Runtime.scala:1725`); thrown DURING lowering it aborts compilation, but
+>   UNPOSITIONED (pattern nodes carry no line:col), so whether that is acceptable, or positions get
+>   threaded first, is the taker's first decision.
+> - **Parked because** `v2-paren-cons-arm` (live heartbeat, 2026-08-18) holds
+>   `specs/v2.2-p6.5-fsub.ssc` and is working in exactly F's pattern lowering.
 
 Found 2026-08-07 while re-checking whether `case Ⅷ =>` still diverges across lanes — it does not,
 and the correction is in `uniml/SPRINT.md` under UNIML-SSC3-ALPHABET. The probe was about Unicode;
