@@ -2531,12 +2531,13 @@ rather than a loosening of the first, so a genuine stack trace still counts as a
 
 ## v3-bridge-cannot-cross-a-call-frame — fixed by building the closure the target cannot hand over
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      area: runtime
      kind: bug
      gate: v3/effects-gate.sh
-     fixed-in: -
+     fixed-in: bc78e963c
+     confirmed: yes
      reported-by: claude-code
      reported-at: 2026-08-18
      repro: v3/tests/effects/cross-frame-statement.ssc, cross-frame-in-handle-body.ssc
