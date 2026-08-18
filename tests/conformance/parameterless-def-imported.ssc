@@ -1,0 +1,28 @@
+---
+name: parameterless-def-imported
+description: an imported parameterless def is invoked at its bare mention, like a local one
+backends: [int, js, v2]
+---
+
+# The same rule across an import
+
+`parameterless-def-mention` pins the top-level case and `parameterless-def-local` the local one;
+this case exists because the IMPORT path is a third code path in the js emitter, and it was the one
+still broken: `zeroParamFns` is filled by the entry module's pre-pass only, so an imported
+`def answer: String` mentioned bare emitted `_dispatch(answer, 'length', [])` — the FUNCTION
+OBJECT, whose `.length` is its arity. `len-ZERO` where int and native print `len-ok`, a silent
+wrong answer at exit 0.
+
+It surfaced as `std-os-doc-import` going red when 3440cab4c re-routed `cwd` through
+`declaredBindings`, but the defect predates that commit and needs no std module: this case uses a
+plain two-def library, which is also why the second def is here — an alias must register under the
+LOCAL name, since that is the name the mention uses.
+
+[answer, greeting as hello](lib/parenless.ssc)
+
+```scalascript
+def main() =
+  println(if answer.length > 0 then "len-ok" else "len-ZERO")
+  println(answer)
+  println(hello)
+```

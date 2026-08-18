@@ -1,0 +1,7 @@
+A parenless def, exported for `parameterless-def-imported`. The body must be here and not in the
+case, because the defect is only reachable ACROSS an import.
+
+```scalascript
+def answer: String = "forty-two"
+def greeting: String = "hi"
+```

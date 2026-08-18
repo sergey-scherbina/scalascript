@@ -2589,6 +2589,65 @@ class JsGen(
     val childPkg     = childModule.manifest.flatMap(_.pkg).getOrElse(Nil)
     val pkgPrefix    = if childPkg.isEmpty then "" else childPkg.mkString("", ".", ".")
     val childExports = childModule.manifest.map(_.exports).getOrElse(Nil)
+    // AN IMPORTED PARENLESS DEF AUTO-APPLIES ON A BARE MENTION, exactly like a top-level one.
+    // `zeroParamFns` is filled by the entry module's pre-pass only (the comment at its declaration
+    // says so, deliberately), so an imported `def answer: String` — or `extern def cwd: String`,
+    // which the parser preprocesses into a `Defn.Def` whose body is `__extern__` — was NOT in it,
+    // and a bare mention emitted `_dispatch(answer, 'length', [])`: the FUNCTION OBJECT, whose
+    // `.length` is its arity. `len-ZERO` where int and native print `len-ok`; a silent wrong
+    // answer at exit 0.
+    //
+    // It surfaced as a REGRESSION because 3440cab4c added thirty preamble names to
+    // `declaredBindings`: before that, `cwd`'s import path happened to bind differently, and
+    // `tests/conformance/std-os-doc-import.ssc` — whose own prose warns that `cwd.length` silently
+    // reads an arity — went red on the js lane at HEAD while the stale shared bin/ kept measuring
+    // green. But the defect is GENERAL, measured with a plain `def answer: String` in a plain
+    // imported module: every imported parenless def had it, `declaredBindings` or not.
+    //
+    // ONLY the names THIS import binds, not the child's whole surface: the sets keep their
+    // top-level scope for everything else, and an alias registers under the LOCAL name, which is
+    // the name the mention uses. The same `explicitGroups` test as the entry pre-pass, so
+    // `def f()` (one explicit empty clause) stays un-registered here too.
+    val childParenless: Set[String] =
+      val names = scala.collection.mutable.Set.empty[String]
+      // DESCENDS INTO `Defn.Object`, because a std module's defs are not at the top level: the
+      // parser wraps them in namespace objects (`object std { object os { def cwd … } }`), so a
+      // scan without this arm returns EMPTY for every std import while finding everything in a
+      // hand-written flat module — a partial walk that reads as a clean answer. The comment on
+      // `registerImportedTypeEvidence` says the same thing and its scanner has the same arm; the
+      // first draft of this one did not, and `cwd` stayed broken while the probe module worked.
+      def scanStats(stats: List[Stat]): Unit = stats.foreach {
+        case d: Defn.Def
+            if d.paramClauseGroups.flatMap(_.paramClauses).filterNot(_.mod.nonEmpty).isEmpty =>
+          names += d.name.value
+        case o: Defn.Object => scanStats(o.templ.body.stats)
+        case _ => ()
+      }
+      def scanSection(section: Section): Unit =
+        section.content.foreach {
+          case cb: Content.CodeBlock if cb.isProgramCode =>
+            // `ScalaNode.fold`, not a direct `node.tree match` — the SAME walk
+            // `registerImportedTypeEvidence` uses, and the first draft of this scan is why the
+            // sameness matters: matching `.tree` directly found the defs in a small hand-written
+            // module and found NOTHING in `std/os.ssc`, whose block parses into a nested node
+            // shape that only the fold descends. An empty set here is indistinguishable from "no
+            // parenless defs", which is how a partial walk reads as a clean answer.
+            cb.tree.foreach { node =>
+              ScalaNode.fold(node) {
+                case Source(stats)     => scanStats(stats)
+                case Term.Block(stats) => scanStats(stats)
+                case st: Stat          => scanStats(List(st))
+                case _                 => ()
+              }
+            }
+          case _ => ()
+        }
+        section.subsections.foreach(scanSection)
+      childModule.sections.foreach(scanSection)
+      names.toSet
+    imp.bindings.foreach { b =>
+      if childParenless(b.name) then zeroParamFns += b.alias.getOrElse(b.name)
+    }
     imp.bindings.foreach { b =>
       val bindsContentRuntimeFn =
         (imp.path.endsWith("std/content.ssc") && contentIntrinsicNames(b.name)) ||

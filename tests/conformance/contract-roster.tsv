@@ -1,4 +1,4 @@
-# corpus-contract-roster-v1	baseline-sha256=b9408d8f1ad3dbbfad634a51be32e3ecd332c90d9e00c23d296619c0cb79a730	roster-sha256=1c2bc346a3605fe94d62611fe8174bd482372701a5734469b855171000887338
+# corpus-contract-roster-v1	baseline-sha256=b9408d8f1ad3dbbfad634a51be32e3ecd332c90d9e00c23d296619c0cb79a730	roster-sha256=ecb50c8e586560d3d41a316814ee19378f912853260b7202d843adabccf8b821
 _bug1_httpclient
 _bug1b
 _bug1c
@@ -266,6 +266,7 @@ option
 optional
 paginated-typed-client
 parameterless-def-extension
+parameterless-def-imported
 parameterless-def-local
 parameterless-def-mention
 parenless-def-value
