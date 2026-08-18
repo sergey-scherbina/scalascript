@@ -557,12 +557,13 @@ exec-gate 88, capability OK, prelude GREEN, corpus N 234 → 235.
 
 ## v3-an-escaped-continuation-resumes-without-the-return-clause — `effect-deep-handler-state` calls 7 as a function
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      area: runtime
      kind: bug
      gate: v3/effects-gate.sh, v3/corpus-report.sh --exec
-     fixed-in: -
+     fixed-in: de11d1380
+     confirmed: yes
      reported-by: claude-code
      reported-at: 2026-08-16
      repro: tests/conformance/effect-deep-handler-state.ssc
@@ -998,12 +999,13 @@ still RECOGNISED — refused by name as outside Tier 0 rather than silently beco
 
 ## v3-handler-arm-value-dropped-when-the-perform-is-a-statement — `effects-handler` answers `List()`
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      area: runtime
      kind: bug
      gate: v3/effects-gate.sh, v3/corpus-report.sh --exec
-     fixed-in: -
+     fixed-in: de11d1380
+     confirmed: yes
      reported-by: claude-code
      reported-at: 2026-08-16
      repro: see below, four defs
@@ -2020,12 +2022,13 @@ rather than a `<closure>` that looks closer to working.
 
 ## v3-block-has-no-semicolon-statement-separator — twelve corpus cases refused for a `;`
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      area: front
      kind: bug
      gate: v3/front-capability-gate.sh
-     fixed-in: -
+     fixed-in: de11d1380
+     confirmed: yes
      reported-by: claude-code
      reported-at: 2026-08-17
      repro: `val x = { 1; 2 }`
