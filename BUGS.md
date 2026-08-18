@@ -2195,7 +2195,7 @@ the two.
      area: front
      kind: bug
      gate: v3/front-gate.sh
-     fixed-in: unrecorded
+     fixed-in: 609b217f1
      reported-by: claude-code
      reported-at: 2026-08-17
      repro: any file with `def main` and a trailing `main()`
