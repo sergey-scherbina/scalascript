@@ -1,5 +1,73 @@
 # Changelog
 
+## 0.2.0 development — what landed between v0.1.1 and the 0.2.0 release prep
+Completed: 2026-08-18
+
+**This entry is written at a different granularity from every entry below it, on purpose.** Those are
+one per task. This one covers 2026-08-06 → 2026-08-18, a stretch in which the per-task record was not
+kept: 3,351 commits, 133 of them `feat`. Reconstructing 3,351 entries after the fact would be
+invention, so this is the FEATURE-level summary and the per-bug record stays where it actually
+lives — `BUGS.md` and its eight sibling boards, 1,129 entries, each with its repro, its gate and the
+sha that closed it. Per-task entries resume below and should resume above.
+
+### v3 — from a subset to a language that runs the corpus
+
+The bulk of the period. v3's corpus score went from **183 to 259 of 369 cases on the executor** (257
+on the bridge), and the census that closed the arc found no defect of v3's own left among the
+remainder. What landed, grouped:
+
+- **Effects.** Algebraic effects on both v3 lanes — a continuation that crosses a call frame, one
+  that outlives its handle, and all 13 effects fixtures running on the v2 bridge as well as the
+  executor.
+- **The host boundary.** The executor reaches host plugins through the SPI the charter promised;
+  plugin globals, opaque handles, closures, host methods and callable host values cross the bridge;
+  the plugin fleet is ON by default (worth twenty cases on its own); an object's member can be an
+  `extern`, and both fronts say the same thing about it.
+- **Language surface.** Varargs; `import a.b.{X, Y}`; typeclass extensions dispatching to their
+  instance; a given instance as a receiver; a top-level def passed as a value; user-defined
+  interpolators; `;` as a statement separator in every block position; an exact decimal type.
+- **Standard library, as compositions rather than kernel prims.** `math` (Pi, abs, sqrt, round,
+  floor, ceil, pow, max, min), host file IO, the byte API, `envOrElse`, the `List` companion,
+  `Dataset.of` as a vararg.
+
+### MCP — the protocol surface on v2, declared and driven
+
+Twenty-one features: elicitation, notifications, progress and logging; subscriptions, paging and
+completions; `toolWithSchema` and `resourceTemplate`; roots and the raw server-initiated request;
+`Transport.Http` with its six auth members; and SSE on the HTTP route, so the server can speak first.
+The rust lane grew an MCP client that drives a `.ssc` MCP server end to end, plus resources and
+prompts on both halves.
+
+### The rust backend
+
+`BigInt` is arbitrary precision (the lane moved to cargo to get `num-bigint`); `String.matches` is a
+full-match regex test; extension methods lower to a function taking the receiver first; and a run of
+`Any`-boundary work — argument coercion at sibling and qualified object-member calls, a call result
+lifted at an `Any` parameter, a list crossing into `List[Any]` from either side, and a typed pattern
+binder that stopped matching the wrong arm.
+
+### Types on the native lane
+
+A declared parameter type is now a CONSTRAINT rather than documentation, and so are declared return
+and `val` types — measured at zero cost. What a declared type means on each lane is now a frozen
+table in the test suite rather than folklore.
+
+### Standard library and tooling
+
+`std/process` gained `spawn` (start a child, return at once, let it outlive the parent) and
+`ProcessOptions.stdin` (a secret reaches a child without passing through `argv`, where `ps` shows it
+to every local process). `jsonParseEither` answers "was this text JSON at all?" without aborting.
+OAuth validates the authorization response issuer before redeeming (RFC 9207). uniml keeps a
+definition's type parameters through the dialect projection.
+
+### Distribution
+
+`releases/install.sh` was rewritten against what the release actually publishes — it downloaded an
+`ssc.jar` no release has ever had, at a version constant frozen at 0.1.0. It now selects the archive
+for the platform, verifies the published `.sha256`, unpacks it whole and links the launcher, with no
+version constant to go stale. Two channel files describing infrastructure that does not exist were
+deleted. See `BUGS.md` `install-channels-are-fiction`.
+
 ## js-aliased-package-root — `[org as o]` binds on the js lane, closing the alias matrix
 Completed: 2026-08-06
 
