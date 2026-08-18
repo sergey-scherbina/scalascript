@@ -35,42 +35,45 @@ library function once the front stopped hardcoding prefixes.
 with a position, that it will not pretend. Nine cases is the largest single group behind the Tier 0
 boundary, and closing it means designing front rewrites rather than widening a list.
 
-## v3-an-interpolator-prefix-is-hardcoded-in-both-fronts — make it an ordinary call instead
+## v3-an-interpolator-prefix-is-hardcoded-in-both-fronts — it is a call now, definable in a library
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      kind: feature
      area: front
-     gate: v3/corpus-report.sh (std-ui-native-html-lambda-lib and five more)
+     fixed-in: f92e3c644
+     gate: v3/front-diff.sh (interpolator-is-a-call, run on BOTH fronts)
      found-by: claude-code
      found-at: 2026-08-17 -->
 
-**Both fronts refuse every prefix but `s`, by name, in one line each:**
+**FIXED IN f92e3c644.** `pfx"a${x}b"` is `pfx(List("a", "b"), List(x))`, so
 
-    Lexer.scala:289    if text != "s" then throw LexError(p, "the `" + text + "` interpolator is outside SSC3 core Tier 0")
-    UniFront.scala:522 if prefix != "s" then no("the `" + prefix + "\"…\"` interpolator", s)
+    def html(parts: List[String], args: List[Any]): String = …
 
-and `Expr.Interp(parts, exprs, pos)` carries no prefix at all — the AST already assumes there is only
-one interpolator. Six corpus cases stand on this: `html"…"` (4), `md"…"` (1), `f"…"` (1).
+defines an interpolator with nothing added to the kernel. `s` stays a node — hot, fixed in meaning,
+and the one the AST was built for. Parts are always one longer than args, as in Scala.
 
-**THE OWNER'S QUESTION IS THE DESIGN: an interpolator must be definable OUTSIDE the kernel.** It can
-be, without extending Tier 0, because the language already has the construct it needs — a CALL.
-Scala's own model is `StringContext(parts).pfx(args)`; the Tier 0 shape of the same idea is
+**THE CORPUS IS UNCHANGED AND THAT IS THE HONEST RESULT:** exec 259 DIFF 1 CRASH 3, bridge 257
+DIFF 2 CRASH 1, before and after. The six `html"…"`/`md"…"`/`f"…"` cases moved from `outside SSC3
+core Tier 0` to `unknown function 'html'`. Nothing new passes; what changed is that the refusal now
+names something a program can define, and defining them in `std` is ordinary library work rather
+than a language decision.
 
-    pfx"a${x}b"   ==>   pfx(List("a", "b"), List(x))
+**THE FIXTURE CAUGHT TWO MISTAKES THAT A HAND PROBE DID NOT**, which is why it went in with the
+feature and why `front-diff` runs it on both fronts:
 
-so `def html(parts: List[String], args: List[Any]): String` in `std` — or in a plugin — makes
-`html"…"` work with nothing added to the kernel. The kernel never learns what `html` is; it sees a
-call by name, of which it already has plenty.
+1. v3's own lexer treated only `s`, `f` and `raw` as interpolators, so `tag"…"` lexed as an
+   identifier and a separate string — while the comment directly above that guard stated the general
+   rule. Harmless while every other prefix was refused anyway; a front divergence the moment one
+   became a call.
+2. Broadening the rule then BROKE THREE FILES that used to read — `content` and both
+   `std-ui-native-html-lambda` cases — which interpolate with TRIPLE quotes. `front-diff` reported
+   one-sided files rising 77 -> 79, and the saved one-sided list named all three. Triple-quoted
+   interpolators are lexed now, with `${…}` going through the same hole parser so the two spellings
+   cannot drift.
 
-**`s` STAYS BUILT IN.** It is hot, its meaning is fixed, and it is the one prefix the AST node was
-built for; turning it into a call would cost every string interpolation a function call for no gain.
-
-**WHAT MOVES:** the lexer carries the prefix instead of discarding it, both fronts build a `Call` for
-a non-`s` prefix, and lowering does not change at all — a call is already the thing it lowers best.
-The refusals that remain are then honest in a new way: `unknown function 'html'` names something a
-program can go and define.
-
+**WHAT REMAINS FOR THE SIX CASES:** somebody writes `def html(parts, args)` and `def md(parts, args)`
+in `std`. That is a library task with no front or kernel change behind it.
 ## v3-a-plugin-global-that-is-a-plain-value-cannot-answer-a-zero-arg-extern — it can now
 
 <!-- status: fixed
