@@ -337,6 +337,15 @@ private[interpreter] object StatRuntime:
         Value.FunV(params, d.body, capturedEnv, d.name.value, defaults, paramTypes, usingInfo, rThrows,
                    parameterless = allClauses.isEmpty)
       fn.declaredReturnType = d.decltpe.fold("")(interp.typeToString) // wide-jit C-4b: JIT RET-widening signal
+      // Clause boundaries, for the ONE thing that cannot be answered from the flattened list: a
+      // call that fills whole clauses and leaves a fully-defaulted one to come. Recorded only when
+      // there are no `using`/context-bound params, because those are APPENDED to the parameter list
+      // rather than kept in source order, so an index computed from the regular clauses would not
+      // describe the stored `params`. The consuming branch requires `usingParams.isEmpty` anyway,
+      // so nothing is lost by declining to record it.
+      if usingClauses.isEmpty && cbUsingParams.isEmpty && regularClauses.length > 1 then
+        val starts = regularClauses.scanLeft(0)((acc, c) => acc + c.values.length).toArray
+        CallRuntime.recordClauseStarts(d.body, starts)
       // busi-p3 — user-wins: a top-level def overwriting an already-installed
       // plugin intrinsic of the same bare name is allowed (user wins), but warn
       // so the shadow is not silent. Local defs (env ne globals) are normal
@@ -494,9 +503,17 @@ private[interpreter] object StatRuntime:
         // performs for extern defs at STATEMENT level — it was simply never applied to class,
         // trait or object bodies.
         case dd: Defn.Def if !scalascript.transform.EffectAnalysis.isExternDef(dd.body) =>
-          val mparamVals = dd.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).toList
+          val mclauses   = dd.paramClauseGroups.flatMap(_.paramClauses)
+          val mparamVals = mclauses.flatMap(_.values).toList
           val mparams    = mparamVals.map(_.name.value)
           val mdefaults  = mparamVals.map(_.default)
+          // Same boundary record as the statement-level arm above, and for the same case: a curried
+          // method whose trailing clause is fully defaulted. Method params are NOT reordered here,
+          // so the cumulative sizes describe the stored list directly — but `using` clauses are
+          // still excluded, to keep this and the branch that reads it agreeing on one rule.
+          if mclauses.length > 1 && mclauses.forall(_.mod.isEmpty) then
+            val starts = mclauses.scanLeft(0)((acc, c) => acc + c.values.length).toArray
+            CallRuntime.recordClauseStarts(dd.body, starts)
           (dd.name.value, Value.FunV(mparams, dd.body, classEnv, dd.name.value, mdefaults))
       }
       val methodDefs: Map[String, Value.FunV] = withArityKeys(methodPairs)

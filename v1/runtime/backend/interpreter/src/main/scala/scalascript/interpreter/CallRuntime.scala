@@ -24,6 +24,56 @@ private[interpreter] object CallRuntime:
     val t = paramTypeAt(paramTypes, idx)
     t != null && t.endsWith("*")
 
+  /** Where each parameter clause of a def STARTS, for the defs that have more than one.
+   *
+   *  `def f(a)(b = 5)` and `def g(a, b = 5)` are stored identically — params `[a, b]`, defaults
+   *  `[None, Some(5)]` — because the clause groups are flattened at registration. That is fine
+   *  until a call arrives one clause short and every missing parameter has a default, because the
+   *  two shapes then want OPPOSITE answers: `g(9)` is a complete call that fills `b` (4), while
+   *  `f(6)` has a clause left and must yield something a following `()` can apply. Without the
+   *  boundaries there is no way to tell them apart, and any rule that fixes one breaks the other.
+   *
+   *  KEYED BY THE BODY, not stored on the FunV. A non-constructor `var` is lost by `copy`, which
+   *  the section/import path applies to every bound function — the trap `Value.FunV.parameterless`
+   *  documents at length — so an imported def would silently fall back to the other behaviour. The
+   *  body Term is the same object across every copy, so this survives them. Only defs with MORE
+   *  THAN ONE clause are entered, which is what keeps the table small.
+   *
+   *  `tcoInfoFor` already caches by body identity; this is the same shape for the same reason. */
+  private val clauseStarts = java.util.Collections.synchronizedMap(
+    new java.util.IdentityHashMap[Term, Array[Int]]())
+
+  /** Called from the def-registration sites for a def whose clauses number more than one. The array
+   *  holds every clause START followed by the TOTAL parameter count, so the last element doubles as
+   *  the original arity — which is what lets a partial closure locate itself (below). */
+  def recordClauseStarts(body: Term, bounds: Array[Int]): Unit =
+    if bounds.length > 2 then clauseStarts.put(body, bounds)
+
+  /** Where the clause CURRENTLY being applied ends, for a function whose params may already be a
+   *  suffix of the original list, or -1 when this def has one clause (or none recorded).
+   *
+   *  A partial closure shares its `body` with the def it came from, so the table describes the
+   *  ORIGINAL numbering. `paramsLeft` says how much of that list is still in front of us, which
+   *  gives the offset — this is why the total is stored alongside the starts. Without it the second
+   *  application of a three-clause def would read the first clause's boundary and consume the wrong
+   *  amount (`three(9)()()` answered `Not callable: 12`).
+   *
+   *  Returned RELATIVE to the current params, so callers need no arithmetic of their own. */
+  private def clauseEndFor(body: Term, paramsLeft: Int): Int =
+    val bounds = clauseStarts.get(body)
+    if bounds == null then -1
+    else
+      val total  = bounds(bounds.length - 1)
+      val offset = total - paramsLeft
+      if offset < 0 then -1
+      else
+        var i = 0
+        var end = -1
+        while i < bounds.length && end < 0 do
+          if bounds(i) > offset then end = bounds(i) - offset
+          i += 1
+        end
+
   def callValue(fn: Value, args: List[Value], env: Env, interp: Interpreter): Computation = fn match
     case f: Value.FunV if f.params.isEmpty && args.nonEmpty =>
       // def f: A => B = a => body — zero-param def returning a function.
@@ -544,22 +594,38 @@ private[interpreter] object CallRuntime:
     // If the call provides fewer positional args than the function has params, and some of the
     // missing params are required (no default), return a partial closure so that curried calls
     // like `f(a)(b, c)` work when the def is stored with all param lists flattened.
-    if tupledArgs.nonEmpty && tupledArgs.length < f.params.length && f.usingParams.isEmpty then
-      // Fill as many defaults as we can; stop at the first required (no-default) param.
+    // ONE APPLICATION CONSUMES ONE CLAUSE. Defaults belong to the clause being APPLIED, never to a
+    // clause still ahead: `def f(a)(b = 5)` called `f(6)` must leave `b`'s clause open so the `()`
+    // that follows can close it. Filling `b` here and answering 30 is what made `f(6)()` fail with
+    // `Not callable: 30`. A single-clause `def g(a, b = 5)` records no boundaries at all, so `g(9)`
+    // keeps filling and still answers 4 — the boundary is what separates the two, not the defaults.
+    //
+    // `clauseEnd` is -1 when nothing was recorded, which is every ordinary def; the whole rule then
+    // collapses to what it was.
+    val clauseEnd = clauseEndFor(f.body, f.params.length)
+    // The empty application is allowed in ONLY when clause info exists. `f()` on `def f(a)` must
+    // still refuse rather than become a closure, and it does: with no boundaries the guard is the
+    // old one.
+    if (tupledArgs.nonEmpty || clauseEnd > 0) && tupledArgs.length < f.params.length
+       && f.usingParams.isEmpty then
       var env2: Map[String, Value] = interp.closureWithSelfFor(f)
       val pIter = f.params.iterator; val aIter = tupledArgs.iterator
       while pIter.hasNext && aIter.hasNext do env2 = FrameMap.one(pIter.next(), aIter.next(), env2)
       var partialStart = -1
-      val filled = scala.collection.mutable.ListBuffer.empty[Value]
-      for i <- (tupledArgs.length until f.params.length) do
+      // Filling STOPS at the clause end. Running a later clause's default expressions here would
+      // not merely be wasted work — a default is an expression, and evaluating it early runs its
+      // effects at the wrong time.
+      val fillTo = if clauseEnd > 0 then clauseEnd else f.params.length
+      for i <- (tupledArgs.length until fillTo) do
         if partialStart < 0 then
           (if i < f.defaults.length then f.defaults(i) else None) match
             case Some(defaultTerm) =>
               val v = Computation.run(interp.eval(defaultTerm, env2))
-              filled += v
               env2 = FrameMap.one(f.params(i), v, env2)
             case None =>
               partialStart = i
+      if partialStart < 0 && clauseEnd > 0 && clauseEnd < f.params.length then
+        partialStart = clauseEnd
       if partialStart >= 0 then
         return Pure(Value.FunV(
           f.params.drop(partialStart),
@@ -695,13 +761,18 @@ private[interpreter] object CallRuntime:
       // varargs omitted (`def f(a, xs: Int*)` as `f(1)`) is a COMPLETE call that packs an empty
       // list, not a partial one. `callFun` does not exclude it; adding the same hole here to be
       // symmetrical would be copying a bug for the sake of matching.
-      if args.nonEmpty && args.length < fn.params.length && fn.usingParams.isEmpty
+      // Same one-clause-per-application rule as `callFun`, and it has to be here too: a curried
+      // method whose trailing clause is fully defaulted is the method-path twin of `f(6)()`.
+      val clauseEndM = clauseEndFor(fn.body, fn.params.length)
+      if (args.nonEmpty || clauseEndM > 0) && args.length < fn.params.length
+         && fn.usingParams.isEmpty
          && !(lastIsVararg && args.length == fn.params.length - 1) then
         var env2: Map[String, Value] = base
         val pIter = fn.params.iterator; val aIter = args.iterator
         while pIter.hasNext && aIter.hasNext do env2 = FrameMap.one(pIter.next(), aIter.next(), env2)
         var partialStart = -1
-        for i <- (args.length until fn.params.length) do
+        val fillToM = if clauseEndM > 0 then clauseEndM else fn.params.length
+        for i <- (args.length until fillToM) do
           if partialStart < 0 then
             (if i < fn.defaults.length then fn.defaults(i) else None) match
               case Some(defaultTerm) =>
@@ -709,6 +780,8 @@ private[interpreter] object CallRuntime:
                 env2 = FrameMap.one(fn.params(i), v, env2)
               case None =>
                 partialStart = i
+        if partialStart < 0 && clauseEndM > 0 && clauseEndM < fn.params.length then
+          partialStart = clauseEndM
         if partialStart >= 0 then
           return Pure(Value.FunV(
             fn.params.drop(partialStart),

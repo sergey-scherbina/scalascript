@@ -4178,12 +4178,46 @@ ONE GUARD MORE THAN `callFun` HAS, deliberately: a vararg method called with its
 (`def f(a, xs: Int*)` as `f(1)`) is a COMPLETE call that packs an empty list, not a partial one.
 `callFun` does not exclude that case. Copying the omission to be symmetrical would be copying a bug.
 
-WHAT THIS DOES NOT DELIVER, stated so nobody reads more into it: `f(6)()` where the second clause has
-a DEFAULT still fails — `Not callable: 30` — because the flattening fills the default during the
-first application and the trailing `()` then applies to the result. It fails identically at TOP
-LEVEL, so the two paths now agree exactly, including where the shared path is imperfect. The test
-pins that agreement (`topD(6)` and `C().m(6)` both 30) rather than a Scala parity this does not
-reach.
+THE DEFAULTED TRAILING CLAUSE, which the first fix left failing and this entry then described as a
+limit, is fixed too. `f(6)()` on `def f(a)(b = 5)` answered `Not callable: 30`: the flattening filled
+`b` during the FIRST application, so the trailing `()` applied to a number. The rule is now the one
+Scala uses — **one application consumes one clause** — and defaults belong to the clause being
+APPLIED, never to a clause still ahead:
+
+    def topD(a)(b = 5)          topD(6)()      -> 30      topD(6)(4)      -> 24
+    def three(a)(b = 1)(c = 2)  three(9)()()   -> 12      three(9)(5)()   -> 16
+    class C(k):  def m(a)(b = 5)   C(100).m(6)()  -> 130   C(100).m(6)(4) -> 124
+
+WHAT MAKES THE TWO SHAPES SEPARABLE AT ALL: `def f(a)(b = 5)` and `def g(a, b = 5)` are stored
+IDENTICALLY — params `[a, b]`, defaults `[None, Some(5)]` — and want opposite answers. `g(9)` is a
+complete call that fills `b` (4); `f(6)` has a clause left. Nothing in the stored function could tell
+them apart, so the clause boundaries are recorded at registration for defs with more than one clause,
+keyed by the BODY rather than stored on the FunV — a non-constructor `var` is lost by `copy`, which
+the section/import path applies to every bound function, the trap `Value.FunV.parameterless`
+documents at length. The body Term is the same object across every copy.
+
+THE ARRAY CARRIES THE TOTAL, NOT JUST THE STARTS, and the three-clause case is why. A partial closure
+shares its body with the def it came from, so the recorded boundaries are in the ORIGINAL numbering;
+the closure has to locate itself in them first (`total - paramsLeft`). Without that the SECOND
+application of `three(9)()()` read the first clause's boundary and answered `Not callable: 12` — the
+same defect one level deeper, which is how the first version of this fix was caught.
+
+TWO BEHAVIOURS CHANGED, both deliberate, both measured:
+  * `f(6)` with no trailing `()` now yields a function value where it used to yield 30. That is what
+    Scala gives (the clause is not applied), and a census of 1650 `.ssc` files found ZERO defs with a
+    fully-defaulted second clause, so nothing in the tree relied on the old answer.
+  * A later clause's default expressions are no longer evaluated during an earlier application. A
+    default is an expression; running it early runs its effects at the wrong time.
+
+THE ANTI-ROWS matter more than the positive ones here. `plain(9)` and `C().g(9)` — single clause,
+one default — must still answer 4, which a fix reading the defaults alone would turn into a closure.
+And `needsOne()` on `def needsOne(a: Int)` must still REFUSE rather than become a closure: the empty
+application was let into the partial path so a defaulted clause could be closed by `()`, and that is
+gated on clause info existing, so an ordinary def is untouched.
+
+The test that pinned the OLD agreement (`topD(6)` and `C().m(6)` both 30) was UPDATED, not deleted:
+its subject is that the two call paths agree, and they still do — both now answer `<function(1)>`.
+The answer moved; the property it guards did not.
 
 Gate: five rows added to `ClassMethodArityTest` — one clause at a time, fields preserved, three
 clauses, the default-clause agreement, and an anti-row asserting an ordinary two-parameter method

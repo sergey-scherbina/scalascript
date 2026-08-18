@@ -157,10 +157,12 @@ class ClassMethodArityTest extends AnyFunSuite with Matchers:
     """) shouldBe "5"
 
   test("Interpreter: a curried method whose second clause DEFAULTS matches the top-level path"):
-    // Both answer 30 — the second clause is filled from its default and the method completes.
-    // Asserted against the top-level twin in the same program rather than against Scala: the
-    // flattening makes `f(6)()` fail identically on BOTH paths (`Not callable: 30`), so this pins
-    // the agreement this fix is responsible for, not a parity it does not deliver.
+    // WHAT THIS ROW IS FOR is the AGREEMENT between the two call paths, and that is why it survived
+    // the change rather than being deleted by it. It first asserted `30\n30`: back then both paths
+    // filled the trailing clause's default during the FIRST application, so `f(6)` was a number and
+    // `f(6)()` then failed with `Not callable: 30`. One application now consumes one clause, so
+    // `f(6)` leaves that clause open — a function value, which is also what Scala gives here — and
+    // `f(6)()` closes it (asserted above). The two paths still answer identically; the answer moved.
     run("""
       def topD(a: Int)(b: Int = 5): Int = a * b
 
@@ -169,4 +171,64 @@ class ClassMethodArityTest extends AnyFunSuite with Matchers:
 
       println(topD(6))
       println(C().m(6))
-    """) shouldBe "30\n30"
+    """) shouldBe "<function(1)>\n<function(1)>"
+
+  // ── one application consumes one clause ────────────────────────────────────
+  //
+  // Clause groups are flattened at registration, so `def f(a)(b = 5)` and `def g(a, b = 5)` are
+  // stored identically — params `[a, b]`, defaults `[None, Some(5)]`. They want OPPOSITE answers
+  // when a call arrives short: `g(9)` is complete and fills `b`, while `f(6)` has a clause left and
+  // must yield something the following `()` can apply. `f(6)()` used to fail `Not callable: 30`,
+  // because the defaults of a clause NOT being applied were filled during the first application.
+  // The clause boundaries are recorded for defs with more than one clause and consulted here.
+
+  test("Interpreter: a defaulted trailing clause is closed by its own ()"):
+    run("""
+      def topD(a: Int)(b: Int = 5): Int = a * b
+      println(topD(6)())
+      println(topD(6)(4))
+    """) shouldBe "30\n24"
+
+  test("Interpreter: THREE clauses, two of them defaulted"):
+    // The second `()` is what the first version of this fix still got wrong: a partial closure
+    // shares its body with the def it came from, so the recorded boundaries are in the ORIGINAL
+    // numbering and the closure has to locate itself in them before reading one.
+    run("""
+      def three(a: Int)(b: Int = 1)(c: Int = 2): Int = a + b + c
+      println(three(9)()())
+      println(three(9)(5)())
+      println(three(9)(5)(7))
+    """) shouldBe "12\n16\n21"
+
+  test("Interpreter: a curried method with a defaulted trailing clause, fields intact"):
+    run("""
+      class C(k: Int):
+        def m(a: Int)(b: Int = 5): Int = a * b + k
+
+      val c = C(100)
+      println(c.m(6)())
+      println(c.m(6)(4))
+    """) shouldBe "130\n124"
+
+  test("Interpreter: a SINGLE clause with a default still fills, and is not split"):
+    // The anti-row for the rule above. A clause boundary is what separates these two shapes; a fix
+    // that read the defaults alone would turn this into a closure.
+    run("""
+      def plain(a: Int, b: Int = 5): Int = a - b
+
+      class C:
+        def g(a: Int, b: Int = 5): Int = a - b
+
+      println(plain(9))
+      println(C().g(9))
+    """) shouldBe "4\n4"
+
+  test("Interpreter: an empty call on a REQUIRED parameter still refuses"):
+    // The empty application was let into the partial path so a defaulted clause could be closed by
+    // `()`. This row is why that had to be gated on clause info existing: with none, `f()` must
+    // stay a refusal rather than become a closure.
+    val err = intercept[Exception](run("""
+      def needsOne(a: Int): Int = a + 1
+      println(needsOne())
+    """))
+    err.getMessage should include("missing argument for parameter 'a'")
