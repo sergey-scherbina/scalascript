@@ -4136,7 +4136,7 @@ trait reaches.
      found-by: claude-code
      found-at: 2026-08-16
      fixed-at: 2026-08-18
-     fixed-in: f690555a6f920db2d809193d708e1fd43212f1c2
+     fixed-in: acbaf1c139079a75b5b829c388352bb332948e0f
      repro: the body
      confirmed: yes -->
 
