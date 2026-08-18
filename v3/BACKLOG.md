@@ -11,7 +11,32 @@ the executor and 257 on the bridge, with the four unclosed cases belonging to an
 deliberate. What remains is 106 honest refusals, and they are not one problem — these are the four
 that needed a decision rather than a slice.
 
-**APPROVED — JVM-package imports.** `std/mapreduce/typed.ssc:25` writes
+**SIZED 2026-08-18, AND THE APPROVAL WAS GIVEN WITHOUT THREE FACTS THAT CHANGE ITS PRICE.** Read
+before writing any of it:
+
+1. **The five cases declare `backends: [jvm]`** — `distributed-map`, `distributed-shuffle`,
+   `distributed-heterogeneous`, `distributed-failure-retry`, `distributed-failure-partial`. v3 is not
+   among their declared targets; `jvm` is v1's JVM backend. They land in UNSUPPORTED rather than
+   LANE-EXCLUDED only because `holds_v2` filters DIFFERENCES and these refuse at build time, so the
+   five would still count as +5 if v3 could run them — but v3 refusing a case aimed at another
+   backend is not obviously a defect.
+2. **Nothing in the plugin fleet provides those names.** The cheap shape — let the loader ignore a
+   dotted JVM import and resolve the names through the SPI — was checked and fails:
+   `v2NativeDatasetPlugin` registers Dataset OPERATIONS (`avg`, `collect`, `filter`, …) and neither
+   `DatasetWire` nor `DatasetWirePartition`.
+3. **`scalascript.typeddata` is a real Scala library**, with generics, derived-schema MACROS and
+   three wire codecs. Supporting `DatasetWirePartition(partId, values)` means constructing JVM
+   objects and calling their methods — reflection or a generated bridge — not a loader tweak.
+
+So "allow JVM-package imports" means giving v3 JVM-class interop. It can still live outside the
+kernel behind the plugin SPI, so I-1 survives, but it is a feature of that size and not a slice —
+and it buys five cases that name another backend.
+
+**A SMALLER THING IS WORTH DOING EITHER WAY:** the refusal currently lists four candidate FILE paths,
+which sends the reader hunting for a file that cannot exist. A dotted JVM-package import should be
+refused as what it is.
+
+**WAS: APPROVED — JVM-package imports.** `std/mapreduce/typed.ssc:25` writes
 `import scalascript.typeddata.{DatasetCodec, DatasetWirePartition}` — a Scala PACKAGE, not an `.ssc`
 module. v2 resolves it through its interop descriptor; v3 treats it as a file path and refuses with
 four candidate paths, which is what the 5-case `typeddata` bucket in the refusal histogram is. The
