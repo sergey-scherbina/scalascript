@@ -9094,9 +9094,19 @@ another lane can distinguish "mutated" from "did not".
 > the last).
 >
 > The gate's `int` row moved from KNOWN-RED freeze to asserting the fix, exactly as its header
-> instructs, and additionally asserts `NO MATCH` does not print. **Remaining: `native` (silent
-> no-match, the fix lives in v2's front or pattern lowering) and `js` (a run-time `ReferenceError`;
-> its emitter writes the unresolved name verbatim into the test).** Both rows stay frozen in
+> instructs, and additionally asserts `NO MATCH` does not print.
+>
+> **THE `native` ROW IS FIXED TOO, 2026-08-18 (`99ac149fa`) — in BOTH fronts, which is the condition
+> the parked map set.** F checks at its three arm-emission mouths (the third, `parseCtorArm`, was
+> found by the probe still printing NO MATCH under `SSC_FRONT_STRICT` after the first two were
+> wrapped); the reference lowering checks at `ctorPatternArms`, its single mouth, against the
+> registry it already had. Both matter because the driver falls back to the reference front when F
+> declines — a refusal in F alone would reroute into the old silence. The full-corpus census
+> amended the known set three times (lowercase effect-op heads; the runtime's
+> `Yielded`/`Errored`/`Exit`/`Return`; `case object` tags via a new `caseObjNamesCell`) and
+> converged 11 fails → 3 → 0 over three full runs, 369/0 at the end. The gate's native row now
+> asserts the fix. **Remaining: `js` only** — a run-time `ReferenceError`; its emitter writes the
+> unresolved name verbatim into the test. That row stays frozen in
 > `tests/e2e/pattern-undefined-name-gate.sh`.
 >
 > **THE NATIVE HALF IS MAPPED, 2026-08-18, AND PARKED — not abandoned — for a live claim conflict.**
