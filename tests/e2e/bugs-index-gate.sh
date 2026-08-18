@@ -106,6 +106,21 @@ for head, body in entries:
         # template could not be copied: the parser took the whole rest of the line, and `status:
         # open        · open | fixed | …` failed the enum check. Twice on 2026-08-05 an out-of-enum
         # `area` turned this gate red on clean main for everyone, which is what the template is for.
+        # LAST ONE WINS, SILENTLY — which is how a CLOSED entry stayed red on main. On 2026-08-18
+        # `an-undefined-name-in-a-pattern-means-three-different-things` was closed by adding
+        # `fixed-in: b427403ec` at the TOP of a header that still ended with the placeholder
+        # `fixed-in: -` from when it was open. Both parsed; this assignment kept the second; the
+        # gate reported "fixed-in `-` is not a commit sha" about an entry whose sha was right there,
+        # two lines up. A census found one more, `f-char-literal-escape-…` with two REAL shas, where
+        # the same last-wins quietly discarded the first — the other direction of one defect.
+        #
+        # ONLY THE KEYS A VERDICT IS TAKEN FROM. `gate:` legitimately repeats where an entry is
+        # guarded by two gates — two entries in this tree are — and nothing decides on it, so
+        # repeating it loses no verdict. Repeating one of these does.
+        if fm.group(1) in ("status", "lane", "area", "kind", "fixed-in") and fm.group(1) in fields:
+            problems.append((slug, f"`{fm.group(1)}` appears more than once in the header — the "
+                                   f"parser keeps the LAST, so the earlier value is silently "
+                                   f"discarded; delete the one that no longer applies"))
         fields[fm.group(1)] = fm.group(2).split("·")[0].strip()
     for req in ("status", "lane", "area"):
         if req not in fields: problems.append((slug, f"missing required field `{req}`"))
@@ -300,6 +315,14 @@ Prose starts here with no terminator above it. Before 2026-08-04 this PASSED: th
 <!-- status: open
      lane: int
      area: runtime -->
+
+## bad-repeated-key — closed at the top, still carrying the open placeholder at the bottom
+<!-- status: fixed
+     fixed-in: b427403ec
+     kind: bug
+     lane: v3
+     area: front
+     fixed-in: - -->
 BAD
   # The STALE-OPEN case, appended rather than inlined because it needs a sha that really IS an
   # ancestor of HEAD — a literal in the heredoc would either dangle or, worse, stop being an ancestor
@@ -335,7 +358,7 @@ STALE
   # one — only demanding a member of the enum in the output can. `v2` also gets its own hint, since
   # it is the value that actually keeps being written.
   for want in "no header comment" "not in" "requires" "not a commit sha" "not terminated" "no \`kind:\`" \
-              "v2-jvm" "conformance" "not a lane here"; do
+              "v2-jvm" "conformance" "not a lane here" "appears more than once"; do
     if ! printf '%s' "$out" | grep -q "$want"; then
       echo "SELF-TEST FAILED: expected a problem mentioning '$want'"; exit 1
     fi
@@ -362,7 +385,7 @@ STALE
   elif ! printf '%s' "$out" | grep -q "STALE? \[stale-open-entry\]"; then
     echo "SELF-TEST FAILED: the stale-open report did not name an entry whose fix has landed"; exit 1
   fi
-  echo "--- self-test ok (9 planted defects all caught); checking ${#FILES[@]} file(s) ---"
+  echo "--- self-test ok (10 planted defects all caught); checking ${#FILES[@]} file(s) ---"
 fi
 
 run_check "${FILES[@]}"

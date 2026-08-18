@@ -5021,7 +5021,6 @@ staleness guard for exactly this and my hand-built kernel had none.
      reported-by: claude-code
      reported-at: 2026-08-11
      confirmed: yes
-     fixed-in: 7dd1c17a7
      fixed-in: 39d99eed7
      gate: tests/e2e/f-char-escape-gate.sh -->
 

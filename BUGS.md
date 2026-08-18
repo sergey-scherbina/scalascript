@@ -9397,6 +9397,43 @@ long session.
 another lane can distinguish "mutated" from "did not".
 
 
+## a-repeated-key-in-a-bugs-header-is-kept-silently-and-the-last-one-wins — main red on a closed entry
+
+<!-- status: open
+     lane: apparatus
+     kind: apparatus
+     area: build
+     gate: tests/e2e/bugs-index-gate.sh --self-test
+     found-by: claude-code
+     found-at: 2026-08-19 -->
+
+**A HEADER FIELD WRITTEN TWICE PARSED TWICE, and the parser kept the second:**
+
+    fields[fm.group(1)] = fm.group(2).split("·")[0].strip()
+
+`an-undefined-name-in-a-pattern-means-three-different-things` was closed on 2026-08-18 by adding
+`fixed-in: b427403ec` to the TOP of a header that still ended with the `fixed-in: -` placeholder from
+when it was open. Both lines parsed; the placeholder won; and `smoke` went red on main with
+
+    FAIL [an-undefined-name-in-a-pattern-means-three-different-thi] fixed-in `-` is not a commit sha
+
+about an entry whose sha was correct and sitting two lines above. 118 of 119 checks were green — the
+red was one stale line, and the message pointed at the wrong one of the two.
+
+**THE CENSUS FOUND THE OTHER DIRECTION, which is what makes this a defect rather than a typo.**
+Across 1137 headers exactly two carried a repeated key that a verdict is taken from. The second,
+`f-char-literal-escape-without-a-named-branch-emits-the-character-not-its-code`, had TWO REAL SHAS —
+`7dd1c17a7` and `39d99eed7` — and the gate passed it in silence, having discarded the first. One
+defect, two symptoms: red about the wrong value, or green while losing one.
+
+**FIXED by refusing a repeat of the keys a verdict is read from** — `status`, `lane`, `area`, `kind`,
+`fixed-in` — and only those. `gate:` legitimately repeats where an entry is guarded by two gates, and
+two entries in this tree are; nothing decides on it, so repeating it costs no verdict.
+
+**THE CONTROL IS THE SILENT CASE, not the red one.** The old gate on the pre-fix `tests/BUGS.md`
+reports `problems: 0` and OK; the new gate on the same file names the duplicate. The red entry would
+have gone red either way — the guard is worth having because of the one that did not.
+
 ## an-undefined-name-in-a-pattern-means-three-different-things — two lanes ignore it, one throws
 
 <!-- status: fixed
@@ -9404,8 +9441,7 @@ another lane can distinguish "mutated" from "did not".
      lane: multi
      area: front
      kind: bug
-     gate: tests/e2e/pattern-undefined-name-gate.sh
-     fixed-in: - -->
+     gate: tests/e2e/pattern-undefined-name-gate.sh -->
 
 > **THE `int` ROW IS FIXED, 2026-08-18 (`843b4c3e0`), and the entry stays open for the other two.**
 > The matcher's `Term.Name` arm now refuses an unresolved capitalised name with v3's own sentence
