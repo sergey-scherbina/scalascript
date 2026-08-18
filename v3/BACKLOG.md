@@ -23,10 +23,18 @@ or an explicit import form, not in `v3/src`.
 than a float. Entry: `v3-has-no-decimal-so-the-json-core-cannot-cross`. It is a runtime value like
 `VBytes` rather than a Tier 0 type addition — the program never names it, prims consume it.
 
-**APPROVED — the plugin fleet ON by default.** It is opt-in today through
-`v3/.jars/plugins.cp`, measured to cost nothing and to gain cases, and the reason it stayed opt-in
-was a build-time cost: `plugin-classpath.sh` runs sbt per module. Turning it on makes that cost
-default.
+**DONE 2026-08-18 (46bccf742) — the plugin fleet is ON by default, and it is worth twenty cases.**
+Measured on one tree by the switch the change adds: bridge 257 by default against 237 with
+`SSC3_FLEET=off`. It was five the day the fleet was wired and grew as the adapter learned maps, sets,
+arrays, thrown failures, closures in both directions, methods on host values and plain-value globals.
+
+Of the two guarantees `plugin-classpath.sh` was written under, one lapses and one is kept. "A caller
+not using the fleet has no business waiting for sbt" goes, because everybody uses it now. "A build
+failure has no business making `ssc3 run` fail" stands: the build is attempted once, its output
+discarded, and a failure leaves the fleet absent and the run going — verified with sbt off the PATH.
+
+`SSC3_FLEET=off` exists because a mechanism that cannot be switched off cannot be measured. Until
+now the control was "move the file aside", which the auto-build would have silently undone.
 
 **INTERPOLATORS — the owner asked the right question and it is now a design.** `html"…"`, `md"…"`
 and `f"…"` are refused because both fronts hardcode `s`. Rather than widen Tier 0, an interpolator
