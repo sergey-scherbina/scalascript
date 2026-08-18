@@ -2,10 +2,10 @@ slug: nativeui-annotation-broadening
 branch: feature/nativeui-annotation-broadening
 agent: claude-code
 started: 2026-08-18T07:49:50Z
-heartbeat: 2026-08-18T07:52:59Z
+heartbeat: 2026-08-18T07:55:41Z
 status: claimed-before-planning
 items: native-front-nativeui-site-annotation
-paths: file:v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/HttpFastNativePlugin.scala file:tests/e2e/nativeui-annotation-gate.sh file:scripts/smoke-ci.ssc file:tests/BUGS.md
+paths: file:v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/HttpFastNativePlugin.scala file:tests/e2e/nativeui-annotation-gate.sh file:scripts/smoke-ci.ssc file:v2/BUGS.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: broadening measured and rejected (changes all site-native primitives to improve a message on 10 files that still do not run); fixing the misleading TLS diagnostic instead
