@@ -1,0 +1,11 @@
+slug: bugs-index-duplicate-fixed-in
+branch: feature/bugs-index-duplicate-fixed-in
+agent: claude-code
+started: 2026-08-18T23:54:53Z
+heartbeat: 2026-08-18T23:54:53Z
+status: claimed-before-planning
+items: an-undefined-name-in-a-pattern-means-three-different-things
+paths: file:BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
