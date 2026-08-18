@@ -65,6 +65,27 @@ for m in "${MODULES[@]}"; do
     echo "plugin-classpath: $m produced no classpath — is it a project in build.sbt?" >&2
     exit 1
   fi
+  # VALIDATED, NOT TRUSTED. `tail -1` of sbt's stdout is the classpath only when sbt printed it
+  # alone; on a cold runner the last line can be anything, and a plausible-looking non-classpath
+  # written to $OUT is worse than none — v3.yml went red 2026-08-18 with `Not found: ssc`,
+  # 75 unresolved-symbol errors in V2Fleet.scala, because plugins.cp existed and did not contain
+  # the jars, and the driver's silent fallback then unregistered the UNIML FRONT two layers away
+  # (`front-capability-gate: CANNOT RUN`). Diagnosing that took a CI-log archaeology session;
+  # this check makes the same failure a one-line answer naming the module and the entry.
+  #
+  # Every ':'-separated entry must EXIST — an sbt warning, a partial line or a path from another
+  # machine all fail this, and nothing that fails it can be a fullClasspath sbt just computed.
+  bad=""
+  IFS=':' read -ra _entries <<< "$line"
+  for _e in "${_entries[@]}"; do
+    [ -e "$_e" ] || { bad="$_e"; break; }
+  done
+  if [ -n "$bad" ]; then
+    echo "plugin-classpath: $m exported a line that is not a classpath — entry does not exist:" >&2
+    echo "    $bad" >&2
+    echo "  full line: $(printf '%s' "$line" | cut -c1-200)" >&2
+    exit 1
+  fi
   cp_all="${cp_all:+$cp_all:}$line"
 done
 

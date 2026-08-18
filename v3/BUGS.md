@@ -6,6 +6,53 @@ belong in the repository-root `BUGS.md` instead, not here.
 
 Query: `scripts/bugs-report --module v3`.
 
+## v3-fleet-classpath-unvalidated-and-silent-in-ci — `Not found: ssc` ×75, shown as "CANNOT RUN" two layers away
+
+<!-- status: open
+     lane: v3
+     area: build
+     kind: bug
+     gate: .github/workflows/v3.yml (the new "Build the plugin fleet" step)
+     found-by: claude-code
+     found-at: 2026-08-18 -->
+
+**v3.yml went red twice this morning (46bccf742, de11d1380), and the visible symptom named neither
+the file nor the cause.** The capability job printed `front-capability-gate: CANNOT RUN — only these
+fronts are registered: v3`; the gates job showed fixtures failing with empty output. The actual
+failure sat in the middle of the log: compiling `v3/plugins/V2Fleet.scala` produced **75 errors,
+`Not found: ssc`** — the v2 core classes were absent from `plugins.cp`.
+
+**THE CHAIN, each link fine on its own terms:**
+
+1. `46bccf742` turned the fleet ON by default, so `fleet_cp` now builds `plugins.cp` on first use
+   with output DISCARDED — by design, "a build failure has no business making `ssc3 run` fail".
+2. `plugin-classpath.sh` took `tail -1` of each module's sbt stdout AS the classpath, unvalidated.
+   On CI's cold sbt the last line was not a classpath; the file was written anyway — non-empty and
+   wrong.
+3. `uniml_classpath` compiled `v3/plugins` against it, failed, and the driver's silent fallback
+   unregistered the UNIML FRONT — so the front everyone tests vanished because a RUNTIME fleet's
+   classpath was garbage. Locally everything passed: warm sbt prints the export alone.
+
+A plausible non-empty file is worse than an absent one, and `[ -s "$PLUGIN_CP_FILE" ]` cannot tell
+them apart.
+
+**Two changes, both landed with this entry:**
+
+- `plugin-classpath.sh` VALIDATES every `:`-separated entry of every exported line — each must
+  exist on disk, or the script refuses naming the module and the offending entry, and writes
+  nothing. Control run: a planted `[warn] …` line is refused with the module's name and
+  `plugins.cp` stays absent; the good path still writes 8 modules / 112 entries, then
+  capability-gate OK and exec-gate GREEN 90 with the fleet on.
+- `v3.yml` gets a loud `Build the plugin fleet` step in both jobs, before the gates. The fleet is
+  the default users get, so CI must measure it or say loudly that it cannot — a silent fleet-off
+  would shrink what the gates measure by the owner's 20 cases with nothing going red.
+
+**OPEN, not fixed, because the root question is still unanswered:** WHAT did CI's sbt print as the
+last line? The validation converts the next occurrence into a one-line answer naming the module and
+the entry; close this when a red "Build the plugin fleet" step (or a clean week of green ones) has
+shown it. If the loud step never fires red, the cold-runner line was transient and this entry
+closes on that evidence.
+
 ## v3-a-marker-is-a-compile-time-rewrite-nothing-in-a-library-can-answer — Focus, direct, prism
 
 <!-- status: open

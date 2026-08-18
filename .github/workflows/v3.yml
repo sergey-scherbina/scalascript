@@ -208,6 +208,19 @@ jobs:
       - name: Register the UniML front
         run: v3/uniml-classpath.sh
 
+      # LOUD AND FIRST, because the silent version already cost a red run and an archaeology
+      # session. Since 46bccf742 the fleet is ON by default, so the driver builds `plugins.cp`
+      # on first use with output DISCARDED (`fleet_cp`'s contract: a build failure must not stop
+      # `ssc3 run`). On 2026-08-18 CI's sbt exported something that was not a classpath, the
+      # driver's compile of `v3/plugins` failed with 75 `Not found: ssc` errors it never showed,
+      # and the fallback unregistered the UNIML FRONT — so the visible symptom was
+      # `front-capability-gate: CANNOT RUN`, two layers from the cause. Building here makes the
+      # failure name itself (plugin-classpath.sh now validates every exported entry exists), and
+      # a fleet that cannot build fails THIS step instead of silently shrinking what the gates
+      # measure — it is the default users get, so CI must measure it or say loudly that it cannot.
+      - name: Build the plugin fleet
+        run: v3/plugin-classpath.sh
+
       # `if: !cancelled()` ON EVERY GATE, and it is the second half of the same defect. A step that
       # fails stops the job, so ONE red gate hid the other five — `bridge`, `parity`, `front`,
       # `front report` and both jit steps reported nothing at all while `executor differential` was
@@ -385,6 +398,19 @@ jobs:
       # was written about.
       - name: Register the UniML front
         run: v3/uniml-classpath.sh
+
+      # LOUD AND FIRST, because the silent version already cost a red run and an archaeology
+      # session. Since 46bccf742 the fleet is ON by default, so the driver builds `plugins.cp`
+      # on first use with output DISCARDED (`fleet_cp`'s contract: a build failure must not stop
+      # `ssc3 run`). On 2026-08-18 CI's sbt exported something that was not a classpath, the
+      # driver's compile of `v3/plugins` failed with 75 `Not found: ssc` errors it never showed,
+      # and the fallback unregistered the UNIML FRONT — so the visible symptom was
+      # `front-capability-gate: CANNOT RUN`, two layers from the cause. Building here makes the
+      # failure name itself (plugin-classpath.sh now validates every exported entry exists), and
+      # a fleet that cannot build fails THIS step instead of silently shrinking what the gates
+      # measure — it is the default users get, so CI must measure it or say loudly that it cannot.
+      - name: Build the plugin fleet
+        run: v3/plugin-classpath.sh
 
       - name: Front capability parity
         run: v3/front-capability-gate.sh
