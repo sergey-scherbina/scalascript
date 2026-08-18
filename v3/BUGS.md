@@ -6,6 +6,76 @@ belong in the repository-root `BUGS.md` instead, not here.
 
 Query: `scripts/bugs-report --module v3`.
 
+## v3-front-diff-ceiling-is-derived-by-word-counting-and-a-comment-changes-it — 23, 76 or 83 for one list
+
+<!-- status: open
+     lane: v3
+     kind: bug
+     area: build
+     gate: v3/front-diff.sh (the ceiling is re-derived from the declared list)
+     found-by: claude-code
+     found-at: 2026-08-18 -->
+
+**THE ONE-SIDED CEILING IS NOT A CONSTANT — it is re-derived from the names declared in
+`v3/front-capability-gate.sh`,** so that declaring a case both raises the ceiling and names the
+reason in one edit. It was derived like this:
+
+    m = re.search(r"declare -a " + var + r"=\(([^)]*)\)", s, re.S)
+    tot += len(m.group(1).split())
+
+which reads the text between the first bracket and the first CLOSING bracket, and counts its WORDS.
+Neither half survives a comment written inside the array:
+
+    the list, untouched                     76      (correct)
+    + a comment citing `foo.ssc (here)`     23      the bracket ENDS the list; 53 names vanish
+    + the same comment without brackets     83      the prose is COUNTED as seven more names
+
+**BOTH DIRECTIONS ARE SILENT, and the downward one is the dangerous one.** A ceiling that drops
+turns green into red for work that is fine — I spent a cycle chasing a rise to 76 that had not
+happened, because the ceiling had fallen to 63 in the same commit that grew the list to 76. A
+ceiling that RISES is worse in kind: it admits regressions nobody declared, and a comment is exactly
+the sort of edit nobody re-measures after.
+
+**THE FIX LANDS WITH THIS ENTRY — read the list rather than match it:** scan from the `declare -a` line, strip `#`
+comments per line, stop at the first bracket that survives stripping, and REFUSE — rather than
+count — if the list is unterminated or holds a token that is not a name. The old silent fallback to
+the literal `85` now applies only when the capability gate is ABSENT; present-but-unreadable fails
+loudly, because a fallback that cannot tell those apart is how an unreadable list passes for a
+ceiling.
+
+## v3-own-front-cannot-parse-a-parenthesised-match — two lines, and it is a capability gap
+
+<!-- status: open
+     lane: v3
+     kind: feature
+     area: front
+     gate: v3/front-diff.sh (the five distributed-* cases are declared uniml-only)
+     found-by: claude-code
+     found-at: 2026-08-18 -->
+
+**v3's OWN front cannot read a `match` used as a parenthesised expression:**
+
+    val v: Any = 1
+    val s = (v match
+      case _ => "a"
+    ).length
+
+    v3     ssc3: expected an expression, found )
+    uniml  parses
+
+`std/mapreduce/distributed.ssc:424` is the shape in the wild — `}).asInstanceOf[…]` closing a
+parenthesised `match`.
+
+**IT WAS INVISIBLE UNTIL A JVM PACKAGE BECAME IMPORTABLE.** The five `distributed-*` cases died at
+`import scalascript.typeddata.…` on BOTH fronts, so they counted as `neither` rather than one-sided.
+With the import admitted, uniml reads them and v3's own front stops here — the one-sided count rose
+71 -> 76 and `front-diff` said so on the first run.
+
+**DECLARED RATHER THAN HIDDEN, and the distinction matters.** `markdown-html` was over the same
+ceiling a day earlier and was NOT declared, because that was a lexer DEFECT — an identifier and a
+string on two lines read as an interpolator. This is a CONSTRUCT one front has and the other does
+not, which is exactly what `KNOWN_CONF_UNIML_ONLY` is for.
+
 ## v3-fleet-classpath-unvalidated-and-silent-in-ci — `Not found: ssc` ×75, shown as "CANNOT RUN" two layers away
 
 <!-- status: fixed

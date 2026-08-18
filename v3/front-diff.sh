@@ -263,21 +263,37 @@ if [ "${SSC3_FRONT_DIFF_CORPUS:-1}" = 1 ] && [ "$nfronts" -ge 2 ]; then
   # FAILS when a declared divergence closes and its entry is left behind, so a list that is too long
   # is caught there, by name, rather than here by a number nobody can attribute.
   #
-  # The literal stays as a FALLBACK for a tree where the capability gate is absent or unparseable —
-  # and `SSC3_FRONT_CORPUS_ONE_SIDED_CEILING` still overrides both, for bisecting.
-  CAPDECL="$(python3 - "$ROOT/v3/front-capability-gate.sh" <<'PY' 2>/dev/null
-import re, sys
-try: s = open(sys.argv[1]).read()
-except OSError: raise SystemExit(1)
-tot = 0
-for var in ("KNOWN_CONF_V3_ONLY", "KNOWN_CONF_UNIML_ONLY"):
-    m = re.search(r"declare -a " + var + r"=\(([^)]*)\)", s, re.S)
-    if not m: raise SystemExit(1)       # a list that moved is not a list of zero
-    tot += len(m.group(1).split())
-print(tot)
-PY
-)"
-  case "$CAPDECL" in ''|*[!0-9]*) CAPDECL=85 ;; esac
+  # The literal stays as a FALLBACK for a tree where the capability gate is ABSENT — not for one where
+  # it is present and unreadable, which now fails; `SSC3_FRONT_CORPUS_ONE_SIDED_CEILING` still
+  # overrides both, for bisecting.
+  #
+  # READ THE LIST LINE BY LINE, STRIPPING COMMENTS, and do not match it with one regex over the whole
+  # text. The regex this replaces was `=\(([^)]*)\)`, which ends the list at the FIRST closing
+  # bracket and counts whatever words lie before it. Both halves of that are silent: a comment
+  # written inside the array citing a file position in brackets cut the list short and the ceiling
+  # read 63 while the list had just grown to 76; the same comment without brackets counted its PROSE
+  # as names and read 217. Neither said a word — a ceiling is a number, and a wrong number still
+  # compares.
+  # THE READER IS CHECKED BEFORE IT IS BELIEVED. It costs ~50ms and it is the only thing standing
+  # between a comment and this ceiling; `--selftest` plants the two comment shapes that moved it and
+  # the two broken lists it must refuse.
+  if ! capself="$(bash "$ROOT/v3/front-capability-count.sh" --selftest 2>&1)"; then
+    echo "$capself"
+    fail=1
+  fi
+  CAPDECL="$(bash "$ROOT/v3/front-capability-count.sh" "$ROOT/v3/front-capability-gate.sh" 2>/dev/null)"
+  case "$CAPDECL" in
+    ''|*[!0-9]*)
+      # ABSENT is not the same as UNREADABLE. A tree without the capability gate falls back to the
+      # literal, as it always did; a tree WITH one this cannot parse says so, because a silent
+      # fallback to 85 is how an unreadable list passes for a ceiling.
+      if [ -f "$ROOT/v3/front-capability-gate.sh" ]; then
+        echo "  FAIL v3/front-capability-gate.sh is present but its declared lists could not be read"
+        echo "       — a comment inside the array, an unterminated list, or prose among the names."
+        fail=1
+      fi
+      CAPDECL=85 ;;
+  esac
   CONECEIL="${SSC3_FRONT_CORPUS_ONE_SIDED_CEILING:-$CAPDECL}"
   if [ "$ccap" -gt "$CONECEIL" ]; then
     echo "  FAIL corpus ONE-SIDED files rose to $ccap (v3 $conly_v3, uniml $conly_uniml), above the ceiling $CONECEIL"
