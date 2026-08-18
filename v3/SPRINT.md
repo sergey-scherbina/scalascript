@@ -9,6 +9,50 @@ Pipeline: `source → AST → SSC IR → execute | translate`.
 **The order is deliberate: the IR is designed and verified before a front is written against it.**
 A compiler built on an IR that turns out to be wrong is work thrown away twice.
 
+## ssc3-jvm-interop (claim `v3-jvm-interop`) — a JVM package is importable, from OUTSIDE the kernel
+
+The owner approved admitting `import scalascript.typeddata.{DatasetWire, DatasetWirePartition}`
+(`BACKLOG.md` → "Owner decisions, 2026-08-17") and then approved building it as a feature with a
+plan, after the sizing showed it is not a loader tweak.
+
+**THE SURFACE IS FIVE POINTS, NOT A LIBRARY.** Read off `std/mapreduce/distributed.ssc` rather than
+off the package: construct `DatasetWirePartition(partId, values)`; read `.partitionId` and `.values`;
+call `DatasetWire.encodePartition` and `.decodePartition` on the OBJECT; get back `Either` and match
+`case Right(bytes)` / `case Left(error)` with `error.message`. Everything else in `typeddata` —
+generics, derived-schema macros, three wire codecs — is reached through those five and never named.
+
+**WHERE IT LIVES: `v3/plugins/JvmInterop.scala`.** The kernel gains no dependency and no new door —
+`Plugins` already has the three it needs (a name that is callable, a method on a host value, and how
+the owner prints one). Invariant I-1 holds by construction, exactly as `V2Fleet` does.
+
+- [ ] **J1 — the loader admits a dotted import that names no file.** `import a.b.{X, Y}` currently
+      fails with four candidate PATHS, which sends the reader hunting for a file that cannot exist.
+      It becomes a JVM import: the names are recorded as host-provided and the closure walk skips it.
+      *Done when:* the five `distributed-*` cases stop failing in the loader and fail somewhere later,
+      and a `.ssc` import that is genuinely missing still fails exactly as it does today — the same
+      message, proved by a fixture.
+
+- [ ] **J2 — a reflective provider registers the imported names.** For each name in a JVM import,
+      `JvmInterop` registers a `Plugins` entry: a class with an `apply` becomes a constructor, an
+      `object` becomes a method table.
+      *Done when:* `DatasetWirePartition(1, …)` builds a JVM object and `DatasetWire.encodePartition`
+      is callable, both from a hand fixture.
+
+- [ ] **J3 — the value bridge, and it is the whole risk.** v3 `Value` ↔ JVM object: `Int`, `Long`,
+      `String`, `Boolean`, `Array[Byte]`, `List` ↔ `Vector`/`Seq`. A Scala CASE CLASS coming back
+      becomes `VHostData(simpleName, fields)` so `case Right(bytes)` matches by the machinery that
+      already exists; anything else stays an opaque `VForeign`.
+      *Done when:* `Right`/`Left` match in a fixture, and a value the bridge cannot convert is
+      REFUSED by name rather than smuggled through — the rule the fleet already follows.
+
+- [ ] **J4 — fields and methods on a JVM handle**, through `registerMethods`: `.partitionId` reads a
+      field, `.encodePartition(…)` calls a method, and an absent one refuses with v3's own message.
+
+- [ ] **J5 — measure, both lanes, against a control.** The five cases declare `backends: [jvm]`, so
+      they are not v3's to answer for and this is worth +5 at most. Both floors must hold: this
+      feature makes names resolvable that were honestly refused, which is exactly the shape that
+      turned an honest refusal into a crash three times this week.
+
 ## ssc3-core (claim `ssc3-core`)
 
 - [x] **SSC3-0 — charter, IR spec, module.** `v3/` registered in `tests/fixtures/modules.tsv`;
