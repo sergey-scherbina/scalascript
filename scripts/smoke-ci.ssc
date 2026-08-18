@@ -510,6 +510,12 @@ val suite = List(
   // for its own call, and making every arity complaint mention std/ui would read as an improvement
   // while being a regression.
   Check("v2", "nativeui-annotation", "tests/e2e/nativeui-annotation-gate.sh", List(), 300000),
+  // Five std/ui primitives are DECLARED and not implemented on the native lane. Left unbound they
+  // said "unbound global: forJsonView", which reads as a typo in the program; they now refuse in
+  // their own words. They are refusals and NOT constructors on purpose — a constructor with no
+  // renderer lets a program build a node nothing can draw. The `still-runs-*` rows guard the other
+  // direction: the gap is LATENT (the call sits in an arm those cases never reach) and must stay so.
+  Check("v2", "ui-provider-gap", "tests/e2e/ui-provider-gap-gate.sh", List(), 400000),
   // An `extern def`'s declared DEFAULT reaches the call site — and nothing else about an extern
   // call is rewritten. The front skipped an extern whole (it is a signature), so its parameter list
   // was never parsed and `f(x)` on `extern def f(a, b = d)` died `arity: 2 expected, 1 given`

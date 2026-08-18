@@ -111,6 +111,40 @@ registration (`:486`) — and the Swift host has its own arm besides. A construc
 program build a node nothing can render, which trades an honest positioned refusal for a failure
 further downstream. That is the same trade this repository has paid for twice this week.
 
+### THE DAMAGE CLAIM IS REFUTED — measured 2026-08-18, one day later
+
+**All eight named cases RUN**, on F, under `SSC_FRONT_STRICT`:
+
+```
+tkv2-button-size   Default:primary:md      tkv2-select                   b
+tkv2-button-variant Default:primary        tkv2-select-reactive          c2
+tkv2-keyed-for     keyed-for-built         tkv2-textfield-reactive-label Name
+tkv2-raw-html      raw-html-built          tkv2-tri-state                loading
+```
+
+**The reasoning that made them look blocked was wrong, and the correction is reusable.** The entry
+says they "import `std/ui/lower.ssc`, which calls `forJsonView` at line 209, so the whole family is
+reached by any UI program." Importing a module does not execute every arm of a `match` inside it —
+that call sits in the `JsonForNode` arm, which none of these cases reaches. And `validateNoReader`
+accepts a DECLARED extern as a signature, so F lowers the module without objecting. **The gap is
+LATENT**: it bites when the arm executes, not when the module loads.
+
+The CAUSE half of this entry is untouched and still true: all five are still unregistered, verified
+by direct grep rather than by the approximate census (which over-counted — `emit` and `emptyHeaders`
+are present under a registration form the pattern missed).
+
+### What changed instead: a positioned refusal
+
+Reaching one gave `ssc: unbound global: forJsonView` — indistinguishable from a typo in the program.
+The five are now registered as REFUSALS that name the primitive, say it is a provider gap rather than
+a program error, and give the way out. This is deliberately not the descriptor work this entry warns
+about: a constructor with no renderer builds a node nothing can draw, which is the trade the entry
+itself argues against. A throw keeps the failure where the program asked for something unavailable.
+
+Gate: `tests/e2e/ui-provider-gap-gate.sh` — three refusal rows (all RED before, as bare
+`unbound global`) plus four `still-runs-*` rows, which fail if these registrations ever turn the
+latent gap into a live one.
+
 **WHAT EACH ONE ACTUALLY NEEDS**, so the next person can size it before starting: `selectFromView`
 and `forJsonView` are descriptors plus a renderer arm plus field names; `itemField` reads a field
 off a parsed JSON row; `intervalTick` is a timer-backed signal; `emptyHeaders` is a constant signal;

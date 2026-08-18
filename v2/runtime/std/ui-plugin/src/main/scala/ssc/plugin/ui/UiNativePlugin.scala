@@ -791,6 +791,40 @@ final class UiNativePlugin extends NativePlugin:
     native(context, "localStorageGet") { case Value.StrV(key) :: Nil => storage.get(key).fold[Value](Value.DataV("None", Vector.empty))(value => Value.DataV("Some", Vector(Value.StrV(value)))); case _ => throw new RuntimeException("localStorageGet(key)") }
     native(context, "localStorageSet") { case Value.StrV(key) :: Value.StrV(value) :: Nil => storage(key) = value; Value.UnitV; case _ => throw new RuntimeException("localStorageSet(key, value)") }
     native(context, "localStorageRemove") { case Value.StrV(key) :: Nil => storage.remove(key); Value.UnitV; case _ => throw new RuntimeException("localStorageRemove(key)") }
+    // ── declared here, not provided here: five POSITIONED REFUSALS ───────────────────────────────
+    //
+    // `std/ui/primitives.ssc` declares 53 externs; this plugin provides all but these five. They are
+    // registered as refusals rather than left unbound, and the distinction is the point: an unbound
+    // name gives `unbound global: forJsonView`, which reads like a typo in the PROGRAM, when the
+    // truth is that the primitive exists and this lane does not implement it.
+    //
+    // A REFUSAL IS NOT HALF A PRIMITIVE. A previous attempt wrote two of these as descriptors —
+    // constructors that package a DataV like their twin `forKeyedView` — and did not land them,
+    // because a constructor with no renderer lets a program build a node nothing can draw, trading
+    // an honest failure at the call for a confusing one further downstream. Throwing here keeps the
+    // failure exactly where the program asked for something unavailable, and says what to do.
+    //
+    // Measured 2026-08-18, correcting this entry's own damage claim: the eight corpus cases it names
+    // (`tkv2-button-size`, `tkv2-select`, `tkv2-keyed-for`, …) ALL RUN, on F, under SSC_FRONT_STRICT.
+    // They import `std/ui/lower.ssc`, which calls `forJsonView` — but inside the `JsonForNode` arm,
+    // which those cases never reach, and `validateNoReader` accepts a DECLARED extern as a
+    // signature. So the gap is latent: it bites when the arm executes, not when the module loads.
+    List(
+      "forJsonView" -> "renders a list of parsed JSON rows",
+      "selectFromView" -> "renders a <select> whose options track a signal",
+      "itemField" -> "reads a field off a parsed JSON row",
+      "intervalTick" -> "a timer-backed signal",
+      "fetchStreamSignal" -> "streaming HTTP",
+    ).foreach { case (name, what) =>
+      native(context, name) { _ =>
+        throw new RuntimeException(
+          s"std/ui `$name` ($what) is declared in std/ui/primitives.ssc but not implemented on the " +
+            s"native lane — this is a provider gap, not a mistake in your program. Run it on the JVM " +
+            s"or JS front, or avoid `$name` here. See v2/BUGS.md " +
+            s"`v2-ui-provider-lacks-forJsonView-and-blocks-eight-unrelated-tests`.")
+      }
+    }
+
     native(context, "onlineSignal") { case Nil => makeSignal("__online__", "online", Value.BoolV(true), Value.DataV("NativeUiSignalMetaOnline", Vector.empty), writable = false); case _ => throw new RuntimeException("onlineSignal()") }
     native(context, "persistedSignal") { case Value.StrV(name) :: Value.StrV(default) :: Nil =>
       // The DECLARED default is the argument; the INITIAL value is storage-or-default. Passing the
