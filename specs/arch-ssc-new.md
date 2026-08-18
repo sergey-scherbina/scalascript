@@ -158,6 +158,11 @@ curl -fsSL https://get.scalascript.io | sh
 Detects OS/arch, downloads the appropriate native binary from GitHub Releases,
 places in `~/.local/bin/ssc`.
 
+**Implemented 2026-08-18 as `releases/install.sh`** — everything above except the domain. It selects
+one of the three published artifact ids, verifies the `.sha256` published beside the archive, unpacks
+the archive WHOLE (the binary finds its staged front by walking up from its own real path) and links
+the launcher. Options A and B remain unbuilt, and the entries claiming otherwise are corrected above.
+
 #### Rewrite of `install.sh`
 
 The existing `install.sh` (requires `sbt cli/stage`) becomes a
@@ -180,7 +185,14 @@ User-facing docs replace references to it with Option A/B/C.
   explicit.
 - `app`, `lib` templates in `tools/cli/src/main/resources/templates/`. ✓
   Landed 2026-05-29.
-- Coursier channel JSON at `releases.scalascript.io`. ✓ Landed 2026-05-29 as
+- Coursier channel JSON at `releases.scalascript.io`. **NOT LANDED — the tick below is wrong.**
+  A descriptor FILE was written on 2026-05-29; nothing was ever published. Measured 2026-08-18:
+  `releases.scalascript.io` does not resolve, `get.scalascript.io` does not resolve,
+  `github.com/scalascript/homebrew-tap` is a 404, and `io/scalascript/` is a 404 on Maven
+  Central — so the coordinate the descriptor named could not have been installed by anyone.
+  The descriptor and the Homebrew formula are deleted; `releases/install.sh` now installs from
+  the GitHub release, which is the one channel that exists. (BUGS.md
+  install-channels-are-fiction.) The original claim, kept for the record: ✓ Landed 2026-05-29 as
   `releases/coursier.json` source fixture.
 - `sbt cli/assembly` produces self-contained `ssc.jar`. ✓ Already wired in
   `build.sbt` via sbt-assembly (`assembly / assemblyJarName := "ssc.jar"`).

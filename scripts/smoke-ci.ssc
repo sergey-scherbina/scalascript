@@ -621,6 +621,13 @@ val suite = List(
   // protection was a comment saying "must track ThisBuild / version" -- which became actively wrong
   // the moment main moved to 0.2.0-SNAPSHOT after v0.1.0 shipped.
   Check("tests", "emitted-coordinate-is-published", "tests/e2e/emitted-coordinate-is-published.sh", List(), 60000),
+  // The same shape one step further out: that gate guards a coordinate we write into somebody's
+  // build, this one guards the COMMANDS we tell them to run. `releases/install.sh` downloaded an
+  // `ssc.jar` no release has ever published, at a version constant that went stale the day after it
+  // was written, while three docs offered a coursier channel, a Homebrew tap and a curl domain that
+  // do not exist. Offline by construction — it compares what `native-release.yml` publishes with
+  // what the installer and the docs ask for, so it cannot go red because a host is having a bad day.
+  Check("tests", "install-channels-are-real", "tests/e2e/install-channels-are-real.sh", List(), 60000),
   // Two consumers, one fixture: the manifest's owner (v21-explicit-lanes-gate) and the reader that
   // only looks up a lane (bc-parity-sweep). The reader kept a second copy of the contract frozen at
   // a row count, the owner was maintained, and on 2026-07-31 they disagreed — the `sbt` job died at

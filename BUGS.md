@@ -23,6 +23,87 @@ Newest first.
 
 
 
+
+## install-channels-are-fiction — every advertised way to install ScalaScript was one that cannot work
+
+<!-- status: fixed
+     lane: apparatus
+     area: docs
+     kind: bug
+     gate: tests/e2e/install-channels-are-real.sh
+     fixed-in: unrecorded
+     reported-by: claude-code
+     reported-at: 2026-08-18
+     ssc-version: 36c7e75d2
+     repro: the four measurements below
+     impact: blocks -->
+
+Found while answering "can we release 0.1.2 today". Checking the release path meant reading what a
+user is told to run, and **not one of the four documented routes could work.** Measured, not read:
+
+```text
+https://releases.scalascript.io/coursier.json    does not resolve
+https://get.scalascript.io                       does not resolve
+github.com/scalascript/homebrew-tap              404
+repo1.maven.org/maven2/io/scalascript/           404   (nothing published, ever)
+releases/install.sh                              downloads ssc.jar — NO release has one
+```
+
+The last line is the sharpest. `releases/install.sh` fetched `$BASE_URL/ssc.jar` at a hardcoded
+`VERSION=0.1.0`, and both v0.1.0 and v0.1.1 publish **three native binaries plus their tarballs and
+`.sha256` files, and nothing else**. So the script could not have installed anything since the first
+release, and the version constant was stale on top of that. `releases/homebrew/ssc.rb` pointed at the
+same non-existent jar and carried `sha256 "REPLACE_WITH_RELEASE_SHA256"` — a placeholder, shipped.
+
+**`specs/arch-ssc-new.md` recorded the coursier channel as "✓ Landed 2026-05-29".** A descriptor FILE
+was written that day. Nothing was ever published. That tick is why the three routes kept being
+copied into new docs — `README.md`, `docs/user-guide.md` and `docs/getting-started-standalone.md`
+each carried at least one, the last of them under the heading "Recommended release channels".
+
+### What is landed instead
+
+`releases/install.sh` rewritten against what the release actually publishes: pick the artifact for
+`uname -s`/`uname -m` out of the three ids the release matrix builds, download the archive and the
+`.sha256` beside it, VERIFY, unpack whole, link the launcher, and then run `ssc --version` before
+printing success — the old script printed "Installed ssc 0.1.0" over a jar it had failed to fetch.
+
+**No version constant.** GitHub serves `/releases/latest/download/<asset>`, so the default follows the
+newest release and there is nothing to bump; `SSC_VERSION=0.1.1` still pins.
+
+**The layout is load-bearing and the installer had to learn it.** `NativeImageInstallRoot` resolves
+the staged front by `toRealPath()` on the running executable and then looks for
+`bin/lib/standard/native-front` in its parent and grandparent. So the archive is unpacked WHOLE into
+`~/.local/lib/scalascript` and `~/.local/bin/ssc` is a SYMLINK into it — which works precisely
+because that resolution follows symlinks. Copying the bare `ssc` binary out of the archive, which is
+what a naive installer does, produces a binary that cannot find its own front.
+
+Verified end to end against the real published release, not against a fixture:
+
+```text
+PREFIX=<tmp> SSC_VERSION=0.1.1 sh releases/install.sh
+  Downloading ssc-macos-arm64 from v0.1.1...
+  Installed ssc 0.1.1 to <tmp>/bin/ssc
+<tmp>/bin/ssc run p.ssc    ->  the program's output
+```
+
+**And that run turned up the reason this matters beyond tidiness**: the shipped v0.1.1 binary prints
+the program's output TWICE for a file that ends in `main()` — `v2-front-fallback-runs-the-program-twice`,
+fixed on main in `ae5b09418` eleven days after the tag. The newest release anyone can install today
+doubles the most common file shape in this repository.
+
+**Deleted rather than left looking ready**: `releases/coursier.json` and `releases/homebrew/ssc.rb`.
+Neither channel exists and neither file could be made to work by editing it — the formula needs a
+tap repository and a per-release sha256, the descriptor needs an actual publish to Central. What each
+would take is above; git history holds both files.
+
+**Gate**: `tests/e2e/install-channels-are-real.sh`, offline by construction — it compares the
+`artifact_id`s `native-release.yml` publishes with the ones the installer can select, refuses an
+`ssc.jar` fetch or a hardcoded version, and refuses any `cs`/`brew`/`curl` COMMAND naming a dead
+host in `install.sh`, `README.md`, `releases/` or `docs/`. Prose explaining why a channel does not
+exist stays legal, or this entry's own correction would trip it. It carries a self-test that plants
+`brew install scalascript/tap/ssc` next to such a prose line and requires the scan to see exactly
+one. The command scan found a leftover in `README.md` that I had already missed by hand.
+
 ## rust-any-parameter-does-not-lift-a-call-result — `show(n())` at a `v: Any` parameter, five lines
 
 <!-- status: fixed

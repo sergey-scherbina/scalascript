@@ -9,17 +9,15 @@ A practical reference for ScalaScript v1.27+.
 ### Standalone Install
 
 ```bash
-cs install ssc --channel https://releases.scalascript.io/coursier.json
+curl -fsSL https://raw.githubusercontent.com/sergey-scherbina/scalascript/main/releases/install.sh | sh
 ```
 
-Alternative release paths:
+Downloads the native binary for your platform from the newest GitHub release, verifies the published
+`.sha256`, unpacks it into `~/.local/lib/scalascript` and links `~/.local/bin/ssc`. `SSC_VERSION`
+pins a release, `PREFIX` moves the target.
 
-```bash
-brew install scalascript/tap/ssc
-curl -fsSL https://get.scalascript.io | sh
-```
-
-See `docs/getting-started-standalone.md` for the fresh-machine path.
+A coursier channel and a Homebrew tap were advertised here and neither exists — see
+`docs/getting-started-standalone.md`, which now says what each would need.
 
 ### Developer Checkout
 

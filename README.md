@@ -103,8 +103,8 @@ repeated outer case-class tags can be distinguished by inner `Some`/`None`.
 git clone https://github.com/sergey-scherbina/scalascript
 cd scalascript
 
-# Standalone install, once releases are published:
-cs install ssc --channel https://releases.scalascript.io/coursier.json
+# Standalone install, no checkout — the native binary from the newest release:
+curl -fsSL https://raw.githubusercontent.com/sergey-scherbina/scalascript/main/releases/install.sh | sh
 
 # Contributor checkout only: builds and stages local bin/ launchers.
 ./install.sh --dev
@@ -467,7 +467,7 @@ Both halves are in the standard graph as of 2026-07-31 and run on plain `ssc` �
 | URL imports | `[X](https://...)` URL fetch, cached at `~/.cache/ssc/` |
 | Dependency imports | `[X](dep:org/lib:1.2)` legacy source resolver, `[X](dep:org:name:version)` Coursier resolver, `[X](jitpack:com.github.owner:repo:tag)`, `[X](github:owner/repo@tag[#asset])`, `sha256:` pins, `ssc.lock` |
 | Package registry | `ssc search` / `ssc info` / `ssc add` against `https://sergey-scherbina.github.io/scalascript/packages.yaml` by default, overrideable with `--registry` or `registry.url` |
-| Project scaffolding | `ssc new my-app`, `--template lib|plugin|dsl|web-app|wasm-app`, bundled templates,`releases/install.sh`, Homebrew formula source |
+| Project scaffolding | `ssc new my-app`, `--template lib|plugin|dsl|web-app|wasm-app`, bundled templates, `releases/install.sh` (downloads the native binary from the GitHub release) |
 | Plugin system | `.sscpkg` format, essential bundled plugins auto-loaded from `bin/lib/compiler/plugins`, advanced bundled plugins available locally under `bin/lib/compiler/plugin-available` and enabled with `--plugin` / `ssc plugin install`, `~/.scalascript/registry.yaml` |
 | sbt integration | `ScalascriptInteropPlugin`, `sscGenerateFacade`, `sscCompile`, `sscLink`, `sscTest`, `sscRun`, `sscRepl`, `sscWatch`, `sscBspSetup`, `sscBackends` cross-build (emit JVM/JS/Rust/Wasm artifacts from one source), Phase 5 dependency resolution, `src/main/scalascript/` source convention |
 | Config system | `config:` front-matter, ` ```yaml config "name" ` fenced blocks, `config.files: [...]`, typed `derives Config`, `JsConfigEmitter`, `ScalaConfigEmitter` — see `specs/config-system.md` |
@@ -1110,6 +1110,18 @@ tools/scripts/         # launchers/ and validate-frontmatter.scala
 ```
 
 ## Installing as a Binary
+
+From the published release — no checkout, no JVM needed for the binary itself:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/sergey-scherbina/scalascript/main/releases/install.sh | sh
+```
+
+It picks the archive for your platform (`ssc-linux-x86_64`, `ssc-macos-arm64`, `ssc-macos-x86_64`),
+verifies the published `.sha256`, unpacks into `~/.local/lib/scalascript` and links
+`~/.local/bin/ssc`. `SSC_VERSION=0.1.1` pins a release, `PREFIX=/usr/local` moves the target.
+
+From a checkout, for contributors:
 
 ```bash
 # Install scala-cli first (if needed)

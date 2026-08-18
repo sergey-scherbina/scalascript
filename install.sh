@@ -7,13 +7,25 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN="$ROOT/bin"
 LIB="$BIN/lib"
 
+# NAME ONLY WHAT EXISTS. This message used to offer three channels — a coursier channel at
+# releases.scalascript.io, a `scalascript/tap` Homebrew tap, and `get.scalascript.io`. Measured
+# 2026-08-18: neither domain resolves, the tap 404s, and `io/scalascript/` is a 404 on Maven Central,
+# so all three were instructions that cannot work. The one channel that does is the GitHub release,
+# which publishes three native binaries and their tarballs.
+# (BUGS.md install-channels-are-fiction.)
 usage() {
     cat <<'MSG'
-ScalaScript standalone install options:
+ScalaScript standalone install (downloads the native binary from the GitHub release):
 
-  cs install ssc --channel https://releases.scalascript.io/coursier.json
-  brew install scalascript/tap/ssc
-  curl -fsSL https://get.scalascript.io | sh
+  curl -fsSL https://raw.githubusercontent.com/sergey-scherbina/scalascript/main/releases/install.sh | sh
+
+  # pin a release, or install somewhere else:
+  SSC_VERSION=0.1.1 PREFIX=/usr/local sh releases/install.sh
+
+Or take the archive for your platform straight from
+https://github.com/sergey-scherbina/scalascript/releases/latest
+(ssc-linux-x86_64, ssc-macos-arm64, ssc-macos-x86_64) and unpack it whole — the
+binary finds its staged front relative to its own path.
 
 For a contributor build from this monorepo, run:
 
