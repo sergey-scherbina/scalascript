@@ -3377,6 +3377,7 @@ interpreter took exactly this shape (arity keys plus a picker at each resolution
      found-by: claude-code
      found-at: 2026-08-16
      fixed-at: 2026-08-18
+     fixed-in: e3f58daa8ee2a3daa6d762efbd1dd626d1253bba
      repro: the body
      confirmed: yes -->
 
