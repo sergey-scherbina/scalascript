@@ -2,10 +2,10 @@ slug: server-backend-maven-repo
 branch: feature/server-backend-maven-repo
 agent: claude-code
 started: 2026-08-18T20:03:40Z
-heartbeat: 2026-08-18T20:03:40Z
+heartbeat: 2026-08-18T21:05:23Z
 status: claimed-before-planning
 items: emitted-server-backend-coordinate-resolves-nowhere
-paths: file:build.sbt file:.github/workflows/pages.yml file:.github/workflows/native-release.yml file:v1/tools/cli/src/main/scala/scalascript/cli/Main.scala file:v1/tools/cli/src/test/scala/scalascript/cli/ServerBackendInjectionTest.scala file:tests/e2e/server-backend-resolvable-gate.sh file:tests/e2e/emitted-coordinate-is-published.sh file:scripts/smoke-ci.ssc file:tests/smoke-baseline.tsv file:specs/http-server-backends.md file:docs/user-guide.md file:BUGS.md
+paths: file:build.sbt file:.github/workflows/pages.yml file:.github/workflows/native-release.yml file:.github/workflows/ci.yml file:v1/tools/cli/src/main/scala/scalascript/cli/Main.scala file:v1/tools/cli/src/test/scala/scalascript/cli/ServerBackendInjectionTest.scala file:tests/e2e/server-backend-resolvable-gate.sh file:tests/e2e/emitted-coordinate-is-published.sh file:scripts/smoke-ci.ssc file:tests/smoke-baseline.tsv file:specs/http-server-backends.md file:docs/user-guide.md mod:releases file:BUGS.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+next: land the maven tree
