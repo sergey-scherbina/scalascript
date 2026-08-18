@@ -5,7 +5,7 @@ started: 2026-08-17T15:19:02Z
 heartbeat: 2026-08-17T15:19:02Z
 status: claimed-before-planning
 items: v2-overloaded-class-method-returns-a-wrong-value-instead-of-refusing
-paths: file:v2/src/Runtime.scala file:BUGS.md file:tests/e2e/v21-standard-mcp-smoke.sh
+paths: file:v2/src/Runtime.scala file:BUGS.md file:tests/e2e/v2-unknown-member-refuses-gate.sh
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
