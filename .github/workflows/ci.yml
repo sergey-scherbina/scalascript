@@ -660,6 +660,13 @@ jobs:
       # catch-all now that a cons test runs first — and it passes with the fix reverted. ~10 s, two
       # lanes, no cargo.
       #
+      # `server-backend-resolvable-gate` asks the question the coordinate gate beside it cannot:
+      # does the dependency `--server-backend jetty` writes into a user's script actually RESOLVE.
+      # For two releases it could not — nothing from this project was published anywhere — while
+      # `emitted-coordinate-is-published` was green on "it is not a SNAPSHOT". It runs the generated
+      # script against the static Maven tree with its OWN resolver cache, because with the shared one
+      # the row stayed green after the fix was removed. ~40 s, one cold resolution.
+      #
       # `v2-paren-cons-arm-gate` is the same defect one spelling further out: `case (h) :: t` was
       # read as a one-element TUPLE pattern, because the head token `(` is tested before anything
       # asks whether the pattern is a cons. First arm with a catch-all -> the catch-all answered;
@@ -675,6 +682,7 @@ jobs:
           tests/e2e/v2-cons-wildcard-head-gate.sh
           tests/e2e/v2-entry-no-double-main-gate.sh
           tests/e2e/v2-paren-cons-arm-gate.sh
+          tests/e2e/server-backend-resolvable-gate.sh
 
       - name: Gates without a home — conformance flags and the scljet corpus
         if: always()          # see the block above this job's steps

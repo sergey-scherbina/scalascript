@@ -517,6 +517,11 @@ emits v2 CoreIR JavaScript, and passes trailing args through Node's
 
 `ssc run --target jvm` also accepts `--server-backend jdk|jetty|netty` to
 select the HTTP server implementation when the script defines HTTP routes.
+`jdk` is the default and needs nothing. The optional two are fetched from the
+project's static Maven tree (`SSC_SERVER_BACKEND_REPO=<url>` points elsewhere),
+or taken from a self-contained jar with `SSC_SERVER_BACKEND_JAR=<path>`
+(`sbt runtimeServerJvmJetty/assembly`), which resolves nothing at all — see
+[`../specs/http-server-backends.md`](../specs/http-server-backends.md).
 `ssc run-jvm` accepts `--frontend <custom|react|solid|vue|swing>` and
 `--transport http|in-process`; `http` is the current behavior, while
 `in-process` is accepted for the JVM-hosted Swing frontend and rejected with a

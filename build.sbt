@@ -1073,6 +1073,43 @@ lazy val runtimeServerJvm = project
 // NotImplementedError; module declaration + dep + ServiceLoader
 // registration in place so the SPI is discoverable.  S2 fills in
 // the actual Jetty integration.
+// ── The static Maven tree served from GitHub Pages ───────────────────────────────────────────────
+//
+// WHY THIS EXISTS. `ssc run --target jvm --server-backend jetty` compiles the program to a Scala
+// script and runs it under scala-cli IN ANOTHER PROCESS, whose classpath is whatever the script
+// declares. The default `jdk` backend needs nothing (the JDK's own server); jetty and netty are
+// optional and heavy, so they are declared per script with `//> using dep`. That directive named
+// `io.scalascript::…` and NOTHING FROM THIS PROJECT HAS EVER BEEN PUBLISHED ANYWHERE — measured
+// 2026-08-18, `repo1.maven.org/maven2/io/scalascript/` is a 404 — so the feature could not work for
+// anyone, including from a checkout. (BUGS.md emitted-server-backend-coordinate-resolves-nowhere.)
+//
+// Maven Central is not the cheap answer: it verifies namespace ownership by DNS, and `scalascript.io`
+// does not resolve (NXDOMAIN), so `io.scalascript` cannot be claimed there without registering the
+// domain or changing the groupId. A STATIC MAVEN TREE needs neither — it is files over HTTPS, and
+// this project already publishes a Pages site.
+//
+// `publishTo` is set for the WHOLE build rather than per module because nothing else here publishes
+// anywhere; a module that starts to needs to be a decision, not a default it inherited silently.
+// IN THE REPOSITORY, not assembled from release assets at deploy time. A Pages deployment REPLACES
+// the whole site, so a tree built from the current version alone would delete every older one the
+// moment `main` moves to the next SNAPSHOT — and an older release has to keep resolving. Keeping it
+// in git makes it cumulative by construction, reviewable in a diff, and costs the Pages job one
+// `cp`. Measured: 632 KB of jars for all six modules of one version, which is why sources and
+// javadoc are switched off below — with them a version is 16 MB, and 25 of that 34 MB tree was
+// javadoc nobody fetches from a `//> using dep`.
+lazy val pagesMavenDir = settingKey[File]("Static Maven tree in the repository, served under /maven")
+ThisBuild / pagesMavenDir := (ThisBuild / baseDirectory).value / "releases" / "maven"
+ThisBuild / publishTo := Some(Resolver.file("pages-maven", (ThisBuild / pagesMavenDir).value)(Resolver.mavenStylePatterns))
+ThisBuild / publishMavenStyle := true
+ThisBuild / packageDoc / publishArtifact := false
+ThisBuild / packageSrc / publishArtifact := false
+
+// The modules a generated `--server-backend` script has to resolve: the two backends and everything
+// they depend on INSIDE this build. Their third-party dependencies (Jetty 12, Netty 4) keep coming
+// from Central — the pom records them, and scala-cli resolves them the ordinary way.
+lazy val publishServerBackends = taskKey[File](
+  "Publish the http-server backend modules into the static Maven tree under target/pages-maven")
+
 lazy val runtimeServerJvmJetty = project
   .in(file("v1/runtime/http-server/jvm-jetty"))
   .dependsOn(runtimeServerSpi, runtimeServerCommon)
@@ -1086,6 +1123,22 @@ lazy val runtimeServerJvmJetty = project
       "org.eclipse.jetty.websocket" %  "jetty-websocket-jetty-server" % "12.0.13",
       scalatestTest
     ),
+    // A SELF-CONTAINED backend jar — the optional offline path. `//> using jar` does NOT resolve
+    // transitives, so a thin jar there would compile and then fail at the first Jetty class; the
+    // convenience artifact has to carry them.
+    //
+    // `META-INF/services` is CONCATENATED, and that is the line that makes the jar work at all:
+    // the backend is discovered through `ServiceLoader[HttpServerSpi]`, so a first-wins merge would
+    // silently drop the registration and the program would start on the `jdk` backend while the
+    // user believed they were on Jetty. `module-info.class` is discarded because a fat jar is used
+    // from the CLASSPATH, never the module path, and Jetty ships one in every artifact.
+    assembly / assemblyMergeStrategy := {
+      case PathList("META-INF", "services", _*)     => MergeStrategy.concat
+      case x if x.endsWith("module-info.class")     => MergeStrategy.discard
+      case PathList("META-INF", _ @ _*)             => MergeStrategy.discard
+      case _                                        => MergeStrategy.first
+    },
+    assembly / assemblyJarName := s"ssc-server-${name.value.split("-").last}.jar",
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
     Test    / scalacOptions ++= sharedScalacOptions
   )
@@ -1131,6 +1184,22 @@ lazy val runtimeServerJvmNetty = project
       "io.netty" %  "netty-handler-ssl-ocsp" % "4.1.118.Final",
       scalatestTest
     ),
+    // A SELF-CONTAINED backend jar — the optional offline path. `//> using jar` does NOT resolve
+    // transitives, so a thin jar there would compile and then fail at the first Jetty class; the
+    // convenience artifact has to carry them.
+    //
+    // `META-INF/services` is CONCATENATED, and that is the line that makes the jar work at all:
+    // the backend is discovered through `ServiceLoader[HttpServerSpi]`, so a first-wins merge would
+    // silently drop the registration and the program would start on the `jdk` backend while the
+    // user believed they were on Jetty. `module-info.class` is discarded because a fat jar is used
+    // from the CLASSPATH, never the module path, and Jetty ships one in every artifact.
+    assembly / assemblyMergeStrategy := {
+      case PathList("META-INF", "services", _*)     => MergeStrategy.concat
+      case x if x.endsWith("module-info.class")     => MergeStrategy.discard
+      case PathList("META-INF", _ @ _*)             => MergeStrategy.discard
+      case _                                        => MergeStrategy.first
+    },
+    assembly / assemblyJarName := s"ssc-server-${name.value.split("-").last}.jar",
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
     Test    / scalacOptions ++= sharedScalacOptions
   )
@@ -1143,6 +1212,22 @@ lazy val runtimeServerJvmNetty = project
 // frontendReact / frontendVue / frontendSolid).  Pure Scala 3, JVM-side
 // — the codegen lowering pass reads the IR and the chosen backend's
 // emit() produces framework-specific JS source.
+
+publishServerBackends := {
+  val dir = (ThisBuild / pagesMavenDir).value
+  // Publish in dependency order. `publish` does not follow `dependsOn`, so each module is named:
+  // a missing pom here is a resolution failure in somebody's generated script, and it would only
+  // show up at their first compile.
+  (logger / publish).value
+  (httpSessionShared / publish).value
+  (runtimeServerCommon / publish).value
+  (runtimeServerSpi / publish).value
+  (runtimeServerJvmJetty / publish).value
+  (runtimeServerJvmNetty / publish).value
+  streams.value.log.info(s"publishServerBackends: static Maven tree at $dir")
+  dir
+}
+
 lazy val frontendCore = project
   .in(file("frontend/core"))
   .dependsOn(core)

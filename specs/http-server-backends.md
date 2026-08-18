@@ -38,6 +38,37 @@ ssc compile --server-backend jetty examples/rest-jetty.ssc
 ssc compile --server-backend netty examples/ws-chat.ssc
 ```
 
+### Where the backend comes from
+
+The generated JVM script runs under scala-cli in its own process, so the backend has to be on THAT
+process's classpath. `jdk` needs nothing — it is the JDK's own server. The two optional backends are
+fetched, and there are two ways:
+
+```bash
+# 1. The default: a static Maven tree served from the project's Pages site. The generated script
+#    carries both directives, and Jetty/Netty themselves still come from Maven Central.
+#      //> using repository https://sergey-scherbina.github.io/scalascript/maven
+#      //> using dep io.scalascript::scalascript-runtime-server-jvm-jetty:<release>
+#    Point it somewhere else with SSC_SERVER_BACKEND_REPO=<url> — a mirror, or a local tree.
+
+# 2. Offline: a self-contained backend jar, and nothing is resolved for the backend at all.
+sbt runtimeServerJvmJetty/assembly
+SSC_SERVER_BACKEND_JAR=.../ssc-server-jetty.jar ssc run --target jvm --server-backend jetty app.ssc
+```
+
+The jar must be an ASSEMBLY: `//> using jar` does not resolve transitive dependencies, so a thin jar
+compiles and then fails on the first Jetty class.
+
+**Before 2026-08-18 neither worked.** The script carried a coordinate under `io.scalascript` and
+nothing from this project had ever been published anywhere, so `--server-backend jetty|netty` died in
+scala-cli's resolver for everyone, including from a checkout. Maven Central was not the cheap answer:
+it verifies namespace ownership by DNS and `scalascript.io` does not resolve. The static tree needs
+no account, no signing and no domain. See `BUGS.md`
+`emitted-server-backend-coordinate-resolves-nowhere`, and `sbt publishServerBackends` for the tree.
+
+```bash
+```
+
 > **Until Option A+ (Maven publishing) lands**: scala-cli won't be
 > able to resolve the dep from Maven Central.  Run
 > `sbt publishLocal` from the ssc repo first to put the backend jars

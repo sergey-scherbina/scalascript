@@ -434,6 +434,14 @@ private[cli] def expectText(r: CompileResult, what: String): String = r match
  *    the impl and selects it via `setHttpServerBackend(name)`.
  *
  *  v1.17.6 / Phase v1.17.6 CLI work. */
+/** The static Maven tree the generated scripts resolve the optional server backends from.
+ *
+ *  Published by `sbt publishServerBackends` and composed into the Pages site by
+ *  `.github/workflows/pages.yml`, which aggregates the `maven-repo.tar.gz` asset of every release —
+ *  so the tree is cumulative and an older release keeps resolving after a newer one ships. */
+private[cli] val DefaultServerBackendRepo =
+  "https://sergey-scherbina.github.io/scalascript/maven"
+
 private[cli] def injectServerBackend(script: String, backend: String): String =
   backend match
     case "jdk" => script
@@ -446,8 +454,30 @@ private[cli] def injectServerBackend(script: String, backend: String): String =
       // Bump this when a release is PUBLISHED, not when the build version moves.
       // Gate: tests/e2e/emitted-coordinate-is-published.sh
       val version  = "0.1.1"
-      val libDirective =
-        s"//> using dep io.scalascript::scalascript-runtime-server-jvm-$name:$version\n"
+      // WHERE THAT COORDINATE RESOLVES FROM, and the reason this line exists at all: nothing from
+      // this project is on Maven Central — measured 2026-08-18, `repo1.maven.org/maven2/io/scalascript/`
+      // is a 404 — so the `using dep` above named something no user could fetch, and
+      // `--server-backend jetty` failed at scala-cli's resolver for everyone, including from a
+      // checkout. Central is not the cheap fix: it verifies namespace ownership by DNS and
+      // `scalascript.io` is NXDOMAIN. A STATIC MAVEN TREE on the Pages site needs no account, no
+      // signing and no domain — it is files over HTTPS, and `sbt publishServerBackends` builds it.
+      // (BUGS.md emitted-server-backend-coordinate-resolves-nowhere.)
+      //
+      // OVERRIDABLE ON PURPOSE. `SSC_SERVER_BACKEND_REPO` points the directive at another tree —
+      // which is what lets a gate prove resolution against a local one instead of asserting that a
+      // string was emitted, and what lets someone run against their own mirror.
+      val repoUrl  = sys.env.getOrElse("SSC_SERVER_BACKEND_REPO", DefaultServerBackendRepo)
+      // THE OFFLINE PATH, and it is a whole jar rather than a coordinate on purpose.
+      // `SSC_SERVER_BACKEND_JAR` names a self-contained backend jar (`sbt
+      // runtimeServerJvmJetty/assembly`), and then NOTHING is resolved for the backend at all —
+      // useful behind a proxy, on a build machine with no route to Central, or when pinning exact
+      // bytes matters more than convenience. It has to be an ASSEMBLY: `//> using jar` does not
+      // resolve transitives, so a thin jar compiles and then fails on the first Jetty class.
+      val libDirective = sys.env.get("SSC_SERVER_BACKEND_JAR").map(_.trim).filter(_.nonEmpty) match
+        case Some(jar) => s"//> using jar $jar\n"
+        case None =>
+          s"//> using repository $repoUrl\n" +
+          s"//> using dep io.scalascript::scalascript-runtime-server-jvm-$name:$version\n"
       val implClass = name match
         case "jetty" => "scalascript.server.jvm.jetty.JettyServerBackend"
         case "netty" => "scalascript.server.jvm.netty.NettyServerBackend"

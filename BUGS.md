@@ -27,12 +27,12 @@ Newest first.
 
 ## emitted-server-backend-coordinate-resolves-nowhere — the gate checks it is not a SNAPSHOT, and nobody checks it exists
 
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: cli
      kind: bug
-     gate: -
-     fixed-in: -
+     gate: tests/e2e/server-backend-resolvable-gate.sh
+     fixed-in: unrecorded
      reported-by: claude-code
      reported-at: 2026-08-18
      ssc-version: 5675ec8f9
@@ -64,6 +64,58 @@ artifacts to Central (or anywhere `//> using dep` can reach) as part of the rele
 version constant follow it — or stop emitting the directive and inject the backend some other way.
 Both are release decisions. What should NOT happen is a third release that ships the line unchanged
 because the gate beside it is green.
+
+### FIXED 2026-08-18 — a static Maven tree, and an offline jar beside it
+
+The owner chose to publish. Central is still not the route — it verifies namespace ownership by DNS
+and `scalascript.io` is NXDOMAIN — so the artifacts are served as a STATIC MAVEN TREE from the Pages
+site this project already deploys. `sbt publishServerBackends` writes it, `releases/maven/` holds it,
+`pages.yml` copies it into `_site/maven`, and the generated script gains the line that was missing:
+
+```text
+//> using repository https://sergey-scherbina.github.io/scalascript/maven
+//> using dep io.scalascript::scalascript-runtime-server-jvm-jetty:0.1.1
+```
+
+**The tree is IN THE REPOSITORY and that is the load-bearing decision.** A Pages deployment replaces
+the whole site, so a tree rebuilt at deploy time from the current version would delete every older
+release the moment `main` moved to the next SNAPSHOT — and a coordinate that shipped has to keep
+resolving. In git it is cumulative by construction and reviewable in a diff. It costs 752 KB per
+version, after switching off sources and javadoc: with them a version is 16 MB, and 25 of the first
+34 MB tree was javadoc that no `//> using dep` ever fetches.
+
+**0.1.1 is backfilled**, built from the tag, so the coordinate the CLI emits today resolves rather
+than only becoming true at the next release.
+
+**The offline path, asked for alongside**: `SSC_SERVER_BACKEND_JAR=<path>` emits `//> using jar`
+instead, and then nothing is resolved for the backend at all — for a proxied network, an air-gapped
+builder, or pinning exact bytes. It has to be an ASSEMBLY (`sbt runtimeServerJvmJetty/assembly`,
+~13 MB): `//> using jar` does not resolve transitives, so a thin jar compiles and then fails on the
+first Jetty class. The assembly's merge strategy CONCATENATES `META-INF/services` — a first-wins
+merge would drop the `ServiceLoader[HttpServerSpi]` registration and the program would quietly start
+on `jdk` while the user believed they were on Jetty — and discards `module-info.class`, which Jetty
+ships in every artifact.
+
+### The gate was green three times before it could see anything, and each reason is worth keeping
+
+1. **The first negative control never built.** Removing the repository directive left `repoUrl`
+   unused, `-Werror` failed the compile, `install.sh --dev` exited 0 anyway, and the gate ran against
+   the PREVIOUS jar. Verified since by reading the string out of `bin/lib/ssc.jar` at each step
+   rather than trusting an exit code.
+2. **The shared resolver cache.** With `~/.cache/coursier`, the artifact from an earlier run was
+   already there, so the row passed with no repository at all. It now runs with `COURSIER_CACHE`
+   pointed into its own sandbox — 19 s and 38 MB cold, and the only state in which "it resolved"
+   means anything.
+3. **A plant that compiles.** The control that finally worked replaces the directive with a COMMENT
+   line carrying the same interpolation, so the code still compiles and the script still lacks a
+   repository. With it, the gate fails; restored, it passes.
+
+Verified: `tests/e2e/server-backend-resolvable-gate.sh` — the emitted version is present in
+`releases/maven` for both backends, the default URL is this repository's Pages tree (derived from
+`origin`, not restated), the generated script RUNS against a local server over that same tree, and
+the offline jar path runs with zero `io.scalascript` fetch attempts. `cli/testOnly
+ServerBackendInjectionTest` 8/8, including a row that the jar path and the dep path are mutually
+exclusive.
 
 ## install-channels-are-fiction — every advertised way to install ScalaScript was one that cannot work
 
