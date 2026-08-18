@@ -31,7 +31,7 @@ Newest first.
      area: docs
      kind: bug
      gate: tests/e2e/install-channels-are-real.sh
-     fixed-in: unrecorded
+     fixed-in: dc39442c8
      reported-by: claude-code
      reported-at: 2026-08-18
      ssc-version: 36c7e75d2
