@@ -568,10 +568,18 @@ object Exec:
     case Value.VSet(xs) => "Set(" + xs.map(x => showV(m, x)).mkString(", ") + ")"
     case Value.VMap(es) =>
       "Map(" + es.toList.map((k, v) => showV(m, k) + " -> " + showV(m, v)).mkString(", ") + ")"
-    // A HOST-OWNED VALUE IS RENDERED BY ITS OWNER, if one claims it. `<handle JsonBox>` is a
+    // AN OPAQUE HANDLE IS RENDERED BY ITS OWNER, and ONLY a handle. `<handle JsonBox>` is a
     // description of the container where the program asked for the value — v2 prints the same
-    // handle as `None`, because the flags that say so are the provider's to read.
-    case Value.VForeign(_, _) | Value.VHostData(_, _) if Plugins.showHost(m, v).isDefined =>
+    // handle as `None`, because the `optional`/`present` flags that say so are the provider's to
+    // read and v3 cannot see inside at all.
+    //
+    // `VHostData` IS DELIBERATELY NOT INCLUDED, and the first version of this line included it.
+    // v3 can read that value — it is a tag and fields — and it must print it by the LANGUAGE's
+    // rules, which are not v2's: `Returned(done)` here against v2's `Returned("done")`, because v2
+    // quotes a string nested in a datum and this language does not. Handing it over broke the three
+    // coroutine cases that had been passing, on the executor lane only, and the corpus caught it as
+    // DIFF 1 -> 3. Render what you can read; ask only about what you cannot.
+    case Value.VForeign(_, _) if Plugins.showHost(m, v).isDefined =>
       Plugins.showHost(m, v).get
     case Value.VArr(_) => "<foreign>"
     case Value.VPartial(_, nm, _) => "<partial " + nm + ">"
