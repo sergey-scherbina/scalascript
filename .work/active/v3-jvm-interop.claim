@@ -2,10 +2,10 @@ slug: v3-jvm-interop
 branch: feature/v3-jvm-interop
 agent: claude-code
 started: 2026-08-18T19:54:08Z
-heartbeat: 2026-08-18T19:54:08Z
-status: claimed-before-planning
+heartbeat: 2026-08-18T22:06:39Z
+status: in-progress
 items: v3-jvm-package-imports
-paths: file:v3/src/Loader.scala file:v3/src/Lower.scala file:v3/plugins/JvmInterop.scala file:v3/plugins/V2Fleet.scala file:v3/SPRINT.md file:v3/BUGS.md
+paths: file:v3/src/Loader.scala file:v3/src/Lower.scala file:v3/src/Plugins.scala file:v3/plugins/JvmInterop.scala file:v3/plugins/JvmBridge.scala file:v3/plugins/JvmBridgeV2.scala file:v3/plugins/V2Fleet.scala file:v3/plugins/V2Cli.scala file:v3/ssc3 file:v3/jvm-classpath.sh file:v3/front-capability-gate.sh file:v3/tests/front/jvm-package-import.ssc file:v3/tests/front/jvm-package-import.expected file:v3/SPRINT.md file:v3/BUGS.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+next: front-diff green at ceiling 76, then land J1-J5 and release
