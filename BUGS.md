@@ -4132,7 +4132,7 @@ re-running the matrix — all eight now answer, and the MCP gate drives them end
      area: docs
      kind: bug
      gate: tests/e2e/docs-links-resolve.sh
-     fixed-in: unrecorded
+     fixed-in: f076a38a2
      found-by: claude-code
      found-at: 2026-08-17
      repro: the census in the body
