@@ -2,10 +2,10 @@ slug: install-channels-are-fiction
 branch: feature/install-channels-are-fiction
 agent: claude-code
 started: 2026-08-18T16:57:43Z
-heartbeat: 2026-08-18T16:57:43Z
+heartbeat: 2026-08-18T17:00:01Z
 status: claimed-before-planning
 items: releases-install-sh-downloads-an-asset-no-release-has
-paths: file:releases/install.sh file:releases/homebrew/ssc.rb file:releases/coursier.json file:install.sh file:docs/getting-started-standalone.md file:README.md file:tests/e2e/install-channels-are-real.sh file:.github/workflows/ci.yml file:BUGS.md
+paths: file:releases/install.sh file:releases/homebrew/ssc.rb file:releases/coursier.json file:install.sh file:docs/getting-started-standalone.md file:docs/user-guide.md file:specs/arch-ssc-new.md file:README.md file:tests/e2e/install-channels-are-real.sh file:.github/workflows/ci.yml file:BUGS.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+next: fix user-guide and the arch spec

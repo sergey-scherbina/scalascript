@@ -1,4 +1,4 @@
-# generation: 2694
+# generation: 2695
 #slug	agent	started	items	paths
 v3-fleet-classpath-ci	claude-code	2026-08-18T16:54:30Z	v3-fleet-classpath-unvalidated-and-silent-in-ci	file:v3/plugin-classpath.sh file:.github/workflows/v3.yml file:v3/BUGS.md
-install-channels-are-fiction	claude-code	2026-08-18T16:57:43Z	releases-install-sh-downloads-an-asset-no-release-has	file:releases/install.sh file:releases/homebrew/ssc.rb file:releases/coursier.json file:install.sh file:docs/getting-started-standalone.md file:README.md file:tests/e2e/install-channels-are-real.sh file:.github/workflows/ci.yml file:BUGS.md
+install-channels-are-fiction	claude-code	2026-08-18T16:57:43Z	releases-install-sh-downloads-an-asset-no-release-has	file:releases/install.sh file:releases/homebrew/ssc.rb file:releases/coursier.json file:install.sh file:docs/getting-started-standalone.md file:docs/user-guide.md file:specs/arch-ssc-new.md file:README.md file:tests/e2e/install-channels-are-real.sh file:.github/workflows/ci.yml file:BUGS.md
