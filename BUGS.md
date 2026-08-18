@@ -24,6 +24,47 @@ Newest first.
 
 
 
+
+## emitted-server-backend-coordinate-resolves-nowhere — the gate checks it is not a SNAPSHOT, and nobody checks it exists
+
+<!-- status: open
+     lane: apparatus
+     area: cli
+     kind: bug
+     gate: -
+     fixed-in: -
+     reported-by: claude-code
+     reported-at: 2026-08-18
+     ssc-version: 5675ec8f9
+     repro: `ssc compile --server-backend jetty <file>` then read the generated directive
+     impact: blocks -->
+
+`ssc compile --server-backend jetty|netty` writes this line into the user's script:
+
+```text
+//> using dep io.scalascript::scalascript-runtime-server-jvm-jetty:0.1.1
+```
+
+and no resolver directive beside it. Measured 2026-08-18:
+`https://repo1.maven.org/maven2/io/scalascript/` is **404** — nothing from this project has ever been
+published to Maven Central. So the coordinate resolves nowhere, and the failure lands on the user at
+their first compile, in a file we wrote for them.
+
+**The gate that owns this line cannot see it.** `tests/e2e/emitted-coordinate-is-published.sh` was
+written for exactly this string and checks that it is not a `-SNAPSHOT` — true here — while its own
+comment states the rule it cannot enforce: "must name the last PUBLISHED release". There is no
+published release to name; the premise is unmet, not the check.
+
+Found while auditing the release path for `install-channels-are-fiction`, which is the same shape one
+layer out: that entry is about the commands we tell a user to RUN, this is about the coordinate we
+write into their BUILD.
+
+**Two ways out, and the choice is the project's, not a fix to guess at.** Publish the runtime-server
+artifacts to Central (or anywhere `//> using dep` can reach) as part of the release, and let the
+version constant follow it — or stop emitting the directive and inject the backend some other way.
+Both are release decisions. What should NOT happen is a third release that ships the line unchanged
+because the gate beside it is green.
+
 ## install-channels-are-fiction — every advertised way to install ScalaScript was one that cannot work
 
 <!-- status: fixed
