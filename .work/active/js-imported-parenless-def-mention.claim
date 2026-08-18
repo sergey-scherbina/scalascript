@@ -2,10 +2,10 @@ slug: js-imported-parenless-def-mention
 branch: feature/js-imported-parenless-def-mention
 agent: claude-code
 started: 2026-08-18T07:45:36Z
-heartbeat: 2026-08-18T08:42:16Z
+heartbeat: 2026-08-18T08:43:55Z
 status: claimed-before-planning
 items: js-imported-parenless-def-mention-reads-the-function-object
-paths: file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala file:v1/runtime/backend/js/BUGS.md file:tests/conformance/parameterless-def-imported.ssc file:tests/conformance/expected/parameterless-def-imported.txt file:tests/conformance/lib/parenless.ssc
+paths: file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala file:v1/runtime/backend/js/BUGS.md file:tests/conformance/parameterless-def-imported.ssc file:tests/conformance/expected/parameterless-def-imported.txt file:tests/conformance/lib/parenless.ssc file:tests/conformance/contract-roster.tsv
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: commit, push, then the entry with its sha
+next: amend the roster into the commit, push, entry
