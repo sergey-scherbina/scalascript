@@ -135,6 +135,18 @@ PLUGIN_CP_FILE="$JARS/plugins.cp"
 # `SSC3_FLEET=off` turns it off, in the same spirit as `SSC3_PRELUDE=` and `SSC3_FRONT=v3`: a
 # mechanism that cannot be switched off cannot be measured, and every floor this fleet holds was
 # established by running the corpus with it off as the control.
+# THE IMPORTABLE JVM LIBRARIES, on the same terms as the fleet: a cached fact, built on first use,
+# never fatal. `v3/jvm-classpath.sh` says which ones — a declared list, because an import that
+# resolves to whatever happens to be built is an import whose meaning depends on the build order.
+JVM_CP_FILE="$JARS/jvm.cp"
+jvm_cp() {
+  [ "${SSC3_FLEET:-on}" = "off" ] && { printf ''; return 0; }
+  if [ ! -s "$JVM_CP_FILE" ]; then
+    "$ROOT/v3/jvm-classpath.sh" >/dev/null 2>&1 || true
+  fi
+  [ -s "$JVM_CP_FILE" ] && cat "$JVM_CP_FILE" || printf ''
+}
+
 fleet_cp() {
   [ "${SSC3_FLEET:-on}" = "off" ] && { printf ''; return 0; }
   if [ ! -s "$PLUGIN_CP_FILE" ]; then
@@ -142,7 +154,9 @@ fleet_cp() {
   fi
   [ -s "$PLUGIN_CP_FILE" ] && cat "$PLUGIN_CP_FILE" || printf ''
 }
+_jcp0="$(jvm_cp)"
 _pcp0="$(fleet_cp)"
+[ -n "$_jcp0" ] && _pcp0="${_pcp0:+$_pcp0:}$_jcp0"
 if [ -n "$_pcp0" ]; then
   _pcp="$_pcp0"
   # `v3/plugins` is a THIRD source directory, compiled with the kernel exactly as `alphabet/src`
@@ -205,6 +219,8 @@ uniml_classpath() {
   # is where the default and the `SSC3_FLEET=off` switch live.
   local pcp=""
   pcp="$(fleet_cp)"
+  local jcp="$(jvm_cp)"
+  [ -n "$jcp" ] && pcp="${pcp:+$pcp:}$jcp"
   if [ -n "$pcp" ]; then
     out="$(classes_for unimlp "$ucp:$pcp" "$ROOT/v3/src" "$ROOT/alphabet/src" "$ROOT/v3/uniml" "$ROOT/v3/plugins")" || return 1
     printf '%s' "$out:$ucp:$pcp:$tc"
@@ -347,7 +363,12 @@ case "$cmd" in
       cp="$(uniml_classpath)" || { echo "ssc3: could not compile the uniml front" >&2; exit 2; }
       exec java -cp "$cp" ssc3.ssc3uniml ast "$2"
     fi
-    exec java -cp "$V3CP:$TC" ssc3.ssc3 ast "$2"
+    # THE FLEET-AWARE KERNEL, not the bare one. `$V3CP` has no `v3/plugins` on it, so the process
+    # that prints v3's own tree could not answer "is this a JVM package you provide" — and a JVM
+    # import therefore failed on THIS front while succeeding on the other. `front-diff` caught it on
+    # the fixture's first run, which is the whole reason the differential exists. `${V3PCP:-$V3CP}`
+    # keeps a tree without the fleet working exactly as before.
+    exec java -cp "${V3PCP:-$V3CP}:${_pcp0:-}:$TC" ssc3.ssc3 ast "$2"
     ;;
   *)
     exec "${SSC3[@]}" "$@"
