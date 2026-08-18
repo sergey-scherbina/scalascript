@@ -125,8 +125,26 @@ V2=(java -Xss512m -cp "$(classes_for ssc2 "" "$ROOT/v2/src"):$TC" ssc.cli)
 # stayed silent while v2's plugins answered on the bridge — so the two are set together, from one
 # file, or not at all.
 PLUGIN_CP_FILE="$JARS/plugins.cp"
-if [ -s "$PLUGIN_CP_FILE" ]; then
-  _pcp="$(cat "$PLUGIN_CP_FILE")"
+# ON BY DEFAULT SINCE 2026-08-18 — the owner's decision, and it changes ONE of the two guarantees
+# `plugin-classpath.sh` was written under. That file says a caller who is not using the fleet has no
+# business waiting for sbt, and a build failure has no business making `ssc3 run` fail. The first
+# lapses when everybody uses the fleet; THE SECOND IS KEPT — the build is attempted once, its output
+# is discarded, and a failure leaves the fleet absent and the run going, exactly as a missing file
+# did before.
+#
+# `SSC3_FLEET=off` turns it off, in the same spirit as `SSC3_PRELUDE=` and `SSC3_FRONT=v3`: a
+# mechanism that cannot be switched off cannot be measured, and every floor this fleet holds was
+# established by running the corpus with it off as the control.
+fleet_cp() {
+  [ "${SSC3_FLEET:-on}" = "off" ] && { printf ''; return 0; }
+  if [ ! -s "$PLUGIN_CP_FILE" ]; then
+    "$ROOT/v3/plugin-classpath.sh" >/dev/null 2>&1 || true
+  fi
+  [ -s "$PLUGIN_CP_FILE" ] && cat "$PLUGIN_CP_FILE" || printf ''
+}
+_pcp0="$(fleet_cp)"
+if [ -n "$_pcp0" ]; then
+  _pcp="$_pcp0"
   # `v3/plugins` is a THIRD source directory, compiled with the kernel exactly as `alphabet/src`
   # is — the kernel itself still references nothing outside the JDK, and the adapter that does is
   # over here. The fleet's classpath is `extra`, so it is part of the content-addressed digest and
@@ -182,8 +200,11 @@ uniml_classpath() {
   # only into the kernel's unit is wired into the lane almost nobody takes: `Cli.run` looks the
   # adapter up BY NAME, finds nothing here, and every host function stays refused while the kernel
   # lane answers. Measured exactly that way before this line existed.
+  # THE SAME DECISION, READ BACK — not a second `[ -s … ]`. Two computations of one fact can
+  # disagree, and when this one disagreed the executor answered while the bridge refused. `fleet_cp`
+  # is where the default and the `SSC3_FLEET=off` switch live.
   local pcp=""
-  [ -s "$JARS/plugins.cp" ] && pcp="$(cat "$JARS/plugins.cp")"
+  pcp="$(fleet_cp)"
   if [ -n "$pcp" ]; then
     out="$(classes_for unimlp "$ucp:$pcp" "$ROOT/v3/src" "$ROOT/alphabet/src" "$ROOT/v3/uniml" "$ROOT/v3/plugins")" || return 1
     printf '%s' "$out:$ucp:$pcp:$tc"
