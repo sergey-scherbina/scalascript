@@ -18,7 +18,13 @@ four candidate paths, which is what the 5-case `typeddata` bucket in the refusal
 door has to keep invariant I-1: the kernel gains no dependency, so this belongs behind the plugin SPI
 or an explicit import form, not in `v3/src`.
 
-**APPROVED — an exact decimal.** `v2` has `DecimalV` and v3 has no counterpart at all, so
+**DONE 2026-08-18 (a95a337c5) — an exact decimal, carried as its canonical text.** exec 259 -> 262
+with the DIFF floor to ZERO, bridge 257 -> 259. No arbitrary-precision library and no Tier 0 type;
+arithmetic deliberately not added. The printing half needed a third SPI door — the owner renders its
+own handles — and giving that door `VHostData` as well broke three passing cases, since v3 can read a
+host datum and must print it by the language's rules.
+
+**WAS: APPROVED — an exact decimal.** `v2` has `DecimalV` and v3 has no counterpart at all, so
 `json-self-hosted-import` cannot cross: it exists to pin `jsonParse("0.0")` printing `0.0` rather
 than a float. Entry: `v3-has-no-decimal-so-the-json-core-cannot-cross`. It is a runtime value like
 `VBytes` rather than a Tier 0 type addition — the program never names it, prims consume it.

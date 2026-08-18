@@ -370,30 +370,40 @@ an hour.
 **THE FIVE CASES ARE NOT BLOCKED BY ANYTHING SMALLER.** `content-tables` and `content-to-markdown`
 consume real parsed markdown; a synthesised empty document would satisfy the provider's check and
 then produce wrong answers, which is the trade the DIFF floor exists to refuse.
-## v3-has-no-decimal-so-the-json-core-cannot-cross — `DecimalV` has no counterpart
+## v3-has-no-decimal-so-the-json-core-cannot-cross — it has one, and it is a string
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      kind: feature
      area: runtime
+     fixed-in: a95a337c5
      gate: v3/corpus-report.sh (json-self-hosted-import)
      found-by: claude-code
      found-at: 2026-08-16 -->
 
-**v2 has an EXACT decimal and v3 has none.** `json-self-hosted-import` exists to pin
-`jsonParse("0.0")` printing `0.0` rather than a float, and the json core answers `DecimalV`, which
-`V2Fleet.toV3` cannot convert to anything v3 has. Carrying it as a `VFloat` or a string would be a
-wrong answer with a plausible shape — the one trade the DIFF floor exists to refuse — so the module
-is commented out of `v3/plugin-classpath.sh` and the program is told at the host-function boundary.
+**FIXED IN a95a337c5, on the owner's approval.**
 
-**APPROVED BY THE OWNER 2026-08-17.** The decision asked for was whether v3 should gain an exact
-decimal at all; the answer is yes. See `v3/BACKLOG.md` → "Owner decisions, 2026-08-17".
+    exec    control 259 DIFF 1 CRASH 3   ->   262 DIFF 0 CRASH 3
+    bridge  control 257 DIFF 2 CRASH 1   ->   259 DIFF 2 CRASH 1
 
-**THIS IS A LANGUAGE QUESTION, NOT AN ADAPTER ONE.** A decimal would be a runtime value like
-`VBytes` — reachable only through prims that consume it in the same expression — or a Tier 0 type,
-which is a different and larger decision (I-2). Nothing in the corpus needs decimal ARITHMETIC in
-v3; one case needs it to survive a round trip and print exactly.
+The executor's DIFF floor is ZERO: no wrong answer anywhere in the corpus. All twelve gates green.
 
+**A DECIMAL IS ITS CANONICAL TEXT** — which is how v2 already carries one (`DecimalV(text: String)`,
+`PortableDecimal.canonicalText`). `Value.VDec` therefore brings no arbitrary-precision library into
+the kernel and no Tier 0 type: no literal, no method, nothing a program can name, exactly like
+`VBytes`. ARITHMETIC IS NOT ADDED: v2's `dec.*` family is fifteen prims and no case needs one, so
+they are refused by name rather than guessed at.
+
+**THE HARDER HALF WAS PRINTING.** `jsonRead(…).get("missing")` answers a `JsonBox` carrying
+`optional`/`present` — an Option represented as a handle, which v2 prints as `None` and v3 printed as
+`<handle JsonBox>`: a description of the container where the program asked for the value.
+`Plugins.showHost` is a third door on the same SPI, and `None` from it means "not mine".
+
+**GIVING IT `VHostData` TOO BROKE THREE PASSING CASES, and the correction is the rule worth keeping.**
+v3 CAN read a host datum — a tag and fields — and must print it by the LANGUAGE's rules rather than
+v2's: `Returned(done)` here against v2's `Returned("done")`. The three coroutine cases regressed on
+the executor lane alone; twelve green gates did not see it and the corpus DIFF floor did, at 1 -> 3.
+Render what you can read; ask only about what you cannot.
 ## v3-capability-list-outlived-the-divergence-it-declared — the front-capability gate was RED in CI for four rows that had already closed
 
 <!-- status: fixed
