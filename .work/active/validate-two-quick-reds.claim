@@ -1,0 +1,11 @@
+slug: validate-two-quick-reds
+branch: feature/validate-two-quick-reds
+agent: claude-code
+started: 2026-08-18T18:32:23Z
+heartbeat: 2026-08-18T18:32:23Z
+status: claimed-before-planning
+items: no-leaked-servers-frozen-list-stale area-map-one-new-misfiling
+paths: file:tests/e2e/no-leaked-servers.sh file:tests/fixtures/board-ownership-baseline.tsv
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
