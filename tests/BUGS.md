@@ -6743,6 +6743,51 @@ control reds each row with its own distinct error (`E0308` mismatched, `E0425` N
 `std/content-core.ssc` alone holds 170. Whoever takes this next should lift the refusal locally
 first — the errors are invisible until they do.
 
+### 2026-08-18 — re-censused behind the refusal: 185 errors, and the largest single class is now fixed
+
+Took the entry's own instruction — lift the refusal locally, the errors are invisible until you do —
+and measured all five modules again. The lift is MINE, not the trait the 2026-08-16 table used: the
+existing Vec lowerings are applied by NAME to any receiver, behind an env var, and it is never
+committed. So the TOTALS across the two censuses are not strictly comparable, and the 312 in the row
+above should not be subtracted from the 211 below. What IS comparable is the before/after inside one
+census, same lift, same tree:
+
+| module | with the lift, before today | after `ssc_val_list` |
+|---|---|---|
+| `std/fs.ssc` | 0 | 0 |
+| `std/litdoc.ssc` | 22 | 22 |
+| `std/json-core.ssc` | 21 | **16** |
+| `std/yaml-core.ssc` | 43 | **33** |
+| `std/content-core.ssc` | 125 | **114** |
+| **total** | **211** | **185** |
+
+**THE CLASS: `error[E0599]: Value is not an iterator`, 27 of them, now zero.** The coercion for a
+`Vec<Value>` parameter emitted `.into_iter().map(Value::from)`, which assumes the expression already
+IS a sequence. It is when the call site writes `count(List(4, 5))`. It is not when the list arrives
+out of an `Any`: `case Node(kids) => count(kids)` binds `kids` to a `Value` that HOLDS a list.
+
+Fixed the way this backend already fixes scalars — `ssc_val_list` implemented for `Value` AND for
+`Vec<T: Into<Value>>`, so one emission serves both sides and the walker never has to know which one
+it is looking at. The `Vec<T>` impl covers `Vec<Value>` for free because `From` is reflexive.
+Landed with `tests/e2e/rust-any-list-boundary-gate.sh`, whose two rows are the two sides — the
+literal call is what every existing golden exercises, so a green on it alone would have proved
+nothing about the half that was broken.
+
+**What is left, by shape rather than by module.** `E0308 mismatched types` is 115 of the 185 and is
+a long tail; the one recognisable group after it is 35 × `E0271`, all of them the CONS lowering
+disagreeing about its element type — `{ let mut __cons = vec![high]; __cons.extend(reversed.iter()
+.cloned()); __cons }` where `high` is an `i64` and `reversed` is a `Vec<Value>`, or the reverse.
+That is the `Any` boundary again, at a position nothing coerces yet, and it is the next class worth
+taking. The remainder is single-site: 8 × a method missing on a struct, 6 × `cannot find value`,
+4 × `type annotations needed`.
+
+Two general fixes landed earlier the same day are also in this tree and are gated separately
+(`rust-packaged-module-loses-every-argument-coercion` — a sibling call inside an object lost every
+argument coercion; `rust-any-parameter-does-not-lift-a-call-result` — a call handed to an `Any`
+parameter was not lifted). What they bought BEHIND this refusal is not separated out here, and
+saying so is the point: measuring it would need a third census on a reverted tree, and I stopped
+rather than publish an attribution I had not measured.
+
 ## scaffolded-projects-cannot-load-their-build
 
 <!-- status: fixed

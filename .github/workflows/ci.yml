@@ -905,6 +905,16 @@ jobs:
         if: always()          # see the block above this job's steps
         run: tests/e2e/rust-any-call-lift-gate.sh
 
+      # The `Vec<Value>` coercion assumed its expression already WAS a sequence, which is true for
+      # `count(List(4, 5))` and false for `case Node(kids) => count(kids)` — that binds a `Value`
+      # HOLDING a list and rustc answered `Value is not an iterator`. 27 errors across five std
+      # modules, the largest single class behind the parenless-member refusal. Both sides are rows
+      # in the gate: the literal call is what every existing golden exercises, so a green on it
+      # alone would prove nothing about the half that was broken. ~40 s, one cargo build.
+      - name: a list crossing into List[Any] works from both sides
+        if: always()          # see the block above this job's steps
+        run: tests/e2e/rust-any-list-boundary-gate.sh
+
       # `spawn`, the other half of the rozum std/process pair (`process-needs-a-detached-spawn`):
       # `exec` WAITS by construction, so an HTTP handler starting a five-minute agent run could hold
       # the connection for five minutes or not start it — every launch route of their port stopped

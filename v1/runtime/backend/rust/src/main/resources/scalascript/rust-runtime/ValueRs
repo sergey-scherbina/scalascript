@@ -296,7 +296,20 @@
       |pub trait SscStr  { fn ssc_str(self) -> String; }
       |#[allow(dead_code)]
       |pub trait SscVal  { fn ssc_val(self) -> Value; }
+      |// A LIST CROSSING INTO `Any` ARRIVES AS EITHER SHAPE, and the emitter cannot tell which:
+      |// `f(List(1,2,3))` hands over a `Vec<i64>`, while `f(ssc_field(&x, "Node", 0))` hands over a
+      |// `Value` that HOLDS a list. The coercion used to assume the first and emitted
+      |// `.into_iter().map(Value::from)`, which is `error[E0599]: Value is not an iterator` for the
+      |// second — 27 of them across five std modules, the largest single class behind the
+      |// parenless-member refusal. Two impls make one emission serve both, which is the same
+      |// property `ssc_int` has for scalars.
+      |#[allow(dead_code)]
+      |pub trait SscValList { fn ssc_val_list(self) -> Vec<Value>; }
       |
+      |impl SscValList for Value      { fn ssc_val_list(self) -> Vec<Value> { ssc_vec(self) } }
+      |// `T: Into<Value>` covers `Vec<Value>` too — `From` is reflexive, so that case is the
+      |// identity map and needs no impl of its own (which would not be allowed to exist anyway).
+      |impl<T: Into<Value>> SscValList for Vec<T> { fn ssc_val_list(self) -> Vec<Value> { self.into_iter().map(Into::into).collect() } }
       |impl SscInt for Value { fn ssc_int(self) -> i64 { match self { Value::Int(n) => n, other => ssc_wrong("Int", &other) } } }
       |impl SscInt for i64   { fn ssc_int(self) -> i64 { self } }
       |impl SscF64 for Value { fn ssc_f64(self) -> f64 { match self { Value::Double(f) => f, Value::Int(n) => n as f64, other => ssc_wrong("Double", &other) } } }

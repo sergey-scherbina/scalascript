@@ -422,8 +422,10 @@ object RustCodeWalk:
       // emitted BODY rather than from a flag threaded through every builder — one site, and it
       // cannot disagree with what was actually emitted.
       val anyImport =
-        if Seq(".ssc_int(", ".ssc_f64(", ".ssc_bool(", ".ssc_str(", ".ssc_val(").exists(body.contains)
-        then "#[allow(unused_imports)]\nuse crate::value::{SscInt, SscF64, SscBool, SscStr, SscVal};\n\n"
+        if Seq(".ssc_int(", ".ssc_f64(", ".ssc_bool(", ".ssc_str(", ".ssc_val(",
+               ".ssc_val_list(").exists(body.contains)
+        then "#[allow(unused_imports)]\n" +
+             "use crate::value::{SscInt, SscF64, SscBool, SscStr, SscVal, SscValList};\n\n"
         else ""
       // The nested-typed-pattern GUARDS are trait methods too, and they need their own import: a
       // crate can use `.ssc_str(` without ever testing a variant. Keyed on the emitted body for the
@@ -5939,8 +5941,13 @@ object RustCodeWalk:
     case "crate::value::Value"  => expr
     // Into a container OF `Any`: map the elements. `Value::from` is the identity on a `Value`, so
     // the same expression serves an argument that already holds them.
-    case "Vec<crate::value::Value>" =>
-      s"($expr).into_iter().map(|__e| crate::value::Value::from(__e)).collect::<Vec<_>>()"
+    // ONE EMISSION FOR BOTH SHAPES. This used to be the element map alone, which assumed the
+    // expression already WAS a sequence: `f(List(1,2,3))` hands over a `Vec<i64>` and that is
+    // right, but `f(ssc_field(&x, "Node", 0))` hands over a `Value` and rustc answered
+    // `error[E0599]: Value is not an iterator`. `ssc_val_list` is implemented for both, so the
+    // emitter no longer has to know which side of the boundary the expression was on — the same
+    // property that makes `ssc_int` safe to emit unconditionally.
+    case "Vec<crate::value::Value>" => s"($expr).ssc_val_list()"
     case "std::collections::HashMap<String, crate::value::Value>" =>
       s"($expr).into_iter().map(|(__k, __v)| (__k, crate::value::Value::from(__v)))" +
         ".collect::<std::collections::HashMap<_, _>>()"
