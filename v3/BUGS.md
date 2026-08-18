@@ -8,13 +8,14 @@ Query: `scripts/bugs-report --module v3`.
 
 ## v3-front-diff-ceiling-is-derived-by-word-counting-and-a-comment-changes-it — 23, 76 or 83 for one list
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      kind: bug
      area: build
      gate: v3/front-diff.sh (the ceiling is re-derived from the declared list)
      found-by: claude-code
-     found-at: 2026-08-18 -->
+     found-at: 2026-08-18
+     fixed-in: 8d3067169 -->
 
 **THE ONE-SIDED CEILING IS NOT A CONSTANT — it is re-derived from the names declared in
 `v3/front-capability-gate.sh`,** so that declaring a case both raises the ceiling and names the
@@ -36,7 +37,7 @@ happened, because the ceiling had fallen to 63 in the same commit that grew the 
 ceiling that RISES is worse in kind: it admits regressions nobody declared, and a comment is exactly
 the sort of edit nobody re-measures after.
 
-**THE FIX LANDS WITH THIS ENTRY — read the list rather than match it:** scan from the `declare -a` line, strip `#`
+**FIXED IN 8d3067169 — read the list rather than match it:** scan from the `declare -a` line, strip `#`
 comments per line, stop at the first bracket that survives stripping, and REFUSE — rather than
 count — if the list is unterminated or holds a token that is not a name. The old silent fallback to
 the literal `85` now applies only when the capability gate is ABSENT; present-but-unreadable fails
