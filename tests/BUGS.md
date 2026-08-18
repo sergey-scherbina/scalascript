@@ -1,3 +1,55 @@
+## f-does-not-support-a-plain-class — and the estimate was priced against the wrong semantics
+
+<!-- status: fixed
+     lane: native
+     area: front
+     kind: bug
+     reported-by: claude-code
+     reported-at: 2026-08-18
+     fixed-at: 2026-08-18
+     confirmed: yes
+     gate: tests/e2e/f-plain-class-gate.sh -->
+
+`class C:` was `unbound global: (global C)` on F while the reference ran it — in every form: with
+parameters, without, and with `new`.
+
+**THE FIRST ESTIMATE SAID EIGHT SITES AND IT WAS WRONG, for a reason worth keeping.** `isCCHead`
+demands the pair `case`+`class` and is consulted in eight places (item emitter, given table, type
+cases, subtype registry, defaults, top-level vals, constructor names, method collector). I priced the
+fix against SCALA's semantics — where a plain class has no `apply`, no structural equality and no
+pattern matching — and concluded that routing it through the case-class machinery would be a silent
+lie, so each site would need its own careful branch.
+
+Then I measured the ORACLE, which is what F has to agree with:
+
+```
+class C: def m(): Int = 42     ref: C().m() = 42     constructs without `new`
+C() match { case C() => … }    ref: matched          it IS pattern-matchable
+C() == C()                     ref: true             it HAS structural equality
+```
+
+**The reference already treats the two identically.** There is no distinction to preserve, so the
+cheap fix is also the correct one — and it is ONE site, not eight: a bare `class` gets a synthetic
+`case` token in front of it immediately after `layout(lex(…))`, and the eight collectors never learn
+that plain classes exist. Pricing a change against a semantics the project does not implement is how
+a two-file fix comes to look like an eight-site one.
+
+### A second, older defect surfaced underneath — a crash, not a decline
+
+With NO parameter list at all, `collectFields` and `collectPD` walk past the missing `(` and read the
+`:` as a name: `expected Str, got 34`. It fires on the DECLARATION, before anything uses the class.
+It predates plain-class support entirely — `case class C:` fails identically on a build without any
+of this, while `case class C():` with empty parens is fine, so the trigger is the missing LIST and
+not the missing fields. Both collectors now end the list on anything that is not a name and leave the
+stream where it was.
+
+### Measured after
+
+`tests/conformance/parameterless-def-mention.ssc` and `named-arg-defaults.ssc` both report `F` and
+agree with the reference byte for byte — the two corpus files this was worth. Twelve gate rows,
+including `match-arm-unchanged`, which fails if the synthetic `case` ever fires on a match arm
+instead of a class.
+
 ## f-loses-a-member-that-carries-a-modifier — `private def` in an object is discarded
 
 <!-- status: fixed

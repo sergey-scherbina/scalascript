@@ -3212,7 +3212,11 @@ def lastParamStar(ts, d, prev) = if isEmpty(ts) then false else lastParamStar1(h
 def lastParamStar1(t, rest, d, prev) = if isTok(t, 2, 22) then (if d == 0 then isTok(prev, 2, 25) else lastParamStar(rest, d - 1, t)) else (if isOpenD(t) then lastParamStar(rest, d + 1, t) else (if isTok(t, 2, 51) then lastParamStar(rest, d - 1, t) else lastParamStar(rest, d, t)))
 // collectPD walks a param list (ts AFTER the `(`) -> ([(paramName, dfltToks)], restAfterClose). dfltToks
 // is Nil when the param has no default. Mirrors collectField but captures the default token slice.
-def collectPD(ts, acc) = if isEmpty(ts) then (revL(acc), ts) else (if isTok(hd(ts), 2, 22) then (revL(acc), tl(ts)) else collectPD1(ts, acc))
+// SAME GUARD AS collectFields, and the reason it is needed in a SECOND place is worth stating: with
+// no parameter list at all (`class C:` / `case class C:`) this walks past the missing `(` and reads
+// the `:` as a parameter NAME — `expected Str, got 34`. A crash, not a decline, on a declaration
+// nothing had used yet. Anything that is not a name ends the list and leaves the stream where it was.
+def collectPD(ts, acc) = if isEmpty(ts) then (revL(acc), ts) else (if isTok(hd(ts), 2, 22) then (revL(acc), tl(ts)) else (if fst(hd(ts)) == 1 then collectPD1(ts, acc) else (revL(acc), ts)))
 def collectPD1(ts, acc) = collectPDafterName(snd(hd(ts)), tl(ts), acc)
 // A VARARG param (`xs: T*`) is marked by appending " *" to its registry name — a space cannot occur
 // in an identifier, so the mark cannot collide with a real param, and vaIdxOf reads it back. The def
@@ -3432,7 +3436,16 @@ def isCCHead(ts) = if isTok(hd(ts), 2, 6) then isTok(hd(tl(ts)), 2, 10) else fal
 def collectCC1(ts) = collectCC2(snd(hd(ts)), skipNameGenParen(ts))
 def collectCC2(nm, ts) = collectFields(ts, Nil) match { case (fs, r) => Cons((nm, fs), collectCC(r)) }
 // fields accumulate REVERSED then flip, so declaration order is preserved.
-def collectFields(ts, acc) = if isTok(hd(ts), 2, 22) then (revL(acc), tl(ts)) else collectField(ts, acc)
+// A CLASS MAY DECLARE NO PARAMETER LIST AT ALL — `class C:` / `case class C:` — and this walked into
+// the body looking for fields. With no `(` to stop at, the head is the `:` and `collectField` reads
+// its `snd` as a NAME, so the compiler died on `expected Str, got 34` (34 being `:`) rather than
+// declining. Measured: `case class C():` with EMPTY parens was fine, so the trigger is the missing
+// list and not the missing fields, and it predates plain-class support — `case class C:` fails the
+// same way on a build without it, which is why this is a guard here and not a special case there.
+//
+// Anything that is not a field name ends the list and leaves the stream untouched, so the caller
+// resumes exactly where it was: no parens means no fields, and the body parses as a body.
+def collectFields(ts, acc) = if isTok(hd(ts), 2, 22) then (revL(acc), tl(ts)) else (if fst(hd(ts)) == 1 then collectField(ts, acc) else (revL(acc), ts))
 def collectField(ts, acc) = collectField1(snd(hd(ts)), tl(tl(ts)), acc)
 def collectField1(nm, ts, acc) = typeText(ts, 0, "") match { case (ty, r) => collectFieldEnd(nm, ty, r, acc) }
 // E1: a field may carry a DEFAULT `x: T = expr`. typeText stops at the `=` (code 20); the default value
@@ -3689,7 +3702,32 @@ def hasMain(ts) = if isEmpty(ts) then false else (if isTok(hd(ts), 2, 1) then ha
 def hasMain1(t, ts) = if fst(t) == 1 then hasMainN(snd(t), ts) else hasMain(ts)
 def hasMainN(nm, ts) = if nm == "main" then true else hasMain(ts)
 def entryOf3(ts, cs, docEntry, nDoc, dq, cms) = ") (entry " ++ entryBody3(ts, cs, docEntry, nDoc, dq, cms) ++ "))"
-def compile(src, dq, bs) = compile1(layout(lex(src, 0, src.length)), dq, bs)
+// A PLAIN `class` IS A `case class` HERE, so it is made into one at the only place the token stream
+// exists as a whole — and the eight collectors downstream never learn that plain classes are a thing.
+//
+// `isCCHead` demands the PAIR `case`+`class`, and it is consulted in eight places: the item emitter,
+// the given table, the type cases, the subtype registry, the defaults table, the top-level vals, the
+// constructor names and the method collector. Teaching each of them a second head shape is eight
+// chances to teach seven of them.
+//
+// THE ESTIMATE THAT SAID THIS WAS EXPENSIVE WAS PRICED AGAINST THE WRONG THING — Scala's semantics,
+// where a plain class has no `apply`, no structural equality and no pattern matching, so giving it
+// case-class treatment would be a silent lie. Measured on the ORACLE instead, which is what F has to
+// agree with:
+//
+//   class C:                      ref: 42          C() constructs without `new`
+//     def m(): Int = 42
+//   x match { case C() => .. }    ref: matched     it IS pattern-matchable
+//   C() == C()                    ref: true        it HAS structural equality
+//
+// The reference front already treats the two identically, so there is no distinction to preserve and
+// the cheap fix is also the correct one. Pricing a change against a semantics the project does not
+// implement is how a two-file fix comes to look like an eight-site one.
+def compile(src, dq, bs) = compile1(caseBeforeClass(layout(lex(src, 0, src.length))), dq, bs)
+def caseBeforeClass(ts) = if isEmpty(ts) then ts else caseBC1(hd(ts), tl(ts))
+// `case` already there -> leave the pair alone; a bare `class` -> synthesize the `case` in front of it.
+def caseBC1(h, r) = if isTok(h, 2, 6) then Cons(h, caseBCafterCase(r)) else (if isTok(h, 2, 10) then Cons((2, 6), Cons(h, caseBeforeClass(r))) else Cons(h, caseBeforeClass(r)))
+def caseBCafterCase(ts) = if isEmpty(ts) then ts else (if isTok(hd(ts), 2, 10) then Cons(hd(ts), caseBeforeClass(tl(ts))) else caseBeforeClass(ts))
 def compile1(ts, dq, bs) = compile2(ts, collectCC(ts), collectTypeCases(ts), dq, bs)
 // The pre-pass results become the parse CONTEXT: case-class names (cs, cc-only, for isCC) + the UNIFIED
 // type-case field names (tcs, cc + enum cases) + top-level val names + the enum registries. Top-level vals

@@ -523,6 +523,12 @@ val suite = List(
   // `object-val-still-unbound` records a DIFFERENT cause left open, so it goes red the day that one
   // is fixed rather than the fix landing unnoticed.
   Check("v2", "f-private-member", "tests/e2e/f-private-member-gate.sh", List(), 400000),
+  // A plain `class` is a `case class` on this lane — the REFERENCE gives it `apply`, structural
+  // equality and pattern matching, so there is no distinction for F to preserve and one token
+  // normalisation replaces what looked like an eight-site change. `oracle-parity-*` are the rows
+  // that justify it; `match-arm-unchanged` fails if the synthetic `case` ever fires on a match arm.
+  // `case-class-no-parens` is an older CRASH (`expected Str, got 34`) that surfaced underneath.
+  Check("v2", "f-plain-class", "tests/e2e/f-plain-class-gate.sh", List(), 400000),
   // An `extern def`'s declared DEFAULT reaches the call site — and nothing else about an extern
   // call is rewritten. The front skipped an extern whole (it is a signature), so its parameter list
   // was never parsed and `f(x)` on `extern def f(a, b = d)` died `arity: 2 expected, 1 given`
