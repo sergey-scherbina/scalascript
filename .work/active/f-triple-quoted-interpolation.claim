@@ -1,0 +1,11 @@
+slug: f-triple-quoted-interpolation
+branch: feature/f-triple-quoted-interpolation
+agent: claude-code
+started: 2026-08-18T21:42:06Z
+heartbeat: 2026-08-18T21:42:06Z
+status: claimed-before-planning
+items: f-triple-quoted-interpolated-string-is-silently-wrong
+paths: file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/f-triple-interp-gate.sh file:scripts/smoke-ci.ssc file:tests/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
