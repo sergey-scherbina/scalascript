@@ -34,7 +34,7 @@ Newest first.
      area: cli
      kind: bug
      gate: tests/e2e/emitted-coordinate-is-published.sh
-     fixed-in: unrecorded
+     fixed-in: 13b9f3e11
      reported-by: claude-code
      reported-at: 2026-08-19
      ssc-version: 3fc7ee265
