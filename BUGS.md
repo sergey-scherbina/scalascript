@@ -9399,7 +9399,8 @@ another lane can distinguish "mutated" from "did not".
 
 ## an-undefined-name-in-a-pattern-means-three-different-things — two lanes ignore it, one throws
 
-<!-- status: open
+<!-- status: fixed
+     fixed-in: b427403ec
      lane: multi
      area: front
      kind: bug
@@ -9427,9 +9428,19 @@ another lane can distinguish "mutated" from "did not".
 > amended the known set three times (lowercase effect-op heads; the runtime's
 > `Yielded`/`Errored`/`Exit`/`Return`; `case object` tags via a new `caseObjNamesCell`) and
 > converged 11 fails → 3 → 0 over three full runs, 369/0 at the end. The gate's native row now
-> asserts the fix. **Remaining: `js` only** — a run-time `ReferenceError`; its emitter writes the
-> unresolved name verbatim into the test. That row stays frozen in
-> `tests/e2e/pattern-undefined-name-gate.sh`.
+> asserts the fix.
+>
+> **THE `js` ROW — THE LAST — IS FIXED, 2026-08-19 (`b427403ec`), AND THE ENTRY CLOSES: three lanes,
+> one sentence.** The emitter wrote the unresolved name into the test as a raw identifier, so the
+> compile error became a run-time `ReferenceError` firing only when the match was REACHED. The first
+> cut refused at EMIT time against every set the generator can consult, and the corpus stopped it at
+> 97 failures and climbing — content values, UI nodes and plugin ADTs match on tags the RUNTIME
+> constructs, visible in no emit-time set. Emit-time cannot know resolvability; the BUNDLE can: the
+> test now reads `typeof N !== 'undefined' ? N : _unknownCtorPat('N')`, so a resolved name costs one
+> `typeof` and behaves exactly as before, and an unresolved one throws the shared sentence at the
+> same moment the ReferenceError used to fire. js cannot refuse earlier than the test — measured,
+> not asserted. Full corpus 369/0. The gate's three rows all assert the refusal now, and its verdict
+> line reads what is finally true: **three lanes, ONE meaning.**
 >
 > **THE NATIVE HALF IS MAPPED, 2026-08-18, AND PARKED — not abandoned — for a live claim conflict.**
 > What the dig established, so the next taker starts here and not at the decoy:
