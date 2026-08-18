@@ -6048,17 +6048,42 @@ object RustCodeWalk:
       c.pat match
         case m.Pat.Extract.After_4_6_0(m.Term.Name(ctor), argClause) if ctx.ctorMap.contains(ctor) =>
           val ec    = ctx.ctorMap(ctor)
+          // A FIELD DECLARED `Any` AND NARROWED IN THE PATTERN — `case JsonCoreOk(low: Int, _)`
+          // over a field the case class declares `Any`. The ascription is the only thing that says
+          // what this arm is for, and it was DROPPED here: the binder took the field's type, so a
+          // `Box("x")` entered a `case Box(v: Int)` arm and `.ssc_int()` aborted the program where
+          // `run` answers the next arm. A wrong answer, not a compile error.
+          //
+          // Both halves are needed and each alone is still broken — the same pair the ordinary
+          // typed-match path already emits, which is why this reuses `totalVariantTest` rather than
+          // inventing a second rule: a TEST, because the constructor check alone cannot see the
+          // field's type; and a narrowed BIND, because the body was written against the ascription.
+          // Only for ascriptions that HAVE a total test and only where the field is `Any`, so every
+          // other pattern in the repository keeps byte-for-byte what it emits today.
+          // (rust-typed-pattern-binder-over-an-any-is-dropped.)
+          def fieldRead(i: Int) = s"""crate::value::ssc_field(&__any, "$ctor", $i)"""
+          val narrowed: List[(String, m.Type, Int)] = argClause.values.zipWithIndex.collect {
+            case (m.Pat.Typed(m.Pat.Var(m.Term.Name(n)), t), i)
+                if ec.fieldTypes.lift(i).forall(_ == "crate::value::Value")
+                && totalVariantTest(t, "__x").isDefined => (n, t, i)
+          }.toList
+          val narrowedNames = narrowed.map(_._1).toSet
+          val fieldTests    = narrowed.flatMap { case (_, t, i) => totalVariantTest(t, fieldRead(i)) }
           val binds = argClause.values.zipWithIndex.map {
-            // `case JsonCoreOk(value, next)` and `case JsonCoreOk(value: Any, next: Int)` are the
+            // `case JsonCoreOk(value, next)` and `case JsonCoreOk(value: Any, next: Any)` are the
             // same thing here: the ascription restates the field's declared type, which is what
             // the coercion already reads off the `case class`. Drop it and keep the binder — the
-            // typed path in `renderPattern` does the same.
+            // typed path in `renderPattern` does the same. What is NOT the same is the narrowing
+            // case handled above.
             case (m.Pat.Var(m.Term.Name(n)), i) =>
               val ft = ec.fieldTypes.lift(i).getOrElse("crate::value::Value")
-              Right(s"let $n = ${coerceFromValue(s"""crate::value::ssc_field(&__any, "$ctor", $i)""", ft)}; ")
+              Right(s"let $n = ${coerceFromValue(fieldRead(i), ft)}; ")
+            case (m.Pat.Typed(m.Pat.Var(m.Term.Name(n)), t), i) if narrowedNames.contains(n) =>
+              val rt = mapType(t, ctx.defName, ctx.enumNames).getOrElse("crate::value::Value")
+              Right(s"let $n = ${coerceFromValue(fieldRead(i), rt)}; ")
             case (m.Pat.Typed(m.Pat.Var(m.Term.Name(n)), _), i) =>
               val ft = ec.fieldTypes.lift(i).getOrElse("crate::value::Value")
-              Right(s"let $n = ${coerceFromValue(s"""crate::value::ssc_field(&__any, "$ctor", $i)""", ft)}; ")
+              Right(s"let $n = ${coerceFromValue(fieldRead(i), ft)}; ")
             case (m.Pat.Wildcard(), _) => Right("")
             case (other, _) => Left(List(unsupported(
               s"def `${ctx.defName}`: matching an `Any` against `$ctor` supports plain binders, not ${other.productPrefix}")))
@@ -6071,8 +6096,11 @@ object RustCodeWalk:
           val anyBinders = argClause.values.zipWithIndex.collect {
             case (m.Pat.Var(m.Term.Name(n)), i)
                 if ec.fieldTypes.lift(i).forall(_ == "crate::value::Value") => n
+            // A NARROWED binder is no longer an `Any`, and saying it is would make a later
+            // coercion narrow it a second time.
             case (m.Pat.Typed(m.Pat.Var(m.Term.Name(n)), _), i)
-                if ec.fieldTypes.lift(i).forall(_ == "crate::value::Value") => n
+                if ec.fieldTypes.lift(i).forall(_ == "crate::value::Value")
+                && !narrowedNames.contains(n) => n
           }.toSet
           val armCtx = ctx.copy(anyNames = ctx.anyNames ++ anyBinders)
           if bErrs.nonEmpty then Left(bErrs.flatten)
@@ -6082,7 +6110,9 @@ object RustCodeWalk:
                          case Some(g) => renderTerm(g, armCtx).map(gr => s" && ($gr)")
                          case None    => Right("")
               body  <- armBody(c.body, armCtx)
-            yield (s"""crate::value::ssc_is(&__any, "$ctor")$guard""", bOk.mkString + body)
+            yield
+              val tests = fieldTests.map(t => s" && ($t)").mkString
+              (s"""crate::value::ssc_is(&__any, "$ctor")$tests$guard""", bOk.mkString + body)
         // `case x: T` — test the variant, then bind the value itself. The binding stays a `Value`
         // on purpose: `Value` answers `len`/`get`/`iter` (landed with the dynamic accessors), so a
         // body written against the narrowed type reaches its contents without this having to decide

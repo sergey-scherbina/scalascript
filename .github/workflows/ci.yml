@@ -915,6 +915,15 @@ jobs:
         if: always()          # see the block above this job's steps
         run: tests/e2e/rust-any-list-boundary-gate.sh
 
+      # `case Box(v: Int)` over an `Any` tested the CONSTRUCTOR and dropped the ascription, so a
+      # `Box("x")` entered that arm and the coercion in the body ABORTED the process where `run`
+      # falls through and answers -1. A wrong answer, not a compile error, and the head of the
+      # biggest error class left behind the parenless-member refusal. The gate checks the exit code
+      # as well as the rows, because the old failure was a panic rather than a diff. ~40 s.
+      - name: a typed binder over an Any tests its ascription
+        if: always()          # see the block above this job's steps
+        run: tests/e2e/rust-any-typed-pattern-gate.sh
+
       # `spawn`, the other half of the rozum std/process pair (`process-needs-a-detached-spawn`):
       # `exec` WAITS by construction, so an HTTP handler starting a five-minute agent run could hold
       # the connection for five minutes or not start it — every launch route of their port stopped

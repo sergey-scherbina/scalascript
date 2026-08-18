@@ -6594,6 +6594,71 @@ later (`a; val n = e; b`), and without it the leak survives behind a leading sta
 The guard was taught a statement, not widened: an arm body naming something undefined is still
 refused, and now names it — before the fix the invented `n__cell` masked the real undefined name.
 
+## rust-typed-pattern-binder-over-an-any-is-dropped — `case Box(v: Int)` matches a `Box("x")` and aborts the process
+
+<!-- status: fixed
+     kind: bug
+     lane: v2-rust
+     area: codegen
+     gate: tests/e2e/rust-any-typed-pattern-gate.sh
+     fixed-in: unrecorded
+     reported-by: claude-code
+     reported-at: 2026-08-18
+     ssc-version: fe33d1a69
+     repro: inline below — eleven lines
+     impact: wrong-answer -->
+
+A WRONG ANSWER, not a compile error, and it is the head of the largest error class left behind the
+parenless-member refusal (`build-rust-drops-defs-it-cannot-lower-without-saying-so`).
+
+```scalascript
+case class Box(v: Any)
+
+def double(n: Int): Int = n * 2
+
+def go(b: Any): Int = b match
+  case Box(v: Int) => double(v)
+  case _ => -1
+
+def main(): Unit =
+  println("int: " + go(Box(21)))
+  println("other: " + go(Box("x")))
+```
+
+```text
+run:         int: 42   other: -1
+build-rust:  int: 42   then  panicked at src/value.rs: expected Int but found String (x)
+```
+
+The arm tested the CONSTRUCTOR and nothing else, and the binder took the FIELD's declared type — so
+a `Box("x")` entered the `case Box(v: Int)` arm, and the `.ssc_int()` the body needs aborted the
+process instead of falling through to the next arm.
+
+**The comment that made it look right is in the code, and it is exactly half true.** `renderAnyMatch`
+said `case JsonCoreOk(value, next)` and `case JsonCoreOk(value: Any, next: Int)` are "the same thing
+here: the ascription restates the field's declared type". They ARE the same when the ascription
+restates the field. They are opposites when the field is declared `Any` and the pattern NARROWS it —
+which is the only reason anyone writes the ascription. `std/json-core.ssc` writes exactly that shape,
+with a source comment explaining that the jvm lane refuses the bare binder, so the narrowing is
+deliberate and load-bearing.
+
+**Two halves, and either alone is still broken** — the same pair the ordinary typed-match path
+already emits, which is why the fix reuses `totalVariantTest` instead of inventing a second rule: a
+TEST in the arm's condition, because the constructor check cannot see a field's type; and a NARROWED
+bind, because the body was written against the ascription. Scoped to ascriptions that HAVE a total
+test and to fields declared `Any`, so every other pattern emits byte for byte what it did before.
+
+A narrowed binder is also removed from the arm's `anyNames`, or a later coercion would narrow it a
+second time.
+
+Verified: `tests/e2e/rust-any-typed-pattern-gate.sh` PASS — four rows against `run`, including two
+arms that discriminate (`case Box(s: String)` before `case Box(n: Int)`), and the binary's EXIT CODE
+is checked because the old failure was an abort rather than a diff. Negative control: with the
+walker reverted and rebuilt, three of four rows are empty and the process dies on the second.
+`rust-std-survey` 77 REFUSED / 55 COMPILES with BADRUST not grown; `v1-jit-size` PASS. Behind the
+refusal, `std/json-core.ssc` goes 16 -> 12 rustc errors; the other four modules are unchanged, which
+is expected — json-core is the one that writes the shape.
+
 ## build-rust-drops-defs-it-cannot-lower-without-saying-so
 
 <!-- status: open
@@ -6772,6 +6837,14 @@ it is looking at. The `Vec<T>` impl covers `Vec<Value>` for free because `From` 
 Landed with `tests/e2e/rust-any-list-boundary-gate.sh`, whose two rows are the two sides — the
 literal call is what every existing golden exercises, so a green on it alone would have proved
 nothing about the half that was broken.
+
+**2026-08-18, later the same day: 185 -> 181, and the head of the E0271 class is fixed.** The cons
+mismatches were not a cons defect at all. `case JsonCoreOk(low: Int, afterLow)` bound `low` as a
+`Value` — the ascription was dropped — so `low :: high :: reversed` built a `Vec<Value>` from one
+half and a `Vec<i64>` from the other. Filed and fixed as
+`rust-typed-pattern-binder-over-an-any-is-dropped`, which is a WRONG ANSWER on its own (the arm
+matched a `Box("x")` and aborted the process) and worth more than the four errors it clears here.
+json-core goes 16 -> 12 and its E0271 count 4 -> 2; the other four modules do not write the shape.
 
 **What is left, by shape rather than by module.** `E0308 mismatched types` is 115 of the 185 and is
 a long tail; the one recognisable group after it is 35 × `E0271`, all of them the CONS lowering
