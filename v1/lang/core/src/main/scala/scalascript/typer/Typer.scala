@@ -287,6 +287,28 @@ class Typer(
     //   runStream + the `Stream` object (streams-plugin) — the LAST runner off the core prelude.
     // The typed `runnerType`/`runnerType2` prelude helpers were removed with their last user
     // (`runStream`); Stream's runtime (Free-monad driver + FastTier + installStreamGlobal) stays in core.
+    // COROUTINE INTRINSICS — `CoroutineRuntime.scala` installs these three as interpreter globals
+    // (`interp.globals("coroutineCreate") = …`), so they are core runtime names in exactly the sense
+    // the paragraph above describes, and they were missing from this list.
+    //
+    // MEASURED before adding, because a false positive here is worth more than a missing name is:
+    // of the first 60 conformance cases, `ssc-tools check` reported errors on THREE, all of them
+    // coroutine cases, and every error was `Reference to undefined name: coroutineCreate` /
+    // `coroutineResume` / `coroutineCancel`. So the whole typer-error population of that sample was
+    // this one gap — the check was wrong about working programs, not the programs about themselves.
+    //
+    // WHY THAT MATTERS BEYOND THE THREE CASES: `an-undefined-name-in-a-pattern-means-three-different-things`
+    // asks for the run path to refuse what `check` refuses, and it cannot be considered while `check`
+    // itself refuses 5 % of the corpus for a name it simply does not know. This makes that a decision
+    // about wiring rather than a decision that costs working programs.
+    //
+    // `variadic` and not a precise signature, deliberately: `coroutineCreate[Int, Unit, String] { … }`
+    // is called with explicit type arguments and a block, and this typer does not check effect
+    // discharge or continuation types — a precise-looking arrow here would be a claim it cannot
+    // enforce. The same reasoning the effect runners above are declared with.
+    s.define(Symbol("coroutineCreate", variadic, SymbolKind.Def))
+    s.define(Symbol("coroutineResume", variadic, SymbolKind.Def))
+    s.define(Symbol("coroutineCancel", variadic, SymbolKind.Def))
     // NonDet and Reader globals (no dedicated plugin yet — stay in core)
     s.define(Symbol("NonDet",   SType.Named("NonDet",  Nil), SymbolKind.Object))
     s.define(Symbol("Reader",   SType.Named("Reader",  Nil), SymbolKind.Object))
