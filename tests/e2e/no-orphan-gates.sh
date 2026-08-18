@@ -111,7 +111,6 @@ specs/v2.2-p6.5-corpus.sh	needs-SSC_JAR	P6.5 real-corpus acceptance driver
 specs/v2.2-p6.6-fixpoint.sh	needs-SSC_JAR	P6.6 self-compilation fixpoint driver
 specs/v2.2-p6.6-selfcompile-demo.sh	needs-SSC_JAR	P6.6a self-compile demo
 v1/tools/scripts/v2-scale-bench.sh	needs-an-argument	usage: v2-scale-bench.sh [path-to-ssc.jar]
-v3/plugin-classpath.sh	builds-an-artifact	builds and caches v3/.jars/plugin.cp; asserts nothing
 EOF
 
 # ── THE SECOND AXIS: can a WIRED gate fail at all? ──────────────────────────────────────────────
