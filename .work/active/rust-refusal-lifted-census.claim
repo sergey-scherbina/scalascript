@@ -2,10 +2,10 @@ slug: rust-refusal-lifted-census
 branch: feature/rust-refusal-lifted-census
 agent: claude-code
 started: 2026-08-18T11:24:35Z
-heartbeat: 2026-08-18T11:44:43Z
+heartbeat: 2026-08-18T12:06:06Z
 status: in-progress
 items: build-rust-drops-defs-it-cannot-lower-without-saying-so
-paths: file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/ValueRs file:tests/e2e/rust-json-core-gate.sh file:tests/e2e/rust-any-list-boundary-gate.sh file:tests/BUGS.md file:.github/workflows/ci.yml
+paths: file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/ValueRs file:tests/e2e/rust-json-core-gate.sh file:tests/e2e/rust-any-list-boundary-gate.sh file:tests/e2e/rust-any-typed-pattern-gate.sh file:tests/BUGS.md file:.github/workflows/ci.yml
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: land SscValList + the census update
+next: land the typed-pattern fix
