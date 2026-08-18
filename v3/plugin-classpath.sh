@@ -35,12 +35,11 @@ MODULES=(
   # moment a top-level `def` could be passed as a value they reached it, and five cases went from an
   # honest refusal to a wrong answer. Filed as v3-the-content-provider-has-no-root-document.
   # v2NativeContentPlugin
-  # JSON IS NOT WIRED EITHER, for the same measured reason and a different value: its core answers
-  # `DecimalV`, v2's EXACT decimal, and v3 has no decimal at all — `json-self-hosted-import` exists
-  # precisely to pin `jsonParse("0.0")` printing `0.0` rather than a float. Carrying it as anything
-  # v3 does have would be a wrong answer with a plausible shape. Refused at the host-function
-  # boundary instead, which is where the program can be told the truth.
-  # v2NativeJsonPlugin
+  # JSON IS WIRED AGAIN SINCE v3 GAINED AN EXACT DECIMAL. It was out because its core answers
+  # `DecimalV` and v3 had no counterpart, so `json-self-hosted-import` — which exists to pin
+  # `jsonParse("0.0")` printing `0.0` rather than a float — would have got a plausible wrong answer.
+  # `Value.VDec` carries the canonical text now, both directions.
+  v2NativeJsonPlugin
   v2NativeCryptoPlugin
   v2NativeActorsPlugin
   # COROUTINES AND GENERATORS, which reach v3 through the registry's `globalValues` table rather

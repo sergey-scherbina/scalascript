@@ -47,6 +47,12 @@ object V2Fleet:
       }
       installGlobals()
       Plugins.registerMethods(methodOn)
+      // v2's own renderer, which knows what a provider's handle means — its `Show` has an arm for
+      // `ForeignV(nmo: NamedMethodObj)` precisely so a boxed option prints as `None`. Failures
+      // decline rather than propagate: a value this cannot convert is not a value whose printing
+      // should fail.
+      Plugins.registerShow((m, v) =>
+        try Some(ssc.Show.show(toV2(m, v))) catch case _: Throwable => None)
 
   /** THE SECOND TABLE, and the one with the corpus cases behind it.
     *
@@ -296,6 +302,10 @@ object V2Fleet:
     // returned by a provider arrives here as `ClosV`; re-wrapping it in `ForeignV` would hide it
     // from every v2 site that pattern-matches a function, including `invoke`.
     case Value.VForeign(h: ssc.Value, _) => h
+    // AN EXACT DECIMAL, both directions, by its canonical text — the representation both runtimes
+    // already agree on. `ssc.Value.DecimalV.apply` re-canonicalises, which is a no-op on text that
+    // came from there and a correction on text that did not.
+    case Value.VDec(t) => ssc.Value.DecimalV(t)
     case Value.VForeign(h, _) => ssc.Value.ForeignV(h)
     // Back the way it came, by NAME — the tag is what v2 uses, and it is the tag this value was
     // built from, so a handle round-trips through v3 without the type table ever being consulted.
@@ -336,6 +346,7 @@ object V2Fleet:
     case ssc.Value.FloatV(d)    => Value.VFloat(d)
     case ssc.Value.StrV(s)      => Value.VStr(s)
     case ssc.Value.BytesV(b)    => Value.VBytes(b.toArray)
+    case d: ssc.Value.DecimalV  => Value.VDec(d.text)
     case mp: ssc.Value.MapV =>
       Value.VMap(collection.mutable.ArrayBuffer.from(
         mp.entries.iterator.map((k, v) => (toV3(m, k), toV3(m, v)))))

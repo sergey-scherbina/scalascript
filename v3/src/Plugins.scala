@@ -68,3 +68,19 @@ object Plugins:
   def registerMethods(fn: MethodFn): Unit = methods = Some(fn)
   def method(m: Module, recv: Value, name: String, args: List[Value]): Option[Value] =
     methods.flatMap(f => f(m, recv, name, args))
+
+  /** HOW THE HOST PRINTS ITS OWN VALUE — the third door, and the narrowest.
+    *
+    * A handle is opaque to v3 by design, so rendering one is the owner's business and not a guess
+    * this side can make. `jsonRead(…).get("missing")` answers a `JsonBox` carrying `optional` and
+    * `present` flags — v2 prints that as `None`, and v3 printed `<handle JsonBox>`, which is a wrong
+    * answer rather than a missing feature: the program asked for a value's text and got a
+    * description of its container.
+    *
+    * `None` means "not mine, render it your own way", so nothing changes for a value no provider
+    * claims. */
+  type ShowFn = (Module, Value) => Option[String]
+
+  private var shower: Option[ShowFn] = None
+  def registerShow(fn: ShowFn): Unit = shower = Some(fn)
+  def showHost(m: Module, v: Value): Option[String] = shower.flatMap(f => f(m, v))

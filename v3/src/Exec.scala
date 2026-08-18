@@ -113,6 +113,21 @@ enum Value:
     * This is a value the RUNTIME passes through, like `VBytes` — not a Tier 0 type the language
     * gained (invariant I-2). Nothing constructs one except the plugin bridge. */
   case VHostData(tag: String, fields: Array[Value])
+  /** AN EXACT DECIMAL, carried as its CANONICAL TEXT — which is exactly how v2 carries one
+    * (`DecimalV(text: String)`, `PortableDecimal.canonicalText`). No arbitrary-precision library
+    * enters the kernel: a decimal is a string with a promise about its spelling, and the promise is
+    * kept on the side that made it.
+    *
+    * WHY IT EXISTS AT ALL. `json-self-hosted-import` pins `jsonParse("0.0")` printing `0.0` rather
+    * than `0` or a float — an exact decimal survives a round trip and a `Double` does not, which is
+    * the whole point of the case. Without a counterpart here the json core could not cross the
+    * plugin bridge at all.
+    *
+    * NOT A TIER 0 TYPE (invariant I-2), like `VBytes` above it: no literal, no method, no `typeName`
+    * a program can observe. It reaches the language only through prims that produce and consume it
+    * in the same expression, and arithmetic on it — v2's `dec.*` family — is refused by name here
+    * until a case needs it, rather than guessed at. */
+  case VDec(text: String)
 
 final case class ExecError(message: String) extends RuntimeException(message)
 
@@ -493,6 +508,9 @@ object Exec:
     case Value.VForeign(_, tag) => "<handle " + tag + ">"
     case Value.VHostData(tag, fs) =>
       if fs.isEmpty then tag else tag + "(" + fs.toList.map(show).mkString(", ") + ")"
+    // The canonical text IS the value, so printing is the identity — which is the property
+    // `json-self-hosted-import` exists to pin.
+    case Value.VDec(t) => t
 
   /** How the LANGUAGE prints a Double — deliberately NOT `Text.floatText`, which is the canonical
     * `.ssir` form. Sharing one helper between an IR serialisation and a program's output is the
@@ -550,6 +568,11 @@ object Exec:
     case Value.VSet(xs) => "Set(" + xs.map(x => showV(m, x)).mkString(", ") + ")"
     case Value.VMap(es) =>
       "Map(" + es.toList.map((k, v) => showV(m, k) + " -> " + showV(m, v)).mkString(", ") + ")"
+    // A HOST-OWNED VALUE IS RENDERED BY ITS OWNER, if one claims it. `<handle JsonBox>` is a
+    // description of the container where the program asked for the value — v2 prints the same
+    // handle as `None`, because the flags that say so are the provider's to read.
+    case Value.VForeign(_, _) | Value.VHostData(_, _) if Plugins.showHost(m, v).isDefined =>
+      Plugins.showHost(m, v).get
     case Value.VArr(_) => "<foreign>"
     case Value.VPartial(_, nm, _) => "<partial " + nm + ">"
     case other          => show(other)
