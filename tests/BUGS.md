@@ -43,13 +43,15 @@ that shape is red for an unrelated reason, as this gate's first draft was.
 
 ## f-object-val-is-unbound-from-a-sibling-member — only `def` members resolve
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: front
      kind: bug
      reported-by: claude-code
      reported-at: 2026-08-18
      confirmed: yes
+     fixed-at: 2026-08-18
+     fixed-in: a19913546
      gate: tests/e2e/f-private-member-gate.sh -->
 
 ```scalascript
@@ -74,6 +76,26 @@ than as the object's member form. `calleeOf1` has arms for `isCurObjMethod` and 
 here once the modifier defect above was fixed. `f-private-member-gate`'s `object-val-still-unbound`
 row asserts the CURRENT state, so the day this is fixed that row goes red and gets deleted
 deliberately instead of the fix landing unnoticed.
+
+### FIXED the same day — one list entry, and the sentinel row did its job
+
+`curObj` carries `(name, (varMemberNames, defMemberNames))` and a `val` was in NEITHER, so
+`isCurObjVar` and `isCurObjMethod` both said no and the bare reference fell through to
+`(global base)`. A val member is emitted as `(def O_base …)` — **the same shape as a method**
+(`objDefEmit`) — so it belongs in the def list, and that is the whole change.
+
+`var` members are deliberately NOT folded in: they emit `(def O_v__cell (prim cell.new …))` and
+their bare reference must read the CELL, which `isCurObjVar` already does. Two emissions, two lists —
+`object-var-still-a-cell` is the row that fails if somebody merges them.
+
+**The sentinel row worked exactly as designed.** `object-val-still-unbound` asserted the broken
+state; when this landed it went red with its own instruction — "it WORKS now — the separate val gap
+closed; delete this row" — and was replaced by four positive rows rather than the fix slipping
+through unremarked.
+
+`examples/std-ui/theme.ssc` now reports `F`. Its journey is the shape of the whole day:
+`(global declarations)` → a private def, fixed by the modifier change → `(global lightTokens)` → a
+val, fixed here.
 
 ## typer-does-not-know-the-coroutine-intrinsics — `check` refused every coroutine program for three names the runtime installs
 
