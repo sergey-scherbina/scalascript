@@ -30,7 +30,7 @@ Newest first.
      area: codegen
      kind: bug
      gate: tests/e2e/rust-any-call-lift-gate.sh
-     fixed-in: unrecorded
+     fixed-in: 3efa77b7b
      reported-by: claude-code
      reported-at: 2026-08-18
      ssc-version: 1496ba89c
