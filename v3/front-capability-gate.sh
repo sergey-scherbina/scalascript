@@ -208,12 +208,27 @@ declare -a KNOWN_CONF_V3_ONLY=(
 # It also arrived here as a RED CI JOB rather than as a removal in `28c34951e`, which is what this
 # list is designed to do — but the gate names the row and not the reason, so recovering "why" cost a
 # separate investigation. If you close a divergence, take its row out in the same commit.
+# THE FIVE distributed-* NAMES were added 2026-08-18. They were `neither` before — both fronts died
+# on `import scalascript.typeddata.…` — and are uniml-only now that a JVM package is importable,
+# because v3's own front cannot parse a `match` in brackets followed by a selection, at
+# std/mapreduce/distributed.ssc line 424. Reduced to two lines in
+# `v3-own-front-cannot-parse-a-parenthesised-match`; declared rather than hidden, because this is a
+# construct one front has and the other does not, which is what this list is for.
+#
+# THIS LIST IS CODE, not documentation: `v3/front-diff.sh` derives the one-sided CEILING from the
+# number of names below, so an edit here moves a threshold. It used to move on a COMMENT — the
+# reader matched to the first closing bracket and counted words, so this note read 63 when it cited
+# a file position in brackets and 83 as plain prose, against a true 76. The reader now strips
+# comments per line and refuses a token that is not a name, so a comment is safe again; the entry
+# `v3-front-diff-ceiling-is-derived-by-word-counting-and-a-comment-changes-it` has the numbers.
 declare -a KNOWN_CONF_UNIML_ONLY=(
   actors-bounded-mailbox actors-process-info indent-block-statements
   actors-cluster-visibility
   coroutine-native-lifecycle
   curried-def-clauses
   dataset-agg
+  distributed-failure-partial distributed-failure-retry distributed-heterogeneous
+  distributed-map distributed-shuffle
   distributed-callback-user-throw
   fewer-braces-colon
   for-comprehensions

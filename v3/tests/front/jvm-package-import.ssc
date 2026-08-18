@@ -1,0 +1,28 @@
+---
+name: jvm-package-import
+description: a JVM package is importable, and the names in it are ordinary calls
+---
+
+# A JVM package is importable
+
+`scalascript.typeddata` is a Scala library, not an `.ssc` module — v3 used to refuse this import
+with four candidate FILE paths, a message about a file that cannot exist. The package is declared
+in `v3/jvm-classpath.sh`; the names resolve one at a time through the plugin SPI, so the kernel
+asks no class loader anything and invariant I-1 is untouched.
+
+A FENCE IS REQUIRED HERE and that is the language's rule, not this test's: a bare `.ssc` is code
+throughout and its import lines are never scanned.
+
+```scalascript
+import scalascript.typeddata.{DatasetWirePartition}
+
+// Construction goes through the companion's `apply`, with each argument fitted to its DECLARED
+// parameter type — v3 has one integer and Scala has `Int` and `Long`, and only the signature says
+// which was meant.
+val p = DatasetWirePartition(7, Vector())
+
+// A field is read by NAME: `Product` is the only thing that knows the names, so they are recorded
+// as the value crosses.
+println(p.partitionId)
+println(p.values.length)
+```
