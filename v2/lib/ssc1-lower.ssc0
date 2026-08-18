@@ -244,6 +244,7 @@ def caseFieldsCell = #cell.new(Nil)
 -- `Foo(b = y, a = x)` can be reordered to declared field order. Separate from the
 -- flat caseFieldsCell above so it does not disturb the field-access routing.
 def caseFieldOrderCell = #cell.new(Nil)
+def caseObjNamesCell = #cell.new(Nil)
 -- Array and Map variable name registries (for indexed read/write lowering)
 def arrVarsCell = #cell.new(Nil)
 def topVarsCell = #cell.new(Nil)
@@ -3476,7 +3477,46 @@ def shiftObs = (obs, d) =>
 -- collection/provider values inherited from the JVM boundary use Tuple2/2.
 -- Expand only source tuple patterns here; the CoreIR matcher must keep arbitrary
 -- constructor tags exact because Pair is also an internal bootstrap ADT.
-def ctorPatternArms = (ctorName, arity, body) =>
+-- An UNRESOLVED constructor name in a pattern is refused, not silently unmatchable. `case Nope =>`
+-- with Nope declared nowhere emitted `IrArm("Nope", ..)` unconditionally — a tag nothing constructs,
+-- so the arm never fired and the match fell to its default, no diagnostic, exit 0. Scala 3 rejects
+-- the program; v3's front, the interpreter (843b4c3e0) and F (this commit) all refuse with this same
+-- sentence, and this lowering is the front the driver FALLS BACK to when F declines — so without
+-- this twin, F's refusal would merely reroute into the old silence (two-front pairs).
+-- The known set: caseFieldOrderCell (case classes AND enum cases, objects descended — filled by
+-- collectCaseClassOrder BEFORE lowerStmts runs, over the import-merged program) plus the ctor tags
+-- the runtime builds without a declaration. Tuple prefix test via #sslice.
+def builtinCtorTag = (nm) =>
+  if #seq(nm, "Pair") then true else (if #seq(nm, "Cons") then true else (if #seq(nm, "Nil") then true else
+  (if #seq(nm, "Some") then true else (if #seq(nm, "None") then true else (if #seq(nm, "Left") then true else
+  (if #seq(nm, "Right") then true else (if #i.gt(#slen(nm), 5) then #seq(#sslice(nm, 0, 5), "Tuple") else false)))))))
+def declaredCtorTag = (nm) => declaredCtorTag1(nm, #cell.get(caseFieldOrderCell))
+def declaredCtorTag1 = (nm, xs) =>
+  match xs {
+    case Nil => false
+    case Cons(h, t) => match h { case Pair(cn, flds) => if #seq(cn, nm) then true else declaredCtorTag1(nm, t) }
+  }
+-- THE FULL-CORPUS CENSUS AMENDED THIS THREE TIMES, and the three amendments are the map of what a
+-- pattern tag can be besides a declared case class:
+--   * a LOWERCASE head — `case read(s, resume)` inside `handle { .. }` — is an EFFECT-OP pattern
+--     the handle lowering fabricates; the stable-identifier rule is about capitalised names only,
+--     so lowercase is skipped here exactly as Pat.Var is skipped on the interpreter;
+--   * `Yielded`/`Errored`/`Exit` are built by the COROUTINE RUNTIME, declared nowhere;
+--   * `case object` declares a matchable tag that `collectCaseClassOrder` does not collect —
+--     `RxAnyChar` in std/parsing/regex.ssc is the corpus case that found it — so caseObjNamesCell
+--     (filled beside the case-class walk) joins the set.
+def lowerHead = (nm) => if #i.ge(#scodeAt(nm, 0), 97) then #i.le(#scodeAt(nm, 0), 122) else false
+def runtimeCtorTag = (nm) =>
+  if #seq(nm, "Yielded") then true else (if #seq(nm, "Errored") then true else (if #seq(nm, "Exit") then true else #seq(nm, "Return")))
+def ckCtorTag = (nm) =>
+  if lowerHead(nm) then nm else
+  (if builtinCtorTag(nm) then nm else
+  (if runtimeCtorTag(nm) then nm else
+  (if declaredCtorTag(nm) then nm else
+  (if memberOfL(nm, #cell.get(caseObjNamesCell)) then nm else
+   #__throw__(#sconcat(#sconcat("unknown constructor '", nm), "' in a pattern"))))))
+def ctorPatternArms = (ctorName0, arity, body) =>
+  let ctorName = ckCtorTag(ctorName0) in
   if #seq(ctorName, "Pair") then
     if #i.eq(arity, 2) then
       Cons(IrArm("Pair", 2, body), Cons(IrArm("Tuple2", 2, body), Nil))
@@ -5388,6 +5428,19 @@ def collectCaseFields = (stmts) =>
   }
 
 -- named-args: per-class ordered field lists [Pair(name, params)] for constructor reorder.
+def collectCaseObjNames = (stmts) =>
+  match stmts {
+    case Nil => Nil
+    case Cons(s, rest) =>
+      match s {
+        case Pair(tag, data) =>
+          if #seq(tag, "caseobj") then Cons(data, collectCaseObjNames(rest))
+          else if #seq(tag, "object") then
+            match data { case Pair(oname, obody) =>
+              appendL(collectCaseObjNames(obody), collectCaseObjNames(rest)) }
+          else collectCaseObjNames(rest)
+      }
+  }
 def collectCaseClassOrder = (stmts) =>
   match stmts {
     case Nil => Nil
@@ -6082,6 +6135,7 @@ def lowerProg = (stmts) =>
   let _cf = #cell.set(caseFieldsCell, collectCaseFields(stmts)) in
   -- named-args: per-class ordered field lists (constructor reorder)
   let _cfo = #cell.set(caseFieldOrderCell, collectCaseClassOrder(stmts)) in
+  let _cob = #cell.set(caseObjNamesCell, collectCaseObjNames(stmts)) in
   -- KC5b: reset active ctx (summon dispatch)
   let _ac = #cell.set(kc5ActiveCtxCell, Nil) in
   -- KC5-mono: reset the typeclass-monomorphisation worklist (populated while lowering)

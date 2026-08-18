@@ -1988,7 +1988,11 @@ def parsePatVars(ts, vs) = if isEmpty(ts) then (vs, ts) else (if isTok(hd(ts), 2
 // (ssc1-front parsePatAtom uid+`.` :1932-1938): ctorTag reads the name AFTER the `.` when the uid is
 // followed by one. A plain `case Ctor(..)` (no `.`) is unchanged.
 def ctorTag(ts) = if isTok(hd(tl(ts)), 2, 31) then (snd(hd(tl(tl(ts)))), tl(tl(tl(ts)))) else (snd(hd(ts)), tl(ts))
-def parseCtorArm(ts, menv, cx) = ctorTag(ts) match { case (nm, r) => parseCtorArm1(nm, r, menv, cx) }
+// THE THIRD MOUTH. An ordinary `match` reaches arms through parseArms -> parseCtorArm, not through
+// the gen path or the ordered resolver, and the first cut of this refusal wrapped only those two —
+// `case Nope =>` still printed NO MATCH under SSC_FRONT_STRICT, which is the measurement that found
+// this dispatch. One name check per route, same ckCtorF, or the routes disagree about the language.
+def parseCtorArm(ts, menv, cx) = ctorTag(ts) match { case (nm, r) => parseCtorArm1(ckCtorF(nm, cx), r, menv, cx) }
 // An ALTERNATIVE pattern — `case A | B => body` — is one arm per tag with the SAME body. Without
 // this, `parseArmBody` below did `tl(ts)` on the assumption that the token after the tag is the
 // arrow; for `A | B` that token is the `|` (lexPipe, code 63), so the body was parsed starting at
@@ -2143,10 +2147,34 @@ def parseGenArm(ts, menv, cx) = if isConsArmHead(ts) then parseGenCons(ts, menv,
 // parses return the same rest position (lowerOrderedGuardArms cpat/gpat :3378-3391, dischargeObsOrGuard
 // Nil :3163-3166; the match default is Some(ordered(rest)) :3390/3458). Pair/2 → Pair+Tuple2 arms.
 def dummyBinders(k) = if k <= 0 then Nil else Cons("__gf__", dummyBinders(k - 1))
+// -- an UNRESOLVED constructor name in a pattern is refused, not silently unmatchable ------------
+// `case Nope =>` where Nope is declared nowhere: `finishCtorPatF` reads a bare uppercase name as
+// ("cpat", (Nope, Nil)) and the arm emitters below wrote `(arm Nope ..)` unconditionally -- a tag
+// nothing constructs, so the arm could never fire and the match fell through to its default with
+// no diagnostic at exit 0. Scala 3 rejects the program, v3's front and the interpreter (since
+// 843b4c3e0) both refuse with this same sentence; this front now says it too, at LOWER time, via
+// #__throw__ -- the one failure prim the ssc0 host exposes. Unpositioned, which is worse than
+// v3's spelling and still a sentence naming the identifier where there was silence.
+// (BUGS.md an-undefined-name-in-a-pattern-means-three-different-things, the native row.)
+//
+// The known set = declared case classes (isCC) + enum cases + the ctors every lane's runtime
+// builds without a declaration. The builtin list is MEASURED: it started at the obvious eight and
+// the full conformance corpus named the rest -- see the entry for the run.
+def fBuiltinCtor(nm) = if nm == "Pair" then true else (if nm == "Cons" then true else (if nm == "Nil" then true else (if nm == "Some" then true else (if nm == "None" then true else (if nm == "Left" then true else (if nm == "Right" then true else isTupleNm(nm)))))))
+def isTupleNm(nm) = startsW(nm, "Tuple")
+// Three amendments from the full-corpus census, mirroring the reference lowering's:
+// a LOWERCASE head is an effect-op pattern the handle lowering fabricates (`case read(s, resume)`),
+// not a stable id -- skipped, as Pat.Var is on the interpreter; Yielded/Errored/Exit are built by
+// the coroutine runtime, declared nowhere; a `case object` (RxAnyChar was the corpus's find) is a
+// matchable tag outside ccNames -- F routes those through objReg/vals, so accept a name the file
+// binds as a top-level VAL too, which is what a case object lowers to here.
+def fUpperHead(nm) = if nm.charAt(0) >= 65 then nm.charAt(0) <= 90 else false
+def fRuntimeCtor(nm) = if nm == "Yielded" then true else (if nm == "Errored" then true else (if nm == "Exit" then true else nm == "Return"))
+def ckCtorF(nm, cx) = if fUpperHead(nm) == false then nm else (if fBuiltinCtor(nm) then nm else (if isCC(nm, cx) then nm else (if memL(nm, enumCaseNamesOf(cx)) then nm else (if fRuntimeCtor(nm) then nm else (if isTopVal(nm, cx) then nm else throw ("unknown constructor '" ++ nm ++ "' in a pattern"))))))
 def genPairArm(ar, body) = if ar == 2 then "(arm Pair 2 " ++ body ++ ") (arm Tuple2 2 " ++ body ++ ")" else "(arm Pair " ++ ar ++ " " ++ body ++ ")"
 def genArmStr(nm, ar, body) = if nm == "Pair" then genPairArm(ar, body) else "(arm " ++ nm ++ " " ++ ar ++ " " ++ body ++ ")"
 def genCtorMatch(nm, ar, armBody, deflt, menv) = "(match " ++ genScrut(menv) ++ " (" ++ genArmStr(nm, ar, armBody) ++ ") (default " ++ deflt ++ "))"
-def parseGenCtor(ts, menv, cx) = ctorTag(ts) match { case (nm, r) => parseGenCtor1(nm, r, menv, cx) }
+def parseGenCtor(ts, menv, cx) = ctorTag(ts) match { case (nm, r) => parseGenCtor1(ckCtorF(nm, cx), r, menv, cx) }
 def parseGenCtor1(nm, ts, menv, cx) = if isTok(hd(ts), 2, 21) then parseGenCtorVars(nm, tl(ts), menv, cx) else parseGenCtorArm(nm, 0, Nil, ts, menv, cx)
 def parseGenCtorVars(nm, ts, menv, cx) = parsePatVars(ts, Nil) match { case (vs, r) => parseGenCtorArm(nm, dlen(vs), vs, r, menv, cx) }
 def parseGenCtorArm(nm, ar, vs, ts, menv, cx) = if isTok(hd(ts), 2, 2) then parseGenCtorGuard(nm, ar, vs, splitArrow(tl(ts)), menv, cx) else parseGenCtorPlain(nm, ar, vs, tl(ts), menv, cx)
@@ -2318,7 +2346,7 @@ def accScopeCpat(subs, rest, scope) = accScopeF(appEnv(refinedObligsF(subs, dlen
 // the innermost success scope; each level's fallback re-lowers restTs (the rest arms) on the fail scope.
 def dischargeF(obs, succ, fail, bodyStr, restTs, cx) = obs match { case Nil => bodyStr case h :: t => dischargeF1(fst(h), snd(h), t, succ, fail, bodyStr, restTs, cx) }
 def dischargeF1(pos, sp, rest, succ, fail, bodyStr, restTs, cx) = if fst(sp) == "cpat" then dischCpat(pos, fst(snd(sp)), snd(snd(sp)), rest, succ, fail, bodyStr, restTs, cx) else (if fst(sp) == "lpat" then dischLpat(pos, fst(snd(sp)), snd(snd(sp)), rest, succ, fail, bodyStr, restTs, cx) else (if fst(sp) == "tpat" then dischTpat(pos, snd(snd(sp)), rest, succ, fail, bodyStr, restTs, cx) else dischargeF(rest, succ, fail, bodyStr, restTs, cx)))
-def dischCpat(pos, subctor, subs, rest, succ, fail, bodyStr, restTs, cx) = dischCpat2(pos, subctor, dlen(subs), subs, rest, succ, fail, bodyStr, restTs, cx)
+def dischCpat(pos, subctor, subs, rest, succ, fail, bodyStr, restTs, cx) = dischCpat2(pos, ckCtorF(subctor, cx), dlen(subs), subs, rest, succ, fail, bodyStr, restTs, cx)
 def dischCpat2(pos, subctor, m, subs, rest, succ, fail, bodyStr, restTs, cx) = dischCpat3(pos, subctor, m, dischargeF(appEnv(refinedObligsF(subs, m), shiftObsF(rest, m)), appEnv(revL(fldBindersF(subs)), succ), appEnv(dummyBinders(m), fail), bodyStr, restTs, cx), fst(parseGenArms(restTs, fail, cx)))
 def dischCpat3(pos, subctor, m, successBody, failureBody) = "(match (local " ++ pos ++ ") (" ++ genArmStr(subctor, m, successBody) ++ ") (default " ++ failureBody ++ "))"
 def dischLpat(pos, ty, v, rest, succ, fail, bodyStr, restTs, cx) = "(if " ++ emitEq("(local " ++ pos ++ ")", litPatF(ty, v, cx)) ++ " " ++ dischargeF(rest, succ, fail, bodyStr, restTs, cx) ++ " " ++ fst(parseGenArms(restTs, fail, cx)) ++ ")"

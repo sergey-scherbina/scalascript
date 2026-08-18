@@ -7,7 +7,7 @@
 #       case _    => …
 #
 #     int     unknown constructor 'Nope' in a pattern    REFUSED with a position (since 2026-08-18)
-#     native  NO MATCH                             silent, exit 0
+#     native  unknown constructor 'Nope' in a pattern    REFUSED at lowering (since 2026-08-18)
 #     js      ReferenceError: Nope is not defined  throws, exit 1
 #
 # Scala 3 refuses to compile this — `not found: value Nope`. The name is capitalised, so it is a
@@ -104,8 +104,19 @@ if grep -qF "NO MATCH" <<<"$int_out"; then
   fails=$((fails + 1))
 fi
 
+# THE native ROW IS THE FIX NOW TOO — its KNOWN-RED row deleted-and-replaced exactly like int's
+# was. BOTH fronts refuse: F throws at its three arm-emission mouths (parseCtorArm, parseGenCtor,
+# dischCpat — the third was found by this very probe still printing NO MATCH under
+# SSC_FRONT_STRICT after the first two were wrapped), and the reference lowering's single mouth
+# (ctorPatternArms) throws the same sentence — which matters because the driver FALLS BACK to the
+# reference front when F declines, so without the twin the refusal would reroute into the old
+# silence. Safety: the full conformance corpus with both checks live.
 nat_out="$("$BIN/ssc" run "$SRC" 2>&1)"
-check "KNOWN-RED" "native" "NO MATCH" "$nat_out"
+check "OK       " "native" "unknown constructor 'Nope' in a pattern" "$nat_out"
+if grep -qF "NO MATCH" <<<"$nat_out"; then
+  echo "  FAIL native: printed NO MATCH — an arm fell through before the refusal fired"
+  fails=$((fails + 1))
+fi
 
 js_out="$("$BIN/jssc" "$SRC" 2>&1)"
 check "KNOWN-RED" "js" "ReferenceError: Nope is not defined" "$js_out"
