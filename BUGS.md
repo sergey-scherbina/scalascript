@@ -3986,13 +3986,14 @@ trait reaches.
 
 ## interp-curried-class-method-cannot-be-applied — `c.h(3)(4)` on `def h(a)(b)` asks for the second argument twice
 
-<!-- status: open
+<!-- status: fixed
      lane: int
      area: runtime
      kind: bug
-     gate: none
+     gate: v1/runtime/backend/interpreter/src/test/scala/scalascript/ClassMethodArityTest.scala
      found-by: claude-code
      found-at: 2026-08-16
+     fixed-at: 2026-08-18
      repro: the body
      confirmed: yes -->
 
@@ -4010,6 +4011,41 @@ MEASURED AS PRE-EXISTING, not inherited from a neighbouring change: the same pro
 identically — same message, same position — with `interp-same-name-class-methods-collapse-to-the-last`
 reverted. Recorded because that fix was landing in the same file and "it was already broken" is a
 claim that has to be shown, not asserted.
+
+FIXED — AND THE CAUSE ABOVE IS WRONG, which is the part worth keeping. The flattening is real, but it
+is not the defect: a TOP-LEVEL `def top(a)(b)` is flattened by the same code and `top(3)(4)` answers
+12. One program, both forms, measured together:
+
+    top-level : 12
+    method    : [ERROR] missing argument for parameter 'b'
+
+So the difference was never in how the method is STORED — it was in how it is CALLED. `callFun`, the
+top-level path, returns a PARTIAL CLOSURE when a call is one clause short. `callTypeMethod`, the
+method path, had no such branch and fell through to `applyDefaults`, whose job is to fill defaults
+and whose answer to a required parameter is that refusal. Two call paths, one of them missing a
+branch the other has had all along.
+
+THE FIX is that branch, on the method path. It captures `base` — the env with the instance's fields
+already layered in — not `fn.closure`: a partial application that dropped the fields would fail on
+the SECOND call rather than at the point of the mistake, which is worse, because by then the method
+looks like it started working. Measured: `class Calc(base: Int) { def h(a)(b) = a * b + base }` with
+`Calc(100).h(3)(4)` answers 112, so the field survived the split.
+
+ONE GUARD MORE THAN `callFun` HAS, deliberately: a vararg method called with its varargs omitted
+(`def f(a, xs: Int*)` as `f(1)`) is a COMPLETE call that packs an empty list, not a partial one.
+`callFun` does not exclude that case. Copying the omission to be symmetrical would be copying a bug.
+
+WHAT THIS DOES NOT DELIVER, stated so nobody reads more into it: `f(6)()` where the second clause has
+a DEFAULT still fails — `Not callable: 30` — because the flattening fills the default during the
+first application and the trailing `()` then applies to the result. It fails identically at TOP
+LEVEL, so the two paths now agree exactly, including where the shared path is imperfect. The test
+pins that agreement (`topD(6)` and `C().m(6)` both 30) rather than a Scala parity this does not
+reach.
+
+Gate: five rows added to `ClassMethodArityTest` — one clause at a time, fields preserved, three
+clauses, the default-clause agreement, and an anti-row asserting an ordinary two-parameter method
+still returns a number rather than a closure, which a branch that partially applied everything would
+break.
 
 ---
 

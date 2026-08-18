@@ -679,6 +679,47 @@ private[interpreter] object CallRuntime:
         else
           val regularCount = fn.params.length - 1
           rawArgs.take(regularCount) :+ Value.ListV(rawArgs.drop(regularCount))
+      // CURRIED METHODS. `def h(a: Int)(b: Int)` is stored with its clauses FLATTENED — params
+      // `[a, b]` — exactly as a top-level `def h(a)(b)` is, so `c.h(3)` arrives here one argument
+      // short and used to reach `applyDefaults`, which refuses: `missing argument for parameter
+      // 'b'`. The flattening was never the defect; `callFun` flattens identically and `h(3)(4)`
+      // works at top level, because it returns a PARTIAL CLOSURE for exactly this case. This is
+      // that branch, on the method path, which never had one
+      // (interp-curried-class-method-cannot-be-applied).
+      //
+      // The closure captures `base`, not `fn.closure`: instance fields are layered into `base`, and
+      // a partial application that dropped them would fail on the SECOND call rather than here —
+      // the worse failure, because by then the method looks like it started working.
+      //
+      // ONE GUARD MORE THAN `callFun` HAS, and deliberately: a vararg method called with its
+      // varargs omitted (`def f(a, xs: Int*)` as `f(1)`) is a COMPLETE call that packs an empty
+      // list, not a partial one. `callFun` does not exclude it; adding the same hole here to be
+      // symmetrical would be copying a bug for the sake of matching.
+      if args.nonEmpty && args.length < fn.params.length && fn.usingParams.isEmpty
+         && !(lastIsVararg && args.length == fn.params.length - 1) then
+        var env2: Map[String, Value] = base
+        val pIter = fn.params.iterator; val aIter = args.iterator
+        while pIter.hasNext && aIter.hasNext do env2 = FrameMap.one(pIter.next(), aIter.next(), env2)
+        var partialStart = -1
+        for i <- (args.length until fn.params.length) do
+          if partialStart < 0 then
+            (if i < fn.defaults.length then fn.defaults(i) else None) match
+              case Some(defaultTerm) =>
+                val v = Computation.run(interp.eval(defaultTerm, env2))
+                env2 = FrameMap.one(fn.params(i), v, env2)
+              case None =>
+                partialStart = i
+        if partialStart >= 0 then
+          return Pure(Value.FunV(
+            fn.params.drop(partialStart),
+            fn.body,
+            env2,
+            fn.name,
+            fn.defaults.drop(partialStart),
+            fn.paramTypes.drop(partialStart),
+            fn.usingParams,
+            fn.returnsThrows
+          ))
       val effArgs =
         if lastIsVararg && args.length == fn.params.length - 1 then packVarargs(args)
         else if args.length >= fn.params.length then packVarargs(args)

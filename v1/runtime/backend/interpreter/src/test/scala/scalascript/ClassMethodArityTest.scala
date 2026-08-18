@@ -106,3 +106,67 @@ class ClassMethodArityTest extends AnyFunSuite with Matchers:
       println(h.hi("ann"))
       println(h.hi("ann", "bo"))
     """) shouldBe "hi ann\nhi ann and bo"
+
+  // ── curried methods ────────────────────────────────────────────────────────
+  //
+  // `def h(a)(b)` is stored with its clauses FLATTENED, params `[a, b]` — the same as a top-level
+  // `def h(a)(b)`. That was never the defect: `callFun` flattens identically and `h(3)(4)` works at
+  // top level, because it returns a PARTIAL CLOSURE when the call is one clause short.
+  // `callTypeMethod` had no such branch and reached `applyDefaults`, which refuses
+  // (interp-curried-class-method-cannot-be-applied). These rows are that branch.
+
+  test("Interpreter: a curried class method can be applied one clause at a time"):
+    run("""
+      class Calc:
+        def h(a: Int)(b: Int): Int = a * b
+
+      val c = Calc()
+      println(c.h(3)(4))
+    """) shouldBe "12"
+
+  test("Interpreter: a partial application keeps the instance's FIELDS"):
+    // The closure captures the env with instance fields layered in. Capturing the method's own
+    // closure instead would fail on the SECOND call rather than here — the worse failure, because
+    // by then the method looks like it started working.
+    run("""
+      class Calc(base: Int):
+        def h(a: Int)(b: Int): Int = a * b + base
+
+      val c = Calc(100)
+      println(c.h(3)(4))
+    """) shouldBe "112"
+
+  test("Interpreter: three parameter clauses apply left to right"):
+    run("""
+      class Calc:
+        def three(a: Int)(b: Int)(c: Int): Int = a + b + c
+
+      val c = Calc()
+      println(c.three(1)(2)(3))
+    """) shouldBe "6"
+
+  test("Interpreter: an ordinary two-parameter method is unaffected"):
+    // The anti-row. A branch that partially applied everything would satisfy every row above and
+    // turn this one into a closure instead of a number.
+    run("""
+      class Calc:
+        def plain(a: Int, b: Int): Int = a - b
+
+      val c = Calc()
+      println(c.plain(9, 4))
+    """) shouldBe "5"
+
+  test("Interpreter: a curried method whose second clause DEFAULTS matches the top-level path"):
+    // Both answer 30 — the second clause is filled from its default and the method completes.
+    // Asserted against the top-level twin in the same program rather than against Scala: the
+    // flattening makes `f(6)()` fail identically on BOTH paths (`Not callable: 30`), so this pins
+    // the agreement this fix is responsible for, not a parity it does not deliver.
+    run("""
+      def topD(a: Int)(b: Int = 5): Int = a * b
+
+      class C:
+        def m(a: Int)(b: Int = 5): Int = a * b
+
+      println(topD(6))
+      println(C().m(6))
+    """) shouldBe "30\n30"
