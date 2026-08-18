@@ -25,6 +25,63 @@ Newest first.
 
 
 
+
+## emitted-coordinate-gate-red-on-every-release-commit — the check that allows a release version cannot see the tag that authorises it
+
+<!-- status: fixed
+     lane: apparatus
+     area: build
+     kind: bug
+     gate: tests/e2e/emitted-coordinate-is-published.sh
+     fixed-in: unrecorded
+     reported-by: claude-code
+     reported-at: 2026-08-18
+     ssc-version: 3fc7ee265
+     repro: the v0.1.1 release commit, run 31145893683
+     impact: blocks -->
+
+Found in the pre-release audit for 0.2.0, by asking what the release COMMIT would do to CI rather
+than what the release workflow would do. It has already happened once:
+
+```text
+5dfad1c58  release: refresh the record after rebasing onto current main
+  Publish qualified tag: success        (all three platforms qualified)
+  smoke — the fast repo-wide suite: FAILURE
+    FAIL emitted-coordinate-is-published
+    emitted-coordinate: FAILED — ThisBuild / version is '0.1.1', not a SNAPSHOT,
+```
+
+The rule is right: between releases the build version must be a SNAPSHOT, or every intermediate
+build calls itself the release; a plain version is allowed only on the commit that IS that release.
+What the check could not do is establish the second half. It asked `git rev-parse refs/tags/vX`,
+and a tag is absent from that checkout for two independent reasons — the v0.1.1 release was cut on a
+`release/0.1.1` branch and the tag did not exist yet when smoke ran, and CI's `actions/checkout@v4`
+is shallow and fetches no tags even when it does.
+
+So the one commit whose colour anybody looks at was red, on a gate that was working exactly as
+written.
+
+**Fixed by asking the REMOTE when the local ref is missing**, which costs nothing on an ordinary
+commit: those carry a SNAPSHOT and return before the tag branch is reached. The failure message now
+distinguishes the two causes, because "not tagged yet" and "tagged, but this checkout cannot see it"
+need different actions, and it names the sequence that avoids the first:
+
+```text
+git tag v0.2.0 && git push --atomic origin main v0.2.0
+```
+
+**An annotated tag answers its own object, not the commit, and that cost the first attempt.**
+`git ls-remote --tags origin refs/tags/v0.1.1` returns `cdb84377…` — the tag OBJECT — while the
+commit is `5dfad1c5…`, and the comparison then fails on a tag that is perfectly correct. The commit
+sits on the dereferenced `^{}` line, which the exact pattern does not match; the trailing `*` is the
+whole fix. Lightweight tags have no such line and are handled by the fallback.
+
+Verified in a `--shared --no-tags` clone whose `origin` is the real repository, so the local refs are
+genuinely absent while the remote has them — three states, each measured: an ordinary SNAPSHOT commit
+passes without a network call; the v0.1.1 release commit (plain version, tag only on the remote, the
+state that reddened the last release) now passes; a plain `0.9.9` with no tag anywhere still fails,
+naming both causes.
+
 ## emitted-server-backend-coordinate-resolves-nowhere — the gate checks it is not a SNAPSHOT, and nobody checks it exists
 
 <!-- status: fixed

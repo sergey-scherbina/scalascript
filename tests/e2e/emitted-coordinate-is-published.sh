@@ -72,17 +72,52 @@ build_version=$(grep -m1 '^ThisBuild / version' "$ROOT/build.sbt" | sed 's/.*:= 
 # transition: a release commit sets `0.1.1` by definition, so this gate would have failed every
 # release — including the one it was written to protect. The rule that actually holds is "you may
 # call yourself 0.1.1 only if you ARE the v0.1.1 tag".
+# THE TAG MAY NOT BE IN THIS CHECKOUT, and that is not the same as "not tagged". Measured on the
+# v0.1.1 release: `5dfad1c58` was cut on a `release/0.1.1` branch, this gate ran before the tag
+# existed and turned smoke RED on the release commit itself — the one commit whose colour anybody
+# looks at. CI's `actions/checkout@v4` is shallow and fetches no tags either, so even tagging first
+# does not guarantee a local ref.
+#
+# So the local ref is the fast path and the REMOTE is the fallback, consulted only here: an ordinary
+# commit carries a SNAPSHOT and returns above without a single network call. The failure message
+# names both reasons, because "not tagged yet" and "tagged, but this checkout cannot see it" need
+# different actions from whoever reads it.
+head_sha=$(git -C "$ROOT" rev-parse -q HEAD)
+tag_points_at_head() {
+  local v=$1 local_sha remote_sha
+  local_sha=$(git -C "$ROOT" rev-parse -q --verify "refs/tags/v$v^{commit}" 2>/dev/null || true)
+  if [ -n "$local_sha" ]; then
+    [ "$local_sha" = "$head_sha" ] && return 0 || return 1
+  fi
+  # AN ANNOTATED TAG ANSWERS ITS OWN OBJECT, NOT THE COMMIT, and this repository's tags are
+  # annotated: `refs/tags/v0.1.1` is `cdb84377…` while the commit is `5dfad1c5…`. The commit is on
+  # the DEREFERENCED `^{}` line, which only appears when the pattern can match it — an exact
+  # `refs/tags/v0.1.1` returns just the tag object and the comparison then fails on a tag that is
+  # perfectly correct. Measured while writing this; the trailing `*` is the whole fix.
+  # A timeout keeps the gate from hanging on a dead network.
+  remote_sha=$(timeout 30 git -C "$ROOT" ls-remote --tags origin "refs/tags/v$v*" 2>/dev/null |
+               awk -v want="refs/tags/v$v^{}" '$2 == want {print $1; found=1; exit}
+                    END { if (!found) exit 1 }')
+  if [ -z "$remote_sha" ]; then
+    # Lightweight tag: no `^{}` line, the plain entry IS the commit.
+    remote_sha=$(timeout 30 git -C "$ROOT" ls-remote --tags origin "refs/tags/v$v" 2>/dev/null |
+                 awk '{print $1; exit}')
+  fi
+  [ -n "$remote_sha" ] && [ "$remote_sha" = "$head_sha" ]
+}
 case "$build_version" in
   *-SNAPSHOT) ;;
   *)
-    if git -C "$ROOT" rev-parse -q --verify "refs/tags/v$build_version^{commit}" >/dev/null 2>&1 &&
-       [ "$(git -C "$ROOT" rev-parse -q "refs/tags/v$build_version^{commit}")" = "$(git -C "$ROOT" rev-parse -q HEAD)" ]; then
+    if tag_points_at_head "$build_version"; then
       : # this IS the release commit for v$build_version
     else
       echo "emitted-coordinate: FAILED — ThisBuild / version is '$build_version', not a SNAPSHOT," >&2
-      echo "    and HEAD is not the v$build_version tag." >&2
+      echo "    and no v$build_version tag points at HEAD ($head_sha) — locally or on origin." >&2
       echo "    Between releases the build version must be a SNAPSHOT, or every intermediate build" >&2
-      echo "    claims to be the release. On the release commit itself, tag it and this passes." >&2
+      echo "    claims to be the release." >&2
+      echo "    On a release: push the commit and its tag TOGETHER —" >&2
+      echo "      git tag v$build_version && git push --atomic origin main v$build_version" >&2
+      echo "    Pushing the commit first is what turned smoke red on the v0.1.1 release commit." >&2
       failed=1
     fi
     ;;
