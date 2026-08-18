@@ -1,4 +1,3 @@
-# generation: 2692
+# generation: 2693
 #slug	agent	started	items	paths
-ssc-http-bind-address	claude-code	2026-08-14T21:39:49Z	serve-binds-all-interfaces	file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/HttpRs file:v1/runtime/http-server/jvm/src/main/scala/scalascript/server/jvm/JdkServerBackend.scala file:v1/runtime/http-server/jvm-fast/src/main/scala/scalascript/server/jvm/fast/FastServerBackend.scala file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/NioNativeHttpServerHost.scala file:tests/e2e/http-bind-address-gate.sh file:.github/workflows/ci.yml file:INBOX.md file:BUGS.md
 v3-fleet-classpath-ci	claude-code	2026-08-18T16:54:30Z	v3-fleet-classpath-unvalidated-and-silent-in-ci	file:v3/plugin-classpath.sh file:.github/workflows/v3.yml file:v3/BUGS.md
