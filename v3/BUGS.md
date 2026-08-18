@@ -8,7 +8,8 @@ Query: `scripts/bugs-report --module v3`.
 
 ## v3-fleet-classpath-unvalidated-and-silent-in-ci — `Not found: ssc` ×75, shown as "CANNOT RUN" two layers away
 
-<!-- status: open
+<!-- status: fixed
+     fixed-in: 99122b7f4
      lane: v3
      area: build
      kind: bug
@@ -52,6 +53,16 @@ last line? The validation converts the next occurrence into a one-line answer na
 the entry; close this when a red "Build the plugin fleet" step (or a clean week of green ones) has
 shown it. If the loud step never fires red, the cold-runner line was transient and this entry
 closes on that evidence.
+
+**CLOSED 2026-08-18, ON EXACTLY THE EVIDENCE IT ASKED FOR.** The loud step fired on its first CI
+run and named the culprit: the last line of `sbt -batch --error "export …"` on a cold runner is
+**`ESC[0J`** — supershell's erase-display control sequence — so `tail -1` captured terminal
+decoration instead of a classpath. A warm local sbt never prints it, which is the whole
+local-green/CI-red split. Fixed in `99122b7f4`: `-Dsbt.supershell=false` removes the source, an
+escape-strip plus drop-blank-lines guards the next decoration sbt invents, and the
+exists-validation stays — it is what turned two days of archaeology into a one-line answer.
+Control: a planted `ESC[0J` trailing line is stripped and the real classpath line above it wins;
+good path 8 modules / 112 entries / 0 missing.
 
 ## v3-a-marker-is-a-compile-time-rewrite-nothing-in-a-library-can-answer — Focus, direct, prism
 
