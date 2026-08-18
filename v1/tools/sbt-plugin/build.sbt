@@ -7,7 +7,25 @@
 // on PATH (or a configured `sscBinary` setting) at task-execution time.
 
 ThisBuild / organization := "org.scalascript"
-ThisBuild / version      := "0.1.0-SNAPSHOT"
+// A REAL VERSION, because this plugin is now PUBLISHED and a scaffolded project has to resolve it.
+// `ssc new demo --template app` writes `addSbtPlugin("org.scalascript" % … % <this>)`, and until
+// 2026-08-18 that named a SNAPSHOT nothing published anywhere: measured with a clean ivy home,
+// `sbt compile` in a fresh scaffold answers
+//   Error downloading org.scalascript:sbt-scalascript-interop;sbtVersion=1.0;scalaVersion=2.12:0.1.0-SNAPSHOT
+// for every user who is not a contributor with `install.sh --dev`'s publishLocal behind them — that
+// is, for everyone who installs a release. (BUGS.md scaffolded-project-cannot-resolve-its-sbt-plugin.)
+ThisBuild / version      := "0.2.0"
+
+// The same static Maven tree the runtime backends use — `releases/maven`, served from the Pages
+// site. Found by walking up to the checkout marker for the same reason the setting below does it:
+// counting `..` from here broke once already when the tree moved under `v1/`.
+ThisBuild / publishTo    := Some(Resolver.file(
+  "pages-maven",
+  ((ThisBuild / baseDirectory).value / ".." / ".." / ".." / "releases" / "maven").getCanonicalFile
+)(Resolver.mavenStylePatterns))
+ThisBuild / publishMavenStyle := true
+ThisBuild / packageDoc / publishArtifact := false
+ThisBuild / packageSrc / publishArtifact := false
 ThisBuild / scalaVersion := "2.12.20"
 ThisBuild / sbtPlugin    := true
 ThisBuild / licenses     := List("Apache-2.0" -> url("https://www.apache.org/licenses/LICENSE-2.0"))

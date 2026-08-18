@@ -40,13 +40,17 @@ for f in "${emit_sites[@]}"; do
   done < <(grep -nE 'val +version +=  *"[^"]+"|using dep io\.scalascript' "$f" 2>/dev/null || true)
 done
 
-# The sbt plugin is EXEMPT from the no-SNAPSHOT rule, and replaced by a stricter one.
+# The sbt plugin used to be EXEMPT from the no-SNAPSHOT rule because the rule was unsatisfiable:
+# nothing published it anywhere, and a gate that cannot be satisfied stops being a gate. That
+# changed on 2026-08-18 — the plugin is published into `releases/maven`, the same static tree the
+# runtime backends use — so the exemption is replaced by the check it was standing in for: the
+# templates must name the version this build produces, AND that version must be in the tree.
 #
-# That rule says an emitted coordinate must name a PUBLISHED release. For sbt-scalascript-interop
-# there is no published release at all -- nothing publishes it anywhere -- so the rule is not merely
-# unmet, it is unsatisfiable, and a gate that cannot be satisfied stops being a gate. install.sh
-# publishLocals it so `ssc new` produces a project that loads (tests/BUGS.md
-# scaffolded-projects-cannot-load-their-build); whether it should be published for real is open.
+# The measurement that forced it: with a clean ivy home, `ssc new demo --template app && sbt compile`
+# answered `Error downloading org.scalascript:sbt-scalascript-interop … Not found` for every user who
+# is not a contributor with `install.sh --dev`'s publishLocal behind them. `install.sh` still
+# publishLocals it, which is why the gap was invisible from a checkout.
+# (BUGS.md scaffolded-project-cannot-resolve-its-sbt-plugin.)
 #
 # What IS checkable, and is the defect that actually shipped: the templates named "0.1.0" while the
 # plugin build produced "0.1.0-SNAPSHOT", so even a local publish did not match. So: the templates
@@ -56,6 +60,21 @@ while IFS= read -r line; do
   f=${line%%:*}
   asked=$(printf '%s' "$line" | sed -n 's/.*sbt-scalascript-interop" *% *"\([^"]*\)".*/\1/p')
   [[ -n $asked ]] || continue
+  # The version has to EXIST where the template's resolver points, or the scaffold fails at the
+  # user's first `sbt compile` — the failure this gate is here to prevent.
+  plugin_pom="$ROOT/releases/maven/org/scalascript/sbt-scalascript-interop_2.12_1.0/$asked/sbt-scalascript-interop_2.12_1.0-$asked.pom"
+  if [[ ! -f "$plugin_pom" ]]; then
+    echo "emitted-coordinate: FAILED — ${f#"$ROOT"/} asks for sbt-scalascript-interop '$asked'," >&2
+    echo "    which is not in releases/maven. Publish it: (cd v1/tools/sbt-plugin && sbt publish)." >&2
+    failed=1
+  fi
+  # A template must also carry the RESOLVER, or the coordinate is correct and still unreachable:
+  # this tree is not Maven Central.
+  if ! grep -q 'resolvers *+=' "$f"; then
+    echo "emitted-coordinate: FAILED — ${f#"$ROOT"/} has no resolver for the scalascript tree," >&2
+    echo "    so the plugin coordinate cannot be fetched from a fresh machine." >&2
+    failed=1
+  fi
   if [[ $asked != "$plugin_version" ]]; then
     echo "emitted-coordinate: FAILED — ${f#"$ROOT"/} asks for sbt-scalascript-interop '$asked'," >&2
     echo "    but v1/tools/sbt-plugin builds '$plugin_version'. A scaffolded project cannot resolve" >&2

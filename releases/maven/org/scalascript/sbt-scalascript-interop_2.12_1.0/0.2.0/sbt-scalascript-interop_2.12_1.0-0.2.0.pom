@@ -1,0 +1,40 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<project xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://maven.apache.org/POM/4.0.0">
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>org.scalascript</groupId>
+    <artifactId>sbt-scalascript-interop_2.12_1.0</artifactId>
+    <packaging>jar</packaging>
+    <description>sbt plugin: generate Scala 3 facade sources from ScalaScript .scim artifacts</description>
+    <url>https://github.com/scalascript/scalascript-sbt-plugin</url>
+    <version>0.2.0</version>
+    <licenses>
+        <license>
+            <name>Apache-2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+    <name>sbt-scalascript-interop</name>
+    <organization>
+        <name>org.scalascript</name>
+        <url>https://github.com/scalascript/scalascript-sbt-plugin</url>
+    </organization>
+    <properties>
+        <scalaVersion>2.12</scalaVersion>
+        <sbtVersion>1.0</sbtVersion>
+    </properties>
+    <dependencies>
+        <dependency>
+            <groupId>org.scala-lang</groupId>
+            <artifactId>scala-library</artifactId>
+            <version>2.12.20</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.scala-sbt</groupId>
+            <artifactId>sbt</artifactId>
+            <version>1.10.7</version>
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
+</project>

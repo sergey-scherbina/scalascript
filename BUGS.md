@@ -26,6 +26,76 @@ Newest first.
 
 
 
+
+## scaffolded-project-cannot-resolve-its-sbt-plugin — `ssc new` then `sbt compile` fails for everyone who is not a contributor
+
+<!-- status: fixed
+     lane: apparatus
+     area: cli
+     kind: bug
+     gate: tests/e2e/emitted-coordinate-is-published.sh
+     fixed-in: unrecorded
+     reported-by: claude-code
+     reported-at: 2026-08-19
+     ssc-version: 3fc7ee265
+     repro: `ssc new demo --template app` then `sbt -Dsbt.ivy.home=<empty> compile`
+     impact: blocks -->
+
+The first two commands a new user runs. Measured with a CLEAN ivy home, which is the whole point —
+from a checkout it passes, because `install.sh --dev` publishes the plugin locally and its own
+message says what happens otherwise ("`ssc new` will produce projects that cannot load"):
+
+```text
+[error] Error downloading org.scalascript:sbt-scalascript-interop;sbtVersion=1.0;scalaVersion=2.12:0.1.0-SNAPSHOT
+[error]   not found: https://repo1.maven.org/maven2/org/scalascript/sbt-scalascript-interop_2.12_1.0/…
+[error]   not found: https://repo.scala-sbt.org/scalasbt/sbt-plugin-releases/…
+```
+
+Five templates — `app`, `web-app`, `wasm-app`, `lib`, `dsl` — carried
+`addSbtPlugin("org.scalascript" % "sbt-scalascript-interop" % "0.1.0-SNAPSHOT")` with no resolver,
+and nothing published that plugin anywhere. So every scaffolded project was unbuildable for anyone
+who installed a release.
+
+**The gate beside it said so and could not act.** `emitted-coordinate-is-published` exempted the
+plugin from the no-SNAPSHOT rule in as many words: "there is no published release at all — nothing
+publishes it anywhere — so the rule is not merely unmet, it is unsatisfiable, and a gate that cannot
+be satisfied stops being a gate… whether it should be published for real is open." That was an
+accurate description of a hole, held open for want of somewhere to publish.
+
+### Fixed by publishing it where the runtime backends now go
+
+The static Maven tree built for `emitted-server-backend-coordinate-resolves-nowhere` answers this
+too. The plugin build gets a real version (`0.2.0`) and a `publishTo` into `releases/maven`; the five
+templates name that version AND carry the resolver, because a correct coordinate is still
+unreachable when the tree is not Maven Central.
+
+**Proven end to end, with none of the conditions that make it pass from a checkout**: a fresh
+`ssc new demo --template app`, a clean `sbt.ivy.home`, the resolver pointed at the tree, and the
+RELEASE binary on `PATH` rather than a dev launcher —
+
+```text
+[success] Total time: 1 s
+```
+
+The dev launcher is worth a note: `bin/ssc` is the standard tier and refuses `ssc build` /
+`ssc generate-facade`, which the plugin shells out to, so the same test run against a checkout's
+`bin/ssc` fails at a LATER step for an unrelated reason. The shipped binary is the full CLI and does
+not.
+
+**Gate**, replacing the exemption with the check it was standing in for: the templates must name the
+version this build produces, that version must be present under `releases/maven`, and each template
+must carry a resolver. Negative controls: removing the published pom fails all five templates;
+removing one resolver line fails that one.
+
+**Not gated end to end.** A gate that scaffolds and runs `sbt compile` costs minutes and needs sbt on
+the runner; the three offline rows catch the regression that actually happened — a version bumped
+without publishing, or a resolver dropped. The end-to-end run above is recorded here instead.
+
+**Noticed while proving it, not fixed**: the plugin prints
+`[error] [ssc] generate-facade: no legacy facade entries found; nothing written.` on a project that
+has no facades — an informational line wearing `[error]`, in the output of the first build a new user
+ever runs.
+
 ## emitted-coordinate-gate-red-on-every-release-commit — the check that allows a release version cannot see the tag that authorises it
 
 <!-- status: fixed
