@@ -6601,7 +6601,7 @@ refused, and now names it — before the fix the invented `n__cell` masked the r
      lane: v2-rust
      area: codegen
      gate: tests/e2e/rust-any-typed-pattern-gate.sh
-     fixed-in: unrecorded
+     fixed-in: 341b647c3
      reported-by: claude-code
      reported-at: 2026-08-18
      ssc-version: fe33d1a69
