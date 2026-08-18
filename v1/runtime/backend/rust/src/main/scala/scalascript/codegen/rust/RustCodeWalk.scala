@@ -4325,6 +4325,25 @@ object RustCodeWalk:
                     if target.nonEmpty && needsAnyCoercion(argTerm, target, ctx) =>
                   if target == "crate::value::Value" then s"crate::value::Value::from($rendered)"
                   else coerceFromValue(rendered, target)
+                // `s.charAt(i)` yields `SscChar`, a newtype over i64 that exists so `Display`
+                // prints a CHARACTER rather than a number. It compares and does arithmetic against
+                // `i64` through its own impls, so `c == 44` and `c - 48` work — but Rust has no
+                // implicit conversion, so handing one to a def declared `(c: Int)` is E0308
+                // `expected i64, found SscChar`. Eight of the thirty-two errors `std/json-core.ssc`
+                // emits are exactly that, all of the shape `jsonCoreHexDigit(source.charAt(from))`.
+                //
+                // `.0`, NOT `.ssc_to_int()` and not `.into()`. `SscChar` is `pub struct SscChar(pub
+                // i64)`, so the field is always reachable; the `SscToInt` trait is emitted only when
+                // something else pulls it in, and rustc's suggested `.into()` needs a `From` that
+                // does not exist. I shipped `.ssc_to_int()` first and it built a crate that said
+                // `no method named ssc_to_int found for struct SscChar` — visible only by RUNNING
+                // the probe, because reading the emitted text showed exactly what I intended.
+                //
+                // Scoped to the SYNTACTIC `charAt` call, which is the only thing that yields this
+                // type — not to "any i64 parameter", which would wrap arguments that are already
+                // i64 and cost every call site a method that does nothing.
+                case (Some(argTerm), Some(target)) if target == "i64" && yieldsSscChar(argTerm) =>
+                  s"($rendered).0"
                 case _ => rendered
             }
           case _ => renderedArgs
@@ -5810,6 +5829,14 @@ object RustCodeWalk:
    * Deliberately narrow. Coercing everything would be correct — the helpers are total — but it
    * would rewrite every emitted call in the repository for the benefit of the few that cross this
    * boundary, and the goldens are how the Rust backend is reviewed. */
+  /** Does this term evaluate to a `SscChar`? Only `s.charAt(i)` does — the runtime returns the
+   *  newtype there so `Display` prints a character, and nothing else in the lowering produces one.
+   *  Deliberately syntactic and deliberately narrow: a wrong `true` appends `.ssc_to_int()` to
+   *  something that is already an `i64`, which does not compile either. */
+  private def yieldsSscChar(t: m.Term): Boolean = t match
+    case m.Term.Apply.After_4_6_0(m.Term.Select(_, m.Term.Name("charAt")), args) => args.values.size == 1
+    case _                                                                       => false
+
   private def needsAnyCoercion(arg: m.Term, target: String, ctx: Ctx): Boolean =
     val argIsValue = arg match
       case m.Term.Name(n) => ctx.anyNames.contains(n)

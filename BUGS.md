@@ -23,6 +23,77 @@ Newest first.
 
 
 
+## rust-packaged-module-loses-every-argument-coercion — one frontmatter key turns the `Any`/char boundary off
+
+<!-- status: open
+     lane: native
+     area: codegen
+     kind: bug
+     gate: -
+     fixed-in: -
+     reported-by: claude-code
+     reported-at: 2026-08-18
+     ssc-version: 646fe53df
+     repro: inline below — 20 lines and one frontmatter key
+     impact: blocks -->
+
+Found by reducing DOWN from `std/json-core.ssc` while working
+`rust-lane-refuses-the-tolerant-json-parse-while-the-panicking-one-builds`. The same two defs, copied
+byte for byte, coerce their arguments in one file and do not in another. The only difference is a
+line of frontmatter:
+
+```text
+frontmatter: name + exports              coerced 4 times
+frontmatter: name + exports + package:   coerced 0 times
+```
+
+Both emit `pub fn jsonCoreHexDigit(c: i64) -> i64`, so the signature is known either way. What stops
+is `coercedArgs` in `renderTerm`'s apply arm — the block guarded by `_paramTypes.contains(calleeName)`
+— and with it EVERY argument coercion this backend does: the `Value` lifting at an `Any` parameter,
+the `coerceFromValue` narrowing, and the `charAt`→`i64` conversion added today.
+
+**That is why json-core reports the families it does.** Of its 32 rustc errors, 8 are
+`expected i64, found SscChar` and 6 are `expected i64 / Vec<i64>, found Value` — fourteen of them are
+one cause: the coercion block never runs for a packaged module.
+
+**Reduction, for whoever takes it.** Five hypotheses were falsified first, and they are listed so
+nobody repeats them: the shape of the def (an `Any`-returning caller, a `val` inside an `else`
+branch, two statements, three statements) coerces correctly; lib-vs-bin output makes no difference
+(the same source without `main()` still coerces); frontmatter and code fences alone make no
+difference. Only `package:` flips it.
+
+```scalascript
+---
+name: probe-pkg
+package: std.json.probe      # delete this line and the coercion returns
+exports:
+  - jsonCoreParseHex4
+---
+
+```scalascript
+case class JsonCoreOk(value: Any, next: Int)
+case class JsonCoreErr(message: String, offset: Int)
+
+def jsonCoreHexDigit(c: Int): Int =
+  if c >= 48 && c <= 57 then c - 48 else -1
+
+def jsonCoreParseHex4(source: String, from: Int): Any =
+  if from + 4 > source.length then JsonCoreErr("incomplete", from)
+  else
+    val a = jsonCoreHexDigit(source.charAt(from))
+    JsonCoreOk(a, from + 4)
+```
+```
+
+`emit-rust` it twice, with and without the `package:` line, and grep the generated file for `.0` on
+the `charAt` call.
+
+**Not fixed here, and the reason is scope rather than difficulty.** `_paramTypes` is keyed by
+`d.name.value` and `calleeName` is the bare name, so the two look like they should agree — the next
+step is to print both for a packaged module rather than to guess, and def collection is not somewhere
+to edit on a hunch. What is landed today is the `charAt` half, which is correct on its own and
+verified on a module without a package.
+
 ## two-fronts-number-generated-ui-signals-differently — same refusal, different counter
 
 <!-- status: fixed

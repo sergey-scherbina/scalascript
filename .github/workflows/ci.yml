@@ -876,6 +876,15 @@ jobs:
         if: always()          # see the block above this job's steps
         run: tests/e2e/json-parse-either-gate.sh
 
+      # `charAt` yields `SscChar` — a newtype over i64 so `Display` prints a CHARACTER — and Rust has
+      # no implicit conversion, so `hex(s.charAt(0))` at a def declared `(c: Int)` was E0308. The row
+      # RUNS the binary rather than grepping the crate: the first version of this fix emitted
+      # `.ssc_to_int()`, whose trait is only in scope when something else pulls it in, and the
+      # emitted text read exactly as intended while the crate did not build. ~40 s, one cargo build.
+      - name: a charAt result reaches an Int parameter
+        if: always()          # see the block above this job's steps
+        run: tests/e2e/rust-charat-arg-gate.sh
+
       # `spawn`, the other half of the rozum std/process pair (`process-needs-a-detached-spawn`):
       # `exec` WAITS by construction, so an HTTP handler starting a five-minute agent run could hold
       # the connection for five minutes or not start it — every launch route of their port stopped
