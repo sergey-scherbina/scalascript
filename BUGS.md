@@ -9399,13 +9399,14 @@ another lane can distinguish "mutated" from "did not".
 
 ## a-repeated-key-in-a-bugs-header-is-kept-silently-and-the-last-one-wins — main red on a closed entry
 
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      kind: apparatus
      area: build
      gate: tests/e2e/bugs-index-gate.sh --self-test
      found-by: claude-code
-     found-at: 2026-08-19 -->
+     found-at: 2026-08-19
+     fixed-in: ef855d546 -->
 
 **A HEADER FIELD WRITTEN TWICE PARSED TWICE, and the parser kept the second:**
 
