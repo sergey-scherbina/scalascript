@@ -1,0 +1,8 @@
+// A file that DEFINES main and then CALLS it runs it once, not twice. The entry appends `main()`
+// when the file defines one, and a top-level expression statement runs on its own; before the guard
+// both fired and every such program printed everything twice. Most `.ssc` files in this repository
+// end this way, and not one front fixture did — which is why nothing caught it.
+def main(): Unit =
+  println("once")
+
+main()

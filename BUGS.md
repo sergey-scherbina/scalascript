@@ -2190,12 +2190,12 @@ the two.
 
 ## v3-trailing-main-call-runs-main-twice — the same shape as the v2 front's, on the other lane
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      area: front
      kind: bug
-     gate: -
-     fixed-in: -
+     gate: v3/front-gate.sh
+     fixed-in: unrecorded
      reported-by: claude-code
      reported-at: 2026-08-17
      repro: any file with `def main` and a trailing `main()`
@@ -2217,6 +2217,30 @@ it with `callsMain(docEntry)`; v3 appears to have neither guard.
 Not fixed here because this claim is about the effects machinery and the fix belongs with whoever
 owns v3's lowering — but the shape is known, the v2 fix is one line, and the guard to mirror is named
 above.
+
+### FIXED 2026-08-18 — the guard mirrored, and it had to look through `__autoOutput__`
+
+`Lower.programOf` built the entry as `Block(objectInit ++ hoisted, userMain.map(_ => Call("main")))`
+— the appended call fired whenever the file DEFINED a zero-arg `main`, whether or not the file also
+called it. Now it fires only when the top-level statements do not already call it, which is F's
+`callsMain(docEntry)` and v2's `entryCallsMain` asked of v3's statement list.
+
+**One thing did not carry over from the v2 fix and would have made this a no-op**: v3 rewrites the
+LAST top-level expression of each block into `__autoOutput__(v)` before the entry is built, so by the
+time the guard looks, a trailing `main()` is usually `__autoOutput__(main())`. Matching the bare call
+alone finds nothing in exactly the files that have the defect.
+
+**Two fixtures, and the second one is the one with teeth.** `trailing-main-runs-once` is the reported
+shape. `main-called-then-more` puts the call in the MIDDLE — `main(); println("after")` — because the
+appended call runs LAST, so the pre-fix output is `mid/after/mid`: a fixture that only counted
+occurrences of "mid" would pass on a fix that merely moved the duplicate. Negative control, with the
+lowering reverted and both fixtures kept: `once/once` and `mid/after/mid`.
+
+Not one of the 96 front fixtures ended in `main()` before these two, which is why nothing caught it —
+while most `.ssc` files in the repository are written that way.
+
+Verified: `v3/front-gate.sh` GREEN (96 cases), and `v3/exec-gate.sh` (92), `v3/bridge-gate.sh` (7),
+`v3/parity-gate.sh` (65) and `v3/effects-gate.sh` (13, both lanes) all green with the change in.
 
 ## v3-bridge-lags-the-executor-on-cross-frame-effects — the two v3 lanes now disagree
 

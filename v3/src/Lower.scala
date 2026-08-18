@@ -3195,8 +3195,32 @@ object Lower:
     // members are conceptually there before the script starts — which is also what v1 does.
     val objectInit: List[Stmt] = p.objects.flatMap(o =>
       o.vals.map(v => Stmt.Exp(Expr.Assign(o.name + "." + v.name, v.value, v.pos))))
+    // DO NOT APPEND `main()` IF THE PROGRAM ALREADY CALLS IT. Two features that landed apart: this
+    // append is what makes a file consisting only of `def main` run at all, and top-level expression
+    // statements run on their own — so a file that ends in `main()`, which most of this repository's
+    // `.ssc` files do, got the explicit call AND the appended one and printed everything twice.
+    //
+    // The same defect, the same shape, was measured and fixed on the v2 legacy front the day before
+    // (`v2-front-fallback-runs-the-program-twice`, ae5b09418), and F has always guarded it with
+    // `callsMain(docEntry)`. This is that guard, asked of v3's statements.
+    //
+    // IT HAS TO LOOK THROUGH `__autoOutput__`. `markAutoOutput` wraps the LAST top-level expression
+    // of a block, so the trailing `main()` this is looking for has usually already become
+    // `__autoOutput__(main())` by the time it gets here — matching only the bare call would have
+    // found nothing in exactly the files that have the bug.
+    def isMainCall(e: Expr): Boolean = e match
+      case Expr.Call("main", Nil, _)                  => true
+      case Expr.Call("__autoOutput__", List(inner), _) => isMainCall(inner)
+      case _                                           => false
+    val alreadyCallsMain = hoisted.exists {
+      case Stmt.Exp(e) => isMainCall(e)
+      case _           => false
+    }
     val entryBody =
-      Expr.Block(objectInit ++ hoisted, userMain.map(_ => Expr.Call("main", Nil, Pos.none)), Pos.none)
+      Expr.Block(
+        objectInit ++ hoisted,
+        userMain.filter(_ => !alreadyCallsMain).map(_ => Expr.Call("main", Nil, Pos.none)),
+        Pos.none)
     val entryDef = Def(entryName, Nil, entryBody, Pos.none)
     // Object members are flattened into `Object.member` top-level functions before anything else
     // looks at the name list, so a qualified call resolves by ordinary lookup.

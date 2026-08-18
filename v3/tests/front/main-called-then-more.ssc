@@ -1,0 +1,8 @@
+// The guard must not swallow the call, only the DUPLICATE. Here `main()` is not the last statement,
+// so the appended one would run it a second time AFTER "after" — the ordering makes a bare
+// "was it called once" check unable to tell the two apart.
+def main(): Unit =
+  println("mid")
+
+main()
+println("after")
