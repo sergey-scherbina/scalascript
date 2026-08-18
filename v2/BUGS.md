@@ -10392,6 +10392,39 @@ latest v2.
   `NativeUiSiteAnnotationTest` (2), `NativeUiSitesTest` (7), `UiNativePluginTest` (14),
   std-ui conformance (7) all green.
 
+### BROADENING RE-MEASURED AND REJECTED 2026-08-18, with the numbers
+
+This entry's narrow scope — `annotatableSignals = Set("computedSignal", "eqSignal")` — is deferred
+"until that native-front SPA gap is closed", citing `arity: 2 expected, 1 given` on
+`examples/control-center-live.ssc`. **A not-fixable verdict is dated evidence, so it was re-run.**
+
+*The cited blocker has MOVED.* Today both fronts answer `setSignal argument must be NativeUiSignal`
+on that file — a different error. The arity one is gone.
+
+*Broadening was then TRIED*: `annotatableSignals = NativeUiSites.annotatedSymbols`, rebuilt, measured.
+  * `control-center-live.ssc` — unchanged, still `setSignal argument must be NativeUiSignal`. So the
+    gap is independent of the annotation, exactly as this entry claimed, even though its evidence had
+    gone stale.
+  * the ten frontend files blocked on `serve` — the message changes from
+    `native TLS server requires a future server-host extension` to `native JVM serve is unavailable;
+    use emit or an HTTP server backend`. Accurate, and **not one of them runs**.
+
+So broadening buys a better sentence at the price of changing the lowering of every site-native
+primitive. Rejected, and the scope stays narrow — but the DIAGNOSIS was fixed where it was wrong.
+
+### The wrong diagnosis this exposed, and it was the corpus's largest bucket
+
+Measured across `examples/frontend/*` and `examples/std-ui/*`: 51 of 96 run, and the single biggest
+failure — **10 files** — was that TLS sentence, for programs that never mention TLS.
+`std/ui/primitives.ssc` declares `serve(tree: View, port: Int, extraCss: String = "")` and
+`std/http`'s plugin `serve` takes a PORT alone; since the ui primitive is not rewritten on this lane,
+`serve(view, port)` lands in the http plugin, which reports the only thing a second argument could
+mean to it. `HttpFastNativePlugin.serveArityMessage` now distinguishes by the FIRST argument: a
+port-shaped number keeps the TLS sentence, anything else says which primitive was actually reached
+and how to work around it. `nativeui-annotation-gate` holds all three cases, including
+`real-tls-case-unchanged` — the TLS sentence is correct for its own call, and a fix that made every
+arity complaint mention std/ui would be a regression that reads like an improvement.
+
 ## native-front-curried-vararg-and-attrs-map — native `ssc run` broke curried/vararg calls + Map attrs
 <!-- status: fixed
      kind: bug

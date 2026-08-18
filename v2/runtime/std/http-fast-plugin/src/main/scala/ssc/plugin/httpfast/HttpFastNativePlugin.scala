@@ -33,6 +33,32 @@ final class HttpFastNativePlugin extends NativePlugin:
     case Some(Value.StrV(value)) => value
     case _ => throw new RuntimeException(s"$operation argument ${index + 1} must be String")
 
+  /** `serve` is a name TWO plugins answer to, and the collision produced a diagnostic about TLS for
+    * programs that had never heard of it.
+    *
+    * `std/ui/primitives.ssc` declares `serve(tree: View, port: Int, extraCss: String = "")`; this
+    * plugin's `serve` takes a PORT alone. On the native lane the ui primitive is rewritten to an
+    * internal name only for `computedSignal` and `eqSignal` (RunNativeV2 keeps `annotatableSignals`
+    * deliberately narrow), so a ui `serve(view, port)` stays a plain global, lands HERE, and used to
+    * report `native TLS server requires a future server-host extension` — a sentence about a feature
+    * the program never asked for. Measured 2026-08-18: it was the single largest failure bucket in
+    * the frontend corpus, 10 of 96 files.
+    *
+    * Broadening the annotation was tried and rejected by measurement: it changes the message to the
+    * accurate "serve is unavailable on this lane" but does not make one of those files run, and it
+    * would alter the lowering of every site-native primitive to buy that. So the diagnosis is fixed
+    * where it is wrong, and the gap is left where it is. */
+  private def serveArityMessage(args: List[Value], operation: String): String =
+    args.headOption match
+      case Some(Value.IntV(_)) | None =>
+        s"native TLS server requires a future server-host extension"
+      case Some(_) =>
+        s"std/ui `serve(view, port)` is not available on the native lane — this call reached " +
+          s"std/http's `$operation(port)`, which takes a port and nothing else. The two primitives " +
+          s"share a name and the ui one is not rewritten here (BUGS " +
+          s"`native-front-nativeui-site-annotation`). Use `emit` to render, or run this program on " +
+          s"the JVM or JS front."
+
   private def integer(args: List[Value], index: Int, operation: String): Long = args.lift(index) match
     case Some(Value.IntV(value)) => value
     case Some(Value.StrV(value)) => value.toLongOption.getOrElse(
@@ -354,14 +380,14 @@ final class HttpFastNativePlugin extends NativePlugin:
       }
 
     native(context, "serveAsync") { args =>
-      if args.length != 1 then throw new RuntimeException("native TLS server requires a future server-host extension")
+      if args.length != 1 then throw new RuntimeException(serveArityMessage(args, "serveAsync"))
       registerDeclaredRoutes()
       registerHealthDefaults()
       serverHost.serve(integer(args, 0, "serveAsync").toInt, asynchronous = true)
       Value.UnitV
     }
     native(context, "serve") { args =>
-      if args.length != 1 then throw new RuntimeException("native TLS server requires a future server-host extension")
+      if args.length != 1 then throw new RuntimeException(serveArityMessage(args, "serve"))
       registerDeclaredRoutes()
       registerHealthDefaults()
       serverHost.serve(integer(args, 0, "serve").toInt, asynchronous = false)

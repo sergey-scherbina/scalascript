@@ -502,6 +502,14 @@ val suite = List(
   // `__equality__`, which is why both are covered. The values in each row DIFFER, so a fix that
   // collapsed the calls onto one signal fails instead of passing.
   Check("v2", "ui-computed-signal", "tests/e2e/ui-computed-signal-gate.sh", List(), 400000),
+  // `serve` is a name TWO plugins answer to: std/ui's takes (view, port), std/http's takes a port
+  // alone. On the native lane the ui primitive is not rewritten, so a ui call lands in the http
+  // plugin — which used to report "native TLS server requires a future server-host extension" for
+  // programs that never mention TLS. That was the largest single failure bucket in the frontend
+  // corpus, 10 of 96. `real-tls-case-unchanged` is the row that matters: the TLS sentence is right
+  // for its own call, and making every arity complaint mention std/ui would read as an improvement
+  // while being a regression.
+  Check("v2", "nativeui-annotation", "tests/e2e/nativeui-annotation-gate.sh", List(), 300000),
   // An `extern def`'s declared DEFAULT reaches the call site — and nothing else about an extern
   // call is rewritten. The front skipped an extern whole (it is a signature), so its parameter list
   // was never parsed and `f(x)` on `extern def f(a, b = d)` died `arity: 2 expected, 1 given`
