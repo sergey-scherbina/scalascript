@@ -1,7 +1,8 @@
-# generation: 2667
+# generation: 2668
 #slug	agent	started	items	paths
 ssc-http-bind-address	claude-code	2026-08-14T21:39:49Z	serve-binds-all-interfaces	file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/HttpRs file:v1/runtime/http-server/jvm/src/main/scala/scalascript/server/jvm/JdkServerBackend.scala file:v1/runtime/http-server/jvm-fast/src/main/scala/scalascript/server/jvm/fast/FastServerBackend.scala file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/NioNativeHttpServerHost.scala file:tests/e2e/http-bind-address-gate.sh file:.github/workflows/ci.yml file:INBOX.md file:BUGS.md
 v3-effects-cross-frame	claude-code	2026-08-17T15:17:01Z	v3-handler-arm-value-dropped-when-the-perform-is-a-statement v3-an-escaped-continuation-resumes-without-the-return-clause v3-block-has-no-semicolon-statement-separator	file:BUGS.md file:v3/src/Exec.scala file:v3/src/Parser.scala file:v3/tests/effects file:v3/effects-gate.sh
 v3-fleet-on-by-default	claude-code	2026-08-18T07:36:15Z	v3-the-fleet-wires-two-plugin-modules-of-twenty-six	file:v3/ssc3 file:v3/plugin-classpath.sh file:v3/BUGS.md
 js-imported-parenless-def-mention	claude-code	2026-08-18T07:45:36Z	js-imported-parenless-def-mention-reads-the-function-object	file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala file:v1/runtime/backend/js/BUGS.md file:tests/conformance/parameterless-def-imported.ssc file:tests/conformance/expected/parameterless-def-imported.txt
 ci-outage-close	claude-code	2026-08-18T07:49:25Z	smoke-red-for-everyone-on-coursier-jvm-index-429	file:BUGS.md
+nativeui-annotation-broadening	claude-code	2026-08-18T07:49:50Z	native-front-nativeui-site-annotation	file:v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala file:tests/e2e/nativeui-annotation-gate.sh file:scripts/smoke-ci.ssc file:tests/BUGS.md

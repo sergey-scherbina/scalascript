@@ -1,0 +1,11 @@
+slug: nativeui-annotation-broadening
+branch: feature/nativeui-annotation-broadening
+agent: claude-code
+started: 2026-08-18T07:49:50Z
+heartbeat: 2026-08-18T07:49:50Z
+status: claimed-before-planning
+items: native-front-nativeui-site-annotation
+paths: file:v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala file:tests/e2e/nativeui-annotation-gate.sh file:scripts/smoke-ci.ssc file:tests/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
