@@ -8833,6 +8833,21 @@ another lane can distinguish "mutated" from "did not".
      gate: tests/e2e/pattern-undefined-name-gate.sh
      fixed-in: - -->
 
+> **THE `int` ROW IS FIXED, 2026-08-18 (`843b4c3e0`), and the entry stays open for the other two.**
+> The matcher's `Term.Name` arm now refuses an unresolved capitalised name with v3's own sentence
+> and a position — `[ERROR] [line 3, col 3] unknown constructor 'Nope' in a pattern` — instead of
+> silently not matching. The precondition this waited on landed first: `c9b698622` put the typer at
+> **0 false positives over all 400 corpus cases**, and the change's own oracle was the corpus with
+> the refusal live — 369 / 0, with 238 cases declaring the int lane, plus `testFast` 1621 / 0. Enum
+> cases, case objects and the lowercase binder are unchanged (probed; the gate's control row pins
+> the last).
+>
+> The gate's `int` row moved from KNOWN-RED freeze to asserting the fix, exactly as its header
+> instructs, and additionally asserts `NO MATCH` does not print. **Remaining: `native` (silent
+> no-match, the fix lives in v2's front or pattern lowering) and `js` (a run-time `ReferenceError`;
+> its emitter writes the unresolved name verbatim into the test).** Both rows stay frozen in
+> `tests/e2e/pattern-undefined-name-gate.sh`.
+
 Found 2026-08-07 while re-checking whether `case Ⅷ =>` still diverges across lanes — it does not,
 and the correction is in `uniml/SPRINT.md` under UNIML-SSC3-ALPHABET. The probe was about Unicode;
 the ASCII **control** is what carried a defect.
