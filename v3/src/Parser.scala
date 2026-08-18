@@ -615,7 +615,12 @@ object Parser:
     var arms: List[MatchArm] = Nil
     var go = true
     while go do
+      // `;` BETWEEN ARMS, the third statement-separator position and the last one the corpus uses:
+      // `p match { case A(s) => s; case _ => "?" }` is how `tests/conformance/mcp-types.ssc` and
+      // eleven of its neighbours are written. Only the semicolon is consumed here — never a DEDENT,
+      // which is what tells an indented arm list where it ends.
       ts = skipNewlines(ts)
+      while isPunct(peek(ts), ";") do ts = skipNewlines(ts.tail)
       if braced && bracedIndent && peek(ts).isInstanceOf[Tok.TDedent] &&
          isPunct(peek(skipNewlines(ts.tail)), "}") then
         ts = skipNewlines(ts.tail).tail
@@ -659,6 +664,13 @@ object Parser:
       while go do
         if isId(peek(ts), "case") || peek(ts).isInstanceOf[Tok.TEof] ||
            peek(ts).isInstanceOf[Tok.TDedent] || (braced && isPunct(peek(ts), "}")) then go = false
+        // `;` SEPARATES STATEMENTS INSIDE THE ARM, it does not end it — and that distinction is the
+        // whole of it. `case A(s) => s; case _ => "?"` and `case A => val x = 1; x` are the same
+        // syntax: the semicolon is consumed and the loop head decides, so the first stops at `case`
+        // and the second keeps `x` as the arm's value. Ending the arm here instead would have
+        // dropped `x`. Twelve corpus cases are written the first way.
+        // (v3-block-has-no-semicolon-statement-separator.)
+        else if isPunct(peek(ts), ";") then ts = ts.tail
         else if peek(ts).isInstanceOf[Tok.TNewline] then
           // A newline ends the arm unless the next line is another `case`, which the loop head
           // then sees. Consuming it here and stopping is what keeps one arm to a line.
@@ -1152,7 +1164,12 @@ object Parser:
       else if peek(ts).isInstanceOf[Tok.TEof] then throw ParseFail(posOf(ts), "unclosed '{'")
       else
         val (sts, t) = parseStmt(ts)
-        ts = t
+        // `;` SEPARATES STATEMENTS, exactly as a newline does. Without this the only `;` v3 knew was
+        // the one between `for` generators, so `handle { program(); List() }` — the shape
+        // `tests/conformance/effects-handler.ssc` is written in, and ordinary Scala — did not parse
+        // at all. It read as a defect in the effects machinery for as long as nobody ran the file.
+        // (v3-block-has-no-semicolon-statement-separator.)
+        ts = skipSeps(t)
         sts.foreach { st =>
           st match
             case Stmt.Exp(e) => last = Some(e); stmts = st :: stmts
@@ -1163,6 +1180,23 @@ object Parser:
       case Some(e) => (body.dropRight(1), Some(e))
       case None    => (body, None)
     (Expr.Block(init, result, p), ts)
+
+  /** Layout AND `;`. A semicolon separates statements exactly as a newline does, and v3 knew it in
+    * one place only — between `for` generators — so `handle { program(); List() }`, which is what
+    * `tests/conformance/effects-handler.ssc` is written in, did not parse. Kept apart from
+    * `skipLayout` so the generator list, which CONSUMES its own `;` to tell one generator from the
+    * next, is not quietly changed by this. (v3-block-has-no-semicolon-statement-separator.) */
+  /** The indented block's variant: newlines there are significant to the LAYOUT, so only the `;`
+    * and what follows it are skipped, never a dedent. */
+  private def skipSemisNl(ts: List[Tok]): List[Tok] =
+    var t = ts
+    while isPunct(peek(t), ";") do t = skipNewlines(t.tail)
+    t
+
+  private def skipSeps(ts: List[Tok]): List[Tok] =
+    var t = skipLayout(ts)
+    while isPunct(peek(t), ";") do t = skipLayout(t.tail)
+    t
 
   private def skipLayout(ts: List[Tok]): List[Tok] =
     var t = ts
@@ -1180,7 +1214,7 @@ object Parser:
     var last: Option[Expr] = None
     var go = true
     while go do
-      ts = skipNewlines(ts)
+      ts = skipSemisNl(skipNewlines(ts))
       if peek(ts).isInstanceOf[Tok.TDedent] then
         ts = ts.tail; go = false
       else if peek(ts).isInstanceOf[Tok.TEof] then go = false
@@ -1848,7 +1882,7 @@ object Parser:
     var effects: List[TraitDef] = Nil
     var go = true
     while go do
-      ts = skipLayout(ts)
+      ts = skipSeps(ts)
       if peek(ts).isInstanceOf[Tok.TEof] then go = false
       // `sealed trait Shape` / `abstract class …` — a MODIFIER on the declaration that follows.
       // Dropped here, exactly as `override`/`final` are dropped inside a body. Without this the

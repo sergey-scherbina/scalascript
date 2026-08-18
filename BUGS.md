@@ -561,59 +561,41 @@ exec-gate 88, capability OK, prelude GREEN, corpus N 234 → 235.
      lane: v3
      area: runtime
      kind: bug
-     gate: v3/corpus-report.sh (effect-deep-handler-state, a standing DIFF)
-     found-by: claude-code
-     found-at: 2026-08-16 -->
+     gate: v3/effects-gate.sh, v3/corpus-report.sh --exec
+     fixed-in: -
+     reported-by: claude-code
+     reported-at: 2026-08-16
+     repro: tests/conformance/effect-deep-handler-state.ssc
+     impact: wrong-answer -->
 
-**The second of the two effect DIFFs, and a DIFFERENT defect from
-`v3-handler-arm-value-dropped-when-the-perform-is-a-statement`** — same corner of the machinery,
-different line, so it is filed separately rather than folded in.
+`tests/conformance/effect-deep-handler-state.ssc` expects `108`; v3 said `calling a non-function: 7`.
 
-`tests/conformance/effect-deep-handler-state.ssc` expects `108`. v3's executor says
-`calling a non-function: 7` with no position, and the bridge dies with a Java stack trace; int and
-native answer correctly. Two lanes, two failures, neither of them the answer.
+```scalascript
+val f = handle(prog()) {
+  case C.w(n, resume) => (s: Int) => resume(())(s + n)
+  case Return(x)      => (s: Int) => x + s
+}
+println(f(0))              // native 8; v3 `calling a non-function: 7`
+```
 
-**REDUCED to one perform and one line of state:**
+`Resume` applied the return clause through `handlers.headOption` — the DYNAMIC stack. Right while
+the continuation is called inside the `handle`, wrong the moment it escapes: this arm RETURNS a
+closure, the `handle` finishes, and `f(0)` resumes with nothing on the stack. `headOption` was
+`None`, the lifting was skipped, and the program called the computation's bare `7`.
 
-    def prog(): Int ! C =
-      C.w(1)
-      7
+### The fix is the one the entry said was not one line, and it is not
 
-    val f = handle(prog()) {
-      case C.w(n, resume) => (s: Int) => resume(())(s + n)
-      case Return(x)      => (s: Int) => x + s
-    }
-    println(f(0))              // native 8; v3 `calling a non-function: 7`
+The entry is right that the clause must be found from the CONTINUATION and that `k` was "an ordinary
+`VClos` … and the executor has nowhere to put the frame today". So the continuation stopped being an
+ordinary closure: `Value.VCont(clos, h, seg)` has somewhere to put it, and `resumeCont` reads the
+clause from `c.h` and the perform counter from that same frame rather than from the dynamic head —
+which also keeps working for the case the old comment protected, a `resume` inside a lambda running
+in the lambda's frame.
 
-**THE MECHANISM, and it is one line.** `Exec.scala`'s `Resume` applies the return clause through
-`handlers.headOption` — the DYNAMIC handler stack. That is right while the continuation is called
-inside the `handle`, and wrong the moment it escapes: this handler's arm RETURNS a closure, the
-`handle` finishes, and `f(0)` calls the continuation when no frame is on the stack any more. With
-`headOption` empty the code takes its `getOrElse(raw)` branch, so `resume(())` gives back the
-computation's bare `7` instead of the return clause's `(s: Int) => 7 + s`, and the program then calls
-`7` as a function.
+**The second symptom went with it.** The full case's two ticks used to say `no handler for effect
+operation 0`, because by the second perform the `handle` had returned. A resume now REINSTALLS its
+handler for its own duration, so the second perform finds it.
 
-**CONTROLLED, so the diagnosis is not just a plausible reading of the code.** The same arm, the same
-lambda, applied INSIDE the handler's extent —
-
-    case C.w(n, resume) =>
-      val g = (s: Int) => resume(())(s + n)
-      g(0)
-
-— answers **8** on v3, exactly like native. Escaping the extent is the whole difference.
-
-**WHY THE OBVIOUS FIX IS NOT ONE LINE.** The return clause has to be found from the CONTINUATION,
-not from the current stack, so the continuation value would have to carry its handler frame — the
-executor activates the arm knowing `h`, but `k` itself is an ordinary `VClos` built by `Cps`/`MkClos`
-in the lowering, and the executor has nowhere to put the frame today. The comment above that code
-records why it reads the dynamic head at all: a `resume` inside a lambda runs in the LAMBDA's frame,
-and the arm's registers are the HANDLING function's, so an earlier version indexed out of bounds.
-Any fix has to keep that case working.
-
-**The same design explains the full case's other symptom.** With two ticks, the second one performs
-while no frame is on the stack and the executor says `no handler for effect operation 0` — the
-unpositioned message `v3-no-handler-error-has-no-position` describes, in the one shape its
-lowering-time refusal deliberately cannot see.
 ## v1-exec-hangs-when-the-child-reads-stdin — `exec("cat", List(), ProcessOptions())` never returns
 
 <!-- status: fixed
@@ -1020,57 +1002,62 @@ still RECOGNISED — refused by name as outside Tier 0 rather than silently beco
      lane: v3
      area: runtime
      kind: bug
-     gate: v3/corpus-report.sh (effects-handler, a standing DIFF)
-     found-by: claude-code
-     found-at: 2026-08-16 -->
+     gate: v3/effects-gate.sh, v3/corpus-report.sh --exec
+     fixed-in: -
+     reported-by: claude-code
+     reported-at: 2026-08-16
+     repro: see below, four defs
+     impact: wrong-answer -->
 
-**A SILENT WRONG ANSWER ON BOTH v3 LANES, and it explains a corpus DIFF nobody had diagnosed.**
-`tests/conformance/effects-handler.ssc` prints `List()` on `ssc3 run` and `ssc3 run --bridge`, where
-int, native and js all print `List(first, second, third)` — the checked-in expectation. Exit 0, a
-plausible-looking empty list.
+**A SILENT WRONG ANSWER ON BOTH v3 LANES.** In value position the arm's result flows out; with a
+CALLER FRAME between the perform and the `handle` it was dropped and the caller carried on.
 
-    val lines = handle { program(); List() } {
-      case Console.writeLine(msg, resume) => msg :: resume(())
-    }
+```scalascript
+def prog(): Unit ! C =
+  C.w("a")
 
-**REDUCED TO ONE LINE OF DIFFERENCE — the perform's POSITION, not the handler and not the effect.**
+def body(): String ! C =
+  prog()
+  "END"
 
-    def prog(): Unit ! C = C.w("a")
+val out = handle(body()) { case C.w(msg, resume) => "H:" + msg + "|" + resume(()) }
+```
 
-    handle { prog() }          { case C.w(msg, resume) => "H:" + msg + "|" + resume(()) }
-      v3   H:a|()      correct
-    handle { prog(); "END" }   { same arm }
-      v3   END         WRONG — native, int and js all say H:a|END
+v3 answered `END`; native and v1 answer `H:a|END`. Two things were wrong at once: `resume(())` gave
+back only the rest of `prog`, and the arm's value never became the `handle`'s.
 
-In value position the arm's result flows out; in STATEMENT position it is dropped and the body
-carries on. Same program otherwise.
+### The recorded symptom was unreachable, and that had to be corrected first
 
-**THE ARM RUNS — this is not a swallowed perform.** With `var seen` assigned inside the arm, every
-lane reports `seen=a`, including v3. The side effects happen, the resume happens, and only the arm's
-VALUE is lost, so v3 answers as if the arm had been written `resume(())`.
+The entry cited `tests/conformance/effects-handler.ssc` printing `List()`. It does not: that file is
+written `handle { program(); List() }` and **v3 could not parse a `;` at all** outside a `for`
+generator, so the case was a positioned refusal, not a wrong answer. Filed and fixed as
+`v3-block-has-no-semicolon-statement-separator`; the repro above is the same defect in a shape v3
+does parse.
 
-**A TAIL-RESUMPTIVE ARM IN THE SAME POSITION IS CORRECT on all three** (`END seen=a` everywhere),
-which is why the corpus caught this in exactly one case and why it reads as an effects bug rather
-than a lowering one.
+### It does NOT need the reified stack this entry said it did
 
-**WHERE IT IS NOT: v2's runtime.** `bin/ssc-tools run` — the v2 native lane — answers `H:a|END`,
-and v3's bridge is the same v2 VM answering `END` on the same program. The runtime is not what
-differs; what differs is what v3's lowering hands it. That narrows the search to v3's IR and the
-bridge, and rules out the obvious suspect.
+The old note — and `Cps.scala`'s header, and the executor's own refusal message — say a continuation
+that crosses a call frame needs a machine whose stack can be copied, and that making v3's executor
+that is "a rewrite of the kernel's largest file". What is actually needed is far less: the SEGMENT
+between the handler and the perform, which the walker already holds at every call as an instruction
+suffix plus a register array. Nothing of the host's stack is copied, which is exactly why it fits an
+executor that keeps its call stack on the host's.
 
-**WHY IT IS FILED RATHER THAN FIXED, with the mechanism named.** `Cps.scala` splits a function at a
-`Perform` so the rest of that FUNCTION becomes the continuation, and `Exec` returns the arm's value
-as the perform's. That is enough when the perform's value is the handled expression's value. It is
-not enough here: between the perform and the `handle` there is a CALLER frame — the handle body —
-whose remaining statements are not part of any split, so the arm's value lands in a discarded
-register and the body runs on. Making the continuation cross a call frame is the reified stack the
-executor's own message says v3 does not have (`Exec.scala`, "not tail-resumptive").
+  * `PendingFrame` records that suffix at a call, and only while a `handle` is live.
+  * `Value.VCont` carries the closure `Cps` built, the handler frame, and that segment.
+  * `Resume` runs the closure and then each frame, innermost out, on a FRESH copy of its registers
+    so a multi-shot arm starts each resume where the first one did.
+  * The arm's value unwinds to the `handle` rather than returning: the frames in between are the
+    continuation's now, and returning through them would both hand a caller a value it must not see
+    and run its remainder twice.
 
-**THE CHEAPER HALF, if the real fix is not wanted yet:** REFUSE this shape instead of answering it,
-the way the executor already refuses a non-tail-resumptive arm it cannot run. It needs a call-graph
-pass — which functions perform, transitively — plus a tail-resumptive test on the AST arm, and it
-turns one silent wrong answer into an attributed refusal. That is a decision about capability, not a
-typo, which is why it is written down rather than taken.
+**Two refinements the first version got wrong, both caught by measurement rather than review:**
+a fall-through means unit for a FUNCTION body and the destination register for the `handle` body, and
+a resume must install a delimiter of its OWN — without that, `k(1) + k(2)` over a function performing
+twice answered 5 where the answer is 12, because the inner unwind flew past `+ k(2)`.
+
+**Refused, not answered:** a call made inside an `if`, `loop` or `try`. Its remainder is a suffix of
+the REGION, so a continuation captured there would silently skip everything after it.
 
 ## rust-type-pattern-on-a-local-val-matches-anything — a Map type pattern matches a JSON ARRAY when the scrutinee is a local val; the same match on a parameter is correct
 
@@ -2030,6 +2017,105 @@ Not attempted here: two wrong answers for one spelling is worse than one, and ch
 `parseConsArm` the pattern" and "route these arms to the nested resolver" is a design call with a
 lowering difference behind it. The dispatch change was reverted, so the tree carries the honest `z`
 rather than a `<closure>` that looks closer to working.
+
+## v3-block-has-no-semicolon-statement-separator — twelve corpus cases refused for a `;`
+
+<!-- status: open
+     lane: v3
+     area: front
+     kind: bug
+     gate: v3/front-capability-gate.sh
+     fixed-in: -
+     reported-by: claude-code
+     reported-at: 2026-08-17
+     repro: `val x = { 1; 2 }`
+     impact: workaround -->
+
+`val x = { 1; 2 }` did not parse: `expected an expression, found ;`. The only `;` v3 knew was the one
+between `for` generators. Ordinary Scala, and the corpus is written in it — `handle { program();
+List() }` is `tests/conformance/effects-handler.ssc` line 30.
+
+**Found while trying to reproduce another entry**, which had recorded that file as printing `List()`.
+It could not have: the file never parsed. A defect in the effects machinery was filed against a
+symptom that belonged to the parser, which is what a repro is for.
+
+Four statement positions needed it and each was its own loop: the top level, a braced block, an
+indented block, and a match ARM body. The arm body is the one with a distinction worth keeping —
+`;` there separates STATEMENTS and does not end the arm, so `case A => val x = 1; x` keeps `x` as the
+arm's value while `case A(s) => s; case _ => "?"` still ends at `case`.
+
+Twelve conformance cases moved off this blocker: `actors-global-registry`, `mcp-types`,
+`scljet-address-write`, `scljet-journal-recover`, `tkv2-button-size`, `tkv2-button-variant`,
+`tkv2-keyed-for`, `tkv2-raw-html`, `tkv2-select`, `tkv2-select-reactive`,
+`tkv2-textfield-reactive-label`, `webauthn-server-verify`. Most now stop on a DIFFERENT honest
+blocker — a `catch` arm binding one name, a `[...]` literal in `std/ui/lower.ssc`, an unimplemented
+host function — which is the shape of a parse refusal standing in front of everything else.
+
+`v3/front-capability-gate.sh` recorded the effect in the same commit: six cases dropped from
+`KNOWN_CONF_UNIML_ONLY` because the v3 front no longer diverges from uniml on them, and one added to
+`KNOWN_CONF_V3_ONLY` — `direct-control-flow`, where the same change made v3 the more permissive of
+the two.
+
+## v3-trailing-main-call-runs-main-twice — the same shape as the v2 front's, on the other lane
+
+<!-- status: open
+     lane: v3
+     area: front
+     kind: bug
+     gate: -
+     fixed-in: -
+     reported-by: claude-code
+     reported-at: 2026-08-17
+     repro: any file with `def main` and a trailing `main()`
+     impact: wrong-answer -->
+
+```scalascript
+def main(): Unit = println("once")
+main()
+```
+
+v3 prints `once` twice; without the trailing call, once. Native prints it once either way.
+
+Found while reading the output of an effects probe that printed its answer twice — the doubling, not
+the value, was the anomaly. **The same defect was measured and fixed on the v2 legacy front the same
+day** (`v2-front-fallback-runs-the-program-twice`, `ae5b09418`): the entry is built as
+`Seq(top-level exprs…, main() if present)` and the explicit call is already among the exprs. F guards
+it with `callsMain(docEntry)`; v3 appears to have neither guard.
+
+Not fixed here because this claim is about the effects machinery and the fix belongs with whoever
+owns v3's lowering — but the shape is known, the v2 fix is one line, and the guard to mirror is named
+above.
+
+## v3-bridge-lags-the-executor-on-cross-frame-effects — the two v3 lanes now disagree
+
+<!-- status: open
+     lane: v3
+     area: runtime
+     kind: bug
+     gate: v3/effects-gate.sh (would go red if these were fixtures)
+     fixed-in: -
+     reported-by: claude-code
+     reported-at: 2026-08-17
+     repro: the three programs below
+     impact: workaround -->
+
+Fixing `v3-handler-arm-value-dropped-when-the-perform-is-a-statement` and
+`v3-an-escaped-continuation-resumes-without-the-return-clause` in the EXECUTOR left the v2 BRIDGE
+answering the old way. Measured, executor vs bridge vs expected:
+
+| program | executor | bridge |
+|---|---|---|
+| a perform in a callee, caller has a remainder | `H:a|H:b|END` | `END` |
+| an escaped continuation with a return clause | `8` | refused |
+| `handle { program(); List() }` | `List(first, second)` | `List()` |
+
+**Before this work the two lanes agreed — both wrong.** That is why no fixture caught it and why
+these three are NOT in `v3/effects-gate.sh`: that gate requires executor, bridge and expectation to
+agree three ways, by design, and adding them would make it red for a defect it correctly reports as
+the bridge's.
+
+The executor's half is `Exec.PendingFrame`/`Value.VCont`; the bridge translates v3 IR for v2's VM,
+whose effect machinery is v2's, so the fix is not a translation of this one.
 
 ## uniml-markdown-left-the-portable-subset-while-its-guard-ran-nowhere
 

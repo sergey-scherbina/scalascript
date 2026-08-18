@@ -42,6 +42,20 @@ enum Value:
   case VBytes(b: Array[Byte])
   case VData(tag: Int, fields: Array[Value])
   case VClos(f: Int, captured: List[Value])
+  /** A CONTINUATION, and the reason it is a value of its own rather than the `VClos` it wraps.
+    *
+    * A deep handler's continuation is `k(w) = h(rest(w))`: resuming has to pass what the rest
+    * produces through the handler's RETURN CLAUSE. `Resume` used to find that clause through
+    * `handlers.headOption` — the DYNAMIC stack — which is right while the continuation is called
+    * inside its `handle` and wrong the moment it escapes. An arm that returns a closure calling
+    * `resume` is exactly that: the `handle` has finished, the stack is empty, and
+    * `handlers.headOption` answered `None`, so `resume(())` gave back the computation's bare value
+    * instead of the return clause's function — and the program then called an `Int`.
+    * (BUGS.md v3-an-escaped-continuation-resumes-without-the-return-clause.)
+    *
+    * Carrying the frame is what makes the lookup STATIC: the clause is found from the continuation,
+    * which is where it belongs, so an escaped `k` behaves exactly like one called in place. */
+  case VCont(clos: Value, h: Exec.HandlerFrame, seg: List[Exec.PendingFrame])
   case VArr(items: Array[Value])
   /** A BUILT-IN method applied to only some of its arguments — `xs.foldLeft(0)` waiting for its
     * function. v3 has no partial application in general; a `VClos` needs a lifted function index
@@ -266,9 +280,60 @@ object Exec:
     * but when either DID perform, the value is the arm's own result, already lifted by the resume
     * inside it. Lifting again nested the list-monad answer three deep:
     * `List(List(List(11, 21), List(12, 22)))` where the answer is `List(11, 21, 12, 22)`. */
-  private final case class HandlerFrame(m: Module, arms: List[HandlerArm], regs: Array[Value],
-                                        var performs: Long = 0L)
+  private[ssc3] final case class HandlerFrame(m: Module, arms: List[HandlerArm], regs: Array[Value],
+                                             var performs: Long = 0L)
   private var handlers: List[HandlerFrame] = Nil
+
+  /** ONE CALLER FRAME BETWEEN A `handle` AND A `perform`, so the continuation can cross it.
+    *
+    * `Cps.split` makes the rest of the PERFORMING function a closure. That is the whole continuation
+    * only when the perform's value is the handled expression's value; with a caller in between —
+    * `handle(body())` where `body` calls a function that performs and then goes on — the caller's
+    * remaining instructions belong to the continuation too, and they were in nobody's closure. The
+    * arm's value landed in a discarded register and the caller ran on.
+    * (BUGS.md v3-handler-arm-value-dropped-when-the-perform-is-a-statement.)
+    *
+    * This is the reified stack the old comments said v3 does not have — and it is much less than one:
+    * only the SEGMENT between the handler and the perform, and only what the walker already holds in
+    * hand at a call, which is the instruction suffix and the register array. Nothing about the host's
+    * stack is copied, which is why this fits an executor that keeps its call stack on the host's.
+    *
+    * `regs` is SNAPSHOT at capture, not shared. A multi-shot arm resumes the same segment twice and
+    * the second resume has to start from the register state the first one saw, not from what the
+    * first one left behind. */
+  /** `fall` is what this LEVEL produces when its remainder runs off the end, and it exists because
+    * falling through means two different things. A FUNCTION body returns unit — `callFunc`'s rule. The
+    * `handle` BODY's value is read out of the `Handle`'s destination register instead, so it carries
+    * that register number. A REGION — an `if` branch, a loop body, a `try` — carries `RegionLevel`:
+    * its remainder is a suffix of the REGION and not of the enclosing list, so a continuation captured
+    * there would silently drop everything after the region. That one is REFUSED rather than answered,
+    * which is this executor's standing rule about effects it cannot run. */
+  private[ssc3] final case class PendingFrame(m: Module, rest: List[Instr], regs: Array[Value],
+                                              d: Int, fall: Int)
+  private[ssc3] inline val FuncLevel   = -1
+  private[ssc3] inline val RegionLevel = -2
+  private var pending: List[PendingFrame] = Nil
+  /** Non-zero exactly while a `handle` is live. An `Int` field rather than `handlers.isEmpty` because
+    * the walker tests it once per INSTRUCTION: a program with no effects must pay one integer compare
+    * and no allocation, which is what keeps the frame recording out of the hot loop's cost. */
+  private var handleDepth: Int = 0
+
+  /** THE UNWIND. A handler arm's value is the value of the `handle`, not of the function that
+    * performed — so when a caller sits in between, returning normally would let that caller carry on
+    * with a value it should never see AND run its remainder a second time, since the continuation now
+    * owns it. Carries the frame it is aimed at: a nested `handle` must not catch the inner one's. */
+  /** ONE ACTIVATION of a handler — the `handle` itself, or a `resume` that re-entered it.
+    *
+    * The distinction is the whole of multi-shot. `case op(k) => k(1) + k(2)` over a function that
+    * performs TWICE re-enters the arm while the outer activation is still evaluating `k(1)`, and the
+    * inner arm's value belongs to `k(1)`, not to the `handle`. Aiming every unwind at the `handle`
+    * answered 5 where the answer is 12: the inner unwind flew past `+ k(2)`. A resume therefore
+    * installs a delimiter of its own and catches what is aimed at it. */
+  private[ssc3] final class Delim(val h: HandlerFrame, val pendingDepth: Int)
+  private var actives: List[Delim] = Nil
+
+  private final class PerformAbort(val d: Delim, val value: Value)
+      extends RuntimeException(null, null, false, false)
   /** Set by `Resume`, read by the `Perform` that ran the arm. A field rather than a return value
     * because an arm's body is an ordinary instruction list and `Signal` has no case for "resumed"
     * — adding one would put effects into every control-flow path in the executor for a value that
@@ -304,13 +369,85 @@ object Exec:
     * operation index can be. */
   private def retArm(arms: List[HandlerArm]): Option[HandlerArm] = arms.find(_.op == -1)
 
+  /** RESUME A CONTINUATION — the one place that knows how, so `resume(v)`, `k(v)` and a `k` that
+    * escaped its `handle` cannot disagree.
+    *
+    * The return clause is found from the CONTINUATION'S OWN frame, never from `handlers`. That is
+    * the fix for `v3-an-escaped-continuation-resumes-without-the-return-clause`: an arm may return a
+    * closure that resumes later, at which point the `handle` has finished and the dynamic stack is
+    * empty — and reading the head of an empty stack silently skipped the lifting.
+    *
+    * The performs COUNTER is read before and after, on that same frame rather than on the dynamic
+    * head. A deep handler's `k(w)` is `h(rest(w))`, so the clause applies exactly when the rest did
+    * NOT perform; when it did, the value is already an arm's result and lifting twice nested the
+    * list-monad answer three deep. */
+  private def resumeCont(m: Module, c: Value.VCont, v: Value): Value =
+    val before = c.h.performs
+    // THE HANDLER IS REINSTALLED FOR THE DURATION. A deep handler's continuation may perform again —
+    // two ticks of the same effect — and by then the `handle` has returned, so `handlers` no longer
+    // holds the frame that must answer. Without this the second perform said "no handler for effect
+    // operation 0", which is `v3-no-handler-error-has-no-position`'s one true shape.
+    // THE OUTSTANDING FRAMES ARE ON `pending` FOR THE WHOLE RESUME, not only while the walk below
+    // reaches them. The closure runs FIRST and may perform again — two ticks of the same effect —
+    // and that inner perform's continuation owes the frames this one has not yet run. Setting
+    // `pending` only inside the walk left the second perform capturing nothing, so its `resume`
+    // answered unit where the rest of the handled computation said `END`.
+    //
+    // `pendingDepth` is 0 for the same reason: everything on `pending` from here up belongs to a
+    // perform that happens inside this resume, the outstanding frames included.
+    val save = pending
+    pending  = c.seg
+    val act  = new Delim(c.h, 0)
+    handlers = c.h :: handlers
+    actives  = act :: actives
+    handleDepth = handleDepth + 1
+    val raw =
+      try
+        // The closure first: the rest of the PERFORMING function. Then each caller frame the
+        // continuation owes, innermost out, each on a FRESH copy of its registers so a second resume
+        // starts where the first one did. `pending` is set to the frames still outstanding, so a
+        // perform inside a resumed frame captures its own rest and not this one's.
+        var acc  = apply1(m, c.clos, v)
+        var seg  = c.seg
+        while seg.nonEmpty do
+            val f = seg.head
+            seg = seg.tail
+            pending = seg
+            val r = f.regs.clone()
+            r(f.d) = acc
+            // FALLING THROUGH MEANS TWO DIFFERENT THINGS, and getting them the same way was the one
+            // bug this walk had. A FUNCTION body that runs off its end returns unit — `callFunc`'s
+            // rule, and these frames are function-body remainders. The OUTERMOST frame is not: it is
+            // the `handle` BODY's own level, whose value the `Handle` instruction reads out of its
+            // destination register rather than from a `ret`. Treating it like a function gave unit,
+            // so `resume(())` answered `()` where the rest of the handled computation said `END` —
+            // the segment was walked correctly and then its result was thrown away at the last step.
+            acc = exec(f.m, f.rest, r, f.fall) match
+              case Signal.Ret(x) => x
+              case Signal.Done   => if f.fall >= 0 then r(f.fall) else Value.VUnit
+              case other         => throw ExecError(
+                "a continuation frame ended with " + other + "; only a value or a fall-through can " +
+                "leave one")
+        acc
+      catch
+        // A PERFORM INSIDE THE RESUMED COMPUTATION belongs HERE, not to the `handle`: `k(1)` in
+        // `k(1) + k(2)` must come back with the inner arm's value so the outer arm can go on adding.
+        case a: PerformAbort if a.d eq act => a.value
+      finally
+        handlers = handlers.tail
+        actives  = actives.tail
+        handleDepth = handleDepth - 1
+        pending = save
+    if c.h.performs != before then raw
+    else retArm(c.h.arms).map(r => applyRet(c.h.m, r, c.h.regs, raw)).getOrElse(raw)
+
   /** Run the return clause on one value, in a FRESH copy of the handling frame — the same rule the
     * operation arms follow, and for the same reason: one array cannot serve two activations, and a
     * multi-shot handler applies this once per branch. */
   private def applyRet(m: Module, arm: HandlerArm, regs: Array[Value], v: Value): Value =
     val frame = regs.clone()
     if arm.params.nonEmpty then frame(arm.params.head) = v
-    exec(m, arm.body, frame) match
+    exec(m, arm.body, frame, FuncLevel) match
       case Signal.Ret(r) => r
       case _             => v
 
@@ -325,6 +462,7 @@ object Exec:
     case Value.VStr(_)     => "String"
     case Value.VData(_, _) => "data"
     case Value.VClos(_, _) => "function"
+    case Value.VCont(_, _, _) => "function"
     case Value.VArr(_)     => "Array"
     case Value.VSet(_)     => "Set"
     case Value.VMap(_)     => "Map"
@@ -344,6 +482,7 @@ object Exec:
     case Value.VLazy(_)    => "LazyList(<not forced>)"
     case Value.VMap(es)    => "Map(" + es.length + " entries)"
     case Value.VClos(f, _) => "<closure " + f + ">"
+    case Value.VCont(_, _, _) => "<continuation>"
     case Value.VPartial(_, nm, _) => "<partial " + nm + ">"
     case Value.VArr(xs)    => "Array(" + xs.toList.map(show).mkString(", ") + ")"
     // A COUNT, not the bytes. This value is never user-visible — no program can name it — so the
@@ -504,7 +643,7 @@ object Exec:
       while i < fn.nregs do
         regs(i) = Value.VUnit
         i = i + 1
-      val sig = if closureLane then Compile.run(compiled(fi), regs) else exec(m, fn.body, regs)
+      val sig = if closureLane then Compile.run(compiled(fi), regs) else exec(m, fn.body, regs, FuncLevel)
       sig match
         case Signal.Ret(v)       => result = v; running = false
         case Signal.Done         => result = Value.VUnit; running = false
@@ -539,13 +678,45 @@ object Exec:
     * are none. A body with no pairs then walks through the untouched `exec` and pays NOTHING — the
     * `recursion-fib` case is not merely cheap, it is absent.
     */
-  private def exec(m: Module, body: List[Instr], regs: Array[Value]): Signal =
+  /** One instruction, recording the caller's REMAINDER when a `handle` is live and the instruction
+    * is a call — the two conditions under which a `perform` deeper down needs this frame. */
+  private def stepFramed(m: Module, ins: Instr, rest: List[Instr], regs: Array[Value],
+                         fall: Int): Signal =
+    val d = ins match
+      case Instr.Call(dd, _, _)  => dd
+      case Instr.CallV(dd, _, _) => dd
+      case _                     => -1
+    if d < 0 then step(m, ins, regs)
+    else
+      pending = PendingFrame(m, rest, regs, d, fall) :: pending
+      try step(m, ins, regs) finally pending = pending.tail
+
+  /** TWO WALKERS, CHOSEN ONCE PER BODY. The frame recording below is needed only inside a `handle`,
+    * and asking that question per INSTRUCTION cost about 9% on a tight loop — measured, alternating
+    * two built kernels with a matched fix-vs-fix control, 2287 ms against 2102 on 30M iterations.
+    * A program with no effects must not pay for effects, so the test moved to the ONE place it is
+    * still correct at: a body runs entirely inside a handle or entirely outside one, because a
+    * `Handle` met inside this body opens its own nested level and is back to depth 0 when it
+    * returns. Same shape `execFused` already uses to pick its walker. */
+  private def exec(m: Module, body: List[Instr], regs: Array[Value], fall: Int): Signal =
+    if handleDepth == 0 then execPlain(m, body, regs) else execFramed(m, body, regs, fall)
+
+  private def execPlain(m: Module, body: List[Instr], regs: Array[Value]): Signal =
     var rest = body
     var out: Signal = Signal.Done
     var running = true
     while running && rest.nonEmpty do
-      val s = step(m, rest.head, regs)
-      s match
+      step(m, rest.head, regs) match
+        case Signal.Done => rest = rest.tail
+        case other       => out = other; running = false
+    out
+
+  private def execFramed(m: Module, body: List[Instr], regs: Array[Value], fall: Int): Signal =
+    var rest = body
+    var out: Signal = Signal.Done
+    var running = true
+    while running && rest.nonEmpty do
+      stepFramed(m, rest.head, rest.tail, regs, fall) match
         case Signal.Done => rest = rest.tail
         case other       => out = other; running = false
     out
@@ -576,7 +747,10 @@ object Exec:
   /** The walk for a body that HAS at least one fusable pair. One integer compare per instruction —
     * `k == nextFuse` — instead of the two type tests and a call the first version paid.
     */
-  private def execFused(m: Module, body: List[Instr], regs: Array[Value], fus: Array[Int]): Signal =
+  private def execFused(m: Module, body: List[Instr], regs: Array[Value], fus: Array[Int],
+                        fall: Int): Signal =
+    // Decided once, for the reason `exec` gives above.
+    val framed = handleDepth != 0
     var rest = body
     var out: Signal = Signal.Done
     var running = true
@@ -594,7 +768,8 @@ object Exec:
         else
           out = f.asInstanceOf[Signal]; running = false
       else
-        step(m, rest.head, regs) match
+        (if framed then stepFramed(m, rest.head, rest.tail, regs, fall)
+         else step(m, rest.head, regs)) match
           case Signal.Done => rest = rest.tail; k = k + 1
           case other       => out = other; running = false
     out
@@ -684,7 +859,7 @@ object Exec:
     // Structured control flow. A `Branch` propagates outward, losing one level per region — the
     // same rule the bridge implements with a counter, here as a returned value.
     case Instr.Block(b) =>
-      exec(m, b, regs) match
+      exec(m, b, regs, RegionLevel) match
         case Signal.Branch(0) => Signal.Done
         case Signal.Branch(d) => Signal.Branch(d - 1)
         case other            => other
@@ -698,7 +873,8 @@ object Exec:
       var out: Signal = Signal.Done
       var looping = true
       while looping do
-        (if fus == null then exec(m, b, regs) else execFused(m, b, regs, fus.asInstanceOf[Array[Int]])) match
+        (if fus == null then exec(m, b, regs, RegionLevel)
+         else execFused(m, b, regs, fus.asInstanceOf[Array[Int]], RegionLevel)) match
           // A branch to a LOOP repeats it; a branch past it keeps unwinding. Falling off the end
           // EXITS, which is WebAssembly's rule and not the one most people expect.
           case Signal.Branch(0) => ()
@@ -707,7 +883,7 @@ object Exec:
           case other            => out = other; looping = false
       out
     case Instr.If(c, t, e) =>
-      exec(m, if truthy(regs(c)) then t else e, regs) match
+      exec(m, if truthy(regs(c)) then t else e, regs, RegionLevel) match
         case Signal.Branch(0) => Signal.Done
         case Signal.Branch(d) => Signal.Branch(d - 1)
         case other            => other
@@ -717,6 +893,11 @@ object Exec:
     case Instr.Call(d, f, as) => regs(d) = callFunc(m, f, as.map(r => regs(r))); Signal.Done
     case Instr.CallV(d, c, as) =>
       regs(c) match
+        case cv: Value.VCont =>
+          val xs = as.map(r => regs(r))
+          if xs.length != 1 then
+            throw ExecError("a continuation takes exactly one value and was called with " + xs.length)
+          regs(d) = resumeCont(m, cv, xs.head); Signal.Done
         case Value.VClos(f, cap) => regs(d) = callFunc(m, f, cap ++ as.map(r => regs(r))); Signal.Done
         case Value.VPartial(recv, nm, got) =>
           regs(d) = invoke(m, nm, recv, got ++ as.map(r => regs(r))); Signal.Done
@@ -778,7 +959,7 @@ object Exec:
       val chosen = regs(s) match
         case Value.VData(tg, _) => arms.find(a => a.tag == tg).map(a => a.body).getOrElse(dflt)
         case _                  => dflt
-      exec(m, chosen, regs) match
+      exec(m, chosen, regs, RegionLevel) match
         case Signal.Branch(0) => Signal.Done
         case Signal.Branch(d) => Signal.Branch(d - 1)
         case other            => other
@@ -831,9 +1012,25 @@ object Exec:
     // function's frame, so the arm reads its arguments where the spec says they are, and nothing
     // about this is invented locally.
     case Instr.Handle(d, body, arms) =>
+      // The segment depth is recorded HERE so a perform can take exactly the frames above it: the
+      // handler must not own its own caller's remainder, only the ones opened inside its body.
       val hf = HandlerFrame(m, arms, regs)
+      val act = new Delim(hf, pending.length)
       handlers = hf :: handlers
-      val sig = try exec(m, body, regs) finally handlers = handlers.tail
+      actives  = act :: actives
+      handleDepth = handleDepth + 1
+      val sig =
+        try exec(m, body, regs, d)
+        catch
+          // ITS OWN UNWIND, and the identity test is what makes nesting work: an inner `handle`'s
+          // arm value must not be caught by an outer one.
+          case a: PerformAbort if a.d eq act =>
+            regs(d) = a.value
+            Signal.Done
+        finally
+          handlers = handlers.tail
+          actives  = actives.tail
+          handleDepth = handleDepth - 1
       // THE RETURN CLAUSE, applied to the body's own value. `case x => List(x)` is what makes
       // `handle` produce the HANDLED type — a `List` for the list-monad handler — and without it
       // `resume(opt)` gave back the rest of the computation's `Int`, `flatMap` saw a non-list per
@@ -877,11 +1074,43 @@ object Exec:
             while i < arm.params.length do
               frame(arm.params(i)) = args(i)
               i = i + 1
-            frame(arm.k) = args.last
+            // THE ARM GETS A CONTINUATION, not the bare closure the lowering built. The closure
+            // alone cannot answer "which handler's return clause lifts what I produce", and reading
+            // that from the dynamic stack breaks the moment the continuation outlives the `handle`.
+            //
+            // It also carries the CALLER FRAMES between this perform and that handler — everything
+            // `pending` gained since the `handle` pushed. Their registers are snapshot now: the
+            // unwind below abandons the live arrays, and a multi-shot arm needs each resume to start
+            // from the same state.
+            val act   = actives.find(_.h eq h).getOrElse(
+              throw ExecError("a handler for operation " + op + " is on the stack with no live " +
+                              "activation; this is an executor invariant, not a program error"))
+            val depth = pending.length - act.pendingDepth
+            val seg   = pending.take(if depth > 0 then depth else 0)
+                               .map(f => f.copy(regs = f.regs.clone()))
+            // A FRAME OPENED INSIDE A REGION CANNOT BE RESUMED, so it is refused rather than
+            // half-answered: its remainder is a suffix of the `if`/`loop`/`try` it sits in, and
+            // resuming it would silently skip everything after that region.
+            seg.find(_.fall == RegionLevel).foreach { _ =>
+              throw ExecError(
+                "operation " + op + " was performed under a call made inside an `if`, `loop` or " +
+                "`try`, and the continuation would have to resume into that region — v3 captures a " +
+                "continuation only across whole function bodies and the `handle` body")
+            }
+            frame(arm.k) = Value.VCont(args.last, h, seg)
             // The arm RETURNS its value — the lowering ends every arm body with a `Ret`, so there
             // is one place the answer comes from rather than a register the executor has to guess.
-            exec(h.m, arm.body, frame) match
-              case Signal.Ret(v) => regs(d) = v; Signal.Done
+            // THE ARM RUNS AT THE HANDLER'S OWN SEGMENT DEPTH. Its body is part of the handling
+            // function, not of the computation that performed, so a perform inside the arm must
+            // capture from here and not inherit frames the continuation already owns.
+            val savedPending = pending
+            pending = pending.drop(if depth > 0 then depth else 0)
+            val armSig = try exec(h.m, arm.body, frame, FuncLevel) finally pending = savedPending
+            armSig match
+              // THE VALUE IS THE `handle`'S, so the frames in between are abandoned rather than
+              // returned through. Returning normally let the caller both see a value it should not
+              // and re-run a remainder the continuation had taken over.
+              case Signal.Ret(v) => throw PerformAbort(act, v)
               case _ =>
                 throw ExecError(
                   "the handler for operation " + op + " ended without a value; a handler arm must " +
@@ -907,7 +1136,7 @@ object Exec:
             // it, and a leftover value from a previous perform would resume the wrong thing silently.
             h.regs(arm.k) = Value.VUnit
             resumedWith = None
-            exec(h.m, arm.body, h.regs)
+            exec(h.m, arm.body, h.regs, FuncLevel)
             resumedWith match
               case Some(v) => regs(d) = v; resumedWith = None; Signal.Done
               case None =>
@@ -917,31 +1146,19 @@ object Exec:
 
     case Instr.Resume(d, k, v) =>
       regs(k) match
-        // A REAL CONTINUATION. `Cps.split` put the rest of the performing function into a closure
-        // and `Perform` bound it here, so resuming is calling it — which is why multi-shot needs no
-        // second mechanism: a closure is not consumed by being called, so an arm may call it zero,
-        // one or many times and each call runs the rest of that function again.
-        case Value.VClos(_, _) =>
-          // THE RETURN CLAUSE APPLIES HERE TOO, and that is the half a reader would miss. A deep
-          // handler's continuation is `k(w) = h(rest(w))` — the handler wraps what the rest
-          // produces — so `resume(opt)` must come back already lifted. Lift only at the `handle`
-          // and `opts.flatMap(opt => resume(opt))` still flatMaps over plain values.
-          // A COUNTER READ BEFORE AND AFTER, not a flag reset and re-read. A flag was the first
-          // version and it did not survive nesting: the INNER resume reset it to false, so the
-          // OUTER one read false after its continuation had in fact performed, lifted a second
-          // time, and the list-monad answer came out three deep.
-          val before = handlers.headOption.map(_.performs).getOrElse(0L)
-          val raw = apply1(m, regs(k), regs(v))
-          val didPerform = handlers.headOption.exists(_.performs != before)
-          // THE HANDLER'S OWN FRAME, not the one this instruction is running in. The arm's
-          // registers — params, `k`, and the return clause's binder — are registers of the
-          // HANDLING function (`specs/10-ssc-ir.md` §3), and a `resume` inside a lambda, which is
-          // exactly what `opts.flatMap(opt => resume(opt))` writes, runs in the LAMBDA's frame:
-          // three registers long, so the return clause's binder was index 5 out of bounds.
-          regs(d) =
-            if didPerform then raw
-            else handlers.headOption.flatMap(h => retArm(h.arms).map(r => (h, r)))
-                         .map((h, r) => applyRet(h.m, r, h.regs, raw)).getOrElse(raw)
+        // A REAL CONTINUATION. `Cps.split` put the rest of the performing function into a closure,
+        // `Perform` paired it with the handler frame it belongs to, and resuming is `resumeCont` —
+        // which is also what a CALL on the same value does, so the two spellings cannot drift.
+        // Multi-shot needs no second mechanism: a closure is not consumed by being called, so an arm
+        // may resume zero, one or many times and each call runs the rest of that function again.
+        //
+        // There is no `VClos` case here any more, and that is not a simplification: `arm.k` is bound
+        // by `Perform` and by nothing else, so after it started binding a `VCont` a bare closure can
+        // no longer arrive. The history it carried — why the return clause applies here at all, and
+        // why the perform counter is read twice rather than reset — moved to `resumeCont`, which is
+        // now the single place that knows it.
+        case c: Value.VCont =>
+          regs(d) = resumeCont(m, c, regs(v))
           Signal.Done
         // The unconverted path, unchanged: `k` is `unit`, the arm is tail-resumptive, and the value
         // travels back to the `Perform` that ran the arm.
@@ -953,7 +1170,7 @@ object Exec:
     // is catching exactly what an SSC3 program can raise — a bare `catch Throwable` would also
     // swallow a StackOverflowError and report it as a caught user exception.
     case Instr.Try(d, b, x, h) =>
-      try exec(m, b, regs)
+      try exec(m, b, regs, RegionLevel)
       catch
         // BOTH, and the difference is what gets bound. A program `throw` carries its VALUE; a
         // runtime failure the executor raises — `/ by zero`, an unimplemented method — has only a
@@ -967,10 +1184,10 @@ object Exec:
         // of the second. Making that distinction is a real change and wants its own entry.
         case e: ExecThrow =>
           regs(x) = e.value
-          exec(m, h, regs)
+          exec(m, h, regs, RegionLevel)
         case e: ExecError =>
           regs(x) = Value.VStr(e.message)
-          exec(m, h, regs)
+          exec(m, h, regs, RegionLevel)
     case Instr.Invoke(d, nm, r, as) =>
       // `constStr` holds "" for a pool entry that is not an `LStr`, which is the same refusal the
       // list-walking version made — an empty method name reaches no arm of `invoke` and is reported
@@ -1252,10 +1469,15 @@ object Exec:
     * being a special case. */
   def applyValue(m: Module, f: Value, args: List[Value]): Value = f match
     case Value.VClos(g, cap) => callFunc(m, g, cap ++ args)
+    // A CONTINUATION IS CALLABLE, not only resumable. `case op(k) => (s: Int) => k(())(s)` reaches
+    // this path rather than `Instr.Resume`, and routing it through `resumeCont` is what keeps the
+    // two spellings from disagreeing about the return clause.
+    case c: Value.VCont if args.length == 1 => resumeCont(m, c, args.head)
     case Value.VForeign(_, _) | Value.VHostData(_, _) => hostApply(m, f, args)
     case v => throw ExecError("not a function: " + show(v))
 
   private def apply1(m: Module, f: Value, x: Value): Value = f match
+    case c: Value.VCont => resumeCont(m, c, x)
     case Value.VClos(g, cap) =>
       if fastApply then callClos1(m, g, cap, x) else callFunc(m, g, cap :+ x)
     case Value.VForeign(_, _) | Value.VHostData(_, _) => hostApply(m, f, List(x))
@@ -1292,7 +1514,7 @@ object Exec:
     while i < fn.nregs do
       regs(i) = Value.VUnit
       i = i + 1
-    val sig = if closureLane then Compile.run(compiled(f0), regs) else exec(m, fn.body, regs)
+    val sig = if closureLane then Compile.run(compiled(f0), regs) else exec(m, fn.body, regs, FuncLevel)
     sig match
       case Signal.Ret(v)      => v
       case Signal.Done        => Value.VUnit
