@@ -659,6 +659,13 @@ jobs:
       # which is why it lasted. The `catchall` row is the anti-row — a bare `case _ =>` must stay a
       # catch-all now that a cons test runs first — and it passes with the fix reverted. ~10 s, two
       # lanes, no cargo.
+      #
+      # `v2-paren-cons-arm-gate` is the same defect one spelling further out: `case (h) :: t` was
+      # read as a one-element TUPLE pattern, because the head token `(` is tested before anything
+      # asks whether the pattern is a cons. First arm with a catch-all -> the catch-all answered;
+      # later arm without one -> `match: no arm for Cons/2`, a crash. Its `tup` and `plain` rows are
+      # the anti-rows: the fix moves a match CONTAINING such an arm to the other resolver, and an
+      # ordinary tuple arm and an ordinary `h :: t` must not move with it. ~10 s, two lanes.
       - name: Gates without a home — v2 diagnostics and fast paths
         if: always()          # see the block above this job's steps
         run: |
@@ -667,6 +674,7 @@ jobs:
           tests/e2e/v2-swift-cli.sh
           tests/e2e/v2-cons-wildcard-head-gate.sh
           tests/e2e/v2-entry-no-double-main-gate.sh
+          tests/e2e/v2-paren-cons-arm-gate.sh
 
       - name: Gates without a home — conformance flags and the scljet corpus
         if: always()          # see the block above this job's steps

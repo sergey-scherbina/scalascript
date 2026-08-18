@@ -1850,7 +1850,7 @@ def matchBody(ts) = if isTok(hd(ts), 2, 28) then tl(ts) else ts
 // A match with a GUARD on its first arm routes to the ordered resolver (parseGenMatch), which — with the
 // ctor-arm branch below — reproduces ssc1-lower lowerMatch's hasGuardPat path (:3657). F's own source has
 // no pattern guards (every `if` sits after `=>`, in the body), so this leaves --self byte-unchanged.
-def parseMatchArms(scrut, ts, env, cx) = if firstArmHasGuard(ts) then parseGenMatch(scrut, ts, env, cx) else (if isUnitPatHead(tl(ts)) then parseGenMatch(scrut, ts, env, cx) else (if isNumLitHead(hd(tl(ts))) then parseGenMatch(scrut, ts, env, cx) else (if isScalarLitHead(hd(tl(ts))) then parseGenMatch(scrut, ts, env, cx) else (if isGenVarHead(tl(ts)) then parseGenMatch(scrut, ts, env, cx) else (if isTypedArm(tl(ts)) then parseGenMatch(scrut, ts, env, cx) else (if hasNestedArms(ts) then parseGenMatch(scrut, ts, env, cx) else parseCtorMatch(scrut, ts, env, cx)))))))
+def parseMatchArms(scrut, ts, env, cx) = if firstArmHasGuard(ts) then parseGenMatch(scrut, ts, env, cx) else (if isUnitPatHead(tl(ts)) then parseGenMatch(scrut, ts, env, cx) else (if isNumLitHead(hd(tl(ts))) then parseGenMatch(scrut, ts, env, cx) else (if isScalarLitHead(hd(tl(ts))) then parseGenMatch(scrut, ts, env, cx) else (if isGenVarHead(tl(ts)) then parseGenMatch(scrut, ts, env, cx) else (if isTypedArm(tl(ts)) then parseGenMatch(scrut, ts, env, cx) else (if hasNestedArms(ts) then parseGenMatch(scrut, ts, env, cx) else (if hasParenConsArms(ts) then parseGenMatch(scrut, ts, env, cx) else parseCtorMatch(scrut, ts, env, cx))))))))
 // A guard is an `if` at pattern depth 0 (balanced ()/[]/{}) BEFORE the arm's `=>`; `case p => if ..` is a
 // body `if`, correctly not detected (the `=>` is hit first). ts points at the leading `case` (tl skips it).
 def firstArmHasGuard(ts) = scanArmGuard(tl(ts), 0)
@@ -2134,7 +2134,7 @@ def consArmUnguarded(pr) = pr match { case (p, r) => isTok(hd(r), 2, 30) }
 def isConsArmHead(ts) = if isTok(hd(tl(ts)), 2, 49) then consArmUnguarded(parsePatF(ts)) else false
 def parseGenCons(ts, menv, cx) = parseGenCons1(parsePatF(ts), menv, cx)
 def parseGenCons1(pr, menv, cx) = pr match { case (p, r) => parseNestedArm(p, r, menv, cx) }
-def parseGenArm(ts, menv, cx) = if isConsArmHead(ts) then parseGenCons(ts, menv, cx) else (if isTypedArm(ts) then parseTypedArm(ts, menv, cx) else (if isWild(hd(ts)) then parseGenWild(tl(ts), menv, cx) else (if fst(hd(ts)) == 3 then parseGenCtorDisp(ts, menv, cx) else (if isUnitPatHead(ts) then parseGenUnit(tl(tl(ts)), menv, cx) else (if isTok(hd(ts), 2, 21) then parseGenTupDisp(ts, menv, cx) else (if isNumLitHead(hd(ts)) then parseGenInt(snd(hd(ts)), tl(ts), menv, cx) else (if isScalarLitHead(hd(ts)) then parseGenLit(hd(ts), tl(ts), menv, cx) else (if isAtBindArm(ts) then parseGenAtBind(ts, menv, cx) else parseGenVar(snd(hd(ts)), tl(ts), menv, cx)))))))))
+def parseGenArm(ts, menv, cx) = if isConsArmHead(ts) then parseGenCons(ts, menv, cx) else (if isParenConsArm(ts) then parseGenCons(ts, menv, cx) else (if isTypedArm(ts) then parseTypedArm(ts, menv, cx) else (if isWild(hd(ts)) then parseGenWild(tl(ts), menv, cx) else (if fst(hd(ts)) == 3 then parseGenCtorDisp(ts, menv, cx) else (if isUnitPatHead(ts) then parseGenUnit(tl(tl(ts)), menv, cx) else (if isTok(hd(ts), 2, 21) then parseGenTupDisp(ts, menv, cx) else (if isNumLitHead(hd(ts)) then parseGenInt(snd(hd(ts)), tl(ts), menv, cx) else (if isScalarLitHead(hd(ts)) then parseGenLit(hd(ts), tl(ts), menv, cx) else (if isAtBindArm(ts) then parseGenAtBind(ts, menv, cx) else parseGenVar(snd(hd(ts)), tl(ts), menv, cx))))))))))
 // -- ctor-pattern arms in the ordered resolver (`case Ctor(x) [if g] => ..`) ----------------------
 // A ctor arm lowers to a ONE-arm IrMatch whose default is the ordered lowering of the REST, and (when
 // guarded) whose arm body is `(if g body <fallback>)` where the fallback is the ordered lowering of the
@@ -2264,6 +2264,36 @@ def patNested(p) = if fst(p) == "cpat" then fieldsNested(snd(snd(p))) else false
 def fieldsNested(fields) = fields match { case Nil => false case h :: t => if isNestedField(h) then true else fieldsNested(t) }
 // hasNestedArms: scan every arm (skip its body to the next depth-0 `case`) for a nested-field ctor arm.
 // Brace/paren/bracket depth is tracked so a nested match's own `case`s (inside virtual `{}`) are skipped.
+// A PARENTHESISED HEAD IS STILL A CONS ARM, and the whole fix is ROUTING. `case (h) :: t` and
+// `case (_) :: t` reached `parseTupArm`, because the dispatchers test the head token `(` before
+// anything asks whether the PATTERN is a cons — so the arm became a one-element tuple pattern,
+// matched no list, and the catch-all answered. v1 answers `paren`/`parenN` for the same source;
+// this lane answered `z`, a silent wrong answer on the default front.
+// (v2-parenthesised-head-in-a-cons-pattern-misses-the-arm.)
+//
+// `isConsArmHead` cannot see it: it peeks exactly two tokens and the second here is `_`, not `::`.
+// Extending THAT alone is what the entry recorded as making matters worse — the arm is then
+// recognised and handed to `parseConsArm`, which indexes blind (head at token 0, tail at token 2)
+// and reads `(` as the head binder, so `z` turned into `<closure>`: one wrong answer for another.
+//
+// The pattern-based path needs no new machinery, and the entry's doubt about it is settled by
+// reading `tuplePat1`: a ONE-element parenthesised pattern is UNWRAPPED (`case Nil => first`), so
+// `parsePatF` already reads `(h) :: t` as ("cpat", ("Cons", [h, t])) — identical to `h :: t`. That
+// is also Scala's rule; there is no 1-tuple. So the arm only has to REACH `parseGenCons`, and
+// reaching it is a resolver CHOICE, made from the whole match rather than from one arm's first
+// two tokens.
+//
+// GUARDED paren-cons arms are left declining, exactly as `consArmUnguarded` leaves `case h :: t if g`:
+// the `=>` test below is the same one, and `parseNestedArm` would swallow a guard as the body.
+def parenConsPat(pr) = pr match { case (p, r) => if fst(p) == "cpat" then parenConsPat1(snd(p), r) else false }
+def parenConsPat1(c, r) = if fst(c) == "Cons" then isTok(hd(r), 2, 30) else false
+def isParenConsArm(ts) = if isTok(hd(ts), 2, 21) then parenConsPat(parsePatF(ts)) else false
+// EVERY arm, not just the first, and for the same reason `hasNestedArms` scans every arm: the
+// resolver is chosen once for the whole match, so a paren-cons arm sitting behind an ordinary ctor
+// arm would otherwise keep the old wrong answer.
+def hasParenConsArms(ts) = hasParenCons0(skipSemisF(ts))
+def hasParenCons0(ts) = if isTok(hd(ts), 2, 6) then hasParenCons1(tl(ts)) else false
+def hasParenCons1(ts) = if isParenConsArm(ts) then true else hasParenCons0(skipSemisF(skipToNextArm(ts)))
 def hasNestedArms(ts) = hasNested0(skipSemisF(ts))
 def hasNested0(ts) = if isTok(hd(ts), 2, 6) then hasNested1(parsePatF(tl(ts))) else false
 def hasNested1(pr) = pr match { case (p, r) => if patNested(p) then true else hasNested0(skipSemisF(skipToNextArm(r))) }
