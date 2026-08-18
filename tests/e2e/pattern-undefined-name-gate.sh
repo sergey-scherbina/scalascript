@@ -8,7 +8,7 @@
 #
 #     int     unknown constructor 'Nope' in a pattern    REFUSED with a position (since 2026-08-18)
 #     native  unknown constructor 'Nope' in a pattern    REFUSED at lowering (since 2026-08-18)
-#     js      ReferenceError: Nope is not defined  throws, exit 1
+#     js      unknown constructor 'Nope' in a pattern    REFUSED at emit (since 2026-08-18)
 #
 # Scala 3 refuses to compile this — `not found: value Nope`. The name is capitalised, so it is a
 # stable-identifier pattern rather than a binding; no lane resolves it and each invents its own
@@ -118,20 +118,25 @@ if grep -qF "NO MATCH" <<<"$nat_out"; then
   fails=$((fails + 1))
 fi
 
+# THE LAST ROW. js refused at EMIT time now — the old arm interpolated the unresolved name as a
+# raw identifier, so the compile error became a run-time ReferenceError that fired only when the
+# match was REACHED: a pattern in a cold branch shipped and threw in production. The generator now
+# refuses when the name is in none of the sets it can resolve from, with the same sentence as the
+# other lanes. Safety: the conformance js column (211 cases) with the refusal live.
 js_out="$("$BIN/jssc" "$SRC" 2>&1)"
-check "KNOWN-RED" "js" "ReferenceError: Nope is not defined" "$js_out"
-
-# The DIVERGENCE itself, stated as its own assertion rather than left implicit in three rows. If a
-# future change made every lane throw, the rows above would still pass one by one while the thing
-# this gate exists to report — that the lanes disagree — had been resolved without anybody noticing.
-if grep -qF "NO MATCH" <<<"$js_out"; then
-  echo "  NOTE js now agrees with int and native — the divergence is gone."
-  echo "       Re-read the entry: this gate should be deleted or rewritten, not left passing."
+check "OK       " "js" "unknown constructor 'Nope' in a pattern" "$js_out"
+if grep -qF "ReferenceError" <<<"$js_out"; then
+  echo "  FAIL js: still a run-time ReferenceError — the emit-time refusal did not fire"
   fails=$((fails + 1))
 fi
+
+# THE DIVERGENCE THIS GATE EXISTED TO PIN IS GONE: three lanes, one sentence. What remains worth
+# failing on is REGRESSION in any direction — a lane going quiet again (NO MATCH), a lane going
+# back to a run-time throw, or the sentence drifting apart between lanes. The three OK rows above
+# are exactly that assertion, so the old divergence NOTE is retired with the divergence.
 
 if [ "$fails" -ne 0 ]; then
   echo "pattern-undefined-name-gate: FAIL ($fails)"
   exit 1
 fi
-echo "pattern-undefined-name-gate: OK — three lanes, three meanings, all still as recorded"
+echo "pattern-undefined-name-gate: OK — three lanes, ONE meaning: the refusal, with a position where a lane has one"

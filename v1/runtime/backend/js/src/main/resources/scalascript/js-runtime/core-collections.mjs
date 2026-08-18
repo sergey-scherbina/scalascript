@@ -24,6 +24,14 @@ function _caseChar(original, converted) {
   return converted.length === 1 ? _char(converted.charCodeAt(0)) : original;
 }
 
+// A stable-identifier pattern whose name the BUNDLE cannot resolve. The generator emits
+// `typeof N !== 'undefined' ? N : _unknownCtorPat('N')` for `case N =>`, so a resolved name costs
+// one typeof and behaves as it always did, and an unresolved one throws the sentence every other
+// lane uses instead of a bare ReferenceError. (an-undefined-name-in-a-pattern-means-three-different-things.)
+function _unknownCtorPat(name) {
+  throw new Error("unknown constructor '" + name + "' in a pattern");
+}
+
 function _tupleConcat(a, b) {
   // `++` is also a user operator (e.g. a Doc pretty-printer's `def ++(r) =
   // DocBeside(l, r)`). When the receiver is a user case-class/instance rather than

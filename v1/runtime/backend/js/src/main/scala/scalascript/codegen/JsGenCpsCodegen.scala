@@ -988,7 +988,24 @@ private[codegen] trait JsGenCpsCodegen:
         case "None" => (s"($scrutVar && $scrutVar._type === '_None')", Nil)
         case "Nil"  =>
           (s"((Array.isArray($scrutVar) && $scrutVar.length === 0) || $scrutVar === Nil || ($scrutVar && $scrutVar._type === 'Nil'))", Nil)
-        case n      => (s"($scrutVar === $n || ($scrutVar && $scrutVar._type === '$n'))", Nil)
+        // AN UNRESOLVABLE NAME REFUSES WITH A SENTENCE, AT THE MOMENT THE ARM IS TESTED — and the
+        // BUNDLE decides resolvability, not this generator. The first cut refused at EMIT time
+        // against the union of every set this generator can consult, and the corpus stopped it at
+        // 97 failures and climbing: whole families — the content values (NullV, MapV, Str…), UI
+        // nodes, plugin ADTs — match on tags the RUNTIME constructs, visible in no emit-time set.
+        // Emit-time cannot know; `typeof` in the emitted test asks the one authority that does.
+        //
+        // Resolved names behave EXACTLY as before (identity test, then the `_type` tag test).
+        // Unresolved, the old code threw `ReferenceError: Nope is not defined` — a compile error
+        // deferred into a crash that fired only when the match was REACHED, in whatever branch got
+        // there first. Now it throws the same sentence as the other three lanes:
+        //
+        //     unknown constructor 'Nope' in a pattern
+        //
+        // Same timing as the ReferenceError (js cannot refuse earlier than the test — measured,
+        // above), the right words, and zero cost on the resolved path beyond one `typeof`.
+        case n =>
+          (s"($scrutVar === (typeof $n !== 'undefined' ? $n : _unknownCtorPat('$n')) || ($scrutVar && $scrutVar._type === '$n'))", Nil)
 
     case Term.Select(qual, Term.Name(n)) =>
       val qualJs = qual match
