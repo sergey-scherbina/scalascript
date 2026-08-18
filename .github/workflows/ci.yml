@@ -885,6 +885,16 @@ jobs:
         if: always()          # see the block above this job's steps
         run: tests/e2e/rust-charat-arg-gate.sh
 
+      # A call to a SIBLING member of the same object was emitted with its arguments UNCOERCED: the
+      # redirect that lets a bare `digit(c)` inside `object Hex` reach `Hex_digit` sends it down the
+      # intrinsic path, which built the call from the uncoerced list. `package:` nests every code
+      # block in synthetic objects, so a packaged module lost the lot — fourteen of json-core's
+      # thirty-two rustc errors. Both spellings are covered here (sibling and `P.go(41)` from
+      # outside) because the second was found only after the first was green. ~90 s, two builds.
+      - name: a sibling call keeps its argument coercion
+        if: always()          # see the block above this job's steps
+        run: tests/e2e/rust-sibling-arg-coercion-gate.sh
+
       # `spawn`, the other half of the rozum std/process pair (`process-needs-a-detached-spawn`):
       # `exec` WAITS by construction, so an HTTP handler starting a five-minute agent run could hold
       # the connection for five minutes or not start it — every launch route of their port stopped

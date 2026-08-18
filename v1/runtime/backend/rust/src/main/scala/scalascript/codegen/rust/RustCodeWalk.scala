@@ -4310,9 +4310,19 @@ object RustCodeWalk:
         // (rust-local-val-bound-to-a-def-is-not-callable.)
         val calleeName = fn match
           case m.Term.Name(n) => ctx.localFns.getOrElse(n, n)
+          // SITE 2 — `P.go(41)` written from OUTSIDE the object. It resolves through the same
+          // intrinsic redirect as the sibling call and lost its coercion the same way, so it is
+          // answered here rather than in a second place: `_paramTypes` is keyed by the def's OWN
+          // name, and an object member's own name is the member name.
+          case m.Term.Select(m.Term.Name(o), m.Term.Name(mem))
+              if _objectMembers.get(o).exists(_.contains(mem)) => mem
           case _              => ""
-        val coercedArgs = fn match
-          case m.Term.Name(_) if _paramTypes.contains(calleeName) =>
+        // Was `fn match { case m.Term.Name(_) if … }`. The name test is redundant — `calleeName` is
+        // the empty string for every other shape and `_paramTypes` has no such key — and it was
+        // what kept SITE 2 out. Dropping it also costs renderTerm fewer bytecodes than adding an
+        // arm, which matters: this method is frozen past HugeMethodLimit.
+        val coercedArgs =
+          if _paramTypes.contains(calleeName) then
             val want = _paramTypes(calleeName)
             // Iterate the RENDERED args, not a zip with the source terms. `renderedArgs` is longer
             // whenever omitted trailing defaults were filled in above (Rust has no default
@@ -4346,7 +4356,7 @@ object RustCodeWalk:
                   s"($rendered).0"
                 case _ => rendered
             }
-          case _ => renderedArgs
+          else renderedArgs
         val joined = coercedArgs.mkString(", ")
         // User-defined struct/enum ctors take priority over stdlib names (e.g. user Vec vs List[Vec]).
         val userCtorName = fn match
@@ -4386,7 +4396,7 @@ object RustCodeWalk:
           // clone is elided by rustc, so it costs nothing. The `seq(i) = v` *store* path keeps
           // the target bare (handled in `Term.Assign`) — you can't assign to a clone.
           case Some(n) => Right(s"$n[($joined) as usize].clone()")
-          case None    => applyNonListCtor(fn, callee, renderedArgs, joined, ctx, args.values.toList)
+          case None    => applyNonListCtor(fn, callee, renderedArgs, coercedArgs, joined, ctx, args.values.toList)
 
     // `map + (k -> v)` — Scala's immutable "the same map with this pair added". It reached rustc as
     // an ADDITION: `error[E0369]: cannot add (String, String) to HashMap<String, String>`, which is
@@ -5063,6 +5073,11 @@ object RustCodeWalk:
       fn:           m.Term,
       callee:       Option[QualifiedName],
       renderedArgs: List[String],
+      // The same list AFTER the `Any`-boundary coercion the caller applied. Identical to
+      // `renderedArgs` unless the callee is a def whose declared signature asked for a lift, a
+      // narrowing or a `SscChar` conversion — see the sibling-call comment below for why this
+      // branch needs it and the runtime intrinsics do not.
+      coercedArgs:  List[String],
       joined:       String,
       ctx:          Ctx,
       // The argument TERMS, not just their rendered text: `route`'s entry point is chosen by
@@ -5100,6 +5115,25 @@ object RustCodeWalk:
           if target0 == "crate::runtime::http::_http_route" && handlerDeclaresRequest(argTerms)
           then "crate::runtime::http::_http_route_req"
           else target0
+        // A SIBLING CALL INSIDE AN OBJECT IS A RENAME, NOT A RUNTIME CALL, and it arrives here.
+        // `renderDef` registers every member of the owning object as an intrinsic pointing back at
+        // a def THIS module generates (SITE 3), so a bare `digit(c)` inside `object Hex` reaches
+        // `Hex_digit` — through this branch, which builds the call from the UNCOERCED
+        // `renderedArgs` while the ordinary user-def path uses the coerced list. Every argument
+        // coercion was dropped for those calls: the `Value` lift at an `Any` parameter, the
+        // `coerceFromValue` narrowing, the `SscChar` -> `i64` conversion.
+        //
+        // IT IS NOT ABOUT OBJECTS THE USER WROTE. `package: std.json.core` makes
+        // `Parser.wrapSectionInPackage` nest every code block in `object std: object json: object
+        // core:`, and `collectObjectOwnership` deliberately counts those synthetic wrappers as
+        // owners — so in a PACKAGED module EVERY top-level def is a sibling member and the module
+        // loses the lot. Fourteen of `std/json-core.ssc`'s thirty-two rustc errors are this one
+        // line. (rust-packaged-module-loses-every-argument-coercion.)
+        //
+        // Keyed on the target being a def this module GENERATES: a runtime intrinsic's target is a
+        // `crate::runtime::…` path and is never in `userDefs`, so nothing that lowers to the
+        // runtime changes shape — which is what keeps the goldens meaningful.
+        val baseArgs = if ctx.userDefs.contains(target0) then coercedArgs else renderedArgs
         // For the Request entry the handler is wrapped in an adapter that builds the
         // `Request` case class from the parts the runtime hands over. The struct literal is
         // emitted HERE, in generated code, because that is where `Request` exists — the
@@ -5139,7 +5173,7 @@ object RustCodeWalk:
               "})" + wrapClose + " }"
             ).mkString("\n")
             renderedArgs.take(2) :+ adapter
-          else renderedArgs
+          else baseArgs
         val effectiveArgs =
           if (target == "crate::runtime::ui::_ui_data_table_view" ||
               target == "crate::runtime::tui::_tui_data_table_view") && renderedArgs.length == 3

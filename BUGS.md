@@ -23,7 +23,7 @@ Newest first.
 
 
 
-## rust-packaged-module-loses-every-argument-coercion — one frontmatter key turns the `Any`/char boundary off
+## rust-any-parameter-does-not-lift-a-call-result — `show(n())` at a `v: Any` parameter, five lines
 
 <!-- status: open
      lane: native
@@ -33,9 +33,71 @@ Newest first.
      fixed-in: -
      reported-by: claude-code
      reported-at: 2026-08-18
+     ssc-version: 1496ba89c
+     repro: inline below — five lines
+     impact: blocks -->
+
+Found while writing the gate for `rust-packaged-module-loses-every-argument-coercion`: the first
+draft of the probe used this shape, failed, and the failure survived removing every object and every
+frontmatter key from it. It is a DIFFERENT defect and is filed rather than folded in, because a fix
+for the sibling-call one does not touch it.
+
+```scalascript
+def n(): Int = 7
+
+def show(v: Any): String = "v=" + v
+
+def main(): Unit = println(show(n()))
+```
+
+```text
+run:        v=7
+build-rust: error[E0308]: mismatched types — expected `Value`, found `i64`
+            crate::runtime::_println(show(n()));
+```
+
+`show` renders as `pub fn show(v: crate::value::Value)`, correctly. What is missing is the lift at
+the CALL: `Value::from(n())`.
+
+`needsAnyCoercion` decides this, and for a `Value` target it answers yes for a case class, an
+expression already known to hold a `Value`, a literal, or a closure parameter — a list that has been
+widened twice already, each time by one shape. A CALL whose return type is known and is NOT `Value`
+is the shape nobody added, and it is the ordinary one: any `def f(): Int` handed to any `def g(x:
+Any)`.
+
+The narrowing that comment documents argues for the general answer rather than a fifth shape:
+`Value::from` is the identity on a `Value` and a lift on everything else. The reason to still be
+careful is that `From` is not implemented for every Rust type this backend can produce — a
+reference, a closure, `()` — so "always true" is not obviously safe, and the honest next step is to
+widen to *an apply whose callee has a known, non-`Value` return type* and measure the survey, not to
+widen to everything and hope.
+
+Not gated: no gate is filed with an open entry. The gate that closes this runs the five lines above
+on `build-rust` and compares with `run` — a compile-only row would pass on a binary that prints the
+wrong thing.
+
+## rust-packaged-module-loses-every-argument-coercion — a call to a SIBLING object member is emitted uncoerced, and `package:` makes every def a sibling
+
+<!-- status: fixed
+     lane: native
+     area: codegen
+     kind: bug
+     gate: tests/e2e/rust-sibling-arg-coercion-gate.sh
+     fixed-in: unrecorded
+     reported-by: claude-code
+     reported-at: 2026-08-18
      ssc-version: 646fe53df
      repro: inline below — 20 lines and one frontmatter key
      impact: blocks -->
+
+**THE TITLE THIS ENTRY WAS FILED UNDER NAMED THE SYMPTOM, NOT THE CAUSE, and the correction is the
+useful part.** `package:` is not what turns coercion off. A call to a SIBLING MEMBER of the same
+object is, and `Parser.wrapSectionInPackage` nests a packaged module's every code block in
+`object std: object json: object core:` — so in a packaged module every top-level def is a sibling
+member and the whole file loses its coercions at once. The prediction that fell out of that reading
+was tested before anything was changed: a plain `object Hex: def digit; def first` with NO
+frontmatter at all reproduces it exactly. The `package:` framing would have sent the next reader to
+the manifest reader and the parser; the defect is in neither.
 
 Found by reducing DOWN from `std/json-core.ssc` while working
 `rust-lane-refuses-the-tolerant-json-parse-while-the-panicking-one-builds`. The same two defs, copied
@@ -87,6 +149,53 @@ def jsonCoreParseHex4(source: String, from: Int): Any =
 
 `emit-rust` it twice, with and without the `package:` line, and grep the generated file for `.0` on
 the `charAt` call.
+
+### FIXED 2026-08-18 — printing both is what found it, and the guess above was wrong
+
+The paragraph below was the plan, and it is left standing because the plan was right and its guess
+was not. `_paramTypes` DOES contain the bare name, with the right signature, for a packaged module —
+printed, not assumed:
+
+```text
+nopkg: [dbg] callee=hexDigit known=true want=i64 args=source.charAt(from)=true
+pkg:   [dbg] callee=hexDigit known=true want=i64 args=source.charAt(from)=true
+```
+
+Identical. The coercion is COMPUTED in both and then THROWN AWAY in one, which no amount of reading
+the collection code would have shown. One more field in the same print named the culprit:
+
+```text
+nopkg: intr=None
+pkg:   intr=Some(RuntimeCall(hexDigit))
+```
+
+`renderDef` registers every member of the owning object as an intrinsic pointing back at the def this
+module generates — SITE 3 in its own comment, the machinery that lets a bare sibling call inside
+`object Tool` reach `Tool_text`. That redirect sends the call into `applyNonListCtor`'s intrinsic
+branch, which builds the call from the UNCOERCED `renderedArgs` while the ordinary user-def path
+uses the coerced list. A rename took the runtime-call path and paid the runtime-call price.
+
+**The fix is two lines and both are needed, because the feature has two spellings.** The intrinsic
+branch takes the coerced list when the target is a def this module generates (`ctx.userDefs`
+contains it — a real intrinsic's target is a `crate::runtime::…` path and never is), and
+`calleeName` now also answers for `P.go(41)`, the QUALIFIED call from outside the object, which
+resolves through the same redirect and had the same hole. The second was found by the gate, not by
+reading: the object row failed on `P.go(41)` after the sibling row was already green.
+
+**Verified.** `tests/e2e/rust-sibling-arg-coercion-gate.sh` covers both spellings and both error
+families — `digit(s.charAt(1))` is the `SscChar` half, `take(v)` at a `v: Any` is the `Value`
+narrowing half — each compared against `run` and with an oracle row pinning `digit('f') = 15` rather
+than 102. Negative control: with the walker reverted and rebuilt, both rows fail with E0308.
+`rust-std-survey` 77 REFUSED / 55 COMPILES with BADRUST not grown, and `v1-jit-size` PASS — the
+change makes `renderTerm` SMALLER (a redundant `fn match` became an `if`), which is what let SITE 2
+be answered there at all.
+
+**What it does NOT do: it does not move std/json-core.ssc, and the 14 in this entry stays a
+classification.** That file is still REFUSED for the paren-less `reverse`, so its 32 errors cannot
+be re-counted without the cons-lowering bypass this project declined to land
+(`rust-lane-refuses-the-tolerant-json-parse-while-the-panicking-one-builds` says why). Both families
+this fix closes are the two that entry names, demonstrated on a reduction of it — but nobody should
+quote a post-fix json-core number until someone measures one.
 
 **Not fixed here, and the reason is scope rather than difficulty.** `_paramTypes` is keyed by
 `d.name.value` and `calleeName` is the bare name, so the two look like they should agree — the next
