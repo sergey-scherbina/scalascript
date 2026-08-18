@@ -193,7 +193,7 @@ object BridgeV2:
   // Two flags would have been the obvious encoding and would need two guards on every statement and
   // a rule for what happens when both are set. One register has no such rule to get wrong.
 
-  private final case class Ctx(m: Module, f: Func):
+  private final case class Ctx(m: Module, f: Func, crossK: Int = -1, needsRest: Set[Int] = Set.empty):
     val retVal: Int = f.nregs
     val ctl: Int = f.nregs + 1
     /** One slot per LOOP NESTING DEPTH, not per loop: sibling loops are never live at the same
@@ -374,12 +374,48 @@ object BridgeV2:
     * (BUGS.md v3-bridge-lags-the-executor-on-cross-frame-effects, the escaped-continuation half.) */
   private val effCurRec   = "__ssc3_eff_currec__"
   private val effResume   = "__ssc3_eff_resume__"
+  /** The CALLER continuations a perform still owes, and the pieces that consume them.
+    *
+    * `splitCallers` makes the rest of a caller a closure and parks it here for the duration of the
+    * call; a perform composes its own continuation with everything parked since its `handle`. That
+    * is the whole of crossing a call frame on this lane — see `splitCallers` for why the compiler
+    * can build what the target cannot capture. */
+  private val effPending  = "__ssc3_eff_pending__"
+  private val effPush     = "__ssc3_eff_push__"
+  private val effPop      = "__ssc3_eff_pop__"
+  private val effCompose  = "__ssc3_eff_compose__"
+  private val effChain    = "__ssc3_eff_chain__"
+  private val effPushAll  = "__ssc3_eff_push_all__"
+  private val effPopAll   = "__ssc3_eff_pop_all__"
+  private val effRun      = "__ssc3_eff_run__"
+  /** THE FLAG A HANDLED VALUE TRAVELS HOME BEHIND, and why it is a flag.
+    *
+    * An arm's value is the `handle`'s, so it has to pass THROUGH the split callers between the two
+    * without any of them running its remainder — that remainder belongs to the continuation now. A
+    * throw would do it, and so would a tagged wrapper, but the wrapper needs a way to tell a tagged
+    * value from a user one and `__typename__` is not a prim this lane has. A cell asks nothing of
+    * v2 beyond `cell.get`/`cell.set`, which the globals already rest on, and costs each split caller
+    * one read to tell "the callee returned" from "the callee's handler answered".
+    *
+    * Set by `Perform` after the arm produces its value, cleared by the `Handle` that consumes it.
+    * Handles nest properly, so an inner abort is cleared before control reaches an outer caller. */
+  private val effAborting = "__ssc3_eff_aborting__"
 
   private val R_ARMS = 0
   private val R_HANDLES = 1
   private val R_RET = 2
   private val R_HASRET = 3
   private val R_PERFORMS = 4
+  /** How deep `effPending` was when this `handle` began, so a perform takes only what was parked
+    * INSIDE it — the same role `Exec.Delim.pendingDepth` plays. */
+  private val R_PENDING = 5
+  /** Per operation: does its arm take a CONTINUATION? Only then does the perform's argument array
+    * end in one, and only then may it be composed with the caller frames. The tail-resumptive
+    * encoding carries no continuation at all — its last argument is an ordinary parameter, and for
+    * a nullary operation there is no last argument: composing blind read index -1 of an empty array
+    * and `handle-tail-resumptive` died inside v2 with an `IndexOutOfBoundsException`. The emitter
+    * knows this statically (`armIsCps`), so it is written into the record rather than guessed at. */
+  private val R_ISCPS = 6
 
   private def scanAll(m: Module)(f: Instr => Unit): Unit =
     def go(body: List[Instr]): Unit = body.foreach { i => f(i); go(Instr.children(i)) }
@@ -421,15 +457,123 @@ object BridgeV2:
     * FIXING IT FOR REAL is one pass, and it would serve both lanes: split callers at such calls the
     * way `Cps` splits at performs, thread the caller's continuation, and compose. That would also
     * let `Exec`'s runtime capture go, which is the only reason the two lanes need two mechanisms. */
-  private def crossFrameRefusal(m: Module): Unit =
-    // A `handle` ABSORBS what happens under it, so the search does not descend into one. Without
-    // that, `def workload() = handle(f()) { … }` counted as "may perform" because `f` does, and
-    // `println(workload())` — an ordinary non-tail call — was refused. Six of the thirteen effects
-    // fixtures went red on exactly that, which is what a false refusal looks like from outside.
-    //
-    // Conservative in the direction that matters: a handler for a DIFFERENT operation would also be
-    // skipped, so an effect escaping through one is not seen here. The executor answers that shape,
-    // and a missed refusal leaves the old behaviour rather than inventing a new wrong one.
+  /** THE CALLER'S REMAINDER, MADE A CLOSURE — so the bridge stops refusing what it could not follow.
+    *
+    * `Cps.split` turns the rest of the PERFORMING function into a closure. That is the whole
+    * continuation only when the perform's value is the handled expression's value; put a caller in
+    * between and the caller's remaining instructions belong to it too. `Exec` captures those frames
+    * at run time. Emitted v2 code cannot — but it does not have to, because the compiler can build
+    * them: split the CALLER at the call exactly as `Cps` splits at a perform, and the remainder
+    * becomes an ordinary closure like any other.
+    *
+    * THE SHAPE, for `g` calling an effectful `f` with instructions after it:
+    *
+    *     g:     before
+    *            MkClos kc, g$c, <every register>
+    *            Prim __eff_push__ kc          -- so a perform deeper down can compose it
+    *            Call d, f, args
+    *            Prim __eff_pop__
+    *            CallV d, kc, [d]              -- f returned NORMALLY: run the rest with its value
+    *            Ret d
+    *     g$c:   Move(d, nregs); after
+    *
+    * TWO HALVES, AND NEITHER WORKS ALONE. The `CallV` is what keeps the non-performing path right:
+    * without it `after` would simply be dropped whenever `f` happened not to perform. And it is only
+    * correct because a perform does NOT return through here — it unwinds to its `handle` carrying
+    * the arm's value, so `kc` is reached exactly when `f` came back on its own. Splitting without
+    * the unwind runs `after` on the arm's value; unwinding without the split loses `after`.
+    *
+    * REGISTERS ARE CAPTURED WHOLE, the same decision `Cps` documents and for the same reason: with
+    * all of them captured the continuation's parameters are `0 .. nregs-1` in order and `after`
+    * needs no renaming.
+    *
+    * WHAT IS STILL NOT SPLIT: a call inside an `if`, `loop` or `try`. A region's remainder is not a
+    * suffix of an instruction list, so there is nothing to make a closure OF — the same boundary
+    * `Cps.scala`'s header calls step 3. Those are still refused by name. */
+  private def splitCallers(m0: Module, needsRest: Set[Int]): (Module, Map[String, Int]) =
+    var funcs = m0.funcs
+    var kOf   = Map.empty[String, Int]
+    var queue = funcs.indices.toList
+    def tailish(rest: List[Instr], d: Int): Boolean =
+      rest.isEmpty || (rest.lengthCompare(1) == 0 && (rest.head match
+        case Instr.Ret(r) => r == d
+        case _            => false))
+    while queue.nonEmpty do
+      val idx = queue.head
+      queue = queue.tail
+      val cur = funcs(idx)
+      val at = cur.body.indexWhere {
+        case Instr.Call(_, f, _) => needsRest.contains(f)
+        case _                   => false
+      }
+      // THE HANDLE BODY IS A BODY TOO, and the one that matters most: `handle { program(); List() }`
+      // — the shape `tests/conformance/effects-handler.ssc` is written in — puts the call there, not
+      // at the top level of any function. Two differences from a function body: the continuation has
+      // to END with the handle's own destination register, because a `handle` takes its value from
+      // there rather than from a `ret`, and the split part must MOVE the answer into it, which is
+      // right on both paths — a normal return and an arm's value arrive in the same register.
+      val hAt = cur.body.indexWhere {
+        case Instr.Handle(_, hb, _) => hb.exists {
+          case Instr.Call(_, f, _) => needsRest.contains(f)
+          case _                   => false
+        }
+        case _ => false
+      }
+      if at < 0 && hAt >= 0 then
+        val Instr.Handle(dh, hbody, harms) = cur.body(hAt): @unchecked
+        val hi = hbody.indexWhere {
+          case Instr.Call(_, f, _) => needsRest.contains(f)
+          case _                   => false
+        }
+        val (hbefore, hrest) = hbody.splitAt(hi)
+        val Instr.Call(hd, hf, hargs) = hrest.head: @unchecked
+        val hafter = hrest.tail
+        if hafter.nonEmpty then
+          val nregs   = cur.nregs
+          val kReg    = nregs
+          val contIdx = funcs.length
+          val caps    = (0 until nregs).toList
+          val cont = Func(cur.name + "$h" + hAt, nregs + 1, nregs + 1,
+                          (Instr.Move(hd, nregs) :: hafter) :+ Instr.Ret(dh))
+          val newHandle = Instr.Handle(dh,
+            hbefore ++ List(Instr.MkClos(kReg, contIdx, caps),
+                            Instr.Call(hd, hf, hargs),
+                            Instr.Move(dh, hd)),
+            harms)
+          val split = cur.copy(nregs = nregs + 1,
+                               body  = cur.body.updated(hAt, newHandle))
+          funcs = funcs.updated(idx, split) :+ cont
+          kOf = kOf + (cur.name -> kReg)
+          queue = queue :+ contIdx
+      if at >= 0 then
+        val (before, rest0) = cur.body.splitAt(at)
+        val Instr.Call(d, f, cargs) = rest0.head: @unchecked
+        val after = rest0.tail
+        if !tailish(after, d) then
+          val nregs   = cur.nregs
+          val kReg    = nregs
+          val contIdx = funcs.length
+          val caps    = (0 until nregs).toList
+          val cont = Func(cur.name + "$c" + at, nregs + 1, nregs + 1,
+                          Instr.Move(d, nregs) :: after)
+          val split = cur.copy(
+            nregs = nregs + 1,
+            body  = before ++ List(Instr.MkClos(kReg, contIdx, caps),
+                                   Instr.Call(d, f, cargs),
+                                   Instr.Ret(d)))
+          funcs = funcs.updated(idx, split) :+ cont
+          // THE CONTINUATION'S REGISTER, by name, for the emitter. The call is the last thing this
+          // function does now, so there is exactly one per split function and it is always the
+          // register the split added — but recording it beats recomputing it, because "the last
+          // register" is the kind of fact that stops being true the moment anything else is added.
+          kOf = kOf + (cur.name -> kReg)
+          queue = queue :+ contIdx
+    (m0.copy(funcs = funcs), kOf)
+
+  /** The functions whose continuation must reach past them — those that perform, or call one that
+    * does, where the arm actually needs the rest. See `splitCallers` for what is then done about it
+    * and `crossFrameRefusal` for what is left over. */
+  private def crossFrameSet(m: Module): Set[Int] =
     def bodyHas(b: List[Instr])(pred: Instr => Boolean): Boolean =
       b.exists {
         case _: Instr.Handle => false
@@ -466,36 +610,38 @@ object BridgeV2:
           mayPerform = mayPerform + i
           changed = true
       }
+    mayPerform
+
+  /** WHAT `splitCallers` CANNOT REACH, refused by name rather than answered wrongly.
+    *
+    * The splitter turns a caller's remainder into a closure wherever that remainder is a SUFFIX of
+    * an instruction list — the top level of a function body, and the body of a `handle`. Inside an
+    * `if`, a `loop`, a `switch` or a `try` it is not: the remainder there is a suffix of the REGION,
+    * and everything after the region would be silently skipped. That is the boundary `Cps.scala`'s
+    * header calls step 3, and it is the same one `Exec` refuses for the same reason.
+    *
+    * NO TAIL TEST HERE ANY MORE. It used to refuse a non-tail call outright; the splitter now fixes
+    * exactly those, and its own output — a call followed by the `move` that lands the answer in the
+    * handle's register — would have tripped the old test and refused the thing that had just been
+    * repaired. */
+  private def crossFrameRefusal(m: Module): Unit =
+    val mayPerform = crossFrameSet(m)
     def refuse(callee: Int): Nothing =
       throw Unsupported(
-        "`" + m.funcs(callee).name + "` performs an effect and is called where its value is not the " +
-        "caller's — the continuation would have to resume the caller too, which this lane cannot " +
-        "capture; the executor runs it (`ssc3 exec`)")
-    // A BODY, walked with its own tail position. `Handle`'s body is a body in this sense — its last
-    // value is the `handle`'s, so a call there followed by nothing is exactly the shape that works
-    // and must not be refused. A REGION (`if`, `loop`, `switch`, `try`) is not: its remainder is a
-    // suffix of the region, so any performing call inside one is refused wherever it sits.
+        "`" + m.funcs(callee).name + "` performs an effect and is called inside an `if`, `loop` or " +
+        "`try`, where the continuation would have to resume into that region — this lane can make " +
+        "a closure of a list's remainder, not of a region's; the executor runs it (`ssc3 exec`)")
     def walk(b: List[Instr]): Unit =
-      var rest = b
-      while rest.nonEmpty do
-        val ins = rest.head
-        ins match
-          case Instr.Call(d, f, _) if mayPerform.contains(f) =>
-            val tailish = rest.tail.isEmpty ||
-              (rest.tail.lengthCompare(1) == 0 && (rest.tail.head match
-                 case Instr.Ret(r) => r == d
-                 case _            => false))
-            if !tailish then refuse(f)
-          case Instr.Handle(_, hb, arms) =>
-            walk(hb)
-            arms.foreach(a => walk(a.body))
-          case Instr.Block(bb) => walk(bb)
-          case other =>
-            Instr.children(other).foreach {
-              case Instr.Call(_, f, _) if mayPerform.contains(f) => refuse(f)
-              case _                                             => ()
-            }
-        rest = rest.tail
+      b.foreach {
+        case Instr.Handle(_, hb, arms) => walk(hb); arms.foreach(a => walk(a.body))
+        case Instr.Block(bb)           => walk(bb)
+        case _: Instr.Call             => ()
+        case other =>
+          Instr.children(other).foreach {
+            case Instr.Call(_, f, _) if mayPerform.contains(f) => refuse(f)
+            case _                                             => ()
+          }
+      }
     m.funcs.foreach(fn => walk(fn.body))
 
   private def usesEffects(m: Module): Boolean =
@@ -678,6 +824,22 @@ object BridgeV2:
                              arith("+", aget(aget("(local 0)", int(R_PERFORMS)), int(0)), int(1))),
                         // The record the arm is about to run under, for `armClos` to pair with `k`.
                         aset(glob(effCurRec), int(0), "(local 0)"),
+                        // THE CONTINUATION IS COMPOSED WITH THE CALLER FRAMES this handler owes —
+                        // and only for the CPS encoding, which is the only one that has a
+                        // continuation to compose.
+                        // `Cps.split` gave the rest of the PERFORMING function; `splitCallers` gave
+                        // the rest of each caller between here and the `handle`, parked on
+                        // `effPending`. Resuming has to run both, in that order, which is what
+                        // `effCompose` builds. When nothing was parked the slice is empty and the
+                        // composed closure just calls the original — the shape that worked before.
+                        ifThen(aget(aget("(local 0)", int(R_ISCPS)), "(local 2)"),
+                               aset("(local 1)", arith("-", alen("(local 1)"), int(1)),
+                                    "(app " + glob(effCompose) + " " +
+                                      aget("(local 1)", arith("-", alen("(local 1)"), int(1))) + " " +
+                                      "(prim arr.slice " + glob(effPending) + " " +
+                                        aget("(local 0)", int(R_PENDING)) + " " +
+                                        alen(glob(effPending)) + "))"),
+                               lit("unit")),
                         "(app " + aget(aget("(local 0)", int(R_ARMS)), "(local 2)") + " (local 1))")),
                       "(app " + glob(effFind) + " " + arith("-", "(local 3)", int(1)) +
                         " (local 2) (local 1))") + ")") + "))"
@@ -709,13 +871,64 @@ object BridgeV2:
               "(prim arr.push " + stack + " (local 1))",
               "(prim __tryFinally__ (lam 0 (app " + aget("(local 3)", int(0)) + " (local 2))) " +
                 "(lam 0 (prim arr.pop " + stack + ")))")) + ") " +                     // raw=0 before=1 rec=2
+            sq(List(
+              // A perform INSIDE the resumed computation ends here: its arm's value is this
+              // resume's value, exactly as `Exec.resumeCont` catches what is aimed at its own
+              // delimiter. Clearing the flag is what stops it travelling further out.
+              "(prim cell.set " + glob(effAborting) + " " + lit("false") + ")",
             ifThen(arith("!=", aget(aget("(local 2)", int(R_PERFORMS)), int(0)), "(local 1)"),
                    "(local 0)",
                    ifThen(aget("(local 2)", int(R_HASRET)),
                           "(app " + aget("(local 2)", int(R_RET)) + " (local 0))",
-                          "(local 0)")) +
+                          "(local 0)")))) +
           ")))" + "))"
-    List(defStack, defCurRec, defTop, defPerforms, defFind, defPerform, defResume).mkString(" ")
+    // ── crossing a call frame ────────────────────────────────────────────────
+    val pend = glob(effPending)
+    val defPending = "(def " + effPending + " (prim arr.new))"
+    val defPush = "(def " + effPush + " (lam 1 " + sq(List(
+      "(prim arr.push " + pend + " (local 0))", "(local 0)")) + "))"
+    val defPop  = "(def " + effPop  + " (lam 1 " + sq(List(
+      "(prim arr.pop " + pend + ")", "(local 0)")) + "))"
+    // PUSH THE INHERITED CHAIN BACK WHILE THE FIRST HALF RUNS. A resumed computation may perform
+    // AGAIN — two ticks of the same effect — and that inner perform's continuation owes the caller
+    // frames this one has not run yet. Parking them only around our own walk left the second perform
+    // composing with nothing, and `H:a|H:b|END` came out `H:a|END`: the first tick was right and the
+    // rest of the program was lost. `Exec.resumeCont` sets `pending = c.seg` for exactly this.
+    //
+    // And if the inner perform DID take them over, the flag says so and the walk is skipped — the
+    // inner arm's value is this resume's value, which is what `Exec` spells as catching the unwind
+    // aimed at its own delimiter.
+    val defPushAll = "(def " + effPushAll + " (lam 2 " +                   // chain=1, i=0
+      ifThen(arith(">=", "(local 0)", alen("(local 1)")),
+             lit("unit"),
+             sq(List("(prim arr.push " + pend + " " + aget("(local 1)", "(local 0)") + ")",
+                     "(app " + glob(effPushAll) + " (local 1) " + arith("+", "(local 0)", int(1)) + ")"))) + "))"
+    val defPopAll = "(def " + effPopAll + " (lam 2 " +                     // chain=1, i=0
+      ifThen(arith(">=", "(local 0)", alen("(local 1)")),
+             lit("unit"),
+             sq(List("(prim arr.pop " + pend + ")",
+                     "(app " + glob(effPopAll) + " (local 1) " + arith("+", "(local 0)", int(1)) + ")"))) + "))"
+    val defRun = "(def " + effRun + " (lam 3 " +                           // clos=2, chain=1, v=0
+      sq(List("(app " + glob(effPushAll) + " (local 1) " + int(0) + ")",
+              "(let ((app (local 2) (local 0))) " +                        // acc=0, clos=3, chain=2, v=1
+                sq(List("(app " + glob(effPopAll) + " (local 2) " + int(0) + ")",
+                        ifThen("(prim cell.get " + glob(effAborting) + ")",
+                               "(local 0)",
+                               "(app " + glob(effChain) + " (local 2) " + int(0) + " (local 0))"))) + ")")) + "))"
+    // `(lam 2)` — clos, chain — and the closure it RETURNS is `(lam 1)`, inside which the enclosing
+    // locals have each moved up by one. That shift is the one `armClos` documents.
+    val defCompose = "(def " + effCompose + " (lam 2 (lam 1 (app " + glob(effRun) +
+      " (local 2) (local 1) (local 0)))))"
+    // chain, i, acc — walk what the callers parked, innermost first, feeding each the last answer.
+    val defChain = "(def " + effChain + " (lam 3 " +
+      ifThen(arith(">=", "(local 1)", alen("(local 2)")),
+             "(local 0)",
+             "(app " + glob(effChain) + " (local 2) " + arith("+", "(local 1)", int(1)) +
+               " (app " + aget("(local 2)", "(local 1)") + " (local 0)))") + "))"
+    val defAborting = "(def " + effAborting + " (prim cell.new " + lit("false") + "))"
+    List(defStack, defCurRec, defTop, defPerforms, defFind, defPerform, defResume,
+         defPending, defPush, defPop, defCompose, defChain, defAborting,
+         defPushAll, defPopAll, defRun).mkString(" ")
 
   // ── instructions ────────────────────────────────────────────────────────────
   private def stmt(i: Instr, cx: Ctx, sh: Int): String = i match
@@ -762,6 +975,28 @@ object BridgeV2:
     case Instr.BrIf(c, d) => ifThen(read(c, sh), write(cx.ctl, int(d + 1), sh), lit("unit"))
 
     case Instr.Ret(a) => sq(List(write(cx.retVal, read(a, sh), sh), write(cx.ctl, int(-1), sh)))
+    case Instr.Call(d, fi, as) if cx.crossK >= 0 && cx.needsRest.contains(fi) =>
+      // A CALL `splitCallers` CUT THE CALLER AT. Three things happen around it and each is needed:
+      //
+      //   * the caller's remainder — already a closure in `cx.crossK` — is PARKED, so a perform
+      //     deeper down can compose it into the continuation it hands the arm;
+      //   * on a NORMAL return the parked closure is called with the result, which is how the
+      //     remainder still runs when the callee did not perform after all;
+      //   * on an ABORT it is not, because the value belongs to the `handle` and the remainder now
+      //     belongs to the continuation that took it over.
+      //
+      // The `pop` runs on both paths — it is the callee's own frame leaving, not a decision.
+      // SHIFTS: the `let`'s BINDING runs in the outer environment and stays at `sh`; only its BODY
+      // is one deeper. Getting that backwards reads register k at `sh+1`, which is textually the
+      // same as register k+1 at `sh` — the ambiguity the `Resume` comment below already paid for.
+      write(d, "(let (" + sq(List(
+                 "(app " + glob(effPush) + " " + read(cx.crossK, sh) + ")",
+                 "(app (global " + cx.m.funcs(fi).name + ")" + args(as, sh) + ")")) + ") " +
+                 sq(List("(app " + glob(effPop) + " " + int(0) + ")",
+                         ifThen("(prim cell.get " + glob(effAborting) + ")",
+                                "(local 0)",
+                                "(app " + read(cx.crossK, sh + 1) + " (local 0))"))) + ")", sh)
+
     case Instr.Call(d, fi, as) =>
       write(d, "(app (global " + cx.m.funcs(fi).name + ")" + args(as, sh) + ")", sh)
 
@@ -912,7 +1147,12 @@ object BridgeV2:
         mkarr((0 until cx.nOps).toList.map(o => lit(if ops.exists(_.op == o) then "true" else "false"))),
         ret.map(a => retClos(cx, a, sh)).getOrElse(lit("unit")),
         lit(if ret.isDefined then "true" else "false"),
-        mkarr(List(int(0)))))
+        mkarr(List(int(0))),
+        // How deep the caller-continuation stack was when this `handle` began: a perform takes only
+        // what was parked INSIDE it, never its own caller's remainder.
+        alen(glob(effPending)),
+        mkarr((0 until cx.nOps).toList.map(o =>
+          lit(if ops.find(_.op == o).exists(a => armIsCps(cx, a)) then "true" else "false")))))
       // Inside the `let` the record is `local 0` and the frame has moved to `local (sh+1)`. The
       // record's closures were built in the binding expression, one env shallower — which is why
       // `armClos` is passed `sh` and looks for the frame at `sh+1` from inside its own `lam`.
@@ -938,11 +1178,25 @@ object BridgeV2:
                               sh + 1),
                         lit("unit")),
                  lit("unit"))
-      "(let (" + rec + ") " + sq(List("(prim arr.push " + glob(effStack) + " (local 0))", run, lift)) + ")"
+      // The `handle` is where an abort stops: it clears the flag before the lift, so the value it
+      // holds is an ordinary one again for everything outside.
+      "(let (" + rec + ") " + sq(List("(prim arr.push " + glob(effStack) + " (local 0))", run,
+                                      "(prim cell.set " + glob(effAborting) + " " + lit("false") + ")",
+                                      lift)) + ")"
 
     case Instr.Perform(d, op, as) =>
       performIsAnswerable(cx, op)
-      write(d, "(app " + glob(effPerform) + " " + int(op) + " " + mkarr(as.map(r => read(r, sh))) + ")", sh)
+      // THE FLAG GOES UP WITH THE VALUE. The arm's result is the `handle`'s, and between here and
+      // there stand the callers `splitCallers` cut: each one has to hand it on rather than run its
+      // own remainder, which now belongs to the continuation. Cleared by whoever consumes it — the
+      // `handle`, or the `resume` that re-entered.
+      write(d, "(let ((app " + glob(effPerform) + " " + int(op) + " " +
+                 // The BINDING expression is evaluated in the outer environment — the `let` has not
+                 // bound anything yet — so the operands stay at `sh`. Reading them one deeper is the
+                 // shift mistake this file's `Resume` comment records paying for once already.
+                 mkarr(as.map(r => read(r, sh))) + ")) " +
+                 sq(List("(prim cell.set " + glob(effAborting) + " " + lit("true") + ")",
+                         "(local 0)")) + ")", sh)
 
     // Resuming IS calling: after `Cps.split` the continuation is an ordinary closure, so this is an
     // application with the return-clause rule wrapped round it.
@@ -1200,8 +1454,8 @@ object BridgeV2:
       // beside it: V-0 stands on a working mutable array, and `new Array[T](n)` was building one slot.
       List("(prim __method__ " + lit("(str \"fill\")") + " (ctor Array) " + int(n) + " " + int(0) + ")")
 
-  private def func(m: Module, f: Func): String =
-    val cx = Ctx(m, f)
+  private def func(m: Module, f: Func, crossK: Int = -1, needsRest: Set[Int] = Set.empty): String =
+    val cx = Ctx(m, f, crossK, needsRest)
     // Parameters arrive as lam binders, innermost LAST: inside `(lam P …)` param i is `local (P-1-i)`,
     // and the frame's `let` shifts every one of them by one. Measured against the oracle, not
     // reasoned about: `(lam 2 …)` puts the FIRST parameter at `local 1`.
@@ -1226,9 +1480,14 @@ object BridgeV2:
     // The effect runtime goes in only when something reaches it, so a module without effects emits
     // exactly the text it emitted before this feature existed — which is what makes the A/B of
     // everything else still comparable.
-    if usesEffects(m) then crossFrameRefusal(m)
+    // CROSSING A CALL FRAME. `splitCallers` turns the caller's remainder into a closure so the
+    // continuation can include it; what it cannot reach — a call inside an `if`, `loop` or `try`,
+    // whose remainder is not a suffix of any instruction list — is still refused by name.
+    val needsRest = if usesEffects(m) then crossFrameSet(m) else Set.empty[Int]
+    val (mm, kOf) = if needsRest.isEmpty then (m, Map.empty[String, Int]) else splitCallers(m, needsRest)
+    if usesEffects(mm) then crossFrameRefusal(mm)
     val eff = if usesEffects(m) then effectDefs + " " else ""
     val defs = (if cells.isEmpty then "" else cells + " ") + eff +
-      m.funcs.map(f => func(m, f)).mkString(" ")
-    val entryName = m.funcs(m.entry).name
+      mm.funcs.map(f => func(mm, f, kOf.getOrElse(f.name, -1), needsRest)).mkString(" ")
+    val entryName = mm.funcs(mm.entry).name
     "(program (defs " + defs + ") (entry (app (global " + entryName + "))))"

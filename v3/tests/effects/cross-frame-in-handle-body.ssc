@@ -1,0 +1,13 @@
+```scalascript
+effect C:
+  def w(msg: String): Unit
+
+def program(): Unit ! C =
+  C.w("first")
+  C.w("second")
+
+val lines = handle { program(); List() } {
+  case C.w(msg, resume) => msg :: resume(())
+}
+println(lines)
+```

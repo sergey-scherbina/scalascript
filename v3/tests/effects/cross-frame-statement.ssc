@@ -1,0 +1,17 @@
+```scalascript
+effect C:
+  def w(msg: String): Unit
+
+def prog(): Unit ! C =
+  C.w("a")
+  C.w("b")
+
+def body(): String ! C =
+  prog()
+  "END"
+
+val out = handle(body()) {
+  case C.w(msg, resume) => "H:" + msg + "|" + resume(())
+}
+println(out)
+```

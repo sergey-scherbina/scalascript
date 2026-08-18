@@ -2529,6 +2529,90 @@ predates any of the work that ran into it.
 The classifier now recognises that one sentence, and only it, as UNSUPPORTED — a second, narrow test
 rather than a loosening of the first, so a genuine stack trace still counts as a CRASH.
 
+## v3-bridge-cannot-cross-a-call-frame — fixed by building the closure the target cannot hand over
+
+<!-- status: open
+     lane: v3
+     area: runtime
+     kind: bug
+     gate: v3/effects-gate.sh
+     fixed-in: -
+     reported-by: claude-code
+     reported-at: 2026-08-18
+     repro: v3/tests/effects/cross-frame-statement.ssc, cross-frame-in-handle-body.ssc
+     impact: workaround -->
+
+The bridge refused a continuation that had to resume its CALLER — `Exec` captures those frames at
+run time and emitted v2 code cannot, because a v2 function has no way to hand over "the rest of me".
+
+**It does not have to.** The compiler can build that closure at the call site, which is what
+selective CPS is: convert only the part of the program that may perform. Filinski's
+*Representing Monads* (POPL 1994) is the same result from the other end — with `shift`/`reset` a
+monad needs no rewriting at all, and where the target has neither, the mechanical selective CPS is
+what remains. `handle` is the `reset`; an arm is the `shift`.
+
+    def body(): String ! C =
+      prog()          # performs
+      "END"
+    handle(body()) { case C.w(msg, resume) => "H:" + msg + "|" + resume(()) }
+
+    bridge before   a named refusal
+    bridge now      H:a|H:b|END
+
+`tests/conformance/effects-handler.ssc` prints its checked-in `List(first, second, third)` on the
+bridge for the first time. Corpus A/B on one tree with only `BridgeV2.scala` differing: N 260 -> 261,
+DIFF 0, CRASH 0. Both cross-frame shapes are fixtures now, agreeing on BOTH lanes — before this they
+could not be, because the bridge answered differently.
+
+### The shape
+
+`splitCallers` cuts a caller at a non-tail call to a function that may perform, exactly as `Cps` cuts
+at a perform. Two bodies are cut: a function's, and a `handle`'s — `handle { program(); List() }`
+puts the call in the second, and that is the shape the corpus uses.
+
+    g:  before
+        MkClos kc, g$c, <every register>
+        push kc; r = f(args); pop
+        if aborting then r else kc(r)
+
+**Neither half works alone.** `kc(r)` is what keeps the non-performing path right — without it the
+remainder is dropped whenever `f` happens not to perform. And it is only correct because an arm's
+value does not return through here: `Perform` raises a flag each split caller hands on, so `kc` runs
+exactly when `f` came back on its own.
+
+### Four things measured wrong first
+
+  * the `let` shift, twice. A binding expression is evaluated OUTSIDE its `let`, so its operands stay
+    at `sh`; this file already records paying for that once, because reading register k one level
+    deep is textually identical to reading register k+1 at the right depth.
+  * a resumed computation may perform AGAIN, and that inner perform owes the caller frames this one
+    has not run yet — so the continuation re-parks them while its first half runs. Without it
+    `H:a|H:b|END` came out `H:a|END`: the first tick right and the rest of the program lost.
+  * composition must be guarded by ENCODING. A tail-resumptive arm has no continuation, and a nullary
+    operation has an empty argument array — composing blind read index -1 and `handle-tail-resumptive`
+    died inside v2. The record now carries the encoding per operation, which the emitter knows
+    statically.
+  * the region refusal had to stop testing for a tail call: the splitter's own output tripped it and
+    refused what had just been repaired.
+
+### What is left, and what it needs
+
+A call inside an `if`, `loop` or `try`. A region's remainder is not a suffix of any instruction list,
+so there is nothing to make a closure of — `Cps.scala`'s header calls this step 3.
+
+**The shape of the answer is join points made explicit:** outline the remainder after a region into a
+continuation, park it around the region, and call it on the normal exit; each branch then ends in a
+transfer to it, and a region's inside becomes a suffix again, which the splitter above already
+handles.
+
+**The one thing that is NOT mechanical there** is registers. This splitter captures them by value,
+which is correct only because nothing returns to the original frame after a split. Code after an `if`
+must see what the branch wrote, so a join continuation has to SHARE the frame rather than copy it —
+expressible here, since `(lam 0 …)` does not shift locals on this lane and the `handle` body already
+relies on that. The cost to state plainly when it is done: a frame-sharing continuation is not
+multi-shot, so a multi-shot arm resuming through a region wants a clone, the way `Exec` clones a
+frame per arm activation.
+
 ## uniml-markdown-left-the-portable-subset-while-its-guard-ran-nowhere
 
 <!-- status: fixed
