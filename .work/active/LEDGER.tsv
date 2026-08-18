@@ -1,6 +1,5 @@
-# generation: 2740
+# generation: 2741
 #slug	agent	started	items	paths
-native-undefined-pattern-name	claude-code	2026-08-18T18:53:18Z	an-undefined-name-in-a-pattern-means-three-different-things	file:specs/v2.2-p6.5-fsub.ssc file:v2/lib/ssc1-lower.ssc0 file:tests/e2e/pattern-undefined-name-gate.sh file:BUGS.md
 v3-jvm-interop	claude-code	2026-08-18T19:54:08Z	v3-jvm-package-imports	file:v3/src/Loader.scala file:v3/src/Lower.scala file:v3/plugins/JvmInterop.scala file:v3/plugins/V2Fleet.scala file:v3/SPRINT.md file:v3/BUGS.md
 server-backend-maven-repo	claude-code	2026-08-18T20:03:40Z	emitted-server-backend-coordinate-resolves-nowhere	file:build.sbt file:.github/workflows/pages.yml file:.github/workflows/native-release.yml file:.github/workflows/ci.yml file:v1/tools/cli/src/main/scala/scalascript/cli/Main.scala file:v1/tools/cli/src/test/scala/scalascript/cli/ServerBackendInjectionTest.scala file:tests/e2e/server-backend-resolvable-gate.sh file:tests/e2e/emitted-coordinate-is-published.sh file:scripts/smoke-ci.ssc file:tests/smoke-baseline.tsv file:specs/http-server-backends.md file:docs/user-guide.md mod:releases file:BUGS.md
 bridge-caller-cps	claude-code	2026-08-18T20:08:37Z	v3-bridge-cannot-cross-a-call-frame	file:BUGS.md file:v3/src/BridgeV2.scala
