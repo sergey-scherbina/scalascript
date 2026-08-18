@@ -5903,8 +5903,21 @@ object RustCodeWalk:
     val argIsClosureParam = arg match
       case m.Term.Name(n) => ctx.closureParams.contains(n)
       case _              => false
+    // A CALL whose callee has a KNOWN return type that is NOT `Value` — `def n(): Int` handed to
+    // `def g(x: Any)` — is the ordinary shape this list never had, and it is five lines to
+    // reproduce with no object and no package anywhere: `expected Value, found i64`. The three
+    // widenings above each added one shape; this adds the one every program writes.
+    //
+    // Bounded by "known and not empty" rather than made total. `mapType` answers the empty string
+    // for `Unit` and for a type it cannot resolve, and `From` is not implemented for every Rust
+    // type this backend can produce — so an unresolved callee keeps today's behaviour instead of
+    // being handed a lift that may not exist. (rust-any-parameter-does-not-lift-a-call-result.)
+    val argIsTypedCall = arg match
+      case m.Term.Apply.After_4_6_0(m.Term.Name(f), _) =>
+        _returnTypes.get(f).exists(rt => rt.nonEmpty && rt != "crate::value::Value")
+      case _ => false
     if target == "crate::value::Value" then
-      argIsCaseClass || argIsValue || isLiteralish(arg) || argIsClosureParam
+      argIsCaseClass || argIsValue || isLiteralish(arg) || argIsClosureParam || argIsTypedCall
     // A CONTAINER of `Any` — `Map[String, Any]`, `List[Any]` — is the same boundary one level down:
     // `HashMap<String, i64>` does not coerce to `HashMap<String, Value>` on its own. The element
     // map below is the identity when the argument already holds `Value`s, so this can fire on any

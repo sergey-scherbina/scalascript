@@ -895,6 +895,16 @@ jobs:
         if: always()          # see the block above this job's steps
         run: tests/e2e/rust-sibling-arg-coercion-gate.sh
 
+      # `def n(): Int` handed to `def g(x: Any)` was `expected Value, found i64` — five lines, no
+      # object and no package anywhere. The rule that decides the lift recognised a case class, an
+      # already-`Value` expression, a literal and a closure parameter; a plain CALL is the shape
+      # every program writes and the one nobody had added. Three return types are checked because
+      # the rule is bounded by "the callee's return type is known", which `Unit` and an unresolved
+      # type both fail. ~40 s, one cargo build.
+      - name: a call handed to an Any parameter is lifted
+        if: always()          # see the block above this job's steps
+        run: tests/e2e/rust-any-call-lift-gate.sh
+
       # `spawn`, the other half of the rozum std/process pair (`process-needs-a-detached-spawn`):
       # `exec` WAITS by construction, so an HTTP handler starting a five-minute agent run could hold
       # the connection for five minutes or not start it — every launch route of their port stopped

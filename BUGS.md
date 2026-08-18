@@ -25,12 +25,12 @@ Newest first.
 
 ## rust-any-parameter-does-not-lift-a-call-result — `show(n())` at a `v: Any` parameter, five lines
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: codegen
      kind: bug
-     gate: -
-     fixed-in: -
+     gate: tests/e2e/rust-any-call-lift-gate.sh
+     fixed-in: unrecorded
      reported-by: claude-code
      reported-at: 2026-08-18
      ssc-version: 1496ba89c
@@ -71,6 +71,26 @@ careful is that `From` is not implemented for every Rust type this backend can p
 reference, a closure, `()` — so "always true" is not obviously safe, and the honest next step is to
 widen to *an apply whose callee has a known, non-`Value` return type* and measure the survey, not to
 widen to everything and hope.
+
+### FIXED 2026-08-18 — one clause, bounded by what `mapType` can answer
+
+`needsAnyCoercion` now also says yes for an apply whose callee has a KNOWN return type that is not
+`Value`. Bounded rather than made total on purpose: `mapType` answers the empty string for `Unit`
+and for a type it cannot resolve, and `From` is not implemented for every Rust type this backend can
+produce — so an unresolved callee keeps today's behaviour instead of being handed a lift that may
+not exist.
+
+THE GATE CHECKS THREE RETURN TYPES AND ALL THREE WERE BROKEN, which is more than the entry above
+claimed. `i64` and `String` were the expected pair; the third, a def returning a case class, was
+expected to pass already because `argIsCaseClass` exists — it does NOT cover it, because that clause
+matches a CONSTRUCTOR APPLICATION `Point(1, 2)` and `pt()` is a call to a def that returns one.
+Measured, not assumed: the negative control fails with three E0308, not two.
+
+Verified: `tests/e2e/rust-any-call-lift-gate.sh` PASS, all three rows compared against `run`
+(`v=Point(1, 2)` included, so the Value variant is right and not merely present), plus a row that
+fails if the oracle stops producing three lines. Negative control: with the clause removed and the
+compiler rebuilt, `build-rust` fails with three E0308. `rust-std-survey` 77 REFUSED / 55 COMPILES
+with BADRUST not grown; `v1-jit-size` PASS.
 
 Not gated: no gate is filed with an open entry. The gate that closes this runs the five lines above
 on `build-rust` and compares with `run` — a compile-only row would pass on a binary that prints the
