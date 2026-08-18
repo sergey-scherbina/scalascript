@@ -83,7 +83,7 @@ wrong thing.
      area: codegen
      kind: bug
      gate: tests/e2e/rust-sibling-arg-coercion-gate.sh
-     fixed-in: unrecorded
+     fixed-in: 09b139ea4
      reported-by: claude-code
      reported-at: 2026-08-18
      ssc-version: 646fe53df
