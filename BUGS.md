@@ -2671,6 +2671,81 @@ relies on that. The cost to state plainly when it is done: a frame-sharing conti
 multi-shot, so a multi-shot arm resuming through a region wants a clone, the way `Exec` clones a
 frame per arm activation.
 
+## v3-a-continuation-could-not-resume-into-a-region — `if`, `try` and a loop's back edge, crossed
+
+<!-- status: open
+     lane: v3
+     area: runtime
+     kind: bug
+     gate: v3/effects-gate.sh
+     fixed-in: -
+     reported-by: claude-code
+     reported-at: 2026-08-19
+     repro: see below, two shapes
+     impact: workaround -->
+
+A call to a performing function inside an `if`, a `loop` or a `try` was REFUSED: the frame captured
+there has a remainder that is a suffix of the REGION, and everything after the region would be lost.
+`Cps.scala`'s header calls this step 3.
+
+```scalascript
+def body(flag: Boolean): String ! C =
+  if flag then
+    prog()          # performs
+    "yes"
+  else
+    "no"
+handle(body(true)) { case C.w(msg, resume) => "H:" + msg + "|" + resume(()) }
+```
+
+Refused before; `H:a|yes` now, which is what v1 and native answer. A `while` whose body calls a
+performing function answers `t0t1|0|1`, matching v1 exactly.
+
+### It needed no pass, and that corrects what this entry was going to say
+
+The plan written into `v3-bridge-cannot-cross-a-call-frame` was join-point outlining: move a region's
+remainder into a function so the inside becomes a suffix again. For the EXECUTOR that turns out to be
+unnecessary, and the reason is worth keeping — **a region does not open a frame**. It runs in the
+frame around it, so both remainders share one register array and there is nothing to thread. All that
+was missing was recording the enclosing level's remainder on the way IN:
+
+  * `stepFramed` pushes a `PendingFrame` for a region as it does for a call. `d = -2` marks it: a
+    region receives no value into a register the way a call does.
+  * The chain a perform captures is then region-suffix, enclosing suffix, caller frames — the whole
+    rest of the computation.
+
+An outlined region would have needed a liveness analysis, because a called function writes its OWN
+registers and the code after the region reads them. Nine lines and no analysis, because the frame is
+shared.
+
+**A LOOP NEEDED ONE THING MORE.** A resumed loop-body remainder ends in `Branch(0)` — the back edge —
+and a frame that knows only "finish this list" cannot answer it. The frame recorded for a `loop`
+carries its BODY, so the walk keeps iterating exactly as `Instr.Loop` does (fall off the end to exit,
+`Branch(0)` to repeat) and only then runs what follows the loop. The fact travels one frame outward
+rather than being decided where it arises, which is why the loop's own frame is the one that answers.
+
+### Two things measured wrong first
+
+  * a snapshot has to KEEP ITS SHARING. Region frames share the array of the level around them, and
+    cloning each frame separately broke that: the branch wrote into its own copy and the enclosing
+    suffix read a stale one, so `resume(())` answered `()` where the computation said `yes`. One
+    clone per distinct array, by identity.
+  * a `ret` INSIDE a region leaves the FUNCTION, so the region frames of that activation are dead
+    and must be skipped, not run. Without it the value a returning branch produced was handed to an
+    empty region frame and fell through to unit.
+
+### What is still refused, by name
+
+  * a branch PAST the enclosing loop — `break` out of more than one level. The chain records depth
+    per frame, not per branch, so it does not know how many frames to unwind.
+  * a `perform` standing DIRECTLY inside a region. That is `Cps`'s own step 3 and a different thing
+    from this entry: such a perform is never split, so only the tail-resumptive fast path runs it.
+    What this work crossed is a CALL to a performing function, not a perform in place.
+  * the same shapes on the v2 BRIDGE. Its answer is not this one: a bridge continuation is built by
+    `MkClos`, which captures registers by VALUE, so a region continuation there has to SHARE the
+    frame instead — expressible, since `(lam 0 …)` does not shift locals on that lane, but it has to
+    be built by the EMITTER rather than by an IR pass, which is a different piece of work.
+
 ## uniml-markdown-left-the-portable-subset-while-its-guard-ran-nowhere
 
 <!-- status: fixed

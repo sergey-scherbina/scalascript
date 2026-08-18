@@ -323,8 +323,13 @@ object Exec:
     * its remainder is a suffix of the REGION and not of the enclosing list, so a continuation captured
     * there would silently drop everything after the region. That one is REFUSED rather than answered,
     * which is this executor's standing rule about effects it cannot run. */
+  /** `loopBody` is non-empty only for the frame recorded on the way into a `loop`, and it is what
+    * lets a continuation resume THROUGH one. A resumed loop-body remainder ends in `Branch(0)` — the
+    * back edge — and a frame that only knows "finish this list" cannot answer that; carrying the
+    * body means the walk can go on iterating exactly as `Instr.Loop` does, and only then run the
+    * remainder after the loop. */
   private[ssc3] final case class PendingFrame(m: Module, rest: List[Instr], regs: Array[Value],
-                                              d: Int, fall: Int)
+                                              d: Int, fall: Int, loopBody: List[Instr] = Nil)
   private[ssc3] inline val FuncLevel   = -1
   private[ssc3] inline val RegionLevel = -2
   private var pending: List[PendingFrame] = Nil
@@ -396,6 +401,24 @@ object Exec:
     * head. A deep handler's `k(w)` is `h(rest(w))`, so the clause applies exactly when the rest did
     * NOT perform; when it did, the value is already an arm's result and lifting twice nested the
     * list-monad answer three deep. */
+  /** A SNAPSHOT OF A SEGMENT THAT KEEPS ITS SHARING. Frames opened at CALLS each have their own
+    * register array; frames opened on the way into a REGION share the array of the level around
+    * them, because a region does not open a frame. Cloning per frame breaks that: the region's
+    * suffix wrote into its own copy and the enclosing suffix read a stale one, so `resume(())`
+    * answered `()` where the computation said `yes`. One clone per DISTINCT array, by identity.
+    *
+    * Called at capture — a multi-shot arm must start each resume from the state the first one saw —
+    * and again per resume, so the second does not inherit what the first wrote. */
+  private def cloneSeg(seg: List[PendingFrame]): List[PendingFrame] =
+    val seen = new java.util.IdentityHashMap[Array[Value], Array[Value]]()
+    seg.map { f =>
+      var c = seen.get(f.regs)
+      if c == null then
+        c = f.regs.clone()
+        seen.put(f.regs, c)
+      f.copy(regs = c)
+    }
+
   private def resumeCont(m: Module, c: Value.VCont, v: Value): Value =
     val before = c.h.performs
     // THE HANDLER IS REINSTALLED FOR THE DURATION. A deep handler's continuation may perform again —
@@ -423,13 +446,28 @@ object Exec:
         // starts where the first one did. `pending` is set to the frames still outstanding, so a
         // perform inside a resumed frame captures its own rest and not this one's.
         var acc  = apply1(m, c.clos, v)
-        var seg  = c.seg
+        var seg  = cloneSeg(c.seg)
+        // A `ret` INSIDE A REGION LEAVES THE FUNCTION, so the region frames of that same activation
+        // are dead and must be skipped rather than run. Without this the value a returning branch
+        // produced was handed to an empty region frame, which fell through to unit and `resume(())`
+        // answered `()` where the computation said `yes`. Cleared at the next CALL frame, which is
+        // where the next activation begins.
+        var skipping = false
+        // A resumed loop-body remainder ends in `Branch(0)`. The frame that answers it is the LOOP's
+        // own, one step further out, so the fact travels there rather than being decided here.
+        var backEdge = false
         while seg.nonEmpty do
             val f = seg.head
             seg = seg.tail
             pending = seg
-            val r = f.regs.clone()
-            r(f.d) = acc
+            // NOT CLONED HERE — `cloneSeg` above already made this resume's copies, and cloning
+            // again per frame would undo the sharing it exists to preserve.
+            if skipping && f.d == -2 then ()
+            else
+              skipping = false
+              val r = f.regs
+              // `d = -2` is a REGION frame: it resumes a remainder, it does not receive a value.
+              if f.d >= 0 then r(f.d) = acc
             // FALLING THROUGH MEANS TWO DIFFERENT THINGS, and getting them the same way was the one
             // bug this walk had. A FUNCTION body that runs off its end returns unit — `callFunc`'s
             // rule, and these frames are function-body remainders. The OUTERMOST frame is not: it is
@@ -437,12 +475,43 @@ object Exec:
             // destination register rather than from a `ret`. Treating it like a function gave unit,
             // so `resume(())` answered `()` where the rest of the handled computation said `END` —
             // the segment was walked correctly and then its result was thrown away at the last step.
-            acc = exec(f.m, f.rest, r, f.fall) match
-              case Signal.Ret(x) => x
-              case Signal.Done   => if f.fall >= 0 then r(f.fall) else Value.VUnit
-              case other         => throw ExecError(
-                "a continuation frame ended with " + other + "; only a value or a fall-through can " +
-                "leave one")
+              // AT THE LOOP'S OWN FRAME, with a back edge pending: keep iterating, exactly as
+              // `Instr.Loop` does — fall off the end to exit, `Branch(0)` to repeat — and only then
+              // run what follows the loop. This is the whole of resuming into a loop body: the
+              // remainder of the interrupted iteration ran in the frame before this one.
+              val loopSig =
+                if backEdge && f.loopBody.nonEmpty then
+                  backEdge = false
+                  var out: Signal = Signal.Done
+                  var looping = true
+                  while looping do
+                    exec(f.m, f.loopBody, r, RegionLevel) match
+                      case Signal.Branch(0) => ()
+                      case Signal.Branch(dd) => out = Signal.Branch(dd - 1); looping = false
+                      case Signal.Done       => looping = false
+                      case other             => out = other; looping = false
+                  out
+                else Signal.Done
+              (loopSig match
+                 case Signal.Ret(x) => Signal.Ret(x)
+                 case _             => exec(f.m, f.rest, r, f.fall)) match
+                case Signal.Ret(x) => acc = x; skipping = true
+                case Signal.Branch(0) => backEdge = true
+                case Signal.Done   => acc = (if f.fall >= 0 then r(f.fall) else Value.VUnit)
+                // A LOOP IS THE ONE REGION THIS CHAIN STILL CANNOT RESUME INTO, and it says so
+                // by name rather than by leaking a `Signal`. A resumed loop-body remainder ends in
+                // `Branch`, meaning "take the back edge" — the continuation would have to RE-ENTER
+                // the loop, and a frame models "finish this list", not "run this region again".
+                // `if` and `try` need no such thing: their remainders run once and fall out.
+                // A branch PAST the enclosing loop — `break` out of more than one level — is the
+                // one shape left: the chain would have to know how many region frames it unwinds,
+                // and it records depth per frame rather than per branch.
+                case Signal.Branch(dd) => throw ExecError(
+                  "a continuation resumed into a `loop` and its remainder branched out " + dd +
+                  " level(s); v3 crosses a back edge but not a break past the loop it is in")
+                case other         => throw ExecError(
+                  "a continuation frame ended with " + other + "; only a value or a fall-through " +
+                  "can leave one")
         acc
       catch
         // A PERFORM INSIDE THE RESUMED COMPUTATION belongs HERE, not to the `handle`: `k(1)` in
@@ -716,10 +785,27 @@ object Exec:
     val d = ins match
       case Instr.Call(dd, _, _)  => dd
       case Instr.CallV(dd, _, _) => dd
+      // A REGION IS RECORDED TOO, and that is what lets a continuation resume out of one.
+      //
+      // A call inside an `if`, a `loop` or a `try` used to be refused: the frame captured there has
+      // a remainder that is a suffix of the REGION, and everything after the region would be lost.
+      // Nothing had to be outlined to fix it — the enclosing level's remainder is another
+      // (instructions, registers) pair, exactly what a `PendingFrame` already is, and it is recorded
+      // here on the way IN. The chain a perform then captures is region-suffix, then enclosing
+      // suffix, then the caller frames: the whole rest of the computation.
+      //
+      // NO LIVENESS ANALYSIS IS INVOLVED, which is the reason this is nine lines rather than a pass:
+      // a region runs in its ENCLOSING frame, so both remainders share one register array and there
+      // is nothing to thread. `d = -2` marks a frame that places no value — a region does not
+      // produce one into a register the way a call does — and `resumeCont` skips the write for it.
+      case _: Instr.If | _: Instr.Loop | _: Instr.Switch | _: Instr.Block | _: Instr.Try => -2
       case _                     => -1
-    if d < 0 then step(m, ins, regs)
+    if d == -1 then step(m, ins, regs)
     else
-      pending = PendingFrame(m, rest, regs, d, fall) :: pending
+      val lb = ins match
+        case Instr.Loop(b) => b
+        case _             => Nil
+      pending = PendingFrame(m, rest, regs, d, fall, lb) :: pending
       try step(m, ins, regs) finally pending = pending.tail
 
   /** TWO WALKERS, CHOSEN ONCE PER BODY. The frame recording below is needed only inside a `handle`,
@@ -1117,17 +1203,13 @@ object Exec:
               throw ExecError("a handler for operation " + op + " is on the stack with no live " +
                               "activation; this is an executor invariant, not a program error"))
             val depth = pending.length - act.pendingDepth
-            val seg   = pending.take(if depth > 0 then depth else 0)
-                               .map(f => f.copy(regs = f.regs.clone()))
-            // A FRAME OPENED INSIDE A REGION CANNOT BE RESUMED, so it is refused rather than
-            // half-answered: its remainder is a suffix of the `if`/`loop`/`try` it sits in, and
-            // resuming it would silently skip everything after that region.
-            seg.find(_.fall == RegionLevel).foreach { _ =>
-              throw ExecError(
-                "operation " + op + " was performed under a call made inside an `if`, `loop` or " +
-                "`try`, and the continuation would have to resume into that region — v3 captures a " +
-                "continuation only across whole function bodies and the `handle` body")
-            }
+            val seg   = cloneSeg(pending.take(if depth > 0 then depth else 0))
+            // NO REFUSAL FOR A REGION ANY MORE. It used to say a continuation could not resume
+            // into an `if`/`loop`/`try` because the frame's remainder was a suffix of the region
+            // rather than of the function — true of that ONE frame, and answered by recording the
+            // enclosing level's remainder as its own frame (see `stepFramed`). The chain now runs
+            // region-suffix, then enclosing suffix, then callers, and the register array is shared
+            // all the way down because a region does not open a frame of its own.
             frame(arm.k) = Value.VCont(args.last, h, seg)
             // The arm RETURNS its value — the lowering ends every arm body with a `Ret`, so there
             // is one place the answer comes from rather than a register the executor has to guess.
