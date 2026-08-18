@@ -103,12 +103,12 @@ will otherwise re-derive it: the ceiling the gate enforces is `F contradicted by
 
 ## smoke-red-for-everyone-on-coursier-jvm-index-429 — every push failed in `Setup Scala CLI`, before a test ran
 
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: build
      kind: apparatus
      gate: -
-     fixed-in: -
+     fixed-in: unrecorded
      reported-by: claude-code
      reported-at: 2026-08-17
      ssc-version: 5b767c82e
@@ -185,6 +185,33 @@ still failing immediately before the push, so a green attributes.
 
 **What holds until then:** local `scripts/smoke-ci` is the only usable evidence, and `evidence
 level 1` is unavailable to everybody. Releases in this window should say so rather than wait.
+
+### RESOLVED 2026-08-18 by GitHub, not by us — and verified without a push
+
+```text
+14:19  first red        Setup Scala CLI / Set up job
+15:47  twelfth red      (the window: every agent, every push)
+16:16  index answers 200
+16:2x  smoke RE-RUN on 5b767c82e — completed/success
+```
+
+The recovery was checked the honest way: `gh run rerun` on the SAME sha, no new commit. A green from
+a fresh push would have carried a new tree and proved less; re-running an unchanged one isolates the
+environment as the only thing that moved.
+
+**`fixed-in: unrecorded` is the accurate marker.** The sentinel `specs/bugs-index.md` defines for
+"fixed, provenance missing" fits an outage nobody here fixed: it ended upstream. Calling it `wontfix`
+would be wrong (it is not still broken) and `unknown` would be wrong too (it is classified).
+
+**The practical residue, and the reason this entry is worth keeping.** Twelve red runs in that window
+belong to work that was fine. Anybody holding one should RE-RUN it — `gh run rerun <id>`, no commit —
+rather than re-doing the work or hunting their own change. That is stated in the room as well.
+
+**The workflow fix stays reverted, and re-landing it now cannot be sold as a cure.** Its verification
+recipe required the index to be failing at push time so a green would attribute; the index answers
+200, so a green today would only mean "nothing broke". If it is re-landed it should be filed as a
+RESILIENCE change — it removes a dependency on an external service that failed twice in one
+afternoon — with that weaker claim stated plainly, not as a fix for this entry.
 
 ## js-exec-import-is-a-syntax-error — `[exec, …](std/process.ssc)` emits a bundle that does not PARSE
 
