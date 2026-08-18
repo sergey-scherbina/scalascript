@@ -23,6 +23,84 @@ Newest first.
 
 
 
+## two-fronts-number-generated-ui-signals-differently — same refusal, different counter
+
+<!-- status: fixed
+     lane: native
+     area: front
+     kind: bug
+     reported-by: claude-code
+     reported-at: 2026-08-16
+     confirmed: yes
+     fixed-at: 2026-08-17
+     fixed-in: 6a3834920
+     gate: tests/e2e/f-ui-signal-counter-gate.sh -->
+
+Three corpus files refuse on BOTH fronts with the same diagnostic and a different generated number:
+
+```
+examples/frontend/busi-home-demo/busi-home-demo.ssc
+  F    duplicate native UI signal '__computed__d346:fieldErr…
+  ref  duplicate native UI signal '__computed__d364:fieldErr…
+examples/frontend/form-demo/form-demo.ssc          F d342  /  ref d360
+examples/frontend/std-ui/styled-primitives.ssc     F d263  /  ref d272
+```
+
+The refusal is the same defect on both lanes — a duplicate UI signal — so neither front is answering
+wrongly. What differs is the COUNTER baked into the synthesized name, which means the two fronts walk
+a different number of declarations before reaching the same one. That is a real divergence and it is
+the kind that hides: as long as both lanes refuse, no output gate can see it, and the moment the
+duplicate-signal defect is fixed the two fronts will start emitting differently-named globals for the
+same program.
+
+**Not the front cache**, checked rather than assumed: `SSC_FRONT_CACHE=off` reproduces F's number
+exactly, on all three. Two further files joined the same bucket in the same run
+(`tests/conformance/tkv2-busi-home.ssc`, `tkv2-tri-state.ssc`) and are also cache-neutral — their
+first lines agree across all three lanes, so they diverge deeper than `head -1` and want their own
+look.
+
+### FIXED 2026-08-17 — it closed on its own, and the mechanism was not the one this entry guessed
+
+**The entry guessed the two fronts walk a different NUMBER of declarations. Measured, they do not.**
+`SSC_DUMP_DEFS` on both lanes for all three files:
+
+```
+form-demo          F 481   ref 481     identical in name AND order
+busi-home-demo     F 509   ref 509     identical in name AND order
+styled-primitives  F 377   ref 377     identical in name AND order
+```
+
+and the ids now agree — `__computed__d360` / `d364` / `__equality__d272` on both fronts, F having
+moved UP to the reference's numbers from `d342` / `d346` / `d263`. It closed as a side effect of F's
+coverage work (the guarded-arm fix landed between the two measurements and moved DECLINED 207 -> 194);
+the attribution is circumstantial and is not claimed as more than that.
+
+**The instrument had to be fixed before any of this could be measured.** `SSC_DUMP_DEFS` printed the
+F lane always and the reference lane only inside the delegate-fallback — so for any file F compiles,
+the reference side came back EMPTY. A first pass read that as "the reference emits 0 definitions",
+which is the shape of `an-instrument-that-covers-one-path-reads-absence-as-evidence`: a 0 from an
+unwired path is not data. `RunNativeV2` now dumps on the legacy lane too.
+
+**What is NOT fixed is the fragility, and it is structural.** `NativeUiSites.annotate` builds the id
+from `program.defs.zipWithIndex`, so the ordinal is positional: one dropped or reordered definition
+renames every generated signal after it, for the same program, silently, on programs that RUN. The
+id already carries the owner's name, so the ordinal adds nothing to uniqueness — but the format is
+pinned by backend tests (`SwiftBackendTest` asserts `__computed__10:localeText:0`), and changing it
+would paper over divergent IR rather than catch it. So the property is guarded instead:
+`f-ui-signal-counter-gate` asserts both fronts emit the same definitions in the same ORDER, with a
+zero-check first, because two empty lists compare equal and would report green while measuring
+nothing. Both guard rows verified RED — the order row prints "the names match as a set, so a count
+check alone would pass", which is the case it exists for.
+
+**Where it came from.** The agreement gate's DISAGREE bucket went 4 -> 9 between two runs of mine.
+The runs straddle ~80 sibling commits, and the five new rows are all cache-neutral, so they arrived
+with that work rather than with the cache. Recorded here because the next person to read that bucket
+will otherwise re-derive it: the ceiling the gate enforces is `F contradicted by BOTH other lanes`
+(still 0), and DISAGREE is "both fail, different message" — informative, not failing.
+
+**MOVED HERE FROM `tests/BUGS.md` 2026-08-18**, on `tests/e2e/area-map-gate.sh`'s verdict: the
+`fixed-in` commit touches code this board owns (the root board is cross-module by design, and this defect spans two fronts). Filed-on-board is where the module's fixers read.
+
 ## smoke-red-for-everyone-on-coursier-jvm-index-429 — every push failed in `Setup Scala CLI`, before a test ran
 
 <!-- status: open

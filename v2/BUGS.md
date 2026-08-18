@@ -7,6 +7,78 @@ grepping for status.
 
 Newest first.
 
+## ui-anonymous-signal-collides-when-its-helper-is-called-twice — a form with two fields dies
+
+<!-- status: fixed
+     lane: native
+     area: runtime
+     kind: bug
+     reported-by: claude-code
+     reported-at: 2026-08-17
+     fixed-at: 2026-08-17
+     fixed-in: ab32972cb
+     confirmed: yes
+     gate: tests/e2e/ui-computed-signal-gate.sh -->
+
+`std/ui/form.ssc` names the shape itself:
+
+```scalascript
+def fieldError(f: Form, name: String): Any = {
+  val sp = spec(f, name)
+  val d  = f.drafts(name)
+  val vf = validateField
+  computedSignal(() => vf(sp, d()))
+}
+```
+
+`fieldError` is called once per FIELD, so every call reached the same lexical `computedSignal` site
+and asked for the same signal id. `makeSignal` reuses a cell when kind and declared default match —
+which is exactly what makes a re-render idempotent — and throws when they differ. So two fields with
+different validation results died on
+
+```
+ssc: duplicate native UI signal '__computed__d64:doubled/root/body' in scope 'root'
+     has conflicting kind/default
+```
+
+Reduced to eight lines: `def doubled(s) = computedSignal(() => s() * 2)`, called twice. The first
+call prints, the second throws. **A helper wrapping an anonymous signal is not an exotic shape — it
+is how std/ui itself is written**, which is why this blocked three corpus files rather than one.
+
+### Two cells, and the second was found by walking to it
+
+A census of the plugin: exactly TWO primitives name a signal from its POSITION rather than from
+something the program supplies — `computedSignal` and `eqSignal`. Everything else takes a
+caller-supplied name (`signal`, `persistedSignal`, the fetch family) or is a singleton (`__hash__`,
+`__online__`), which is why only these two ever collided. Fixing `computedSignal` alone moved
+`examples/frontend/std-ui/styled-primitives.ssc` from failing on `__computed__` to failing on
+`__equality__` — the same defect one primitive over. Both now go through one helper.
+
+### The suffix starts at the SECOND occurrence, deliberately
+
+The occurrence counter already existed for keyed views (`renderKeyed`) and is cleared by
+`resetEvaluationState`, so it restarts every evaluation pass and a signal keeps its identity across
+re-renders as long as the call order does — the contract keyed views already rely on. Numbering from
+the second occurrence keeps every id that works today byte-identical: these ids are compared between
+the two fronts (`f-ui-signal-counter-gate`) and asserted in backend tests
+(`SwiftBackendTest` pins `__computed__10:localeText:0`), so renaming every anonymous signal would be
+a much larger change than the defect.
+
+### Measured after
+
+`styled-primitives.ssc` runs (`styled:ok`). `form-demo.ssc` and `busi-home-demo.ssc` get past this
+and stop on an unrelated `native TLS server requires a future server-host extension`, with BOTH
+fronts agreeing. Gate rows carry DIFFERENT values per call (`2|20`, `true|false`) so a fix that
+collapsed the calls onto one signal would fail rather than pass — a row asserting only "it does not
+throw" would have accepted that.
+
+**Not caused by this, checked rather than assumed**: `serve-view-frontend-v2-smoke` is red on
+`contentCurrentSection() is unavailable`, and reverting this change and rebuilding reproduces it
+identically.
+
+**MOVED HERE FROM `tests/BUGS.md` 2026-08-18**, on `tests/e2e/area-map-gate.sh`'s verdict: the
+`fixed-in` commit touches code this board owns. Filed-on-board is where the module's fixers read.
+
 ## v2-ui-provider-lacks-forJsonView-and-blocks-eight-unrelated-tests — five primitives, and each needs THREE parts
 
 <!-- status: open
