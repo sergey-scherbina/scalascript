@@ -135,7 +135,7 @@ The typer performs:
 Current implementation note: some exported summaries and route/schema metadata
 still fall back to `Any` when the local typer cannot prove a shape. The planned
 tightening pass is specified in
-[`specs/typer-real-types-roadmap.md`](typer-real-types-roadmap.md); it keeps
+[`specs/typer-real-types-roadmap.md`](../specs/typer-real-types-roadmap.md); it keeps
 `Any` as an explicit dynamic boundary while carrying structured type evidence
 through exported symbols, routes/remotes, schemas, typed data mapping, Spark,
 and plugins.
@@ -201,8 +201,8 @@ trait Session extends AutoCloseable:
   def close(): Unit
 ```
 
-Full design + open questions: [`specs/backend-spi.md`](backend-spi.md);
-out-of-process wire protocol: [`specs/backend-spi-protocol.md`](backend-spi-protocol.md).
+Full design + open questions: [`specs/backend-spi.md`](../specs/backend-spi.md);
+out-of-process wire protocol: [`specs/backend-spi-protocol.md`](../specs/backend-spi-protocol.md).
 
 **Bundled adapters** (each in its own sbt subproject):
 

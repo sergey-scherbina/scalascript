@@ -232,7 +232,7 @@ ssc> :set errorDetails true    # re-enable (default)
 errorDetails = true
 ```
 
-See [`specs/repl-web.md`](repl-web.md) and [`specs/mount-handlers.md`](mount-handlers.md)
+See [`specs/repl-web.md`](../specs/repl-web.md) and [`specs/mount-handlers.md`](../specs/mount-handlers.md)
 for the full command reference, handler-file contract, and typed-handler deserialization rules.
 
 ### Standard `run`/`build-jvm` and explicit `ssc-tools` compatibility
@@ -910,10 +910,10 @@ controls:
 ````
 
 ```scalascript
-[contentToolkitNode](std/ui/content.ssc)
-[lower](std/ui/lower.ssc)
-[defaultTheme](std/ui/theme.ssc)
-[serve](std/ui/primitives.ssc)
+[contentToolkitNode](../std/ui/content.ssc)
+[lower](../std/ui/lower.ssc)
+[defaultTheme](../std/ui/theme.ssc)
+[serve](../std/ui/primitives.ssc)
 
 val page = lower(contentToolkitNode(), defaultTheme)
 serve(page, 8099)
@@ -972,14 +972,14 @@ declares `component=<name>` metadata, register the matching renderer explicitly
 and pass it through `contentToolkitOptionsWithComponents`:
 
 ```scalascript
-[contentData](std/content.ssc)
-[contentComponent, contentToolkitBlock, contentToolkitSection, contentToolkitOptionsWithBindings, contentToolkitOptionsWithComponents](std/ui/content.ssc)
-[vstack](std/ui/layout.ssc)
-[heading](std/ui/typography.ssc)
-[rawText](std/ui/reactive.ssc)
-[lower](std/ui/lower.ssc)
-[defaultTheme](std/ui/theme.ssc)
-[serve](std/ui/primitives.ssc)
+[contentData](../std/content.ssc)
+[contentComponent, contentToolkitBlock, contentToolkitSection, contentToolkitOptionsWithBindings, contentToolkitOptionsWithComponents](../std/ui/content.ssc)
+[vstack](../std/ui/layout.ssc)
+[heading](../std/ui/typography.ssc)
+[rawText](../std/ui/reactive.ssc)
+[lower](../std/ui/lower.ssc)
+[defaultTheme](../std/ui/theme.ssc)
+[serve](../std/ui/primitives.ssc)
 
 val planList = contentComponent("PlanList") { ctx =>
   vstack(gap = 4)(
@@ -1032,8 +1032,8 @@ The lower-level `View` renderer remains available when exact HTML-like Markdown
 shape is more important than toolkit composition:
 
 ```scalascript
-[contentDocument](std/content.ssc)
-[contentView](std/ui/content.ssc)
+[contentDocument](../std/content.ssc)
+[contentView](../std/ui/content.ssc)
 val page = contentView(contentDocument())
 ```
 
@@ -1041,7 +1041,7 @@ val page = contentView(contentDocument())
 `contentViewSection`, and `contentViewBlock` lower that snapshot to low-level
 frontend `View` values. Imports may be written as separate Markdown paragraphs
 or grouped in one pure import paragraph, for example
-`[contentDocument](std/content.ssc) [contentView](std/ui/content.ssc)`.
+`[contentDocument](../std/content.ssc) [contentView](../std/ui/content.ssc)`.
 
 Lower-level lookup helpers read the same Markdown snapshot without lowering it
 to UI nodes. These helpers run in the interpreter and in generated JS/JVM
@@ -1049,7 +1049,7 @@ output, so Markdown-authored metadata can drive CLI output, browser codegen,
 and generated Scala programs with the same source:
 
 ```scalascript
-[contentDocument, contentCurrentSection, contentSection, contentBlock, contentData, contentMetadata, contentBind, contentPlainText, contentToMarkdown](std/content.ssc)
+[contentDocument, contentCurrentSection, contentSection, contentBlock, contentData, contentMetadata, contentBind, contentPlainText, contentToMarkdown](../std/content.ssc)
 
 val doc = contentDocument()
 val here = contentCurrentSection()
@@ -1099,8 +1099,8 @@ the imported path stem when `name:` is absent. Helper imports of
 table:
 
 ```scalascript
-[money](std/money.ssc)
-[contentModuleSection, contentModuleData, contentModuleMetadata](std/content.ssc)
+[money](../std/money.ssc)
+[contentModuleSection, contentModuleData, contentModuleMetadata](../std/content.ssc)
 
 val section = contentModuleSection(
   "std-money",
@@ -1651,7 +1651,7 @@ def greetUser(): String ! Reader[String] =
 runReader("Alice")(greetUser())   // "Hello, Alice!"
 ```
 
-See [`specs/algebraic-effects.md`](algebraic-effects.md) for the full spec.
+See [`specs/algebraic-effects.md`](../specs/algebraic-effects.md) for the full spec.
 
 ### Scala 3 control API (explicit Tier 1 + lexical direct M1)
 
@@ -2166,14 +2166,14 @@ declarations have been collected.
 Planned, not implemented yet: a shared contract-validation command family will
 check OpenAPI and GraphQL contracts against ScalaScript route/resolver source,
 typed request/response shapes, status/error metadata, profiles, and overlays.
-See [`specs/contract-validation.md`](contract-validation.md) for the planned
+See [`specs/contract-validation.md`](../specs/contract-validation.md) for the planned
 model.
 
 Per-route operation metadata can be attached to the next `route(...)` call with
 `@openapi(...)`:
 
 ```scalascript
-[openapi](std/openapi.ssc)
+[openapi](../std/openapi.ssc)
 
 @openapi(summary = "Get user", description = "Returns a user.", tags = List("users"))
 route("GET", "/users/:id") { req => Response.json(Map("id" -> req.params("id"))) }
@@ -2183,7 +2183,7 @@ Supported fields are `summary`, `description`, `tags`, `deprecated`, and
 `security`. Declare reusable security schemes with `openApiSecurity(...)`:
 
 ```scalascript
-[openapi, openApiSecurity](std/openapi.ssc)
+[openapi, openApiSecurity](../std/openapi.ssc)
 
 openApiSecurity("bearerAuth", "bearer", "JWT")
 
@@ -2283,7 +2283,7 @@ Mounted on `/greet/:name`, a request `GET /greet/alice?lang=es` fills `name` fro
 (name: String, req: Request, ctx: Map[String, Any]) // all three
 ```
 
-See [`specs/mount-handlers.md`](mount-handlers.md) for the full typed handler signature table and deserialization rules.
+See [`specs/mount-handlers.md`](../specs/mount-handlers.md) for the full typed handler signature table and deserialization rules.
 
 ### Request and Response
 
@@ -2398,8 +2398,8 @@ Tool schemas can be explicit JSON Schema strings through `agentTool`, or
 derived from a typed case-class input through `AgentSchema`:
 
 ```scalascript
-[AgentSchema, agentToolFor, toolOk](std/agent.ssc)
-[jStr, jNum, jField, jObj](std/json.ssc)
+[AgentSchema, agentToolFor, toolOk](../std/agent.ssc)
+[jStr, jNum, jField, jObj](../std/json.ssc)
 
 case class PostTransaction(amount: Int, memo: String) derives AgentSchema
 
@@ -2422,7 +2422,7 @@ Use explicit `agentTool(..., parametersJson)` for custom constraints, enums, or
 unsupported shapes.
 
 ```scalascript
-[AgentEndpoint, RunOptions, runAgentStream](std/agent.ssc)
+[AgentEndpoint, RunOptions, runAgentStream](../std/agent.ssc)
 
 val result = runAgentStream(
   AgentEndpoint("http://localhost:18089"),
@@ -2446,7 +2446,7 @@ For bounded ordered failover across several rozum gateways, build an
 `AgentEndpointPool` and call the pool variants:
 
 ```scalascript
-[AgentEndpoint, AgentEndpointPool, RunOptions, runAgentPool](std/agent.ssc)
+[AgentEndpoint, AgentEndpointPool, RunOptions, runAgentPool](../std/agent.ssc)
 
 val pool = AgentEndpointPool(List(
   AgentEndpoint("http://primary.internal:18089"),
@@ -2535,8 +2535,8 @@ fsync → atomic rename) and single-writer via a cross-process lock, and every v
 its rowid, not the stored NULL).
 
 ```scalascript
-[SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
-[jdbcOpen, jdbcExecuteUpdate, jdbcExecuteQuery, rsNext, rsHasRow, rsGetString](std/scljet/jdbc.ssc)
+[SqlInteger, SqlText, buildTableDatabase](../std/scljet/index.ssc)
+[jdbcOpen, jdbcExecuteUpdate, jdbcExecuteQuery, rsNext, rsHasRow, rsGetString](../std/scljet/jdbc.ssc)
 
 buildTableDatabase(512, 1, 1, "books", "CREATE TABLE books(id INTEGER PRIMARY KEY, title TEXT)",
   List(List(SqlInteger(1L), SqlText("SICP")))) match
@@ -2740,12 +2740,12 @@ through the Electron main/preload bridge. Current behavior:
 - Browser/web builds still use the localStorage-backed fallback when no
   Electron bridge exists.
 
-For details and the active bridge rollout, see [`electron-sql.md`](electron-sql.md)
-and [`electron-persistence-bridge.md`](electron-persistence-bridge.md).
+For details and the active bridge rollout, see [`electron-sql.md`](../specs/electron-sql.md)
+and [`electron-persistence-bridge.md`](../specs/electron-persistence-bridge.md).
 
 For apps that should run backend routes on the JVM and use Electron only as the
 desktop client, see the planned
-[`electron-jvm-rest-backend.md`](electron-jvm-rest-backend.md) mode.
+[`electron-jvm-rest-backend.md`](../specs/electron-jvm-rest-backend.md) mode.
 
 The first explicit Electron/JVM REST dev mode is available as
 `ssc run --frontend electron --backend jvm-rest app.ssc`: the CLI starts the JVM
@@ -2808,7 +2808,7 @@ socket. Swing `dataTable` can also load rows and delete them through the same
 transport adapter. Generated JVM/Swing typed clients use that transport too.
 Broader frontend client selection is still planned. Distributed clients, browser-to-JVM apps, and
 server-only/client-only split commands remain HTTP/REST. See
-[`fullstack-in-process-transport.md`](fullstack-in-process-transport.md).
+[`fullstack-in-process-transport.md`](../specs/fullstack-in-process-transport.md).
 
 **JVM desktop frontend (Swing).** `ssc run-jvm --frontend swing app.ssc`
 compiles through the JVM backend and launches the JDK-only Swing runtime in the
@@ -2844,7 +2844,7 @@ A typed-client variant is
 Automated `ssc build --target desktop-jvm` is planned but not yet implemented.
 
 JavaFX and Compose Desktop remain future adapters. See
-[`jvm-desktop-frontend.md`](jvm-desktop-frontend.md).
+[`jvm-desktop-frontend.md`](../specs/jvm-desktop-frontend.md).
 
 **Planned, partially implemented: typed route clients.** Front matter can
 declare typed client endpoint metadata with `apiClients:` / `api-clients:`; the
@@ -2873,7 +2873,7 @@ facade now uses `scalascript.typeddata.JsonCodec[T]`, including derived
 case-class codecs; JS/browser/Electron clients pass request/response type names
 through the same facade and use generated runtime codec metadata to rebuild
 known case-class/enum response shapes. See
-[`typed-route-clients.md`](typed-route-clients.md).
+[`typed-route-clients.md`](../specs/typed-route-clients.md).
 
 **Partially implemented: browser client storage APIs.** Client frontends may use
 standard browser storage when SQL is the wrong shape for the data. JS/browser
@@ -2931,7 +2931,7 @@ with five fields useful for driving sync badges and indicators:
 `Sync.isOnline` is a boolean property reflecting `navigator.onLine` in browsers
 (`true` in Node/tests where the property is absent). `Sync.isSyncing("store",
 "db")` returns `true` while any async sync operation is running for that store.
-See [`client-server-object-store.md`](client-server-object-store.md) and
+See [`client-server-object-store.md`](../specs/client-server-object-store.md) and
 `examples/sync-todo.ssc` for the full API.
 
 **Planned, partially implemented: graph storage.** Graph-shaped data is planned
@@ -2950,7 +2950,7 @@ in-memory, `embedded-tinkergraph`, and `rdf4j-memory` stores plus
 runtime case-class values.
 Production adapters such as Neo4j/Cypher, JanusGraph/TinkerPop providers, and
 RDF4J-compatible servers remain planned. See
-[`graph-storage.md`](graph-storage.md).
+[`graph-storage.md`](../specs/graph-storage.md).
 
 **Planned, partially implemented: typed mapping across stores.** Typed mapping
 across stores is planned as a shared codec layer rather than one universal ORM.
@@ -3026,7 +3026,7 @@ This keeps SQL, IndexedDB, ObjectStore sync, property graphs, RDF, MapReduce,
 and Spark convenient without hiding their different query models. Existing
 Spark support remains available today; deeper Spark encoder/schema convergence
 with the shared mapping annotations is still planned. See
-[`data-mapping.md`](data-mapping.md).
+[`data-mapping.md`](../specs/data-mapping.md).
 
 ### `transaction` fenced blocks
 
@@ -3266,7 +3266,7 @@ class VaultResolver extends scalascript.sql.SecretResolver:
 
 Usage in front-matter: `${vault:secret/myapp/db#password}`
 
-See [`secret-resolvers.md`](../secret-resolvers.md) for the full spec — Vault, AWS SM, GCP SM, Azure KV, Doppler, 1Password, pass.
+See [`secret-resolvers.md`](../specs/secret-resolvers.md) for the full spec — Vault, AWS SM, GCP SM, Azure KV, Doppler, 1Password, pass.
 
 ---
 
@@ -3633,7 +3633,7 @@ object Printer extends Visitor[Ast]:
 [Card as ChartCard](./charts/card.ssc)
 
 <!-- Multiple import links in one pure Markdown paragraph -->
-[money, minorUnits](std/money.ssc) [Right, foldEither](std/either.ssc)
+[money, minorUnits](../std/money.ssc) [Right, foldEither](../std/either.ssc)
 ```
 
 A Markdown paragraph is treated as imports when it contains only import links
@@ -4110,7 +4110,7 @@ stream.writeStream.format("console").start()
 ```
 
 Examples: `spark-streaming-rate-console.ssc`, `spark-streaming-file-parquet.ssc`,
-`spark-streaming-kafka.ssc`. Full spec: [`specs/spark-streaming.md`](spark-streaming.md).
+`spark-streaming-kafka.ssc`. Full spec: [`specs/spark-streaming.md`](../specs/spark-streaming.md).
 
 ### 13.7 Delta Lake (Lakehouse L.2)
 
@@ -4124,7 +4124,7 @@ val back = spark.read.format("delta").load("/tmp/users-delta")
 ```
 
 Iceberg / Hudi are deferred until upstream publishes Spark 4 + `_2.13`
-artifacts. Full spec: [`specs/spark-lakehouse.md`](spark-lakehouse.md).
+artifacts. Full spec: [`specs/spark-lakehouse.md`](../specs/spark-lakehouse.md).
 
 ### 13.8 Hive metastore + `@TempView` (Phase G)
 
@@ -4163,7 +4163,7 @@ val metrics = Dataset.fromCsvAs[UserMetric](
 The reader schema uses the external `display_name` column, then projects it
 back to `name` before Spark's `Encoder[UserMetric]` materializes the dataset.
 
-Full spec: [`specs/spark-catalog.md`](spark-catalog.md).
+Full spec: [`specs/spark-catalog.md`](../specs/spark-catalog.md).
 
 ### 13.9 MLlib (Phase M)
 
@@ -4186,7 +4186,7 @@ model.save("/tmp/model")
 val loaded = PipelineModel.load("/tmp/model")
 ```
 
-Full spec: [`specs/spark-mllib.md`](spark-mllib.md).
+Full spec: [`specs/spark-mllib.md`](../specs/spark-mllib.md).
 
 ### 13.10 Cluster submission (`ssc submit`)
 
@@ -4260,7 +4260,7 @@ parameter clause and a non-`Unit` return) is supported; a raw `Array[String]`
 expansion run on the WASM path. (`@wasmExport` / `@wasmImport` are out of scope
 by design.)
 
-Full reference: [`specs/wasm-backend.md`](wasm-backend.md).
+Full reference: [`specs/wasm-backend.md`](../specs/wasm-backend.md).
 
 ---
 
@@ -4290,8 +4290,8 @@ ShowSignal(count.get > 5) { text("big") }
 ForSignal(items) { item => li { text(item.title) } }
 ```
 
-See [`specs/frontend-framework-spi-plan.md`](frontend-framework-spi-plan.md) and
-[`specs/frontend-abstract-model.md`](frontend-abstract-model.md). Examples
+See [`specs/frontend-framework-spi-plan.md`](../specs/frontend-framework-spi-plan.md) and
+[`specs/frontend-abstract-model.md`](../specs/frontend-abstract-model.md). Examples
 under `examples/frontend/`.
 
 ---
@@ -4347,19 +4347,19 @@ calls `serve(lower(...), port)` or `emit(lower(...), dir)`.
 Import selectively from each `std/ui` sub-module:
 
 ```markdown
-[signal, seedSignal, serve, fetchUrlSignal, fetchAction, fetchActionClear, incSignal](std/ui/primitives.ssc)
-[lower](std/ui/lower.ssc)
-[defaultTheme](std/ui/theme.ssc)
-[vstack, hstack, divider, spacer](std/ui/layout.ssc)
-[heading, text](std/ui/typography.ssc)
-[textField, checkbox, signalButton, actionButton](std/ui/input.ssc)
-[webauthnRegister, webauthnAssert](std/ui/webauthn.ssc)
-[showWhen, signalText_, fragment_, forKeyed, rawText, rawHtml](std/ui/reactive.ssc)
-[loadState, stateName, errorText, triState, triStateText](std/ui/state.ssc)
-[badge, spinner, signalPre](std/ui/display.ssc)
-[card, cardWithHeader, modal](std/ui/containers.ssc)
-[tableCol, tableRow, table, sortableTable, fcol, rowDelete, rowPost, rowLink, rowEdit, dataTable](std/ui/data.ssc)
-[route, router, link, hashRouter](std/ui/routing.ssc)
+[signal, seedSignal, serve, fetchUrlSignal, fetchAction, fetchActionClear, incSignal](../std/ui/primitives.ssc)
+[lower](../std/ui/lower.ssc)
+[defaultTheme](../std/ui/theme.ssc)
+[vstack, hstack, divider, spacer](../std/ui/layout.ssc)
+[heading, text](../std/ui/typography.ssc)
+[textField, checkbox, signalButton, actionButton](../std/ui/input.ssc)
+[webauthnRegister, webauthnAssert](../std/ui/webauthn.ssc)
+[showWhen, signalText_, fragment_, forKeyed, rawText, rawHtml](../std/ui/reactive.ssc)
+[loadState, stateName, errorText, triState, triStateText](../std/ui/state.ssc)
+[badge, spinner, signalPre](../std/ui/display.ssc)
+[card, cardWithHeader, modal](../std/ui/containers.ssc)
+[tableCol, tableRow, table, sortableTable, fcol, rowDelete, rowPost, rowLink, rowEdit, dataTable](../std/ui/data.ssc)
+[route, router, link, hashRouter](../std/ui/routing.ssc)
 ```
 
 Only import what you use — unused imports do not affect bundle size.
@@ -4406,7 +4406,7 @@ Signal names are global, so a reusable widget function that calls
 one namespace per instance. Props are just the function's typed parameters.
 
 ```scalascript
-[Ctx, component, ctxSignal](std/ui/component.ssc)
+[Ctx, component, ctxSignal](../std/ui/component.ssc)
 
 def counterCard(key: String, label: String): TkNode =
   component("counterCard", key)(ctx => {
@@ -4430,7 +4430,7 @@ init, tests, event closures).
 
 ```scalascript
 [localStorageGet, localStorageSet, localStorageRemove,
- onlineSignal, persistedSignal](std/ui/offline.ssc)
+ onlineSignal, persistedSignal](../std/ui/offline.ssc)
 
 val draft  = persistedSignal("draft", "")   // survives a reload
 val online = onlineSignal()                  // Signal[Boolean], navigator.onLine
@@ -4453,8 +4453,8 @@ error wins over empty, and ready content is shown only when all three guards
 are clear.
 
 ```scalascript
-[signal](std/ui/primitives.ssc)
-[loadState, stateName, triStateText](std/ui/state.ssc)
+[signal](../std/ui/primitives.ssc)
+[loadState, stateName, triStateText](../std/ui/state.ssc)
 
 val loading = signal("invoicesLoading", false)
 val empty   = signal("invoicesEmpty", false)
@@ -4476,8 +4476,8 @@ example: `examples/std-ui/tri-state-demo.ssc`.
 #### Forms — validators as data (`std/ui/form.ssc`)
 
 ```scalascript
-[Ctx, component](std/ui/component.ssc)
-[field, form, formField, submitGate](std/ui/form.ssc)
+[Ctx, component](../std/ui/component.ssc)
+[field, form, formField, submitGate](../std/ui/form.ssc)
 
 component("signup", "main")(ctx => {
   val f = form(ctx, [
@@ -4514,9 +4514,9 @@ base64url-encoded response to a complete endpoint, then writes either the
 server response body to a result signal or a concise failure to an error signal.
 
 ```scalascript
-[signal](std/ui/primitives.ssc)
-[actionButton](std/ui/input.ssc)
-[webauthnRegister, webauthnAssert](std/ui/webauthn.ssc)
+[signal](../std/ui/primitives.ssc)
+[actionButton](../std/ui/input.ssc)
+[webauthnRegister, webauthnAssert](../std/ui/webauthn.ssc)
 
 val result = signal("passkeyResult", "")
 val error  = signal("passkeyError", "")
@@ -4895,15 +4895,15 @@ frontend: react
 
 # Sign-up demo
 
-[signal, serve](std/ui/primitives.ssc)
-[lower](std/ui/lower.ssc)
-[defaultTheme](std/ui/theme.ssc)
-[vstack, hstack, divider, spacer](std/ui/layout.ssc)
-[heading, text](std/ui/typography.ssc)
-[textField, checkbox, signalButton, actionButton](std/ui/input.ssc)
-[showWhen, signalText_, fragment_, rawText](std/ui/reactive.ssc)
-[badge](std/ui/display.ssc)
-[cardWithHeader, modal](std/ui/containers.ssc)
+[signal, serve](../std/ui/primitives.ssc)
+[lower](../std/ui/lower.ssc)
+[defaultTheme](../std/ui/theme.ssc)
+[vstack, hstack, divider, spacer](../std/ui/layout.ssc)
+[heading, text](../std/ui/typography.ssc)
+[textField, checkbox, signalButton, actionButton](../std/ui/input.ssc)
+[showWhen, signalText_, fragment_, rawText](../std/ui/reactive.ssc)
+[badge](../std/ui/display.ssc)
+[cardWithHeader, modal](../std/ui/containers.ssc)
 
 ```scalascript
 val name      = signal[String]("name",      "")
@@ -5080,7 +5080,7 @@ val html = Ssr.renderToHtml(tree, Theme.default)
 val doc  = Ssr.renderDocument(tree, title = "Demo", theme = Theme.dark)
 ```
 
-Spec: [`specs/frontend-toolkit-spec.md`](frontend-toolkit-spec.md).
+Spec: [`specs/frontend-toolkit-spec.md`](../specs/frontend-toolkit-spec.md).
 Cross-backend integration: [`docs/frontend-usage.md`](frontend-usage.md).
 
 ---
@@ -5204,10 +5204,10 @@ cluster Demo:
   quorum(2)
 ```
 
-Specs: [`specs/cluster-management.md`](cluster-management.md),
-[`specs/cluster-raft.md`](cluster-raft.md),
-[`specs/cluster-federation.md`](cluster-federation.md),
-[`specs/client-zookeeper.md`](client-zookeeper.md).
+Specs: [`specs/cluster-management.md`](../specs/cluster-management.md),
+[`specs/cluster-raft.md`](../specs/cluster-raft.md),
+[`specs/cluster-federation.md`](../specs/cluster-federation.md),
+[`specs/client-zookeeper.md`](../specs/client-zookeeper.md).
 
 ---
 
@@ -5264,11 +5264,11 @@ creates RAW transactions via `/v1/transactions`, and polls
 `/v1/transactions/{id}` until the signature is completed or failed.
 
 Specs:
-- [`specs/x402.md`](x402.md) — protocol + flows
-- [`specs/blockchain-spi.md`](blockchain-spi.md) — pluggable backends (EVM, Bitcoin, Solana, Cardano)
-- [`specs/micropayment-spi.md`](micropayment-spi.md) — payment family abstraction
-- [`specs/wallet-vault-mpc.md`](wallet-vault-mpc.md) — MPC remote signing vaults
-- [`specs/mcp-x402-wallet.md`](mcp-x402-wallet.md) — MCP × x402 paid LLM tools
+- [`specs/x402.md`](../specs/x402.md) — protocol + flows
+- [`specs/blockchain-spi.md`](../specs/blockchain-spi.md) — pluggable backends (EVM, Bitcoin, Solana, Cardano)
+- [`specs/micropayment-spi.md`](../specs/micropayment-spi.md) — payment family abstraction
+- [`specs/wallet-vault-mpc.md`](../specs/wallet-vault-mpc.md) — MPC remote signing vaults
+- [`specs/mcp-x402-wallet.md`](../specs/mcp-x402-wallet.md) — MCP × x402 paid LLM tools
 
 Examples: `x402-server.ssc`, `x402-client.ssc`, `x402-metamask.ssc`,
 `x402-cardano.ssc` (end-to-end Cardano flow with CIP-8 wallet + Scalus
@@ -5870,7 +5870,7 @@ same directory you run `ssc` from.
 ### 23.6 Full example
 
 See [examples/pwa/pwa-demo.ssc](../examples/pwa/pwa-demo.ssc) and
-[specs/pwa-plugin.md](pwa-plugin.md) for the full spec and architecture notes.
+[specs/pwa-plugin.md](../specs/pwa-plugin.md) for the full spec and architecture notes.
 
 ---
 
@@ -5892,7 +5892,7 @@ its capability globals. Compiler/tools compatibility keeps its existing
 interpreter plugin behavior.
 
 ```scalascript
-[nfcCapabilities, nfcPermissionStatus, textRecord, uriRecord, mimeRecord](std/nfc.ssc)
+[nfcCapabilities, nfcPermissionStatus, textRecord, uriRecord, mimeRecord](../std/nfc.ssc)
 
 val caps = nfcCapabilities()
 println("NFC supported: " + caps.supported)
@@ -6044,7 +6044,7 @@ java -Dssc.features.darkMode=true   -jar myapp.jar
 ssc run -J-Dscalascript.frontend=vue myapp.ssc
 ```
 
-See [`specs/config-system.md`](config-system.md) §2.4 and §3.1 for the full priority order.
+See [`specs/config-system.md`](../specs/config-system.md) §2.4 and §3.1 for the full priority order.
 
 ## 24. REPL Debugger (v1.34)
 
@@ -6117,7 +6117,7 @@ ssc> 1 + 2
 | `:help` | `:h` | Show all debug commands |
 | `:quit` | `:q` | Stop snippet, return to `ssc>` |
 
-See [specs/repl-debugger.md](repl-debugger.md) for the full reference including
+See [specs/repl-debugger.md](../specs/repl-debugger.md) for the full reference including
 threading model, `:print` semantics, and known limitations.
 
 ---
@@ -6169,7 +6169,7 @@ ssc-tools publish --target macos --appstore --team-id TEAM \
 `ReactiveSignal[T]` lowers to `@State private var` in the generated Swift
 source.
 
-Full reference: [`specs/swiftui.md`](swiftui.md).
+Full reference: [`specs/swiftui.md`](../specs/swiftui.md).
 
 ---
 
@@ -6412,7 +6412,7 @@ Redis/Postgres backends in v1.53.7).
 | `ProviderUnreachable` | Network/PSP outage — retry with backoff |
 | `RateLimitExceeded(retryAfter)` | Too many requests — wait and retry |
 
-Full reference: [`specs/traditional-payments.md`](traditional-payments.md),
+Full reference: [`specs/traditional-payments.md`](../specs/traditional-payments.md),
 [`examples/traditional-payments.ssc`](../examples/traditional-payments.ssc).
 
 ---
@@ -6603,30 +6603,30 @@ operations, native sum Mirrors, and broader generated-backend edge cases.
 
 ### Feature Quick-Links
 
-- Typed algebraic effects: §4, [specs/algebraic-effects.md](algebraic-effects.md)
+- Typed algebraic effects: §4, [specs/algebraic-effects.md](../specs/algebraic-effects.md)
 - Algebraic effects: §4, `docs/architecture.md`
 - Direct syntax: [docs/direct-syntax.md](direct-syntax.md)
-- Coroutines + generators: [specs/coroutines.md](coroutines.md)
+- Coroutines + generators: [specs/coroutines.md](../specs/coroutines.md)
 - Scala 3 control API: §4 above, [lexical macro contract](../specs/scala3-control-macros.md), [Scala/JVM host profile](../specs/scala3-bidirectional-control.md), [runnable Scala example](../v2/host/scala/control/src/test/scala/scalascript/controlapi/examples/ControlApiExample.scala)
-- DSL authoring: [specs/dsl.md](dsl.md)
-- Dataset / MapReduce: [specs/mapreduce.md](mapreduce.md)
-- **SQL databases + secret management: §6, §6.2, [secret-resolvers.md](../secret-resolvers.md)**
-- Apache Spark: §14 above, [specs/spark-streaming.md](spark-streaming.md), [specs/spark-lakehouse.md](spark-lakehouse.md), [specs/spark-catalog.md](spark-catalog.md), [specs/spark-mllib.md](spark-mllib.md)
-- Actors + cluster: [specs/actors-dist.md](actors-dist.md), [specs/cluster-management.md](cluster-management.md)
-- Frontend toolkit + framework SPI: [specs/frontend-toolkit-spec.md](frontend-toolkit-spec.md), [specs/frontend-framework-spi-plan.md](frontend-framework-spi-plan.md)
-- x402 micropayments + wallet SPI: [specs/x402.md](x402.md), [specs/wallet-spi.md](wallet-spi.md), [specs/wallet-spi-scalajs.md](wallet-spi-scalajs.md), [specs/blockchain-spi.md](blockchain-spi.md), [specs/micropayment-spi.md](micropayment-spi.md)
+- DSL authoring: [specs/dsl.md](../specs/dsl.md)
+- Dataset / MapReduce: [specs/mapreduce.md](../specs/mapreduce.md)
+- **SQL databases + secret management: §6, §6.2, [secret-resolvers.md](../specs/secret-resolvers.md)**
+- Apache Spark: §14 above, [specs/spark-streaming.md](../specs/spark-streaming.md), [specs/spark-lakehouse.md](../specs/spark-lakehouse.md), [specs/spark-catalog.md](../specs/spark-catalog.md), [specs/spark-mllib.md](../specs/spark-mllib.md)
+- Actors + cluster: [specs/actors-dist.md](../specs/actors-dist.md), [specs/cluster-management.md](../specs/cluster-management.md)
+- Frontend toolkit + framework SPI: [specs/frontend-toolkit-spec.md](../specs/frontend-toolkit-spec.md), [specs/frontend-framework-spi-plan.md](../specs/frontend-framework-spi-plan.md)
+- x402 micropayments + wallet SPI: [specs/x402.md](../specs/x402.md), [specs/wallet-spi.md](../specs/wallet-spi.md), [specs/wallet-spi-scalajs.md](../specs/wallet-spi-scalajs.md), [specs/blockchain-spi.md](../specs/blockchain-spi.md), [specs/micropayment-spi.md](../specs/micropayment-spi.md)
 - MCP: [specs/mcp.md](mcp.md)
-- Metaprogramming: [specs/metaprogramming.md](metaprogramming.md), [specs/arch-metaprogramming-v2.md](arch-metaprogramming-v2.md)
+- Metaprogramming: [specs/metaprogramming.md](../specs/metaprogramming.md), [specs/arch-metaprogramming-v2.md](../specs/arch-metaprogramming-v2.md)
 - Error handling: [docs/error-handling.md](error-handling.md)
-- Backend SPI: [specs/backend-spi.md](backend-spi.md)
+- Backend SPI: [specs/backend-spi.md](../specs/backend-spi.md)
 - Compiler plugins with intrinsics: §21 above, `examples/plugins/crypto-plugin/`
-- Config system (YAML/HOCON/JSON + typed binding): §22 above, [specs/config-system.md](config-system.md)
-- Progressive Web App: §23 above, [specs/pwa-plugin.md](pwa-plugin.md)
-- REPL debugger: §24 above, [specs/repl-debugger.md](repl-debugger.md)
-- SwiftUI / iOS / macOS native targets: §25 above, [specs/swiftui.md](swiftui.md)
+- Config system (YAML/HOCON/JSON + typed binding): §22 above, [specs/config-system.md](../specs/config-system.md)
+- Progressive Web App: §23 above, [specs/pwa-plugin.md](../specs/pwa-plugin.md)
+- REPL debugger: §24 above, [specs/repl-debugger.md](../specs/repl-debugger.md)
+- SwiftUI / iOS / macOS native targets: §25 above, [specs/swiftui.md](../specs/swiftui.md)
 - **Deploy plugin (`ssc deploy`): §26 above, [`examples/deploy.ssc`](../examples/deploy.ssc)**
-- **Traditional payment processors: §27 above, [specs/traditional-payments.md](traditional-payments.md), [`examples/traditional-payments.ssc`](../examples/traditional-payments.ssc)**
-- GraalVM native binary: §28 above, [specs/native-platform.md](native-platform.md), [docs/native-plugin-guide.md](native-plugin-guide.md)
-- Library packages: §29 above, [specs/arch-library-modularity.md](arch-library-modularity.md)
-- Restricted quoted macros: §30 above, [specs/arch-metaprogramming-v2.md](arch-metaprogramming-v2.md)
-- Mirror-based custom derives: §31 above, [specs/arch-metaprogramming-v2.md](arch-metaprogramming-v2.md)
+- **Traditional payment processors: §27 above, [specs/traditional-payments.md](../specs/traditional-payments.md), [`examples/traditional-payments.ssc`](../examples/traditional-payments.ssc)**
+- GraalVM native binary: §28 above, [specs/native-platform.md](../specs/native-platform.md), [docs/native-plugin-guide.md](native-plugin-guide.md)
+- Library packages: §29 above, [specs/arch-library-modularity.md](../specs/arch-library-modularity.md)
+- Restricted quoted macros: §30 above, [specs/arch-metaprogramming-v2.md](../specs/arch-metaprogramming-v2.md)
+- Mirror-based custom derives: §31 above, [specs/arch-metaprogramming-v2.md](../specs/arch-metaprogramming-v2.md)

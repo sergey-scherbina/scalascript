@@ -68,12 +68,12 @@ DocumentContent(
 The first public path is frontend lowering:
 
 ```scalascript
-[contentComponent, contentToolkitNode, contentToolkitBlock, contentToolkitSection, contentToolkitOptionsWithBindings, contentToolkitOptionsWithComponents](std/ui/content.ssc)
-[vstack](std/ui/layout.ssc)
-[heading](std/ui/typography.ssc)
-[rawText](std/ui/reactive.ssc)
-[lower](std/ui/lower.ssc)
-[defaultTheme](std/ui/theme.ssc)
+[contentComponent, contentToolkitNode, contentToolkitBlock, contentToolkitSection, contentToolkitOptionsWithBindings, contentToolkitOptionsWithComponents](../std/ui/content.ssc)
+[vstack](../std/ui/layout.ssc)
+[heading](../std/ui/typography.ssc)
+[rawText](../std/ui/reactive.ssc)
+[lower](../std/ui/lower.ssc)
+[defaultTheme](../std/ui/theme.ssc)
 
 val planList = contentComponent("PlanList") { ctx =>
   vstack(gap = 4)(
@@ -187,7 +187,7 @@ Markdown links serve as the import system:
 
 ```markdown
 [std/collections](std/collections)
-[contentDocument](std/content.ssc) [contentToolkitNode](std/ui/content.ssc)
+[contentDocument](../std/content.ssc) [contentToolkitNode](../std/ui/content.ssc)
 ```
 
 A paragraph is an import declaration when every non-whitespace inline child is

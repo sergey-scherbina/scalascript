@@ -634,6 +634,12 @@ val suite = List(
   // do not exist. Offline by construction — it compares what `native-release.yml` publishes with
   // what the installer and the docs ask for, so it cannot go red because a host is having a bad day.
   Check("tests", "install-channels-are-real", "tests/e2e/install-channels-are-real.sh", List(), 60000),
+  // 108 of `docs/README.md`'s 143 links resolved to NOTHING, every one of them naming `X.md` where
+  // `../specs/X.md` was meant — and the sweep that found them found 180 more in the other docs. The
+  // entry that reported it named the missing guard in as many words: "a dozen lines of awk plus
+  // test -f would have caught all 107 the day the first one broke". Sub-second, no network: a link
+  // that LOOKS like a file (it has an extension) must be one.
+  Check("tests", "docs-links-resolve", "tests/e2e/docs-links-resolve.sh", List(), 60000),
   // Two consumers, one fixture: the manifest's owner (v21-explicit-lanes-gate) and the reader that
   // only looks up a lane (bc-parity-sweep). The reader kept a second copy of the contract frozen at
   // a row count, the owner was maintained, and on 2026-07-31 they disagreed — the `sbt` job died at

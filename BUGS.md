@@ -4127,11 +4127,12 @@ re-running the matrix — all eight now answer, and the MCP gate drives them end
 
 ## docs-readme-links-107-of-143-point-at-files-that-are-not-there
 
-<!-- status: open
+<!-- status: fixed
      lane: n/a
      area: docs
      kind: bug
-     gate: none
+     gate: tests/e2e/docs-links-resolve.sh
+     fixed-in: unrecorded
      found-by: claude-code
      found-at: 2026-08-17
      repro: the census in the body
@@ -4162,6 +4163,40 @@ The one link this session touches is the x402 one, repaired in place because it 
 that already owns `docs/README.md`. The other 106 are left for a claim that can also add the thing
 whose absence let this happen: **there is no gate that resolves the links in `docs/`.** A dozen
 lines of `awk` plus `test -f` would have caught all 107 the day the first one broke.
+
+### FIXED 2026-08-18 — and the population was two and a half times what this entry counted
+
+Re-measured before fixing, which is the only reason the number here is right: the index was **108 of
+143**, not 107 — one more link of the same shape had been added since. And the census the entry did
+not do, over EVERY `.md` under `docs/`, found the same defect everywhere:
+
+| | |
+|---|---|
+| file-looking relative links under `docs/` | 470 |
+| broken | 195 |
+| resolve under `specs/` (the reported cause) | 88 + the index's 108 |
+| resolve at the REPO ROOT (`std/ui/content.ssc`, `../` missing) | 92 |
+| resolve nowhere | 15 |
+
+So "one cause, 107 instances" was one cause, 288 instances, and a SECOND cause of the same kind
+underneath it. All 288 are rewritten mechanically; the fifteen are the interesting part.
+
+**Six of the fifteen must stay broken, and a gate that did not know that would demand they be
+"fixed".** `[names](./geometry.ssc)` in the user guide's import section is ScalaScript's OWN IMPORT
+SYNTAX being demonstrated — the markdown link IS the example. Making those files exist would be
+inventing sources to satisfy a scanner. Six more resolve once the moved directories are followed
+(`frontend-examples/` -> `frontend/examples/`, `frontend-toolkit/` -> `frontend/toolkit/`,
+`secret-resolvers.md` -> `specs/`) and are repaired. Three name files that were DELETED —
+`ToolkitDemo.scala` and its cross-backend test — and are NOT repointed, because choosing among
+CounterDemo/ShowHideDemo/TodoListDemo would be a guess about what the tutorial section now means.
+That section needs a rewrite by someone who knows the demos.
+
+**Gate**: `tests/e2e/docs-links-resolve.sh`, offline, sub-second. It checks only links that LOOK
+like files — an extension — so `[List](std/collections)` and `[a form](toolkit:textField?signal=…)`,
+which are markdown syntax used for a module name and a URI, are left alone rather than made into a
+reason to rewrite prose. The nine survivors sit in a FROZEN list with one reason each, ratcheted the
+way `no-orphan-gates` ratchets: a new broken link fails, an entry that starts resolving fails, and
+an entry whose link is gone from the docs fails. Both directions have negative controls.
 
 ---
 

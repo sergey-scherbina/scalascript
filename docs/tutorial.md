@@ -1010,8 +1010,8 @@ Delta-persisted — all from a single `.ssc` file.
 - Replace `Dataset.fromList` with `Dataset.fromJsonAs[RawEvent]("s3://...")` for real input; derive `SparkSchemaCodec` when storage column names differ from Scala field names.
 - Switch from `mode("overwrite")` to `mode("append")` + a Delta `MERGE INTO` for incremental loads.
 - Set `spark-hive-metastore:` in front-matter to register the output as a managed table — see User Guide §13.8.
-- Move to Structured Streaming with `spark.readStream.format("kafka")` — see [`specs/spark-streaming.md`](spark-streaming.md).
-- Fit a classification pipeline on the aggregated features — see [`specs/spark-mllib.md`](spark-mllib.md).
+- Move to Structured Streaming with `spark.readStream.format("kafka")` — see [`specs/spark-streaming.md`](../specs/spark-streaming.md).
+- Fit a classification pipeline on the aggregated features — see [`specs/spark-mllib.md`](../specs/spark-mllib.md).
 - For non-local clusters, swap `bin/ssc-spark` for `ssc submit ... --spark-master spark://...` (fat JAR via `spark-submit`).
 
 See the [User Guide](user-guide.md) and [SPEC.md](../SPEC.md) for full API reference.
@@ -1175,16 +1175,16 @@ ready to drop into a static-site pipeline.
   `Toolkit.lower` `case` — the toolkit's `trait ToolkitNode` is
   open precisely so widget packs can live in separate modules.
 - Wire a form with validators — see
-  [`frontend-toolkit/src/main/scala/scalascript/frontend/toolkit/Form.scala`](../frontend-toolkit/src/main/scala/scalascript/frontend/toolkit/Form.scala)
+  [`frontend-toolkit/src/main/scala/scalascript/frontend/toolkit/Form.scala`](../frontend/toolkit/src/main/scala/scalascript/frontend/toolkit/Form.scala)
   and `Tk.form { ctx => ... }` + `Validators.email` /
   `Validators.minLength(8)` / `Validators.and(...)`.
 - Add routing with `Tk.router(currentPath, notFound)(routes*)` and
   `Tk.route("/users/:id") { params => ... }`.
 - Use the `Table[T]` widget for sortable typed data — see
-  [`Table.scala`](../frontend-toolkit/src/main/scala/scalascript/frontend/toolkit/Table.scala)
+  [`Table.scala`](../frontend/toolkit/src/main/scala/scalascript/frontend/toolkit/Table.scala)
   and `Tk.sortableColumn`.
 - Browse the full widget catalog in
-  [`specs/frontend-toolkit-spec.md`](frontend-toolkit-spec.md).
+  [`specs/frontend-toolkit-spec.md`](../specs/frontend-toolkit-spec.md).
 
 ---
 
@@ -1367,15 +1367,15 @@ Import the widget library and create reactive signals:
 ````ssc
 ## Imports and signals
 
-[signal, serve, fetchUrlSignal, fetchAction, fetchActionClear, incSignal](std/ui/primitives.ssc)
-[lower](std/ui/lower.ssc)
-[defaultTheme](std/ui/theme.ssc)
-[vstack, hstack, divider, spacer](std/ui/layout.ssc)
-[heading, text](std/ui/typography.ssc)
-[textField, actionButton](std/ui/input.ssc)
-[showWhen, fragment_](std/ui/reactive.ssc)
-[badge](std/ui/display.ssc)
-[fcol, rowDelete, dataTable](std/ui/data.ssc)
+[signal, serve, fetchUrlSignal, fetchAction, fetchActionClear, incSignal](../std/ui/primitives.ssc)
+[lower](../std/ui/lower.ssc)
+[defaultTheme](../std/ui/theme.ssc)
+[vstack, hstack, divider, spacer](../std/ui/layout.ssc)
+[heading, text](../std/ui/typography.ssc)
+[textField, actionButton](../std/ui/input.ssc)
+[showWhen, fragment_](../std/ui/reactive.ssc)
+[badge](../std/ui/display.ssc)
+[fcol, rowDelete, dataTable](../std/ui/data.ssc)
 
 ```scalascript
 val refreshTick = signal[Int]("refreshTick", 0)
@@ -1459,7 +1459,7 @@ sops -d secrets.enc.yaml | ssc serve todos.ssc
 
 The decrypted YAML is read from stdin, flattened to dotted keys, and
 resolved when the connection opens.  See [User Guide §6.2](user-guide.md#62-secret-management)
-and [`secret-resolvers.md`](../secret-resolvers.md) for more secret
+and [`secret-resolvers.md`](../specs/secret-resolvers.md) for more secret
 backends (Vault, AWS SM, Doppler, 1Password).
 
 ---
@@ -1513,19 +1513,19 @@ route("POST", "/api/todos/delete") { req =>
 
 ## Imports and signals
 
-[signal, serve, fetchUrlSignal, fetchAction, fetchActionClear, incSignal](std/ui/primitives.ssc)
+[signal, serve, fetchUrlSignal, fetchAction, fetchActionClear, incSignal](../std/ui/primitives.ssc)
 
-[lower](std/ui/lower.ssc)
+[lower](../std/ui/lower.ssc)
 
-[defaultTheme](std/ui/theme.ssc)
+[defaultTheme](../std/ui/theme.ssc)
 
-[vstack, hstack, divider](std/ui/layout.ssc)
+[vstack, hstack, divider](../std/ui/layout.ssc)
 
-[heading](std/ui/typography.ssc)
+[heading](../std/ui/typography.ssc)
 
-[textField, actionButton](std/ui/input.ssc)
+[textField, actionButton](../std/ui/input.ssc)
 
-[fcol, rowDelete, dataTable](std/ui/data.ssc)
+[fcol, rowDelete, dataTable](../std/ui/data.ssc)
 
 ```scalascript
 val refreshTick = signal[Int]("refreshTick", 0)
@@ -1734,7 +1734,7 @@ ssc run effects-demo.ssc
 
 ## What's Next
 
-- See [`specs/algebraic-effects.md`](algebraic-effects.md) for the full spec:
+- See [`specs/algebraic-effects.md`](../specs/algebraic-effects.md) for the full spec:
   `EffectRow` in `SType`, Rémy-style row unification, and all typed stdlib
   discharge signatures.
 - See [`examples/algebraic-effects.ssc`](../examples/algebraic-effects.ssc)
@@ -1759,8 +1759,8 @@ already knows. A connection is **immutable**: every write returns a new database
 the connection forward.
 
 ```scalascript
-[SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
-[JdbcConnection, jdbcOpen, jdbcExecuteUpdate, jdbcExecuteQuery, rsNext, rsHasRow, rsGetLong, rsGetString](std/scljet/jdbc.ssc)
+[SqlInteger, SqlText, buildTableDatabase](../std/scljet/index.ssc)
+[JdbcConnection, jdbcOpen, jdbcExecuteUpdate, jdbcExecuteQuery, rsNext, rsHasRow, rsGetLong, rsGetString](../std/scljet/jdbc.ssc)
 
 def run(c: JdbcConnection, sql: String): JdbcConnection =
   jdbcExecuteUpdate(c, sql) match

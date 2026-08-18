@@ -27,8 +27,8 @@ JDBC caller already knows. Imports are `[names](module)` markdown links; a conne
 **immutable**, so every write returns a new database image that you thread forward.
 
 ```scalascript
-[SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
-[JdbcConnection, jdbcOpen, jdbcExecuteUpdate, jdbcExecuteQuery, rsNext, rsHasRow, rsGetLong, rsGetString](std/scljet/jdbc.ssc)
+[SqlInteger, SqlText, buildTableDatabase](../std/scljet/index.ssc)
+[JdbcConnection, jdbcOpen, jdbcExecuteUpdate, jdbcExecuteQuery, rsNext, rsHasRow, rsGetLong, rsGetString](../std/scljet/jdbc.ssc)
 
 def run(c: JdbcConnection, sql: String): JdbcConnection =
   jdbcExecuteUpdate(c, sql) match

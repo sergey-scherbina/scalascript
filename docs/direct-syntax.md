@@ -14,7 +14,7 @@ monads, and the wider v1 contract still require the explicit
 
 Source of truth for the user-facing syntax, its lowering, and the
 seven locked design decisions.  See also
-[`specs/backend-spi.md`](backend-spi.md) §6 (effect lowering) and
+[`specs/backend-spi.md`](../specs/backend-spi.md) §6 (effect lowering) and
 the worked example in [`docs/tutorial.md`](tutorial.md) §3.
 
 ## 1. Motivation

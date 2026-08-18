@@ -6,7 +6,7 @@ A walk-through for third-party backend authors.  Two shapes:
     `META-INF/services` entry.  Distributed as a JAR, attached via
     `ssc --plugin <jar>`.  This document.
 - **Out-of-process subprocess** — any language that can read JSON
-    on stdin.  See [`backend-spi-protocol.md`](backend-spi-protocol.md)
+    on stdin.  See [`backend-spi-protocol.md`](../specs/backend-spi-protocol.md)
     for the wire spec and `examples/plugins/canned-backend/` for a
     50-line bash worked example.
 
@@ -20,7 +20,7 @@ By the end of this doc you'll have a no-op backend that:
 ## 1. Declare the Backend implementation
 
 Create one Scala file.  The full SPI surface is in
-[`specs/backend-spi.md`](backend-spi.md) §4.2:
+[`specs/backend-spi.md`](../specs/backend-spi.md) §4.2:
 
 ```scala
 package mybackend
@@ -169,7 +169,7 @@ README that walks through the build / install / invoke loop.
 
 If you want to write your backend in Rust, Go, Python — anything
 that can read newline-delimited JSON — implement the wire protocol
-from [`backend-spi-protocol.md`](backend-spi-protocol.md) and ship
+from [`backend-spi-protocol.md`](../specs/backend-spi-protocol.md) and ship
 a `plugin.yaml`.  Discovery picks it up from
 `$SCALASCRIPT_PLUGIN_PATH` or `~/.scalascript/compiler/plugins/`.
 `examples/plugins/canned-backend/` is a 50-line bash worked example.

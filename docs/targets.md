@@ -442,7 +442,7 @@ WASM backends.  Source semantics are unchanged: the
 `SqlBindRewriter.rewriteJdbc` output (?-templated SQL + ordered
 bind list) is consumed by `backend-sql-runtime-js`'s JS facade,
 which dispatches to one of two embedded engines based on URL prefix.
-Full spec: [`specs/browser-sql.md`](browser-sql.md).
+Full spec: [`specs/browser-sql.md`](../specs/browser-sql.md).
 
 | URL prefix             | Provider        | Notes                                                                  |
 | ---------------------- | --------------- | ---------------------------------------------------------------------- |
@@ -455,7 +455,7 @@ Full spec: [`specs/browser-sql.md`](browser-sql.md).
 Differences from the JVM/Interpreter path:
 
 - **Electron renderer caveat.**  `sqlite:<path>` in Electron does not write a
-    real file from renderer code; see [`electron-sql.md`](electron-sql.md).
+    real file from renderer code; see [`electron-sql.md`](../specs/electron-sql.md).
 
 - **Async-by-construction.**  Browser SQL engines load asynchronously
     (WASM init + worker spin-up).  Every `sql` block compiles to
@@ -489,7 +489,7 @@ The Wasm target ships the JS runtime + per-module registry as
 `Segment.Asset`s alongside the `.wasm` blob (`sql-runtime.mjs`,
 `sql-registry.mjs`, `package.json`); the Node target ships
 `package.json` next to `main.cjs`.  Full v1.27 spec:
-[`specs/browser-sql.md`](browser-sql.md).
+[`specs/browser-sql.md`](../specs/browser-sql.md).
 
 ## Adding New Backends
 

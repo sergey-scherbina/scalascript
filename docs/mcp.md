@@ -44,7 +44,7 @@ up and answers `204`.
 A tool that asks the client a question:
 
 ```scalascript
-[mcpServer, serveMcp, Transport, Tool, Content](std/mcp/server.ssc)
+[mcpServer, serveMcp, Transport, Tool, Content](../std/mcp/server.ssc)
 
 def main(): Unit =
   mcpServer(srv =>
@@ -127,7 +127,7 @@ Save as `notes.ssc` and run it with `ssc run notes.ssc`.
 
 ```scalascript
 [mcpServer, serveMcp, Transport, Tool, Resource, Prompt,
- Message, Role, Content, requireString](std/mcp/server.ssc)
+ Message, Role, Content, requireString](../std/mcp/server.ssc)
 
 def main(): Unit =
   mcpServer(srv =>
@@ -152,7 +152,7 @@ def main(): Unit =
 
 Four things to notice, each of which is a mistake someone has already made here:
 
-* **The import is a bracketed list**, `[names](std/mcp/server.ssc)` — not `import std.mcp`.
+* **The import is a bracketed list**, `[names](../std/mcp/server.ssc)` — not `import std.mcp`.
 * **`tool` and `prompt` are CURRIED**: `srv.tool(name, description)(handler)`. Two argument lists.
 * **`toolWithSchema` is NOT curried in its first list** — it takes name, description and schema
   together, then the handler: `srv.toolWithSchema(name, desc, schema)(handler)`.

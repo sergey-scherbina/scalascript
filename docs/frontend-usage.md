@@ -3,9 +3,9 @@
 How to write a reactive SPA in ScalaScript and ship it to any of the
 four supported frontend backends.  Companion docs:
 
-- [`frontend-abstract-model.md`](frontend-abstract-model.md) — the
+- [`frontend-abstract-model.md`](../specs/frontend-abstract-model.md) — the
   primitive contract every backend honours (the *what*).
-- [`frontend-framework-spi-plan.md`](frontend-framework-spi-plan.md)
+- [`frontend-framework-spi-plan.md`](../specs/frontend-framework-spi-plan.md)
   — SPI mechanics and per-framework trade-offs table (the *why* and
   *how-it-binds*).
 - [`../examples/frontend/`](../examples/frontend) — three runnable
@@ -49,7 +49,7 @@ for fuller worked examples.
 ## Choosing a backend
 
 The trade-offs table in
-[`frontend-framework-spi-plan.md`](frontend-framework-spi-plan.md#trade-offs-at-a-glance)
+[`frontend-framework-spi-plan.md`](../specs/frontend-framework-spi-plan.md#trade-offs-at-a-glance)
 is the canonical reference.  Quick mental model:
 
 | Need                                            | Recommended backend |
@@ -94,7 +94,7 @@ so every name resolves out of the box.  Validation lives in
 
 If you're driving the SPI directly from JVM-side glue (e.g., a build
 script that wants to emit all four backends — see
-[`EmitAll.scala`](../frontend-examples/src/main/scala/scalascript/frontend/examples/EmitAll.scala)),
+[`EmitAll.scala`](../frontend/examples/src/main/scala/scalascript/frontend/examples/EmitAll.scala)),
 construct the backend impl directly or call `FrontendFrameworks`:
 
 ```scala
