@@ -1,0 +1,11 @@
+slug: bridge-caller-cps
+branch: feature/bridge-caller-cps
+agent: claude-code
+started: 2026-08-18T20:08:37Z
+heartbeat: 2026-08-18T20:08:37Z
+status: claimed-before-planning
+items: v3-bridge-cannot-cross-a-call-frame
+paths: file:BUGS.md file:v3/src/BridgeV2.scala
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
