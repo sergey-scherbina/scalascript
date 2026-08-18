@@ -1032,6 +1032,32 @@ COMPILED (a tree walk emitting a nested test), not scanned, which is a structura
 applied the census measures 301 files, 255 agree, and this is the only one where F is wrong. That
 entry's fix stays held until this is done or those files are declared.
 
+### RE-MEASURED 2026-08-18 (pre-release audit) — the SILENT wrong answer is gone; a refusal took its place
+
+Re-run on a build of `3fc7ee265`, because this entry's central claim — every arm falls through to the
+default — is what would decide whether a release should wait for it. It does not reproduce. The
+entry's own four arms, reduced to a self-contained file:
+
+```text
+case RecordField(_, _, Some(SqlInteger(value)), _) => …    v2: integer:-2   v1: integer:-2
+case RecordField(_, _, Some(SqlBlob(value)), _)    => …    v2: blob:2      v1: blob:2
+case RecordField(_, _, None, Some(text))           => …    v2: text:hi     v1: text:hi
+```
+
+Both lanes agree, and nothing falls to the default. The nested constructor pattern compiles.
+
+**The named subject file still fails, and that is the correction that matters**: on
+`examples/scljet-readonly.ssc`, F now answers `ssc: "unknown constructor 'JvmVfsRead' in a pattern"`
+— a REFUSAL naming a constructor, where v1 answers `List(integer:-2, text:List(72, 105), blob:2)`.
+So what is left here is a different defect (an unresolved constructor in a pattern) wearing this
+entry's file, and the shape this entry is titled after is fixed.
+
+**Not closed, and not rewritten as somebody else's.** Whoever owns it should decide whether to retitle
+against the refusal or split it; what must not survive is the sentence saying `Some(SqlInteger(v))`
+matches nothing, because a reader deciding what to ship would read that as a silent wrong answer on
+the default lane — which is exactly why it was re-measured. The 32-file scan above is also dated by
+the same amount and should be re-run before it is quoted.
+
 ## f-lowers-user-defined-pipe-as-integer-or — every parser built with a choice was a bitwise or
 
 <!-- status: fixed
