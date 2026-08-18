@@ -1,0 +1,11 @@
+slug: js-undefined-pattern-name
+branch: feature/js-undefined-pattern-name
+agent: claude-code
+started: 2026-08-18T21:28:53Z
+heartbeat: 2026-08-18T21:28:53Z
+status: claimed-before-planning
+items: an-undefined-name-in-a-pattern-means-three-different-things
+paths: file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala file:tests/e2e/pattern-undefined-name-gate.sh file:BUGS.md file:v1/runtime/backend/js/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
