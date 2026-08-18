@@ -2172,12 +2172,12 @@ to `v2-jvm` which I typed first and corrected after reading what the entry is ac
 
 ## v2-parenthesised-head-in-a-cons-pattern-misses-the-arm — and the obvious repair was TRIED
 
-<!-- status: open
+<!-- status: fixed
      lane: v2-jvm
      area: front
      kind: bug
-     gate: -
-     fixed-in: -
+     gate: tests/e2e/v2-paren-cons-arm-gate.sh
+     fixed-in: 8d31a0d2e
      reported-by: claude-code
      reported-at: 2026-08-17
      repro: four defs, below
@@ -2229,6 +2229,46 @@ Not attempted here: two wrong answers for one spelling is worse than one, and ch
 `parseConsArm` the pattern" and "route these arms to the nested resolver" is a design call with a
 lowering difference behind it. The dispatch change was reverted, so the tree carries the honest `z`
 rather than a `<closure>` that looks closer to working.
+
+### FIXED 2026-08-18 — routing, and the doubt above is settled by reading `tuplePat1`
+
+The design call is answered: **route these arms to the pattern-based resolver**, and teach
+`parseConsArm` nothing. The entry's own reservation about that route — that `(_)` "becomes a
+one-element tuple pattern rather than a bare `wpat`" — does not hold for `parsePatF`, and the line
+that settles it is `tuplePat1`:
+
+```text
+def tuplePat1(first, rest, subs) = rest match { case Nil => first case h :: t => tuplePat2(...) }
+```
+
+A ONE-element parenthesised pattern is unwrapped to the pattern itself, which is also Scala's rule
+(there is no 1-tuple). So `parsePatF` already reads `(h) :: t` as `("cpat", ("Cons", [h, t]))`,
+identical to `h :: t`, and the arm only ever had to REACH `parseGenCons`.
+
+**Reaching it is a resolver choice, not an arm test**, and that is the shape of the fix. Which
+resolver a match uses is decided for the WHOLE match, so the new predicate is asked the way
+`hasNestedArms` is asked — over every arm — and `parseMatchArms` sends a match containing a
+paren-cons arm to `parseGenMatch`. Inside it, `parseGenArm` routes that arm to the existing
+`parseGenCons`. `parseArm`, the ordered resolver, is not touched at all: its `parseConsArm` still
+handles only the plain `h :: t` it has always handled, so nothing that works today changes shape.
+
+**The later-arm case was worse than the entry recorded.** With no catch-all after it, the program
+did not answer `z` — it died:
+
+```text
+case Nil => "nil" ; case (h) :: t => "later"     ->  ssc: match: no arm for Cons/2
+```
+
+Eight rows, and three of them exist to catch the failure mode the first attempt produced: `binds`
+pins the VALUE (42, not a closure and not -1), and `tup`/`plain` are anti-rows — the fix moves a
+match containing a paren-cons arm to the other resolver, and an ordinary tuple arm and an ordinary
+`h :: t` must not move with it. Guarded paren-cons arms were measured too and answer correctly
+(`g+`), reached by the existing `firstArmHasGuard` route rather than by the new predicate, which
+requires the `=>` exactly as `consArmUnguarded` does.
+
+Verified: `tests/e2e/v2-paren-cons-arm-gate.sh` PASS, all eight rows compared against `--v1`, plus a
+row asserting the oracle still discriminates and one that fails if the probe shrinks below eight.
+Negative control with the front reverted and re-staged: six rows red, the run dying partway.
 
 ## v3-block-has-no-semicolon-statement-separator — twelve corpus cases refused for a `;`
 
