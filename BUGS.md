@@ -3888,6 +3888,7 @@ claim that has to be shown, not asserted.
      found-by: claude-code
      found-at: 2026-08-18
      fixed-at: 2026-08-18
+     fixed-in: 7fcdc0dfc28d5e91622b5450dd3e26b30f23fd8c
      repro: the reversed pair in the body
      confirmed: yes -->
 
