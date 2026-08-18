@@ -32,7 +32,7 @@ Newest first.
      area: cli
      kind: bug
      gate: tests/e2e/server-backend-resolvable-gate.sh
-     fixed-in: unrecorded
+     fixed-in: 1d722602b
      reported-by: claude-code
      reported-at: 2026-08-18
      ssc-version: 5675ec8f9
