@@ -60,7 +60,15 @@ mkdir -p "$ROOT/v3/.jars"
 # chatter out of the value; the LAST line is the classpath, because sbt prints it alone.
 cp_all=""
 for m in "${MODULES[@]}"; do
-  line="$(sbt -batch --error "export $m/Runtime/fullClasspath" 2>/dev/null | tail -1)"
+  # `-Dsbt.supershell=false` AND an escape-strip, because the validation's FIRST CI firing named
+  # the culprit: on a cold runner sbt's supershell emits the terminal-control sequence `ESC[0J`
+  # (erase-display) as its last stdout line, so `tail -1` caught THAT instead of the classpath —
+  # a non-empty file whose one entry "does not exist" because it is not a path at all. A warm
+  # local sbt never prints it, which is why every local run was green while CI unregistered the
+  # uniml front. Supershell off removes the source; the strip-and-drop-blank guards the next
+  # decoration sbt invents; the validation below stays, because it is what turned this from an
+  # archaeology session into a one-line answer.
+  line="$(sbt -batch --error -Dsbt.supershell=false "export $m/Runtime/fullClasspath" 2>/dev/null             | sed $'s/\x1b\[[0-9;]*[A-Za-z]//g' | grep -v '^[[:space:]]*$' | tail -1)"
   if [ -z "$line" ]; then
     echo "plugin-classpath: $m produced no classpath — is it a project in build.sbt?" >&2
     exit 1
