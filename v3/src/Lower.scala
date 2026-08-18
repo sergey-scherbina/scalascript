@@ -1020,7 +1020,7 @@ object Lower:
         (acc :+ Instr.CallV(d, st.lookup(fn).get, args), d, st1)
       else
         val idx = fns.indexOf(fn)
-        if idx < 0 && Plugins.registered.contains(fn) then
+        if idx < 0 && Plugins.canProvide(fn) then
           // A PLUGIN GLOBAL — a function the program calls by name that no `extern` declares.
           // `suspend(1)` in `coroutine-basic.ssc` is not an extern and never was: generator-plugin
           // puts it in the registry's `globalValues` table with `registerGlobal`, and on the v2 lane
@@ -2889,7 +2889,7 @@ object Lower:
       // "try it and see" is recorded below: a name only ONE lane can perform is how eleven cases
       // diverged and five programs printed wrong answers. A provider is expected to make the name
       // answerable on BOTH lanes, and registering here is its assertion that it has.
-      case None if Plugins.registered.contains(d.name) =>
+      case None if Plugins.canProvide(d.name) =>
         Def(d.name, d.params,
             Expr.Prim(d.name, d.params.map(q => Expr.Name(q.name, d.pos)), d.pos),
             d.pos, d.tparams, d.givenParams)
@@ -3596,7 +3596,7 @@ object Lower:
     // has no claim to a worse diagnosis than a top-level one — that difference is the entry this
     // closes.
     val gapNames = (p.defs.filter(isAbstract) ++ objectGaps).map(d => d.name)
-      .filterNot(hostPrims.contains).filterNot(Plugins.registered.contains)
+      .filterNot(hostPrims.contains).filterNot(Plugins.canProvide)
     if gapNames.nonEmpty then
       val byName = allDefsH.map(d => (d.name, d)).toMap
       // `obj.member(…)` COUNTS AS A CALL TO `obj.member`, and without this line an object's extern

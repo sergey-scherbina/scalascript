@@ -48,6 +48,13 @@ object Loader:
         if Source.isFenceClose(raw) then inCode = false
         else
           Source.scalaImportPath(raw) match
+            // A JVM PACKAGE IS NOT A FILE, and asking for one is not a typo. `a.b.{X, Y}` has
+            // already been normalised to `a.b.*` by here, so what is left to ask is whether a
+            // provider owns that package — and only a provider can answer. Without this the import
+            // failed with four candidate PATHS and sent the reader hunting for a file that cannot
+            // exist. A dotted import nothing claims still fails exactly as before, which is what
+            // keeps a genuine typo a typo.
+            case Some(p) if p.endsWith(".*") && Plugins.hostPackage(p.dropRight(2)) => ()
             case Some(p) => out = (scalaImportTarget(p), ln) :: out
             // AN UNSUPPORTED SPELLING IS REFUSED HERE, IN THE LOADER, AND NOT IN A PARSER.
             //

@@ -84,3 +84,32 @@ object Plugins:
   private var shower: Option[ShowFn] = None
   def registerShow(fn: ShowFn): Unit = shower = Some(fn)
   def showHost(m: Module, v: Value): Option[String] = shower.flatMap(f => f(m, v))
+
+  /** A JVM PACKAGE THE HOST CAN IMPORT, and a name inside one — the fourth and fifth doors, and
+    * they exist so the KERNEL never asks a class loader anything.
+    *
+    * `import scalascript.typeddata.{DatasetWire, DatasetWirePartition}` normalises to
+    * `scalascript.typeddata.*` before the loader sees it, so what the loader can ask is "is this a
+    * package you provide?" — and only the provider knows. Answering it here rather than by
+    * `Class.forName` in `Loader` is what keeps invariant I-1: the kernel reaches outside the JDK
+    * through `Prim` and this SPI, and a class loader is neither.
+    *
+    * THE NAMES RESOLVE LAZILY, one at a time, because a package cannot be enumerated by reflection
+    * and scanning the classpath to pretend otherwise would be a second implementation of what the
+    * class loader already does. `canProvide` is asked by `Lower` for a name nothing else explains,
+    * exactly as `registered` is. */
+  private var packages: Option[String => Boolean] = None
+  private var resolver: Option[String => Option[Fn]] = None
+
+  def registerPackages(fn: String => Boolean): Unit = packages = Some(fn)
+  def hostPackage(dotted: String): Boolean = packages.exists(f => f(dotted))
+
+  def registerNameResolver(fn: String => Option[Fn]): Unit = resolver = Some(fn)
+
+  /** Is this name one the host can answer? Consults the table first, then the resolver, and CACHES
+    * a hit — so a name asked at lowering and called at run time resolves once. */
+  def canProvide(name: String): Boolean = lookup(name).isDefined || {
+    resolver.flatMap(f => f(name)) match
+      case Some(fn) => register(name, fn); true
+      case None     => false
+  }
