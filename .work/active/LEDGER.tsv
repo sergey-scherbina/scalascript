@@ -1,7 +1,8 @@
-# generation: 2703
+# generation: 2704
 #slug	agent	started	items	paths
 install-channels-are-fiction	claude-code	2026-08-18T16:57:43Z	releases-install-sh-downloads-an-asset-no-release-has	file:releases/install.sh file:releases/homebrew/ssc.rb file:releases/coursier.json file:install.sh file:docs/getting-started-standalone.md file:docs/user-guide.md file:specs/arch-ssc-new.md file:README.md file:tests/e2e/install-channels-are-real.sh file:tests/e2e/release-installer-launcher.sh file:scripts/smoke-ci.ssc file:tests/smoke-baseline.tsv file:.github/workflows/ci.yml file:BUGS.md
 v3-double-main	claude-code	2026-08-18T17:06:13Z	v3-trailing-main-call-runs-main-twice	file:v3/src/Lower.scala file:v3/tests file:v3/BUGS.md file:BUGS.md
 v2-paren-cons-arm	claude-code	2026-08-18T17:20:50Z	v2-parenthesised-head-in-a-cons-pattern-misses-the-arm	file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/v2-paren-cons-arm-gate.sh file:scripts/smoke-ci.ssc file:tests/smoke-baseline.tsv file:.github/workflows/ci.yml file:BUGS.md
 v3-exact-decimal	claude-code	2026-08-18T17:31:31Z	v3-has-no-decimal-so-the-json-core-cannot-cross	file:v3/src/Exec.scala file:v3/plugins/V2Fleet.scala file:v3/plugin-classpath.sh file:v3/BUGS.md file:v3/BACKLOG.md
 int-undefined-pattern-name-refuses	claude-code	2026-08-18T17:34:15Z	an-undefined-name-in-a-pattern-means-three-different-things	file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/PatternRuntime.scala file:tests/e2e/pattern-undefined-name-gate.sh file:BUGS.md
+ui-provider-gap-damage-recheck	claude-code	2026-08-18T17:37:08Z	v2-ui-provider-lacks-forJsonView-and-blocks-eight-unrelated-tests	file:v2/BUGS.md file:tests/e2e/ui-provider-gap-gate.sh file:scripts/smoke-ci.ssc
