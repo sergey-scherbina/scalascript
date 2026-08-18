@@ -33,7 +33,7 @@ Newest first.
      area: build
      kind: bug
      gate: tests/e2e/emitted-coordinate-is-published.sh
-     fixed-in: unrecorded
+     fixed-in: 2855c187a
      reported-by: claude-code
      reported-at: 2026-08-18
      ssc-version: 3fc7ee265
