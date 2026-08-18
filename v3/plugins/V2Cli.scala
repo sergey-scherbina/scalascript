@@ -23,4 +23,11 @@ package ssc3.plugins
   // primitive: coroutineCreate` on IR the executor runs — one lane answering alone, which is the
   // divergence the fleet's registration rule exists to prevent.
   V2Fleet.installGlobalsAsHandlers()
+  // AND THE JVM LIBRARIES, for the same reason and by the same rule: lowering is shared, so a name
+  // the executor answers by reflection reaches this process as an ordinary `Prim` and must be
+  // answerable here too. `exec-gate` caught the asymmetry on the fixture's first run — `7/0` on the
+  // executor, empty on the bridge.
+  JvmBridgeV2.companions().foreach { (name, module) =>
+    ssc.V2PluginRegistry.register(name, args => JvmBridgeV2.call(module, args))
+  }
   ssc.cli(args*)

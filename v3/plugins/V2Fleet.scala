@@ -47,6 +47,9 @@ object V2Fleet:
       }
       installGlobals()
       Plugins.registerMethods(methodOn)
+      // JVM PACKAGES ARE THE SAME KIND OF DOOR and are installed beside the fleet, so a tree with
+      // the fleet has both and a tree without has neither — one switch, one state.
+      JvmInterop.install()
       // v2's own renderer, which knows what a provider's handle means — its `Show` has an arm for
       // `ForeignV(nmo: NamedMethodObj)` precisely so a boxed option prints as `None`. Failures
       // decline rather than propagate: a value this cannot convert is not a value whose printing
@@ -194,7 +197,11 @@ object V2Fleet:
           case Some(c: ssc.Value.ClosV) => Some(as => applyClosDriven(c, as))
           case _                        => None
       case _ => None
-    fn.map(f => call(m, f, args))
+    // A JVM-BACKED DATUM'S FIELD, when v2's tables do not claim the name. The two providers are
+    // asked in this order because v2's is the one with registered semantics; the JVM side only
+    // knows what `Product` told it.
+    fn.map(f => call(m, f, args)).orElse(
+      if args.isEmpty then JvmBridge.fieldOn(recv, name) else None)
 
   /** Like `applyClos`, but for a closure that is NOT a plugin global and may take more than one
     * trampoline step — a `NamedMethodObj`'s member is ordinary v2 code. `Runtime.run` is v2's own
