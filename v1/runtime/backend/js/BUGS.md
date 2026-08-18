@@ -7,6 +7,50 @@ grepping for status.
 
 Newest first.
 
+## js-imported-parenless-def-mention-reads-the-function-object — `answer.length` was the arity, on every import
+
+<!-- status: fixed
+     fixed-in: b91dd37ce
+     lane: js
+     area: codegen
+     kind: bug
+     gate: tests/conformance/parameterless-def-imported.ssc (+ std-os-doc-import, back to green) -->
+
+**`zeroParamFns` is filled by the entry module's pre-pass only — its own comment says so,
+deliberately — so an imported parenless def mentioned bare emitted the FUNCTION OBJECT:**
+
+    [answer](lib/pl.ssc)          // def answer: String = "forty-two"
+    answer.length                  // js: _dispatch(answer, 'length', []) -> 9? no: the ARITY, 0
+
+`len-ZERO` where int and native print `len-ok`. Exit 0, a silent wrong answer, and `extern def
+cwd: String` is the same shape because the parser preprocesses it into a `Defn.Def` bodied
+`__extern__`.
+
+**HOW IT SURFACED — a chain worth keeping.** `3440cab4c` added `cwd` (+29 names) to
+`declaredBindings`, which re-routed `std-os-doc-import`'s `cwd` to the preamble function, and that
+case — whose own prose warns that `cwd.length` silently reads an arity — went red on the js lane at
+HEAD. The stale shared `bin/` (built from `4b717804c`) kept measuring green, so the red first
+appeared as a conformance failure inside MY unrelated worktree, and the A/B that cleared my change
+(revert mine, rebuild, still red) is what turned it from "my regression" into "a regression". The
+defect itself predates `3440cab4c` and needs no std module.
+
+**Fixed in `genImport`:** scan the child module for parenless defs and register ONLY the names this
+import binds — an alias under its LOCAL name, since that is the name the mention uses. Same
+`explicitGroups` test as the entry pre-pass, so `def f()` stays unregistered.
+
+**TWO PARTIAL WALKS OF MY OWN read as clean answers before the real one, and instrumentation — not
+re-reading — found both.** The first draft matched `node.tree` directly: found the defs in a flat
+hand-written module, found NOTHING in `std/os.ssc`, whose node shape only `ScalaNode.fold`
+descends. The second still returned empty because a std module's defs sit inside namespace objects
+(`object std { object os { … } }`) — the same `Defn.Object` descent
+`registerImportedTypeEvidence`'s comment documents. An empty set from a partial walk is
+indistinguishable from "no parenless defs".
+
+**Regression:** full conformance **369 / 0** — `std-os-doc-import` PASS [JS] again (`--no-memo`),
+and the new `parameterless-def-imported` pins the general shape on int, js and v2, alias row
+included. The roster freeze got its row with the header hash refreshed after reproducing the
+current one first.
+
 ## js-string-concat-chain-answers-a-tuple — the LIVE v1 emitter, not the deprecated wrapper
 
 <!-- status: fixed
