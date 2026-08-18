@@ -1396,6 +1396,22 @@ private[interpreter] object PatternRuntime:
       if e != null then FrameMap.one(lhs.name.value, scrutinee, e.asInstanceOf[Env]) else null
     case t: Term.Name =>
       val v = env.getOrElse(t.value, interp.globals.getOrElse(t.value, null))
+      // A STABLE-IDENTIFIER PATTERN THAT RESOLVES TO NOTHING IS REFUSED, not silently unmatched.
+      // A capitalised bare name in pattern position MATCHES against a value that must exist —
+      // `case Red =>` an enum case, `case MyObj =>` a case object — and when the name resolved to
+      // nothing this arm answered `null`, i.e. "did not match": a typo'd or renamed constructor
+      // made its arm simply never run, with no diagnostic, at exit 0. Scala 3 rejects the program
+      // (`not found: value Nope`), v3's front refuses with `unknown constructor '…' in a pattern`,
+      // and the same wording is used here so two lanes say the same sentence about the same
+      // program. (BUGS.md `an-undefined-name-in-a-pattern-means-three-different-things` — this is
+      // the `int` row; `ssc-tools check` has refused it since the typer grew the rule, but `run`
+      // does not consult the typer.)
+      //
+      // ONLY a capitalised name: lowercase arrives as `Pat.Var` and binds, so it never reaches
+      // this arm — the gate's control row pins that. Refusal, not a quiet `null`, ONLY when the
+      // name resolves to nothing anywhere: a resolved-but-unequal value is an ordinary no-match.
+      if v == null && t.value.headOption.exists(_.isUpper) then
+        interp.located(s"unknown constructor '${t.value}' in a pattern")
       if v != null && v == scrutinee then env else null
     case Term.Select(qual, Term.Name(n)) =>
       // Evaluate the qualifier to support imported enum singletons like `Role.User`.

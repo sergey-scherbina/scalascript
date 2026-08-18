@@ -6,7 +6,7 @@
 #       case Nope => …     // `Nope` is defined nowhere
 #       case _    => …
 #
-#     int     NO MATCH                             silent, exit 0
+#     int     unknown constructor 'Nope' in a pattern    REFUSED with a position (since 2026-08-18)
 #     native  NO MATCH                             silent, exit 0
 #     js      ReferenceError: Nope is not defined  throws, exit 1
 #
@@ -91,8 +91,18 @@ ctrl_out="$("$BIN/ssc-tools" run --v1 "$CTRL" 2>&1)"
 check "OK       " "int" "BOUND, value=1" "$ctrl_out"
 
 echo "an undefined CAPITALISED name in pattern position:"
+# THE int ROW IS THE FIX NOW, not a freeze. Its KNOWN-RED row was deleted 2026-08-18, exactly as
+# the header instructs — the lane refuses with the same sentence v3's front uses, and this row
+# asserts the fix stays: the message, and that "NO MATCH" does NOT print (the arm must not fall
+# through to the wildcard on its way to the refusal). The other two rows remain KNOWN-RED freezes.
+# Safety was measured, not argued: the full conformance corpus on the int lane with the refusal in
+# place — no case lost, so no working program resolves nothing in a capitalised pattern.
 int_out="$("$BIN/ssc-tools" run --v1 "$SRC" 2>&1)"
-check "KNOWN-RED" "int" "NO MATCH" "$int_out"
+check "OK       " "int" "unknown constructor 'Nope' in a pattern" "$int_out"
+if grep -qF "NO MATCH" <<<"$int_out"; then
+  echo "  FAIL int: printed NO MATCH — the arm fell through before the refusal fired"
+  fails=$((fails + 1))
+fi
 
 nat_out="$("$BIN/ssc" run "$SRC" 2>&1)"
 check "KNOWN-RED" "native" "NO MATCH" "$nat_out"
