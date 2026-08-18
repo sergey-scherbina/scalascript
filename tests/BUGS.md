@@ -1,3 +1,42 @@
+## typer-does-not-know-the-coroutine-intrinsics — `check` refused every coroutine program for three names the runtime installs
+
+<!-- status: fixed
+     fixed-in: c9b698622
+     lane: apparatus
+     area: front
+     kind: bug
+     gate: none (the measurement below is the gate candidate)
+     found-by: claude-code
+     found-at: 2026-08-18 -->
+
+**`CoroutineRuntime.scala` installs `coroutineCreate`/`coroutineResume`/`coroutineCancel` as
+interpreter globals, and the typer's intrinsics list did not know them** — so `ssc-tools check`
+reported `Reference to undefined name: coroutineCreate` on programs that run correctly on every
+lane.
+
+**MEASURED BEFORE FIXING, and the number is the point:** of the first 60 conformance cases, `check`
+reported errors on exactly THREE — all coroutine cases — and every error was one of these three
+names. The entire typer-error population of the sample was this one gap. After the fix, a sweep of
+ALL 400 corpus cases reports **zero** typer errors, and the real refusal is untouched: `unknown
+constructor 'Nope' in a pattern` still fires on the probe from
+`an-undefined-name-in-a-pattern-means-three-different-things`.
+
+**WHY IT MATTERS BEYOND THREE CASES.** That pattern entry asks for the run path to refuse what
+`check` refuses. That could not be considered while `check` itself was wrong about 5 % of the
+corpus; at 0 false positives it becomes a wiring decision instead of one that costs working
+programs. The 400/0 sweep is the number any such wiring should re-verify first.
+
+`variadic` and not a precise signature, deliberately — the same reasoning as the effect runners
+beside it: this typer does not check effect discharge, and a precise-looking arrow would be a claim
+it cannot enforce.
+
+**Found by:** re-measuring the pattern entry, not by a coroutine report — nobody runs `check` on the
+corpus routinely, which is exactly why the false positives survived.
+
+**Related, sibling of the same shape:** `a42310890` ("the checker asks the runtime which names
+exist") landed two days earlier and did not cover these three, because they are installed by
+`CoroutineRuntime` at interpreter start rather than exported by a plugin's `preludeSymbols`.
+
 ## bugs-index-gate-reads-prose-for-a-stale-open-entry-not-the-header — 18 entries carry a fix sha and read as open
 
 <!-- status: open

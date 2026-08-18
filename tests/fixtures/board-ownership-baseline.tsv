@@ -94,6 +94,7 @@ stub-rendered-as-data-reached-an-http-body	tests	v2/src/Runtime.scala	fixed-in
 swift-effect-handler-implicit-return-fallback	tests	v2/backend/swift/src/main/scala/ssc/swift/SwiftRuntime.scala	fixed-in
 type-lost-across-a-boundary	tests	v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala	fixed-in
 typed-pattern-against-an-any-does-not-test-the-type	tests	v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala	fixed-in
+typer-does-not-know-the-coroutine-intrinsics	tests	v1/lang/core/src/main/scala/scalascript/typer/Typer.scala	fixed-in
 typer-prelude-list-should-be-generated-from-std-exports	tests	v1/lang/core/src/main/scala/scalascript/typer/Typer.scala	fixed-in
 ui-fetch-get-offline-rejection	tests	v1/runtime/backend/js/src/main/resources/scalascript/js-runtime/signals.mjs	fixed-in
 uniml-version-drifted-from-root	tests	uniml/scala/.../UnimlCoordinatesSpec.scala	prose
