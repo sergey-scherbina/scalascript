@@ -7,6 +7,7 @@
      reported-by: claude-code
      reported-at: 2026-08-18
      fixed-at: 2026-08-18
+     fixed-in: c91e23a41
      confirmed: yes
      gate: tests/e2e/f-plain-class-gate.sh -->
 
