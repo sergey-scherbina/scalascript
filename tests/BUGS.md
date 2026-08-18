@@ -1,3 +1,80 @@
+## f-loses-a-member-that-carries-a-modifier — `private def` in an object is discarded
+
+<!-- status: fixed
+     lane: native
+     area: front
+     kind: bug
+     reported-by: claude-code
+     reported-at: 2026-08-18
+     fixed-at: 2026-08-18
+     fixed-in: 2dcff7edd
+     confirmed: yes
+     gate: tests/e2e/f-private-member-gate.sh -->
+
+Five lines, and the modifier is the whole trigger:
+
+```scalascript
+object T:
+  private def helper(x: Int): Int = x * 2
+  val out: Int = helper(21)
+```
+
+`F: unbound global: (global helper)` · `ref: 42`. **Drop `private` and F answers 42.**
+
+`collectOM` skipped exactly one modifier, `override`. `private`, `protected`, `final` and the rest
+fell through to `collectOM(skipStmt(ts))`, which discards the whole member — its name was never
+registered, so a sibling calling it emitted a bare global and the file declined.
+
+**The census was taken BEFORE the fix**, not one cell at a time: `private def`, `protected def`,
+`final def`, `private[this] def` and `private val` all lost the member; a plain `def` did not.
+`skipGen` handles the qualified form for free — it skips a bracketed clause when present and returns
+the stream untouched when absent.
+
+**The second decision site was found by looking, not by being bitten.** `collectMD`, which does the
+same job for class methods, carried the identical `override`-only branch. Verified by control: on a
+build WITHOUT this change `case class P(a: Int)` with a `private def` gives
+`unbound global: (global helper)` while the plain one gives 42. The gate uses a CASE class
+deliberately — F does not support plain `class C:` at all (`unbound global: (global C)`), so a row on
+that shape is red for an unrelated reason, as this gate's first draft was.
+
+**Found by re-measuring a corpus decline**, not by a report: `examples/std-ui/theme.ssc` declined on
+`(global declarations)`, a `private def`. Its reason has now MOVED to `(global lightTokens)` — a
+`val`, which is a different cause, filed directly below.
+
+## f-object-val-is-unbound-from-a-sibling-member — only `def` members resolve
+
+<!-- status: open
+     lane: native
+     area: front
+     kind: bug
+     reported-by: claude-code
+     reported-at: 2026-08-18
+     confirmed: yes
+     gate: tests/e2e/f-private-member-gate.sh -->
+
+```scalascript
+object T:
+  val base: Int = 21
+  val out: Int = base * 2
+```
+
+`F: unbound global: (global base)` · `ref: 42`.
+
+**Not about modifiers**, and that separation is measured rather than assumed: it fails identically
+with and without `private`, and identically on a build predating the modifier fix. It also fails when
+the reader is a `def` rather than a `val`. Swap the member to `def base(): Int = 21` and F answers
+42 — **only `def` members resolve from a sibling.**
+
+The name IS registered (`collectOM` records `("val", …)` and `memberNamesOf` includes it), so the gap
+is on the reference side: a bare `base` inside the object body is emitted as a plain global rather
+than as the object's member form. `calleeOf1` has arms for `isCurObjMethod` and `isCurObjVar` — a
+`val` member is neither.
+
+**Blocks at least `examples/std-ui/theme.ssc`**, which is where this was found: its decline moved
+here once the modifier defect above was fixed. `f-private-member-gate`'s `object-val-still-unbound`
+row asserts the CURRENT state, so the day this is fixed that row goes red and gets deleted
+deliberately instead of the fix landing unnoticed.
+
 ## typer-does-not-know-the-coroutine-intrinsics — `check` refused every coroutine program for three names the runtime installs
 
 <!-- status: fixed
