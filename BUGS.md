@@ -3924,6 +3924,31 @@ and key the registry by `(tag, name, arity)`, at which point the dispatch key be
 back. That is the v2 twin of `interp-same-name-class-methods-collapse-to-the-last`, whose fix on the
 interpreter took exactly this shape (arity keys plus a picker at each resolution site).
 
+HOW MUCH THIS BLOCKS TODAY, counted before anyone spends a day on the front: **zero**. Across 1381
+`.ssc` files in the repo — corpus, std, examples, tests, specs — not one class or case-class body
+declares the same method name twice. Nothing in the tree is waiting on this.
+
+THE COUNT CANNOT BE READ AS "NOBODY WANTS IT", and saying so is the whole point of writing it down.
+Until 2026-08-16 same-name methods were broken on the INTERPRETER too
+(`interp-same-name-class-methods-collapse-to-the-last`, fixed in `bdd48657d`), so every one of those
+1381 files was written while the feature worked on no lane at all. A population that could never have
+used it is not evidence of demand either way. What the count does establish is the risk side: fixing
+this breaks nothing that exists.
+
+WHAT IT WOULD COST, so the trade is visible rather than guessed. The capture is in the SELF-HOSTED
+front — `caseMethodDefsFor` in `ssc1-lower.ssc0` emits one global per method named `Tag_method`, so
+two overloads collide on that name before the registry is ever consulted. Making them distinct means
+naming the global by arity, emitting one `__regmethod__` per declaration, keying the registry by
+`(tag, name, arity)`, and restoring the dispatch key that was deleted here. That file compiles every
+native program, and the last change in this area (the case-class body-method work, `2df8f6e3c`)
+needed a layout-pass fix and full v2 conformance verification before it was trusted. The LEGACY front
+has its own path and shows the same last-wins behaviour, so this is a two-front change
+(`two-front-bug-pairs`), not one.
+
+VERDICT: real divergence from both v1 and Scala, no occupant, delicate fix. Kept open and NOT
+scheduled — worth doing for parity, not worth doing ahead of anything with a user behind it. Whoever
+takes it starts from the reversed-declaration pair above; it is the whole test.
+
 ---
 
 ## v2-overloaded-class-method-returns-a-wrong-value-instead-of-refusing — `Calc7` where `70` was asked for
