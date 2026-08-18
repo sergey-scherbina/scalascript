@@ -2,10 +2,10 @@ slug: rust-json-core-compiles
 branch: feature/rust-json-core-compiles
 agent: claude-code
 started: 2026-08-18T07:51:16Z
-heartbeat: 2026-08-18T07:51:16Z
-status: claimed-before-planning
+heartbeat: 2026-08-18T08:44:36Z
+status: in-progress
 items: rust-lane-refuses-the-tolerant-json-parse-while-the-panicking-one-builds
-paths: file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:tests/e2e/rust-json-core-gate.sh file:tests/rust-std-survey-baseline.tsv file:BUGS.md
+paths: file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:tests/e2e/rust-json-core-gate.sh file:tests/e2e/rust-charat-arg-gate.sh file:tests/rust-std-survey-baseline.tsv file:.github/workflows/ci.yml file:BUGS.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+next: land the charAt half and the packaged-module finding
