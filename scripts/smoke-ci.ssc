@@ -529,6 +529,13 @@ val suite = List(
   // that justify it; `match-arm-unchanged` fails if the synthetic `case` ever fires on a match arm.
   // `case-class-no-parens` is an older CRASH (`expected Str, got 34`) that surfaced underneath.
   Check("v2", "f-plain-class", "tests/e2e/f-plain-class-gate.sh", List(), 400000),
+  // An interpolated string may be TRIPLE-quoted. `s"""hello ${x}"""` answered 0 — a wrong answer with
+  // exit 0, not a decline — because isInterpStart fires on `s` before ANY quote, so the scan stopped
+  // at the second quote of the opening run and the rest of the string was lexed as CODE. Neither
+  // feature's own rows could see it: a plain triple was fine and a single-quoted interp was fine, and
+  // only the PAIRING broke. `quote-inside-the-hole` guards the second mistake — escaping the whole raw
+  // content also escapes the quotes belonging to the interpolated EXPRESSION.
+  Check("v2", "f-triple-interp", "tests/e2e/f-triple-interp-gate.sh", List(), 300000),
   // An `extern def`'s declared DEFAULT reaches the call site — and nothing else about an extern
   // call is rewritten. The front skipped an extern whole (it is a signature), so its parameter list
   // was never parsed and `f(x)` on `extern def f(a, b = d)` died `arity: 2 expected, 1 given`
