@@ -3548,7 +3548,14 @@ def ccMDef(cname, flds, m, cx) = m match { case (mname, defToks) => ccMDefP(cnam
 // params: `(p1, ..)` after the name -> parseParams (pushed onto [__self]); param-less `def m: T =` -> just __self.
 def ccMParams(defToks) = if isTok(hd(defToks), 2, 21) then parseParams(tl(defToks), Cons("__self", Nil)) else (Cons("__self", Nil), defToks)
 def ccMDefP(cname, mname, flds, pr, cx) = pr match { case (env, rest) => ccMDefBody(cname, mname, flds, env, skipToEq(rest), cx) }
-def ccMDefBody(cname, mname, flds, env, bodyToks, cx) = "(def " ++ cname ++ "_" ++ mname ++ " (lam " ++ dlen(env) ++ " " ++ ccMLets(flds, env, bodyToks, cx) ++ "))"
+// TWO defs per method, and the second is the overload fix. `C_m` is the name every other site
+// already knows (sibling calls, the plain registration below); two same-named methods COLLIDE on it,
+// so the earlier one stops existing whatever the registry does. `C_m_<arity>` is unique per overload
+// and is ADDED, never substituted — a rename would have to be threaded through the sibling-call
+// resolver, which does not know the call's argument count. The lowered body is bound ONCE and reused
+// in both: it is a string, and re-deriving it would parse the body twice.
+def ccMDefBody(cname, mname, flds, env, bodyToks, cx) = ccMDefPair(cname, mname, dlen(env), ccMLets(flds, env, bodyToks, cx))
+def ccMDefPair(cname, mname, ar, b) = "(def " ++ cname ++ "_" ++ mname ++ " (lam " ++ ar ++ " " ++ b ++ ")) (def " ++ cname ++ "_" ++ mname ++ "_" ++ ar ++ " (lam " ++ ar ++ " " ++ b ++ "))"
 def ccMLets(flds, env, bodyToks, cx) = flds match { case Nil => ccMBodyE(bodyToks, env, cx) case h :: t => ccMLet(h, t, env, bodyToks, cx) }
 def ccMLet(h, t, env, bodyToks, cx) = "(let (" ++ ccMSelInit(h, lookup("__self", env)) ++ ") " ++ ccMLets(t, Cons(h, env), bodyToks, cx) ++ ")"
 def ccMSelInit(h, idx) = "(app (global _sel_" ++ h ++ ") (local " ++ idx ++ "))"
@@ -3559,7 +3566,12 @@ def ccMBodyE(bodyToks, env, cx) = parseExpr(bodyToks, 0, env, cx) match { case (
 def regMethods(cms, dq) = cms match { case Nil => "" case h :: t => join2(regMethodsCls(h, dq), regMethods(t, dq)) }
 def regMethodsCls(reg, dq) = reg match { case (cname, fd) => fd match { case (flds, ms) => regMethodsMs(cname, ms, dq) } }
 def regMethodsMs(cname, ms, dq) = ms match { case Nil => "" case h :: t => join2(regMethod1(cname, h, dq), regMethodsMs(cname, t, dq)) }
-def regMethod1(cname, m, dq) = m match { case (mname, defToks) => "(prim __regmethod__ (lit (str " ++ dq ++ cname ++ dq ++ ")) (lit (str " ++ dq ++ mname ++ dq ++ ")) (global " ++ cname ++ "_" ++ mname ++ "))" }
+// The bare key stays first and unchanged — a receiver with one method of that name, and every
+// plugin-owned tagged method, resolves through it. The arity-qualified key is emitted beside it and
+// points at the per-overload global. Arity comes from `ccMParams`, the same parse the def emission
+// uses, so the two names cannot drift apart.
+def regMethod1(cname, m, dq) = m match { case (mname, defToks) => regMethod1A(cname, mname, dlen(fst(ccMParams(defToks))), dq) }
+def regMethod1A(cname, mname, ar, dq) = "(prim __regmethod__ (lit (str " ++ dq ++ cname ++ dq ++ ")) (lit (str " ++ dq ++ mname ++ dq ++ ")) (global " ++ cname ++ "_" ++ mname ++ ")) (prim __regmethod__ (lit (str " ++ dq ++ cname ++ dq ++ ")) (lit (str " ++ dq ++ mname ++ "#" ++ ar ++ dq ++ ")) (global " ++ cname ++ "_" ++ mname ++ "_" ++ ar ++ "))"
 def countMethods(cms) = cms match { case Nil => 0 case h :: t => countMethodsCls(h) + countMethods(t) }
 def countMethodsCls(reg) = reg match { case (cname, fd) => fd match { case (flds, ms) => dlen(ms) } }
 

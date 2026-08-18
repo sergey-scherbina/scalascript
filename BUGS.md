@@ -3880,13 +3880,14 @@ claim that has to be shown, not asserted.
 
 ## v2-only-the-last-same-name-class-method-is-registered — an overload is unreachable, not merely unpicked
 
-<!-- status: open
+<!-- status: fixed
      lane: v2-jvm
      area: front
      kind: bug
      gate: tests/e2e/v2-unknown-member-refuses-gate.sh
      found-by: claude-code
      found-at: 2026-08-18
+     fixed-at: 2026-08-18
      repro: the reversed pair in the body
      confirmed: yes -->
 
@@ -3948,6 +3949,48 @@ has its own path and shows the same last-wins behaviour, so this is a two-front 
 VERDICT: real divergence from both v1 and Scala, no occupant, delicate fix. Kept open and NOT
 scheduled — worth doing for parity, not worth doing ahead of anything with a user behind it. Whoever
 takes it starts from the reversed-declaration pair above; it is the whole test.
+
+FIXED, and the verdict above was wrong about the cost — which is worth more than the fix. "Delicate"
+came from the wrong end of the problem: the earlier work in this area needed a LAYOUT change, and I
+carried that difficulty over to a change that turned out to be additive and local. Sizing a job by
+the reputation of the file it lives in is not sizing it.
+
+WHAT MADE IT SMALL: nothing had to be renamed. Each method now emits a SECOND global
+`Tag_m_<arity>` beside the existing `Tag_m`, and a SECOND `__regmethod__` under the key
+`m#<arity>` beside the bare one. Dispatch tries the arity key first and falls back to the name. The
+bare global and its registration keep meaning exactly what they meant, so `caseSiblingGlobal` — the
+third consumer of that mangled name, and the one that does NOT know a call's argument count — needed
+no change at all. A rename would have had to thread the count through it; adding a name did not.
+
+The runtime half was the code deleted when this entry was filed, restored unchanged. It could not
+fire then because both registrations pointed at one global, so the runtime was handed the same
+closure twice. Now they point at different globals and the same code works.
+
+TWO FRONTS, because the collision was written twice: `caseMethodDefsFor` / `caseMethodRegsFor` in
+`v2/lib/ssc1-lower.ssc0` (reference) and `ccMDefBody` / `regMethod1` in `specs/v2.2-p6.5-fsub.ssc`
+(F). Fixing only the reference front made plain classes work and left case classes refusing, because
+case-class bodies go through F — a two-front pair caught by measuring each front separately rather
+than by trusting one green run.
+
+MEASURED, both fronts and both declaration orders, against the interpreter:
+
+    class/case class with def f(a) and def f(a, b)
+      f(7)     -> 70     f(1, 2) -> 3      legacy, F, and v1 identical
+    the same pair DECLARED IN THE OTHER ORDER
+      f(7)     -> 70     f(1, 2) -> 3      identical again
+
+The second line is the one that matters: before this, whichever overload was written LAST was the
+only one that worked, so a single-order test passes on the broken build.
+
+WHAT STILL DOES NOT RESOLVE AN OVERLOAD, stated because the gate deliberately does not assert it: a
+SIBLING call — `g(3)` from inside another method of the same class — goes through the bare mangled
+global and refuses when that global is the other overload (`arity: 3 expected, 2 given`). The
+INTERPRETER refuses there too (`missing argument for parameter 'b'`), so the lanes agree and this is
+a shared limit, not a v2 regression. Improving it means teaching `caseSiblingGlobal` the call's
+argument count; freezing it in a test first would make that harder.
+
+Gate: `tests/e2e/v2-unknown-member-refuses-gate.sh`, one row carrying BOTH declaration orders in one
+program, beside the three refusal rows that guard the opposite direction.
 
 ---
 

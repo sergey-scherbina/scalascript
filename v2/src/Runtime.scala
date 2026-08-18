@@ -1982,14 +1982,12 @@ object Prims:
             sys.error(s"$rtag.$rname: expected ${fn.arity - 1} argument(s), got ${args.length - 1}")
           callClos(fn, args.toArray)
         case other => other
+      // The name the front hands over is either a bare method name or one already qualified as
+      // `m#<arity>`. Both are registered exactly as given — the front decides which keys exist, and
+      // it now emits BOTH per method, each pointing at its own global. Until it did, an arity key
+      // here could not fire: two same-named methods resolved to ONE global, so the runtime was
+      // handed the same closure twice and the earlier overload did not exist to be found.
       V2PluginRegistry.registerTaggedMethod(rtag, rname, checked)
-      // NO ARITY-QUALIFIED KEY HERE, and that is a measured decision rather than an omission. One
-      // was written first, so that two same-named methods differing in parameter count could both
-      // be reachable — and it could never fire: only ONE `__regmethod__` arrives per name, so the
-      // second registration is all that ever exists. Reversing the declaration order proves it,
-      // `def f(a, b)` then `def f(a)` makes `c.f(7)` answer 70 and `c.f(1, 2)` refuse, the exact
-      // mirror of the other order. Overload support therefore has to start where the methods are
-      // CAPTURED, not here, and a key that cannot be hit would read as support that exists.
       UnitV
     // Atomic string+newline: concurrent actors printing at once must not interleave (else two
     // `println`s produce "abcd\n\n" instead of "ab\ncd\n"). Sync on the shared stream.
@@ -2153,9 +2151,16 @@ object Prims:
           val k2 = ClosV(Array[Value](k), 1, env2 =>
             Done(methodOp(name, runClos1(env2(0).asInstanceOf[ClosV], env2.last), margs)))
           DataV("Op", collection.immutable.ArraySeq(l, ag, k2))
+        // BY ARITY FIRST, THEN BY NAME. `m#<arity>` names one overload; the bare `m` is what a
+        // plugin-owned tagged method and every single-method receiver registers under, so it stays
+        // the fallback rather than being replaced. The arity counted is the CALLING convention's —
+        // `self` plus the arguments — because that is what the closure declares.
         case (value @ DataV(tag, _), method, args)
-            if V2PluginRegistry.lookupTaggedMethod(tag, method).isDefined =>
-          V2PluginRegistry.lookupTaggedMethod(tag, method).get(value :: args)
+            if V2PluginRegistry.lookupTaggedMethod(tag, s"$method#${args.length + 1}").isDefined
+               || V2PluginRegistry.lookupTaggedMethod(tag, method).isDefined =>
+          V2PluginRegistry.lookupTaggedMethod(tag, s"$method#${args.length + 1}")
+            .orElse(V2PluginRegistry.lookupTaggedMethod(tag, method))
+            .get(value :: args)
         // Types are erased at the Core IR level: asInstanceOf is identity for ANY receiver
         case (v, "asInstanceOf", _)          => v
         // Runtime .copy on a record: the compatibility bridge encodes overrides

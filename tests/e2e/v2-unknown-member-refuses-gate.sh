@@ -234,6 +234,42 @@ def main(): Unit =
   println("three: " + c.t(1, 2, 3))
   println("nullary: " + c.zed().toString)'
 
+echo "── two methods, one name, different parameter counts"
+
+# THE OTHER HALF of the arity work above. The refusals exist so a wrong count cannot answer; this
+# row exists so a RIGHT count reaches the method that matches it. Two same-named methods used to
+# collide on one mangled global `Tag_m`, so only the LAST declaration existed and the other was
+# unreachable by any call — which the refusal rows above would happily have called correct.
+#
+# BOTH DECLARATION ORDERS, in one program, because "last wins" is exactly what this replaces: with a
+# single order the row passes on an implementation that still keeps only the last, as long as the
+# test happens to call that one. `A` declares one-arg first, `B` declares it second; if either order
+# regressed, its half of the output changes and the other half does not.
+#
+# The sibling call is NOT here on purpose: `g(3)` from inside another method resolves through the
+# bare global and refuses on the interpreter too (`missing argument for parameter 'b'` there,
+# `arity: 3 expected, 2 given` here). Both lanes agree, so it is a documented limit rather than a
+# regression, and asserting it would freeze a behaviour worth improving later.
+answers_block class-method-overloads 'A one: 70
+A two: 3
+B one: 70
+B two: 3' \
+  'case class A(z: Int):
+  def f(a: Int): Int = a * 10
+  def f(a: Int, b: Int): Int = a + b
+
+case class B(z: Int):
+  def f(a: Int, b: Int): Int = a + b
+  def f(a: Int): Int = a * 10
+
+def main(): Unit =
+  val a = A(0)
+  val b = B(0)
+  println("A one: " + a.f(7).toString)
+  println("A two: " + a.f(1, 2).toString)
+  println("B one: " + b.f(7).toString)
+  println("B two: " + b.f(1, 2).toString)'
+
 echo
 if [[ "$fails" -ne 0 ]]; then
   echo "v2-unknown-member-refuses-gate: FAIL ($fails row(s))" >&2

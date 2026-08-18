@@ -5627,9 +5627,24 @@ def caseMethodDefsFor = (tag, fields, defs) =>
             let hadRet = #cell.get(defHasReturnCell) in
             let _rst2HR = #cell.set(defHasReturnCell, prevHR) in
             let mbodyFinal = if hadRet then wrapReturn(mbodyIr) else mbodyIr in
+            -- TWO globals per method, and the second is the whole overload fix.
+            --
+            -- `Tag_m` is what every other site already knows: `caseSiblingGlobal` resolves a bare
+            -- sibling call to it, and the plain registration below points at it. Two same-named
+            -- methods COLLIDE on that name — both defs exist, the later wins, and the earlier one
+            -- becomes unreachable no matter what the registry does
+            -- (v2-only-the-last-same-name-class-method-is-registered).
+            --
+            -- `Tag_m_<arity>` is unique per overload. ADDED rather than substituted on purpose: a
+            -- rename would have to be threaded through the sibling-call resolver too, which does
+            -- not know the call's argument count, so this keeps every existing name meaning exactly
+            -- what it meant and pays one extra global per method for it.
+            let arity = lenL(selfAndParams) in
             let mdef = IrDef(#sconcat(tag, #sconcat("_", mname)),
-                         IrLam(lenL(selfAndParams), mbodyFinal)) in
-            Cons(mdef, caseMethodDefsFor(tag, fields, rest)) } } }
+                         IrLam(arity, mbodyFinal)) in
+            let mdefA = IrDef(#sconcat(tag, #sconcat("_", #sconcat(mname, #sconcat("_", #i->str(arity))))),
+                         IrLam(arity, mbodyFinal)) in
+            Cons(mdef, Cons(mdefA, caseMethodDefsFor(tag, fields, rest))) } } }
   }
 def methodNamesOf = (defs) =>
   match defs {
@@ -5657,10 +5672,19 @@ def caseMethodRegsFor = (tag, defs) =>
     case Cons(d, rest) =>
       match d { case Pair(dtag, ddata) =>
         match ddata { case Pair(mname, mrest) =>
+          match mrest { case Pair(mparams, mbody) =>
+          let arity = #i.add(lenL(mparams), 1) in
+          -- The bare key first, unchanged: it is what a call resolves through today, and a plugin
+          -- tagged method or a receiver with one method of that name must keep hitting it.
           Cons(IrPrim("__regmethod__",
                  Cons(IrLit(IrStr(tag)), Cons(IrLit(IrStr(mname)),
                    Cons(IrGlobal(#sconcat(tag, #sconcat("_", mname))), Nil)))),
-               caseMethodRegsFor(tag, rest)) } }
+          -- The arity-qualified key, pointing at the per-overload global. `#` cannot occur in a
+          -- source method name, so this shares one map with the bare keys without colliding.
+          Cons(IrPrim("__regmethod__",
+                 Cons(IrLit(IrStr(tag)), Cons(IrLit(IrStr(#sconcat(mname, #sconcat("#", #i->str(arity))))),
+                   Cons(IrGlobal(#sconcat(tag, #sconcat("_", #sconcat(mname, #sconcat("_", #i->str(arity)))))), Nil)))),
+               caseMethodRegsFor(tag, rest))) } } }
   }
 def caseMethodRegs = (regs) =>
   match regs {
