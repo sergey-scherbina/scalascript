@@ -1,8 +1,8 @@
-# generation: 2715
+# generation: 2716
 #slug	agent	started	items	paths
 v2-paren-cons-arm	claude-code	2026-08-18T17:20:50Z	v2-parenthesised-head-in-a-cons-pattern-misses-the-arm	file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/v2-paren-cons-arm-gate.sh file:scripts/smoke-ci.ssc file:tests/smoke-baseline.tsv file:.github/workflows/ci.yml file:BUGS.md
 v3-exact-decimal	claude-code	2026-08-18T17:31:31Z	v3-has-no-decimal-so-the-json-core-cannot-cross	file:v3/src/Exec.scala file:v3/plugins/V2Fleet.scala file:v3/plugin-classpath.sh file:v3/BUGS.md file:v3/BACKLOG.md
 f-private-object-member	claude-code	2026-08-18T17:51:18Z	f-loses-a-private-def-in-an-object	file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/f-private-member-gate.sh file:scripts/smoke-ci.ssc file:tests/BUGS.md
 v2-overload-arity-key	claude-code	2026-08-18T18:01:41Z	v2-only-the-last-same-name-class-method-is-registered	file:v2/lib/ssc1-lower.ssc0 file:v2/src/Runtime.scala file:BUGS.md file:tests/e2e/v2-unknown-member-refuses-gate.sh file:specs/v2.2-p6.5-fsub.ssc
 v3-entry-and-bridge	claude-code	2026-08-18T18:14:36Z	v3-trailing-main-call-runs-main-twice v3-bridge-lags-the-executor-on-cross-frame-effects	file:BUGS.md
-docs-readme-links	claude-code	2026-08-18T18:18:17Z	docs-readme-links-107-of-143-point-at-files-that-are-not-there	file:docs/README.md file:tests/e2e/docs-links-resolve.sh file:scripts/smoke-ci.ssc file:tests/smoke-baseline.tsv file:BUGS.md
+docs-readme-links	claude-code	2026-08-18T18:18:17Z	docs-readme-links-107-of-143-point-at-files-that-are-not-there	mod:docs file:tests/e2e/docs-links-resolve.sh file:scripts/smoke-ci.ssc file:tests/smoke-baseline.tsv file:BUGS.md
