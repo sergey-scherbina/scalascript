@@ -1,0 +1,11 @@
+slug: native-undefined-pattern-name
+branch: feature/native-undefined-pattern-name
+agent: claude-code
+started: 2026-08-18T18:53:18Z
+heartbeat: 2026-08-18T18:53:18Z
+status: claimed-before-planning
+items: an-undefined-name-in-a-pattern-means-three-different-things
+paths: file:specs/v2.2-p6.5-fsub.ssc file:v2/lib/ssc1-lower.ssc0 file:tests/e2e/pattern-undefined-name-gate.sh file:BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
