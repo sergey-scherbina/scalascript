@@ -2673,12 +2673,13 @@ frame per arm activation.
 
 ## v3-a-continuation-could-not-resume-into-a-region — `if`, `try` and a loop's back edge, crossed
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      area: runtime
      kind: bug
      gate: v3/effects-gate.sh
-     fixed-in: -
+     fixed-in: 830efe318
+     confirmed: yes
      reported-by: claude-code
      reported-at: 2026-08-19
      repro: see below, two shapes
