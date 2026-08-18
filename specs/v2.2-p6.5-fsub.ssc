@@ -2601,8 +2601,27 @@ def objectItem1(name, ts, cx) = if isTok(hd(ts), 2, 28) then objectItem2(name, c
 // be unbound. Same change as `ssc1-lower.ssc0`'s `object` arm; the two fronts are twins and this is
 // the pair that `tests/BUGS.md two-front-bug-pairs` exists to catch.
 def objectItem2(name, ms, ts, cx) = ((join2(objDefsStr(name, ms, withCurObj((name, (objVarMemberNames(ms), objDefMemberNames(ms))), cx)), givenMethodObj(name, ms, cx)), ""), skipBrace(tl(ts), 1))
+// A `val` MEMBER BELONGS IN THIS LIST TOO, and the reason is that it is emitted exactly like a
+// method. `objDefEmit` writes a def member as `(def O_m …)` and a val member as `(def O_base …)` —
+// the same naming convention — so the BARE reference wants the same answer, `(global O_base)`.
+// Before this the payload carried only vars and defs, so a val member matched neither
+// `isCurObjVar` nor `isCurObjMethod` and a sibling reading it fell through to a plain
+// `(global base)`, which `validateNoReader` rejects; F declined the whole file.
+//
+//   object T:
+//     val base: Int = 21          F: unbound global: (global base)   ref: 42
+//     val out: Int = base * 2
+//
+// Measured: it failed with a `def` reader as well as a `val` reader, and with or without a modifier
+// — the modifier defect fixed alongside it was a DIFFERENT cause, which is why the two were filed
+// and gated separately. Found because `examples/std-ui/theme.ssc` moved from declining on
+// `(global declarations)` to `(global lightTokens)` once the modifier half landed.
+//
+// `var` members are deliberately NOT folded in here: they emit `(def O_v__cell (prim cell.new …))`
+// and their bare reference must read the cell, which `isCurObjVar` already does. Two emissions, two
+// lists.
 def objDefMemberNames(ms) = ms match { case Nil => Nil case h :: t => objDefMemName(h, objDefMemberNames(t)) }
-def objDefMemName(m, rest) = m match { case (kind, nt) => if kind == "def" then Cons(fst(nt), rest) else rest }
+def objDefMemName(m, rest) = m match { case (kind, nt) => if kind == "def" then Cons(fst(nt), rest) else (if kind == "val" then Cons(fst(nt), rest) else rest) }
 // One match per function, mirroring objMemName: a match nested inside a match ARM does not lower
 // here (`match: no arm for Tuple2/2` — measured, this file compiles itself).
 def objVarMemberNames(ms) = ms match { case Nil => Nil case h :: t => objVarMemName(h, objVarMemberNames(t)) }

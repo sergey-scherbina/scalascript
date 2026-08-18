@@ -110,30 +110,43 @@ both case-class-method-plain 42 'case class P(a: Int):
 
 def main(): Unit = println(P(21).out())'
 
-# ── the cause this does NOT fix, recorded rather than hidden ─────────────────────────────────────
+# ── the OTHER cause, fixed the same day and kept as rows ─────────────────────────────────────────
 #
-# An object `val` read by a sibling is unbound on F with or without a modifier — verified against a
-# build WITHOUT this change. The row asserts the CURRENT state, so the day it starts working this
-# goes red and somebody deletes it deliberately instead of the fix landing unnoticed.
+# An object `val` read by a sibling used to be unbound on F with or without a modifier — a DIFFERENT
+# cause from the modifier defect above, verified against a build predating that fix. The row here was
+# originally an assertion that it still failed, precisely so the day it changed the gate would go red
+# instead of the fix landing unnoticed. It did go red, on this message: "it WORKS now — the separate
+# val gap closed; delete this row." So it was deleted deliberately and replaced by these.
+#
+# The payload behind it: `curObj` carried (varNames, defNames) and a val was in neither. Vals emit
+# `(def O_base …)` — the same shape as methods — so they belong in the def list, and `var`s
+# deliberately do not: those emit a CELL and their bare reference must read it.
 
-printf '%s\n' 'object T:
+both object-val-from-val 42 'object T:
   val base: Int = 21
   val out: Int = base * 2
 
-def main(): Unit = println(T.out)' > "$sandbox/objval.ssc"
-# The whole output, not head -1: under SSC_FRONT_STRICT the first line is the wrapper and the actual
-# cause is on the `reason:` line below it. Reading only the first line made this row report
-# "unexpected" for the very state it exists to record.
-out=$(SSC_NO_BUILD_CHECK=1 SSC_FRONT_STRICT=1 timeout 200 "$ssc" run "$sandbox/objval.ssc" < /dev/null 2>&1 | tr '\n' ' ')
-if [[ "$out" == *"unbound global"*"base"* ]]; then
-  echo "  ✓ object-val-still-unbound: a sibling-read object val is still an F gap (separate cause)"
-elif [[ "$out" == 42* ]]; then
-  echo "  ✗ object-val-still-unbound: it WORKS now — the separate val gap closed; delete this row"
-  fails=$((fails + 1))
-else
-  echo "  ✗ object-val-still-unbound: unexpected — $out"
-  fails=$((fails + 1))
-fi
+def main(): Unit = println(T.out)'
+
+both object-val-from-def 42 'object T:
+  val base: Int = 21
+  def out(): Int = base * 2
+
+def main(): Unit = println(T.out())'
+
+both object-private-val 42 'object T:
+  private val base: Int = 21
+  val out: Int = base * 2
+
+def main(): Unit = println(T.out)'
+
+# A `var` member must still read its CELL, not a plain global — the half of the payload that was
+# already right and would break if vals and vars were folded into one list.
+both object-var-still-a-cell 42 'object T:
+  var n: Int = 21
+  def out(): Int = n * 2
+
+def main(): Unit = println(T.out())'
 
 if [[ $fails -eq 0 ]]; then echo "✓ f-private-member-gate PASSED"; exit 0; fi
 echo "✗ f-private-member-gate: $fails failure(s)"
