@@ -1957,12 +1957,39 @@ object Prims:
       // (tag, methodName, closure): a case-class body method. Registered as a tagged
       // method so the existing __method__ dispatch (lookupTaggedMethod) calls it with
       // (self :: args), in place of the default DataV rendering.
-      val clos = a(2)
-      V2PluginRegistry.registerTaggedMethod(str(a, 0), str(a, 1),
-        (args: List[Value]) => clos match {
-          case fn: ClosV => callClos(fn, args.toArray)
-          case other     => other
-        })
+      val clos  = a(2)
+      val rtag  = str(a, 0)
+      val rname = str(a, 1)
+      // THE ARITY IS CHECKED HERE BECAUSE NOTHING ELSE CHECKS IT. `callClos` extends the closure's
+      // environment with however many values it is handed, and the body reads its parameters by
+      // position — so handing it one value too few does not fail, it SHIFTS: every parameter picks
+      // up its left-hand neighbour and the first one picks up `self`. Measured before this guard,
+      // both on the v2 lane and against the interpreter as the oracle:
+      //
+      //   class D:  def h(a: Int, b: Int)      d.h(7)      -> H(D,7)     v1: missing argument 'b'
+      //   class R:  def k(a: Int)              r.k()       -> K(R)
+      //             def t(a: Int, b: Int, c)   r.t(1, 2)   -> T(R,1,2)
+      //
+      // A wrong ANSWER, not a failure, and it needs no overload to happen — the overload report
+      // (`Calc7`, v2-overloaded-class-method-returns-a-wrong-value-instead-of-refusing) was this
+      // rule seen through one example.
+      val checked: List[Value] => Value = (args: List[Value]) => clos match
+        case fn: ClosV =>
+          if args.length != fn.arity then
+            // Counts are reported as the USER wrote them: `self` is an implementation detail of the
+            // calling convention and naming it in the message would send someone hunting a
+            // parameter their source does not have.
+            sys.error(s"$rtag.$rname: expected ${fn.arity - 1} argument(s), got ${args.length - 1}")
+          callClos(fn, args.toArray)
+        case other => other
+      V2PluginRegistry.registerTaggedMethod(rtag, rname, checked)
+      // NO ARITY-QUALIFIED KEY HERE, and that is a measured decision rather than an omission. One
+      // was written first, so that two same-named methods differing in parameter count could both
+      // be reachable — and it could never fire: only ONE `__regmethod__` arrives per name, so the
+      // second registration is all that ever exists. Reversing the declaration order proves it,
+      // `def f(a, b)` then `def f(a)` makes `c.f(7)` answer 70 and `c.f(1, 2)` refuse, the exact
+      // mirror of the other order. Overload support therefore has to start where the methods are
+      // CAPTURED, not here, and a key that cannot be hit would read as support that exists.
       UnitV
     // Atomic string+newline: concurrent actors printing at once must not interleave (else two
     // `println`s produce "abcd\n\n" instead of "ab\ncd\n"). Sync on the shared stream.

@@ -3319,15 +3319,64 @@ claim that has to be shown, not asserted.
 
 ---
 
-## v2-overloaded-class-method-returns-a-wrong-value-instead-of-refusing — `Calc7` where `70` was asked for
+## v2-only-the-last-same-name-class-method-is-registered — an overload is unreachable, not merely unpicked
 
 <!-- status: open
      lane: v2-jvm
+     area: front
+     kind: bug
+     gate: tests/e2e/v2-unknown-member-refuses-gate.sh
+     found-by: claude-code
+     found-at: 2026-08-18
+     repro: the reversed pair in the body
+     confirmed: yes -->
+
+Two methods with one name and different parameter counts: v2 keeps ONE. The front emits a single
+`__regmethod__` per name, so the second registration is all that exists at dispatch, and the other
+overload cannot be reached by any call.
+
+    class Calc:
+      def f(a: Int): Int        = a * 10
+      def f(a: Int, b: Int): Int = a + b
+    c.f(1, 2)  ->  3                                      c.f(7)  ->  refuses
+                                                          v1:         70
+
+REVERSED, which is the measurement that makes this a registration fact rather than a dispatch
+preference — declare the two-argument one FIRST:
+
+    class Calc:
+      def f(a: Int, b: Int): Int = a + b
+      def f(a: Int): Int         = a * 10
+    c.f(7)     ->  70                                     c.f(1, 2)  ->  refuses
+
+Whichever is written last is the one that works. Nothing chooses between them; there is only ever
+one to choose.
+
+WHY IT READS AS NEW: until 2026-08-18 this was invisible, because a call that missed the surviving
+overload did not refuse — it answered, wrongly, with the receiver shifted into the first parameter
+(`v2-overloaded-class-method-returns-a-wrong-value-instead-of-refusing`, `Calc7` for `c.f(7)`). With
+that fixed, the same programs now say `Calc.f: expected 2 argument(s), got 1`, and what remains is
+this: a refusal where the interpreter answers.
+
+An arity-qualified dispatch key was written and then deleted rather than shipped, because it cannot
+fire while only one registration exists per name — it would have read as overload support that is
+present. The fix belongs where the methods are CAPTURED: emit one `__regmethod__` per declaration
+and key the registry by `(tag, name, arity)`, at which point the dispatch key becomes worth adding
+back. That is the v2 twin of `interp-same-name-class-methods-collapse-to-the-last`, whose fix on the
+interpreter took exactly this shape (arity keys plus a picker at each resolution site).
+
+---
+
+## v2-overloaded-class-method-returns-a-wrong-value-instead-of-refusing — `Calc7` where `70` was asked for
+
+<!-- status: fixed
+     lane: v2-jvm
      area: runtime
      kind: bug
-     gate: none
+     gate: tests/e2e/v2-unknown-member-refuses-gate.sh
      found-by: claude-code
      found-at: 2026-08-16
+     fixed-at: 2026-08-18
      repro: the body
      confirmed: yes -->
 
@@ -3347,6 +3396,78 @@ Worse than the interpreter's failure, which at least named a parameter. Filed ra
 the interpreter half is `interp-same-name-class-methods-collapse-to-the-last`, this is a different
 lane and belongs in its own claim. The two were found by one program run on both lanes — a habit
 worth keeping, since the interpreter's version was loud and this one is silent.
+
+RE-MEASURED 2026-08-17 ON A FRESH BUILD, and OVERLOADING TURNS OUT TO BE A SYMPTOM, not the defect.
+The rule is simpler and much wider: **a class-method call missing exactly one argument silently binds
+the RECEIVER as the first parameter and shifts the rest.** No overload is needed to trigger it.
+
+    class D:
+      def h(a: Int, b: Int): String = "H(" + a.toString + "," + b.toString + ")"
+    d.h(7)        ->  v2: H(D,7)        v1: [ERROR] missing argument for parameter 'b'
+
+    class R:
+      def k(a: Int): String                 r.k()      ->  K(R)
+      def t(a: Int, b: Int, c: Int): String r.t(1, 2)  ->  T(R,1,2)
+
+That last pair is the confirmation of the rule rather than a second example: it was PREDICTED from
+the one-argument case and then measured. `r.k()` — a no-argument call on a one-parameter method —
+answering `K(R)` is the shape that will reach a user first.
+
+THE ORIGINAL `Calc7` IS THIS: `c.f(7)` ran the TWO-argument overload with `a` = the receiver and
+`b` = 7, so `a + b` concatenated `Calc` with `7`. Made visible by giving the two overloads different
+bodies instead of arithmetic — `TWO(C,7)` where the entry first read only a wrong number.
+
+AND THE CASE-CLASS HALF FAILS DIFFERENTLY, which is why the fix has to look at both:
+
+    receiver      args       v2                                   v1 (the oracle)
+    plain class   exact      P(1,2)                               same
+    plain class   one short  P(P,1)          silent wrong value   refuses, NAMES the parameter
+    case class    exact      Q(1,2)          same
+    case class    one short  Index -1 out of bounds for length 2   refuses, NAMES the parameter
+                                             internal, no source location, exit 1
+
+ONE MECHANISM RULED OUT BY MEASUREMENT rather than by reading: it is NOT the extension-method
+fallback (`__methodOrExt__` calling a global with the receiver prepended). With a real global
+`def h(x: P, y: Int)` in scope alongside the class, the short call still runs the MEMBER body —
+`MEMBER(P,1)`, not `GLOBAL(...)`. So the member's own closure is being invoked with the receiver
+prepended, and the argument count then "fits" by accident.
+
+Kept open with a wider title in mind: the entry's own name says `overloaded`, and the next reader
+should not conclude that removing an overload avoids it.
+
+FIXED — the SILENT WRONG ANSWER. `__regmethod__` now checks the arity it was always assumed to have.
+The mechanism, read rather than guessed after the probes narrowed it: a body method is registered as
+a tagged method and invoked with `self :: args`; `callClos` extends the closure's environment with
+however many values it is handed, and the body reads its parameters by POSITION. Nothing anywhere
+compared the two counts, so one value too few did not fail — it SHIFTED, and `self` became the first
+parameter. Every case in the matrix above now refuses by name:
+
+    D.h: expected 2 argument(s), got 1
+    R.k: expected 1 argument(s), got 0
+    T.t: expected 3 argument(s), got 2
+
+Counts are reported as the source is written: `self` is a calling convention, and naming it would
+send someone hunting a parameter their program does not have.
+
+ONE FIX COVERED BOTH HALVES, which was not a given — the case-class half failed differently
+(`Index -1 out of bounds for length 2`, internal, no source location) and could have needed its own
+repair. Measured after: the same message on both fronts, legacy and F.
+
+STILL OPEN, AND NOW LOUD INSTEAD OF WRONG: v2 cannot dispatch two same-named methods that differ in
+parameter count, because only ONE `__regmethod__` arrives per name — the LAST declaration. So
+`c.f(7)` against `def f(a)` + `def f(a, b)` refuses rather than answering 70 as the interpreter does.
+Proven by reversing the declaration order: with `def f(a, b)` first, `c.f(7)` answers 70 and
+`c.f(1, 2)` refuses — the exact mirror. This is the v2 twin of
+`interp-same-name-class-methods-collapse-to-the-last`, and the fix has to start where the methods are
+CAPTURED (the front), not at dispatch.
+
+An arity-qualified registration key was written first and then DELETED, because it could never fire:
+with one registration per name there is no second entry for it to find. A key that cannot be hit
+reads as overload support that exists. The check stayed; the key went.
+
+Gate: `tests/e2e/v2-unknown-member-refuses-gate.sh` — three refusal rows including the nullary call
+(`r.k()`, the one a user meets first), and an anti-row asserting right-arity calls still answer,
+because refusing every class-method call would satisfy all three.
 
 ---
 

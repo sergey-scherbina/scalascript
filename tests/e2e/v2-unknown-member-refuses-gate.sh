@@ -180,6 +180,60 @@ json: {"cell":"<function>"}' \
   val g = (x: Int) => x + 1
   println("json: " + jsonStringify(Map("cell" -> g)))'
 
+echo "── a class-method call with the wrong number of arguments"
+
+# THE SAME FAMILY AS EVERYTHING ABOVE — a wrong ANSWER where an error belongs — reached through the
+# calling convention rather than through dispatch. A body method is registered as a tagged method
+# and invoked with `self :: args`; `callClos` extends the closure's environment with however many
+# values it is handed and the body reads its parameters by POSITION. Hand it one value too few and
+# nothing fails: every parameter picks up its left-hand neighbour and the first one picks up `self`.
+#
+#   class D:  def h(a: Int, b: Int)     d.h(7)     -> H(D,7)   (v1: missing argument for 'b')
+#   class R:  def k(a: Int)             r.k()      -> K(R)
+#             def t(a, b, c)            r.t(1, 2)  -> T(R,1,2)
+#
+# The no-argument row is the one that would reach a user first, and it is the reason this is three
+# rows and not one: `k()` is what someone writes when they forget a parameter exists, and the answer
+# it used to give looks like a working call.
+#
+# The case-class half failed DIFFERENTLY before the fix — `Index -1 out of bounds for length 2`, an
+# internal message with no source location — so it is asserted separately rather than assumed to
+# share a fate with the plain class.
+refuses class-method-one-short 'D.h: expected 2 argument(s), got 1' \
+  'case class D(z: Int):
+  def h(a: Int, b: Int): String = "H(" + a.toString + "," + b.toString + ")"
+
+def main(): Unit = println(D(0).h(7))'
+
+refuses class-method-nullary-call 'R.k: expected 1 argument(s), got 0' \
+  'case class R(z: Int):
+  def k(a: Int): String = "K(" + a.toString + ")"
+
+def main(): Unit = println(R(0).k())'
+
+refuses class-method-two-short 'T.t: expected 3 argument(s), got 2' \
+  'case class T(z: Int):
+  def t(a: Int, b: Int, c: Int): String = "T(" + a.toString + "," + b.toString + "," + c.toString + ")"
+
+def main(): Unit = println(T(0).t(1, 2))'
+
+# THE ANTI-ROW for the three above: refusing every class-method call would satisfy all of them.
+# Right-arity calls must still answer, including the nullary method that has no arguments to get
+# wrong — that one is the case a naive `args.length != arity` off-by-one would break.
+answers_block class-method-right-arity 'one: K(5)
+three: T(1,2,3)
+nullary: 9' \
+  'case class C(z: Int):
+  def k(a: Int): String = "K(" + a.toString + ")"
+  def t(a: Int, b: Int, c: Int): String = "T(" + a.toString + "," + b.toString + "," + c.toString + ")"
+  def zed(): Int = z
+
+def main(): Unit =
+  val c = C(9)
+  println("one: " + c.k(5))
+  println("three: " + c.t(1, 2, 3))
+  println("nullary: " + c.zed().toString)'
+
 echo
 if [[ "$fails" -ne 0 ]]; then
   echo "v2-unknown-member-refuses-gate: FAIL ($fails row(s))" >&2
