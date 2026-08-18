@@ -67,7 +67,12 @@ ports_of() { # ports_of <file> -> one port per line, comments stripped
 #
 # NONE OF THE THREE IS AN ACTIVE HAZARD TODAY, and that is why this is a ratchet and not a bug fix.
 # For two gates to talk to each other's server they must run on one machine. Measured 2026-08-14:
-#   8768  only components-smoke.sh is wired; render-smoke.sh and v21-native-entry-smoke.sh are orphans
+#   8768  only components-smoke.sh is wired; v21-native-entry-smoke.sh is an orphan.
+#         render-smoke.sh LEFT THE PAIR 2026-08-16 (7b4731845): it allocates with `free_port` now —
+#         the remedy this file's own header prescribes — and its name came out of the frozen line
+#         2026-08-18, as the both-ways ratchet requires. The self-test is what noticed: it went red
+#         with "the frozen list is stale" two days after the retirement, because nothing else reads
+#         this list forward.
 #   8769  RESOLVED 2026-08-15 — std-ui-forms-smoke.sh moved to 8771. It was the collision that
 #         actually bit: an ordinary smoke run had it answering on a neighbour's server. Kept as a
 #         line rather than deleted, so the next reader sees a frozen pair CAN be retired.
@@ -94,7 +99,7 @@ ports_of() { # ports_of <file> -> one port per line, comments stripped
 # not a caller. This is the third variant and the one it cannot defend against: a DATA string is not
 # a caller either, and unlike a comment there is nothing about it to strip. Anything else that lists
 # gate filenames as data belongs in a `.md`, which `callers_of` excludes, or here without the suffix.
-FROZEN_COLLISIONS="8768 components-smoke render-smoke v21-native-entry-smoke"
+FROZEN_COLLISIONS="8768 components-smoke v21-native-entry-smoke"
 
 SELF="$(basename "${BASH_SOURCE[0]}")"
 
@@ -197,10 +202,25 @@ time.sleep(20)
   rm -f "$plant/zz-planted-collision-probe.sh"
 
   # Rule 2 — a collision that got FIXED must also fail, until its line is deleted. Planted by
-  # rewriting one of the two gates on 8797 to a port nobody uses.
-  if [[ -f "$plant/route-params-v2-smoke.sh" ]]; then
-    was=8797; now=8399   # assembled, not spelled out — see the note on rule 1
-    sed -i.bak "s/PORT=$was/PORT=$now/" "$plant/route-params-v2-smoke.sh" && rm -f "$plant"/*.bak
+  # rewriting one of the two gates on 8768 to a port nobody uses.
+  #
+  # THE PLANT MUST NAME A PAIR THE FROZEN LIST STILL HOLDS, and this line is where that has now
+  # broken twice: it planted against 8797 after that pair was retired on 2026-08-16, so the rewrite
+  # changed nothing, the check passed, and THIS self-test read "one-way ratchet" — red for two days
+  # over its own stale fixture while the rule it tests worked. A plant against a retired pair tests
+  # nothing; when a frozen pair is retired, this plant moves to a surviving one in the same commit.
+  # `components-smoke.sh`, and the SPELLING is why: it writes `PORT=8768`, which this sed matches.
+  # The first move of this plant picked the pair's other member, whose port lives inside a URL as
+  # `localhost:8768` — the sed matched nothing, the plant was silently vacuous AGAIN, and only the
+  # red self-test said so. A plant whose edit can miss must be followed by proof it landed; hence
+  # the grep below, which fails the self-test loudly if the rewrite ever stops matching.
+  if [[ -f "$plant/components-smoke.sh" ]]; then
+    was=8768; now=8399   # assembled, not spelled out — see the note on rule 1
+    sed -i.bak "s/PORT=$was/PORT=$now/" "$plant/components-smoke.sh" && rm -f "$plant"/*.bak
+    if grep -q "PORT=$was" "$plant/components-smoke.sh"; then
+      echo "SELF-TEST FAIL: the rule-2 plant did not land — the gate no longer spells PORT=$was" >&2
+      exit 1
+    fi
     if check_collisions "$plant" >/dev/null 2>&1; then
       echo "SELF-TEST FAIL: a frozen collision was fixed and the list still passed — one-way ratchet" >&2
       exit 1

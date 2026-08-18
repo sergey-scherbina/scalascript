@@ -77,6 +77,7 @@ root-test-command-registry-other-category	tests	v1/tools/cli/src/main/scala/scal
 run-js-v2-always-exits-1	v1/runtime/backend/js	v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala	fixed-in
 rust-examples-use-a-rust-fence-the-front-does-not-accept	v2	v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCapabilities.scala	fixed-in
 rust-list-concat-moves-its-operands	v2	v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala	fixed-in
+rust-typed-pattern-binder-over-an-any-is-dropped	tests	v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala	fixed-in
 scala3-control-capability-jvm-visibility	tests	v1/lang/control-api/src/main/scala/scalascript/control/Continuation.scala	fixed-in
 scala3-control-operation-key-snapshot	v1/runtime/backend/js	v1/lang/control-api/src/main/scala/scalascript/control/Continuation.scala	fixed-in
 scjvm-artifact-cache-ignores-compiler-version	v1/runtime/backend/jvm	v1/lang/core/src/main/scala/scalascript/artifact/JvmArtifactIO.scala	fixed-in
