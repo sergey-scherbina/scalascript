@@ -2,10 +2,10 @@ slug: ui-provider-gap-damage-recheck
 branch: feature/ui-provider-gap-damage-recheck
 agent: claude-code
 started: 2026-08-18T17:37:08Z
-heartbeat: 2026-08-18T17:37:08Z
+heartbeat: 2026-08-18T17:37:36Z
 status: claimed-before-planning
 items: v2-ui-provider-lacks-forJsonView-and-blocks-eight-unrelated-tests
-paths: file:v2/BUGS.md file:tests/e2e/ui-provider-gap-gate.sh file:scripts/smoke-ci.ssc
+paths: file:v2/BUGS.md file:tests/e2e/ui-provider-gap-gate.sh file:scripts/smoke-ci.ssc file:v2/runtime/std/ui-plugin/src/main/scala/ssc/plugin/ui/UiNativePlugin.scala
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+next: damage refuted (all eight cases run); register the five as POSITIONED REFUSALS, not constructors
