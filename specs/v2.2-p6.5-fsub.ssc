@@ -2579,8 +2579,27 @@ def objDefMemName(m, rest) = m match { case (kind, nt) => if kind == "def" then 
 // here (`match: no arm for Tuple2/2` — measured, this file compiles itself).
 def objVarMemberNames(ms) = ms match { case Nil => Nil case h :: t => objVarMemName(h, objVarMemberNames(t)) }
 def objVarMemName(m, rest) = m match { case (kind, nt) => if kind == "var" then Cons(fst(nt), rest) else rest }
+// A MEMBER MAY CARRY MODIFIERS, and only `override` was skipped. Everything else — `private`,
+// `protected`, `final`, `lazy` — fell through to `collectOM(skipStmt(ts))`, which DISCARDS the whole
+// member: its name was never registered, so a sibling calling it emitted `(global helper)` and the
+// file declined. Reduced to five lines, and the modifier is the entire trigger:
+//
+//   object T:
+//     private def helper(x: Int): Int = x * 2      F: unbound global: (global helper)   ref: 42
+//     val out: Int = helper(21)                     ...drop `private` and F answers 42
+//
+// The census was taken BEFORE the fix rather than one cell at a time: `private def`, `protected def`,
+// `final def` and `private val` all lost the member; a plain `def` did not. And `collectMD`, which
+// does the same job for CLASS methods, carried the identical `override`-only branch — found by
+// grepping for the other decision site instead of waiting for it to be reported.
+//
+// `skipGen` handles the qualified form (`private[this]`) for free: it skips a bracketed clause when
+// one is there and returns the stream untouched when it is not.
+def isMemberMod(t) = if isWord(t, "override") then true else (if isWord(t, "private") then true else (if isWord(t, "protected") then true else (if isWord(t, "final") then true else (if isWord(t, "lazy") then true else (if isWord(t, "implicit") then true else isWord(t, "inline"))))))
+def skipMemberMods(ts) = if isEmpty(ts) then ts else (if isMemberMod(hd(ts)) then skipMemberMods(skipGen(tl(ts))) else ts)
 def collectObjMembers(ts) = collectOM(skipSemisF(ts))
-def collectOM(ts) = if isEmpty(ts) then Nil else (if isTok(hd(ts), 2, 29) then Nil else (if isWord(hd(ts), "override") then collectOM(tl(ts)) else (if isTok(hd(ts), 2, 1) then collectOMk("def", ts) else (if isTok(hd(ts), 2, 7) then collectOMk("val", ts) else (if isVarHead(ts) then collectOMk("var", ts) else (if isExtensionHead(ts) then collectOMExt(skipGen(tl(ts))) else collectOM(skipStmt(ts))))))))
+def collectOM(ts) = collectOM1(skipMemberMods(ts))
+def collectOM1(ts) = if isEmpty(ts) then Nil else (if isTok(hd(ts), 2, 29) then Nil else (if isTok(hd(ts), 2, 1) then collectOMk("def", ts) else (if isTok(hd(ts), 2, 7) then collectOMk("val", ts) else (if isVarHead(ts) then collectOMk("var", ts) else (if isExtensionHead(ts) then collectOMExt(skipGen(tl(ts))) else collectOM(skipStmt(ts)))))))
 def collectOMk(kind, ts) = Cons((kind, (snd(hd(tl(ts))), objMemToks(kind, tl(tl(ts))))), collectOM(skipSemisF(skipStmt(tl(tl(ts))))))
 // `extension (recv) def m(..) = ..` INSIDE a given/object body: each contiguous member `def` becomes an
 // "extdef" entry carrying (mname, (recvEnv, methodToks)); the receiver is prepended to the method's params
@@ -3501,7 +3520,10 @@ def collectCMcc3(cname, flds, r, ts) = if isTok(hd(r), 2, 28) then collectCMcc4(
 def collectCMcc4(cname, flds, bodyTs, ts) = collectCMreg(cname, flds, collectMethodDefs(bodyTs), ts)
 def collectCMreg(cname, flds, ms, ts) = if isEmpty(ms) then collectCM(tl(ts)) else Cons((cname, (flds, ms)), collectCM(tl(ts)))
 def collectMethodDefs(ts) = collectMD(skipSemisF(ts))
-def collectMD(ts) = if isEmpty(ts) then Nil else (if isTok(hd(ts), 2, 29) then Nil else (if isWord(hd(ts), "override") then collectMD(tl(ts)) else (if isTok(hd(ts), 2, 1) then collectMDdef(ts) else collectMD(skipStmt(ts)))))
+// THE SECOND DECISION SITE, same defect: class methods were collected with the same `override`-only
+// branch, so `private def` on a class lost the method exactly as it did on an object.
+def collectMD(ts) = collectMD1(skipMemberMods(ts))
+def collectMD1(ts) = if isEmpty(ts) then Nil else (if isTok(hd(ts), 2, 29) then Nil else (if isTok(hd(ts), 2, 1) then collectMDdef(ts) else collectMD(skipStmt(ts))))
 def collectMDdef(ts) = Cons((snd(hd(tl(ts))), tl(tl(ts))), collectMD(skipSemisF(skipStmt(tl(tl(ts))))))
 // skip one statement to (and past) its top-level `;` (code 52); STOP before a top-level `}` (body close),
 // tracking paren/brace/bracket nesting so an inner `;`/`}` inside the method body is not the boundary.
