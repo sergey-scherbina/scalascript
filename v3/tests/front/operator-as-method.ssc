@@ -1,0 +1,31 @@
+// AN OPERATOR THE CORE DOES NOT DEFINE IS A METHOD CALL. `Lower.coreBinOp` names the operators that
+// are instructions; everything else lowers to `Invoke`, exactly as an ALPHANUMERIC infix operator
+// already did (`a to b` is `a.to(b)`). The kernel gains nothing, and an operator becomes a library
+// matter — the same answer the owner took for interpolators.
+//
+// `++` IS THE REGRESSION GUARD. It used to have an arm of its own that built precisely this Invoke;
+// that arm is deleted, so if the general rule is ever narrowed these two lines fail first.
+
+def main(): Unit =
+  println(List(1, 2) ++ List(3))
+  // `"a" ++ "b"` is NOT here: the executor has no `++` on a String, before this change and after —
+  // measured byte-identical on origin/main — so putting it in would test v2's bridge, not this rule.
+
+  // the core operators must still be INSTRUCTIONS, not calls
+  println(1 + 2)
+  println(7 - 2)
+  println(3 * 4)
+  println(9 / 2)
+  println(5 % 3)
+  println(1 << 4)
+  println(16 >> 2)
+  println(6 & 3)
+  println(6 | 3)
+  println(6 ^ 3)
+  println(2 < 3)
+  println(2 == 2)
+  println(2 != 3)
+
+  // unary `!` is a different node and must not be routed anywhere
+  val flag = false
+  println(!flag)

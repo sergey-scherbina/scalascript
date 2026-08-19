@@ -6,6 +6,64 @@ belong in the repository-root `BUGS.md` instead, not here.
 
 Query: `scripts/bugs-report --module v3`.
 
+## operator-outside-tier0-refuses-a-library-operator — the core's set was the language's set
+
+<!-- status: open
+     lane: v3
+     kind: feature
+     area: front
+     gate: v3/tests/front/operator-as-method.ssc
+     found-by: claude-code
+     found-at: 2026-08-19 -->
+
+**`Lower.binOp` threw for any operator outside a fixed list** — `+ - * / % < <= > >= == != & | ^ <<
+>> >>>` — so `replyTo ! msg` was refused with `operator '!' is outside SSC3 core Tier 0`. Three
+corpus cases stopped there. The list is the operators the CORE implements as instructions; treating
+it as the operators the LANGUAGE has is the defect.
+
+**THE MECHANISM WAS ALREADY THERE, for the other half of the alphabet.** An ALPHANUMERIC infix
+operator has lowered to a method call for a long time — `a to b` is `a.to(b)`, with a comment saying
+so — and `++` had an arm of its own doing exactly that. So the fix is to stop treating the symbolic
+operators as a closed set, not to add a mechanism: `coreBinOp` ANSWERS `Option[BinOp]` and the caller
+lowers a `None` to `Invoke`. The `++` arm is deleted rather than moved, because it is now one case of
+the rule instead of an exception to it — verified byte-identical before and after on `List ++ List`
+and on `"a" ++ "b"`, which the executor does not support either way.
+
+**AND THE ADAPTER HAD TO LEARN THE OTHER SPELLING, or this would have been a regression.** v2 does
+not treat `!` as a member: `Prims.arithOp` routes it to the registered `actor.send`. Lowering to a
+call therefore turned an honest refusal into `method '!' on <handle Mailbox>` escaping as an uncaught
+`ExecThrow` — a CRASH where there had been an UNSUPPORTED. `V2Fleet.methodOn` now answers a
+one-argument SYMBOLIC name through `arithOp`, which is where the two models meet, and
+`actors-cluster-discovery` and `actors-distributed-basic` run.
+
+## infix-application-does-not-reach-a-declared-class-method — `b add 2` fails where `b.add(2)` works
+
+<!-- status: open
+     lane: v3
+     kind: bug
+     area: runtime
+     gate: none yet
+     found-by: claude-code
+     found-at: 2026-08-19 -->
+
+**THE SAME CALL, TWO SPELLINGS, TWO ANSWERS:**
+
+    case class Box(v: Int):
+      def add(other: Int): Int = v + other
+
+    Box(40).add(2)    ->  42
+    Box(40) add 2     ->  method 'add' on #8(40)' is not implemented by v3's executor
+
+**PRE-EXISTING, and measured as such** — identical on `origin/main` with the operator work stashed.
+It is filed here because that work is what put a spotlight on it: making a symbolic operator lower
+to `Invoke` is only worth what `Invoke` can reach, and on a user-declared class method it reaches
+nothing. The two corpus cases the operator change fixes are host handles, where the fleet answers;
+a user type still cannot define an operator that works.
+
+So the infix arm lowers to `Instr.Invoke(name)` while a selection lowers to something the executor
+resolves against the class's own method table. One of those two paths knows about declared methods
+and the other does not.
+
 ## v3-front-diff-ceiling-is-derived-by-word-counting-and-a-comment-changes-it — 23, 76 or 83 for one list
 
 <!-- status: fixed

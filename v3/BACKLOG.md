@@ -73,6 +73,36 @@ becomes an ordinary CALL — `pfx"a${x}b"` lowers to `pfx(List("a","b"), List(x)
 args)` in `std` or a plugin defines one with nothing added to the kernel. Entry:
 `v3-an-interpolator-prefix-is-hardcoded-in-both-fronts`.
 
+**DECIDED 2026-08-19 — the owner admits all three groups.** Put with today's histogram rather than
+the one below, which predates the interpolator design and the JVM interop: the boundary refuses 14
+cases now, as `marker` 9, `operator` 3 and abstract `val` 2. The owner took all three, and the order
+is cheapest-first because the third is a different kind of work:
+
+| group | cases | shape | status |
+| --- | --- | --- | --- |
+| operators | 3 | an operator the core does not define is a METHOD CALL | claimed `v3-tier0-operator-as-method` |
+| abstract `val` | 2 | `val name: String` with no value — TWO shapes, see below | next |
+| markers | 9 | `Focus`/`direct`/`Prism` — a compile-time REWRITE in the front | a feature with a plan, last |
+
+**THE ABSTRACT `val` IS TWO QUESTIONS WEARING ONE MESSAGE, and only one of them is the refusal's
+own.** `UniFront.scala:281` refuses `U.AbstractVal` wherever it appears, with the comment "v3's
+traits carry methods, not abstract state" — which is a deliberate answer for a TRAIT. But the use in
+the tree is `std/http.ssc:170`, inside an **`extern class`**:
+
+    extern class UploadedFile:
+      val name:     String
+      val filename: String
+
+Those are not abstract state: they DESCRIBE the fields of a host type, which is the same fact
+`registerFieldNames` carries on the plugin side. So the slice is to accept an abstract `val` in an
+`extern class` as a field declaration and leave the trait refusal exactly as it is — one shape
+admitted, one deliberately not, rather than one message covering both.
+
+The operator answer is the interpolator answer applied again: rather than widen Tier 0 to hold the
+operator, make the operator ORDINARY. `Lower` already lowered an ALPHANUMERIC infix operator to
+`Invoke` — `a to b` is `a.to(b)` — so the change is to stop treating the symbolic ones as a closed
+set. The kernel gains nothing (I-1) and an operator becomes a library matter.
+
 **STILL OPEN — the Tier 0 boundary itself, and the markers are no longer a mystery.** The 24 Tier-0
 refusals are five different questions:
 

@@ -333,13 +333,6 @@ object Lower:
       val (d, st4) = st3.fresh
       (li ++ ri :+ Instr.Invoke(d, k, rr, List(lr)), d, st4)
 
-    case Expr.Bin("++", l, r, _) =>
-      val (li, lr, st1) = lower(l, fns, classes, zeroArity, st0)
-      val (ri, rr, st2) = lower(r, fns, classes, zeroArity, st1)
-      val (k, st3) = st2.constIdx(Lit.LStr("++"))
-      val (d, st4) = st3.fresh
-      (li ++ ri :+ Instr.Invoke(d, k, lr, List(rr)), d, st4)
-
     // An ALPHANUMERIC infix operator is a method call — `a to b` IS `a.to(b)` in Scala, and routing
     // it to `Invoke` is that identity rather than a new mechanism. It also means the receiver's
     // runtime type decides, so `to` on an Int and a `to` someone later defines on their own type
@@ -351,11 +344,28 @@ object Lower:
       val (d, st4) = st3.fresh
       (li ++ ri :+ Instr.Invoke(d, k, lr, List(rr)), d, st4)
 
+    // A SYMBOLIC operator the core does not define is a METHOD CALL, on exactly the terms the
+    // alphanumeric arm above already sets. `replyTo ! msg` is `replyTo.!(msg)` — the receiver's
+    // runtime type decides, so an operator someone defines on their own type works without the
+    // lowering knowing about it, and the kernel gains nothing (I-1).
+    //
+    // This is the same answer the owner took for interpolators: rather than widen Tier 0 to hold
+    // the operator, make the operator ORDINARY. Before this, `binOp`'s fallthrough refused with
+    // `operator '!' is outside SSC3 core Tier 0` and three corpus cases stopped there.
+    //
+    // The `++` arm that used to sit above is gone, not moved: it built exactly this Invoke for
+    // exactly this reason, and it is now one case of the rule instead of an exception to it.
     case Expr.Bin(op, l, r, p) =>
       val (li, lr, st1) = lower(l, fns, classes, zeroArity, st0)
       val (ri, rr, st2) = lower(r, fns, classes, zeroArity, st1)
-      val (d, st3) = st2.fresh
-      (li ++ ri :+ Instr.Bin(binOp(op, p), NumKind.Dyn, d, lr, rr), d, st3)
+      coreBinOp(op) match
+        case Some(b) =>
+          val (d, st3) = st2.fresh
+          (li ++ ri :+ Instr.Bin(b, NumKind.Dyn, d, lr, rr), d, st3)
+        case None =>
+          val (k, st3) = st2.constIdx(Lit.LStr(op))
+          val (d, st4) = st3.fresh
+          (li ++ ri :+ Instr.Invoke(d, k, lr, List(rr)), d, st4)
 
     case Expr.Neg(x, _) =>
       val (xi, xr, st1) = lower(x, fns, classes, zeroArity, st0)
@@ -3157,14 +3167,19 @@ object Lower:
         out
       }
 
-  private def binOp(op: String, p: Pos): BinOp = op match
-    case "+" => BinOp.Add; case "-" => BinOp.Sub; case "*" => BinOp.Mul
-    case "/" => BinOp.Div; case "%" => BinOp.Rem
-    case "<" => BinOp.Lt; case "<=" => BinOp.Le; case ">" => BinOp.Gt; case ">=" => BinOp.Ge
-    case "==" => BinOp.Eq; case "!=" => BinOp.Ne
-    case "&" => BinOp.BAnd; case "|" => BinOp.BOr; case "^" => BinOp.BXor
-    case "<<" => BinOp.Shl; case ">>" => BinOp.Shr; case ">>>" => BinOp.UShr
-    case other => throw LowerFail(p, "operator '" + other + "' is outside SSC3 core Tier 0")
+  /** The operators the CORE defines, as an instruction each. `None` is not an error: it means the
+    * operator belongs to whoever defines it, and the caller lowers it to a method call. This used to
+    * throw `operator '…' is outside SSC3 core Tier 0`, which made the fixed list below the whole
+    * language's operator set rather than the core's. */
+  private def coreBinOp(op: String): Option[BinOp] = op match
+    case "+" => Some(BinOp.Add); case "-" => Some(BinOp.Sub); case "*" => Some(BinOp.Mul)
+    case "/" => Some(BinOp.Div); case "%" => Some(BinOp.Rem)
+    case "<" => Some(BinOp.Lt); case "<=" => Some(BinOp.Le)
+    case ">" => Some(BinOp.Gt); case ">=" => Some(BinOp.Ge)
+    case "==" => Some(BinOp.Eq); case "!=" => Some(BinOp.Ne)
+    case "&" => Some(BinOp.BAnd); case "|" => Some(BinOp.BOr); case "^" => Some(BinOp.BXor)
+    case "<<" => Some(BinOp.Shl); case ">>" => Some(BinOp.Shr); case ">>>" => Some(BinOp.UShr)
+    case _    => None
 
   /** The synthetic entry. Top-level statements run in order, then `main()` if the file defines one —
     * which is how `.ssc` behaves on the other lanes: a script with no `main` still prints, and a

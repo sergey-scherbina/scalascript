@@ -197,10 +197,28 @@ object V2Fleet:
           case Some(c: ssc.Value.ClosV) => Some(as => applyClosDriven(c, as))
           case _                        => None
       case _ => None
+    // A SYMBOLIC NAME IS AN OPERATOR ON THIS SIDE, and that is a difference between the two models
+    // rather than a missing member. v3 lowers `replyTo ! msg` to `replyTo.!(msg)` — an operator the
+    // core does not define is an ordinary method call, which is what keeps the kernel out of it — but
+    // v2 spells the same thing as a BINARY OPERATOR: `Prims.arithOp` routes `!` to the registered
+    // `actor.send`. Neither side is wrong, so the ADAPTER is where the two spellings meet.
+    //
+    // WITHOUT THIS THE CHANGE IS A REGRESSION, NOT A FEATURE. Lowering the operator to a call turned
+    // `operator '!' is outside SSC3 core Tier 0` — an honest refusal, counted as UNSUPPORTED — into
+    // an uncaught `method '!' on <handle Mailbox>`, which the corpus counts as CRASH. Unblocking a
+    // path and leaving its next step unimplemented is how a refusal becomes a crash.
+    //
+    // ONLY WHEN v2's TABLES DID NOT CLAIM THE NAME, only for one argument, and only for a name that
+    // cannot be a member: the first character decides, exactly as `Lower` decides which arm builds
+    // the call.
+    val opFn: Option[List[ssc.Value] => ssc.Value] =
+      if fn.isDefined || args.length != 1 || name.isEmpty then None
+      else if name.charAt(0).isLetterOrDigit || name.charAt(0) == '_' then None
+      else Some(as => ssc.Prims.arithOp(name, v2recv, as.head))
     // A JVM-BACKED DATUM'S FIELD, when v2's tables do not claim the name. The two providers are
     // asked in this order because v2's is the one with registered semantics; the JVM side only
     // knows what `Product` told it.
-    fn.map(f => call(m, f, args)).orElse(
+    fn.orElse(opFn).map(f => call(m, f, args)).orElse(
       if args.isEmpty then JvmBridge.fieldOn(recv, name) else None)
 
   /** Like `applyClos`, but for a closure that is NOT a plugin global and may take more than one

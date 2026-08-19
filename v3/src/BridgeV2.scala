@@ -27,7 +27,20 @@ object BridgeV2:
     * Not a general answer to "what does v2 implement" — nothing here knows that. It is the set that
     * turned a crash into a sentence, and it grows the same way it was built: by measurement.
     */
-  private val executorOnlyMethods: Set[String] = Set("__lazyFrom__", "to", "until")
+  // `!` IS NOT A METHOD ON THIS LANE, and that is a difference in SPELLING rather than in capability.
+  // v3 lowers an operator the core does not define to a method call — `replyTo ! msg` is
+  // `replyTo.!(msg)` — while v2 keeps `!` as a BINARY OPERATOR that `Prims.arithOp` routes to the
+  // registered `actor.send`. The executor's fleet adapter bridges the two spellings; v2's own
+  // dispatcher cannot be taught the same way, because `methodDispatch1` is the function that was
+  // 49,384 bytecodes and silently un-JIT-able, and growing it is the one change this file's history
+  // says not to make casually.
+  //
+  // So it is refused HERE, by name, which turns `__method__: no dispatch for .! on <foreign>` — a
+  // Java stack trace, counted as a DIFF — into the honest UNSUPPORTED this list exists to produce.
+  // MEASURED, not assumed: `List(1,2) ++ List(3)` works on this lane, so a blanket refusal of every
+  // symbolic name would have been a regression, and `"a" ++ "b"` already fails identically on
+  // origin/main so it is not this change's to answer for.
+  private val executorOnlyMethods: Set[String] = Set("__lazyFrom__", "to", "until", "!")
 
   final case class Unsupported(what: String)
       extends RuntimeException("v2 bridge V-0 does not translate " + what)
