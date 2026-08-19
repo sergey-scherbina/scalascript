@@ -5,7 +5,7 @@ started: 2026-08-19T11:31:30Z
 heartbeat: 2026-08-19T11:31:30Z
 status: claimed-before-planning
 items: v3-has-no-compile-time-extension-point
-paths: file:v3/specs/60-compile-time-extension.md file:v3/SPRINT.md file:v3/BACKLOG.md
+paths: file:v3/specs/60-compile-time-extension.md file:v3/README.md file:v3/SPRINT.md file:v3/BACKLOG.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+next: spec written; wire it into the README index and plan the three clients
