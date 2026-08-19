@@ -20,10 +20,18 @@ clients.
 floors, and the mechanism must be switchable off from the first commit, because the control for
 every later step is `SSC3_FLEET=off`.
 
-**R1 — the node.** `Expr.Marker(name, typeArgs, args, pos)`, and the fronts stop refusing an unknown
-marker: `UniFront` builds it instead of `no("the marker '…'")`, v3's own parser leaves the shape it
-already cannot read alone. *Done when:* a marker survives to `Lower` and is refused THERE with a
-position, and both fronts agree on the tree. N must not move.
+**R1 — the node, and BOTH fronts asking the registry.** `Expr.Marker(name, typeArgs, args, pos)`.
+A name is a marker iff `Plugins.hasRewrite(name)` — the grammar does not decide, so both fronts build
+the same tree and `SSC3_FLEET=off` means no markers at all.
+
+THE MEASUREMENT IS ALREADY WAITING: nine of the ten `KNOWN_CONF_V3_ONLY` entries are the marker
+cases, one-sided today because v3's front reads `Focus[T](f)` as an ordinary call while the
+projection refuses it. Build the node in only ONE front and those nine become nine DISAGREEMENTS
+against a floor of zero. Build it in both and they stop diverging.
+
+*Done when:* the capability gate names those nine as no longer diverging and they come out of the
+list, the derived ceiling falls with them, both fronts print the same tree, and N does NOT move —
+the cases still refuse, one layer later, with a position, because no rewrite is registered yet.
 
 **R2 — the pass and the door.** `Plugins.registerRewrite`, `Ctx.fresh`, `Refusal`, one bottom-up
 bounded fixed point between the front and `Lower`. *Done when:* `v3/rewrite-gate.sh` asserts all six

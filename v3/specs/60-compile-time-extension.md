@@ -76,6 +76,40 @@ changes how the file is tokenised or blocked. Those are parser work and this doo
 otherwise. The claim is narrower and checkable: *syntax that is a name, optional type arguments and
 argument trees needs no kernel change.*
 
+## Which names are markers: the REGISTRY decides, not the grammar
+
+**Both fronts must build the same tree or the differential fires, and that is not a detail — it is
+what fixes the rule.** Today the nine marker cases are declared `KNOWN_CONF_V3_ONLY`: v3's own front
+READS them, because `Focus[Person](_.age)` is an ordinary call with type arguments and
+`direct[Option] { … }` is an ordinary call with a block argument, while the UniML projection refuses
+them by name. If the projection started building a `Marker` and v3's front went on building a call,
+those nine would stop being one-sided and start DISAGREEING — nine differences against a DIFF floor
+of zero.
+
+So the rule is:
+
+> A name is a marker **iff a rewrite is registered for it.** Both fronts ask
+> `Plugins.hasRewrite(name)` at the same point, so both build `Marker` or both build a call.
+
+Three things follow, and each is worth more than the node itself:
+
+- **`SSC3_FLEET=off` is the control, exactly as rule 5 wants.** With no plugins there are no
+  registered rewrites, so no name is a marker, and every one of these files parses precisely as it
+  does today. The switch is not bolted on; it falls out of where the question is asked.
+- **The kernel never learns a marker's NAME.** `Focus`, `direct` and `Prism` appear in no kernel
+  source — only in the plugin that claims them. That is the difference between this and the
+  hardcoded `s` interpolator prefix that R5 removes.
+- **R1 is measurable on its own.** When both fronts agree, those nine stop diverging and the
+  capability gate says so by name: the declared list loses nine entries and the derived ceiling
+  falls with them, while N does not move — the cases still refuse, one layer later, because no
+  rewrite is registered yet.
+
+**Type arguments are the reason this needs a node at all.** Without one, a rewrite could match
+`Call(Name("Focus"), args)` and no AST change would be needed — but v3's parser ERASES type
+arguments (`skipBrackets`, `skipTypeParams`), and `Prism[T]` needs them: ScalaSpike already captures
+its type-argument tokens deliberately. A node that carries `typeArgs` is the smallest thing that
+does not throw away what a client needs.
+
 ## The door
 
 ```scala
