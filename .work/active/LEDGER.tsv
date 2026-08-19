@@ -1,5 +1,5 @@
-# generation: 2775
+# generation: 2776
 #slug	agent	started	items	paths
 f-plain-class	claude-code	2026-08-18T20:48:34Z	f-does-not-support-a-plain-class	file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/f-plain-class-gate.sh file:scripts/smoke-ci.ssc file:tests/BUGS.md
 f-triple-quoted-interpolation	claude-code	2026-08-18T21:42:06Z	f-triple-quoted-interpolated-string-is-silently-wrong	file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/f-triple-interp-gate.sh file:scripts/smoke-ci.ssc file:tests/BUGS.md
-v3-tier0-extern-class-field	claude-code	2026-08-19T09:56:41Z	abstract-val-in-an-extern-class-is-a-field-declaration	file:v3/uniml/UniFront.scala file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/ScalaSpike.scala file:v3/BACKLOG.md file:v3/BUGS.md file:v3/tests/front/extern-class-fields.ssc file:v3/tests/front/extern-class-fields.expected
+v3-tier0-extern-class-field	claude-code	2026-08-19T09:56:41Z	abstract-val-in-an-extern-class-is-a-field-declaration	file:v3/uniml/UniFront.scala file:v3/src/Parser.scala file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/ScalaSpike.scala file:v3/BACKLOG.md file:v3/BUGS.md file:v3/tests/front/abstract-val-declares.ssc file:v3/tests/front/abstract-val-declares.expected
