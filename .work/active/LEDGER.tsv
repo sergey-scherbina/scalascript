@@ -1,4 +1,5 @@
-# generation: 2788
+# generation: 2789
 #slug	agent	started	items	paths
 v3-compile-time-extension	claude-code	2026-08-19T11:31:30Z	v3-has-no-compile-time-extension-point	file:v3/specs/60-compile-time-extension.md file:v3/README.md file:v3/SPRINT.md file:v3/BACKLOG.md file:v3/src/Plugins.scala file:v3/src/Ast.scala file:v3/src/AstText.scala file:v3/src/Lower.scala file:v3/src/Parser.scala file:v3/uniml/UniFront.scala file:v3/plugins/MarkerProbe.scala file:v3/plugins/V2Fleet.scala file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/ScalaSpike.scala
 interp-anonymous-given-summon	claude-code	2026-08-19T14:57:12Z	interp-summon-over-an-anonymous-given	file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/StatRuntime.scala file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/EvalRuntime.scala file:v1/runtime/backend/interpreter/src/test/scala/scalascript/GivenUsingTest.scala file:BUGS.md
+f-json-view-provider	claude-code	2026-08-19T15:00:45Z	v2-ui-provider-lacks-forJsonView-and-blocks-eight-unrelated-tests	file:v2/runtime/std/ui-plugin/src/main/scala/ssc/plugin/ui/UiNativePlugin.scala file:v2/runtime/std/ui-plugin/src/test/scala/ssc/plugin/ui/UiNativePluginTest.scala file:tests/e2e/ui-json-view-gate.sh file:v2/BUGS.md file:scripts/smoke-ci.ssc
