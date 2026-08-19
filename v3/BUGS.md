@@ -84,13 +84,14 @@ that HAS the classpath behaves identically.
 
 ## uniml-applies-an-identifier-to-a-parenthesis-on-the-next-line — the DEFAULT front refuses a tuple line
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      kind: bug
      area: front
      gate: v3/front-diff.sh (corpus DISAGREEMENTS, ceiling 0)
      found-by: claude-code
-     found-at: 2026-08-19 -->
+     found-at: 2026-08-19
+     fixed-in: 3c880698a -->
 
 **THE FRONT EVERY PROGRAM USES BY DEFAULT REFUSES THIS:**
 
@@ -126,13 +127,14 @@ v3's own front could not read the file at all the two fronts were never compared
 
 ## v3-own-front-cannot-parse-a-parenthesised-match — two lines, and it is a capability gap
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      kind: feature
      area: front
-     gate: v3/front-diff.sh (the five distributed-* cases are declared uniml-only)
+     gate: v3/tests/front/unlayered-match-arms.ssc
      found-by: claude-code
-     found-at: 2026-08-18 -->
+     found-at: 2026-08-18
+     fixed-in: 3c880698a -->
 
 **v3's OWN front cannot read a `match` used as a parenthesised expression:**
 
