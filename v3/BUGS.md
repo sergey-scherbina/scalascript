@@ -46,13 +46,14 @@ ceiling.
 
 ## v3-corpus-report-degrades-to-a-weaker-front-without-saying-so — half an hour comparing two FRONTS
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      kind: apparatus
      area: build
      gate: v3/corpus-report.sh (refuses when uniml.cp is absent and the front was not chosen)
      found-by: claude-code
-     found-at: 2026-08-19 -->
+     found-at: 2026-08-19
+     fixed-in: a39986c8e -->
 
 **`v3/.jars/uniml.cp` IS GITIGNORED AND PER-CHECKOUT, so every fresh worktree starts without one** —
 and `corpus-report.sh` responded by measuring v3's own front and printing a number in exactly the
