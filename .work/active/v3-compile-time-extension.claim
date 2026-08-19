@@ -5,7 +5,7 @@ started: 2026-08-19T11:31:30Z
 heartbeat: 2026-08-19T11:31:30Z
 status: in-progress
 items: v3-has-no-compile-time-extension-point
-paths: file:v3/specs/60-compile-time-extension.md file:v3/README.md file:v3/SPRINT.md file:v3/BACKLOG.md file:v3/src/Plugins.scala file:v3/src/Ast.scala file:v3/src/AstText.scala file:v3/src/Lower.scala file:v3/src/Parser.scala file:v3/src/Rewrite.scala file:v3/uniml/UniFront.scala file:v3/plugins/MarkerProbe.scala file:v3/plugins/V2Fleet.scala file:v3/rewrite-gate.sh file:.github/workflows/v3.yml file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/ScalaSpike.scala
+paths: file:v3/specs/60-compile-time-extension.md file:v3/README.md file:v3/SPRINT.md file:v3/BACKLOG.md file:v3/src/Plugins.scala file:v3/src/Ast.scala file:v3/src/AstText.scala file:v3/src/Lower.scala file:v3/src/Main.scala file:v3/src/Parser.scala file:v3/src/Rewrite.scala file:v3/uniml/UniFront.scala file:v3/plugins/MarkerProbe.scala file:v3/plugins/V2Fleet.scala file:v3/rewrite-gate.sh file:.github/workflows/v3.yml file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/ScalaSpike.scala
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: R2: the rewrite pass at Lower.programOf, the door, and rewrite-gate.sh with a lever per failure
