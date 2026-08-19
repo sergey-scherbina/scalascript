@@ -1,0 +1,11 @@
+slug: interp-anonymous-given-summon
+branch: feature/interp-anonymous-given-summon
+agent: claude-code
+started: 2026-08-19T14:57:12Z
+heartbeat: 2026-08-19T14:57:12Z
+status: claimed-before-planning
+items: interp-summon-over-an-anonymous-given
+paths: file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/StatRuntime.scala file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/EvalRuntime.scala file:v1/runtime/backend/interpreter/src/test/scala/scalascript/GivenUsingTest.scala file:BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
