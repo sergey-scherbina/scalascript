@@ -124,6 +124,51 @@ def registerRewrite(name: String, fn: Rewrite): Unit
 
 A gate that only proves the happy path would not have caught any of the six failures above.
 
+## Where this meets the effects machinery — and where it deliberately does not
+
+Asked by the owner on 2026-08-19, after `bridge-caller-cps` and `bridge-join-points` landed: does
+this door serve selective CPS? The answer is in two halves, and both are useful.
+
+**THE ORDERING MAKES THE NOTATION HALF FREE, and this is checked rather than hoped:**
+
+```
+front ──▶ Expr ──▶ [ rewrite pass ] ──▶ Lower ──▶ Module ──▶ Cps ──▶ TailCalls ──▶ { Exec | BridgeV2 }
+```
+
+`Lower.scala` ends with `TailCalls(Cps(Module(…)))`, so this pass runs strictly before the effects
+machinery. Anything a marker expands into therefore flows through ALL of it untouched: a plugin can
+define its own effect NOTATION — a `resource { … }` block, do-notation over an effect, a retry or
+timeout combinator — expand it to ordinary `handle`/`perform` surface syntax, and `Cps` picks the
+result up knowing nothing about the plugin. No coordination between the two mechanisms is needed,
+and none should be added.
+
+**BUT A REWRITE MUST NOT MINT `Expr.Perform`.** That node carries a RESOLVED op id (`Int`), and it
+is produced by a rewrite inside `Lower.programOf` "where the `effect` declarations are in scope".
+A pass that runs before lowering does not have that scope. It emits the SURFACE call and lets the
+existing rewrite resolve it — which is rule 6 doing its job rather than a limitation to work around.
+
+**AND THE TRANSFORM ITSELF IS NOT THIS DOOR'S BUSINESS.** `Cps.scala` is `Module => Module`: it
+splits a function at a `Perform` INSTRUCTION, captures registers, mints new functions and changes
+the calling convention. Forcing it through here would cost three of the six rules above:
+
+| rule | why selective CPS breaks it |
+| --- | --- |
+| output is ordinary `Expr` | its whole product is new FUNCTIONS plus a changed convention |
+| a rewrite sees its own marker | whether a call must split depends on whether the CALLEE performs |
+| the trigger is a name someone wrote | `Perform` is DERIVED by the compiler from effect declarations |
+
+That is the boundary, stated so nobody has to rediscover it: **syntax comes through this door,
+machinery does not.** A transform that needs the control-flow graph, produces new functions, or
+changes a calling convention is an IR pass and belongs where `Cps` is.
+
+**IF IR-LEVEL EXTENSION IS EVER WANTED, it is a different design and a harder one.** There are
+already at least two module-to-module passes with an ORDER between them (`Cps` before `TailCalls`),
+so a registry alone would not be enough: it needs an ordering contract, a rule that a pass is
+provably a no-op when idle — `Cps` already states its own ("returns the module unchanged when there
+is nothing to split, so applying it to a program without effects is free and provably a no-op") —
+and the verifier re-run between passes. Worth designing when a SECOND machinery-level client exists,
+and not before.
+
 ## The first three clients
 
 | client | cases | needs |
