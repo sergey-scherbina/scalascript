@@ -1406,18 +1406,33 @@ object Parser:
     case Tok.TId(kw, p) if kw == "val" || kw == "var" =>
       val mutable = kw == "var"
       val (n, _, t1) = expectName(ts.tail)
+      val typed = isPunct(peek(t1), ":")
       val t2 = skipTypeAnn(t1)
-      val t3 = expectOp(t2, "=")
-      // `parseBody`, not `parseExpr`: the value may be an INDENTED BLOCK on the following lines —
+      // `val name: String` WITH NO `=` IS A DECLARATION, and a declaration emits nothing. The owner
+      // admitted it on 2026-08-19. `std/http.ssc:170` and `std/geo.ssc:103` write host types this
+      // way — the value exists and the HOST provides it, which is the same fact `registerFieldNames`
+      // carries on the plugin side — so there is no initialiser to lower and no statement to make.
       //
-      //     val result =
-      //       compute(x)
+      // ONLY WHEN A TYPE WAS WRITTEN. `val x` alone says nothing about what x is or who provides it,
+      // and it stays the error it was: without that guard a typo'd `val` would silently vanish
+      // instead of being reported, which is a worse answer than the one this replaces.
       //
-      // which is ordinary Scala and was 116 of 120 cases in the top refusal bucket, all reaching
-      // one line through an import. A `def` body already used `parseBody`; a `val` did not, and
-      // that asymmetry had no reason behind it.
-      val (e, t4) = parseBody(t3)
-      (List(Stmt.Val(n, e, mutable, p)), t4)
+      // The uniml front reaches the same decision from the other side — it builds `U.AbstractVal`
+      // and `UniFront` skips it — so both fronts read this construct and the differential compares
+      // them on it rather than declaring one of them short.
+      if typed && !isOp(peek(t2), "=") then (Nil, t2)
+      else
+        val t3 = expectOp(t2, "=")
+        // `parseBody`, not `parseExpr`: the value may be an INDENTED BLOCK on the following lines —
+        //
+        //     val result =
+        //       compute(x)
+        //
+        // which is ordinary Scala and was 116 of 120 cases in the top refusal bucket, all reaching
+        // one line through an import. A `def` body already used `parseBody`; a `val` did not, and
+        // that asymmetry had no reason behind it.
+        val (e, t4) = parseBody(t3)
+        (List(Stmt.Val(n, e, mutable, p)), t4)
     // `a(i) = v`. Told apart from a call by SCANNING to the matching `)` and looking for a single
     // `=` after it — a scan rather than a backtracking attempt, for the reason `lambdaAhead` gives:
     // a parser that retries reports the error from whichever attempt failed last.
@@ -1641,10 +1656,23 @@ object Parser:
       // A `val`/`var` member — collected here and sorted out by the caller, since only an `object`
       // can hold one: a `trait`'s abstract state and a `case class`'s fields are different things.
       else if isId(peek(ts), "val") || isId(peek(ts), "var") then
+        val p0 = posOf(ts)
         val (sts, t) = parseStmt(ts)
+        // A DECLARATION PARSES TO NOTHING, AND NOTHING IS NOT THE SAME AS NO MEMBER. `val id: String`
+        // with no `=` is admitted at TOP LEVEL — it says the host provides the value — and lowers to
+        // an empty statement list. Reaching this arm with an empty list therefore means a member that
+        // declares rather than defines, which is the case the caller refuses by counting `vals`;
+        // without this it counted zero and a trait's abstract state was accepted and DROPPED.
+        //
+        // That exact defect is recorded in `front-capability-gate.sh`: the projection "accepted a
+        // trait's non-`def` member and dropped it SILENTLY" and was fixed. The `absval` probe —
+        // `trait T:` / `val id: String` — went red the moment I re-introduced it here, one gate run
+        // after the change, which is what that probe is for.
+        if sts.isEmpty then
+          throw ParseFail(p0, "a member of a " + what + " that is not a `def` is outside SSC3 core Tier 0")
         sts.foreach { st => st match
           case v: Stmt.Val => vals = vals :+ v
-          case _           => throw ParseFail(posOf(ts), "a member of a " + what + " must be a definition")
+          case _           => throw ParseFail(p0, "a member of a " + what + " must be a definition")
         }
         ts = t
       // AN `extension` BLOCK INSIDE THE BODY — how the std typeclass tower declares every one of

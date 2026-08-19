@@ -277,8 +277,24 @@ object UniFront:
       }
       Sorted.T(TraitDef(n, defs, parents.toList, pos(s)))
 
-    // `val id: String` with no `=`. v3's traits carry methods, not abstract state.
-    case U.AbstractVal(n, s) => no("the abstract `val` '" + n + "'", s)
+    // `val id: String` with no `=` — A DECLARATION, NOT A DEFINITION, so there is nothing to emit
+    // and Skip is the whole of it. The owner admitted this on 2026-08-19.
+    //
+    // WHERE IT COMES FROM. `extern class UploadedFile:` becomes an EMPTY trait here and its members
+    // are lifted to top level as siblings — `extern class C: def f(): Int` prints
+    // `(trait "C" …(methods))` and a separate top-level `(def "f" … __abstract__)`. So an abstract
+    // `val` written inside an extern class arrives at THIS arm rather than at a member arm, with no
+    // context left to tell it apart from a bare top-level one. That is why the rule is stated on the
+    // declaration itself rather than on where it sits: a `val` with no right-hand side declares that
+    // a value EXISTS and who provides it, and neither reading produces code. `std/http.ssc:170` and
+    // `std/geo.ssc:103` are both host types describing their fields, which is the same fact
+    // `registerFieldNames` carries on the plugin side; the field is read at run time through the
+    // host, exactly as it was before this declaration was written down.
+    //
+    // A TRAIT's abstract state is NOT this arm and stays refused: `U.TraitDecl` sorts its own
+    // members and answers `a trait member that is not a def` for them, which is the deliberate
+    // answer this comment used to give for both.
+    case U.AbstractVal(_, _) => Sorted.Skip
     case U.TopExpr(e, s) => Sorted.S(stmtsOf(e, s))
     // An enum has no v3 node: each case IS a constructor with a tag, which is what the v3 parser
     // already produces. The cases are emitted one at a time by the caller's fold.

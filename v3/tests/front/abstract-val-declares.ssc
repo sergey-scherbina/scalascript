@@ -1,0 +1,23 @@
+// `val name: String` WITH NO `=` IS A DECLARATION: it says a value exists and that someone else
+// provides it, so it emits nothing. `std/http.ssc:170` and `std/geo.ssc:103` describe host types
+// this way. The owner admitted it on 2026-08-19; a trait's abstract state is a different question
+// and stays refused, with its own message.
+
+val providedByTheHost: String
+
+// THE THEFT GUARD, and it is the reason this fixture exists rather than a corpus case. The uniml
+// front's `skipTypeAnnotation` had no line limit: it stopped at `=`, and a newline was not a stop,
+// so from the declaration above it walked over the whole of the next definition — the brackets
+// balance, so its depth returns to zero — and stopped at THAT `=`. The declaration then took the
+// next definition's body as its own right-hand side, the definition vanished from the program, and
+// the tree printed with no complaint at all. Anything after a declaration is what this guards.
+
+def stolen(x: Int): Int = x + 1
+
+// A REAL MULTI-LINE TYPE must be unaffected: it is inside brackets, so the depth guard covers it.
+def widen(m: Map[String,
+  Int]): Int = 7
+
+def main(): Unit =
+  println(stolen(41))
+  println(widen(Map()))

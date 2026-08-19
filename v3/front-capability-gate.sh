@@ -230,7 +230,17 @@ declare -a KNOWN_CONF_V3_ONLY=(
 # a file position in brackets and 83 as plain prose, against a true 76. The reader now strips
 # comments per line and refuses a token that is not a name, so a comment is safe again; the entry
 # `v3-front-diff-ceiling-is-derived-by-word-counting-and-a-comment-changes-it` has the numbers.
+# `curried-extern-import` and `js-http-client-config` were added 2026-08-19. Both import
+# `std/http.ssc`, whose `extern class UploadedFile` declares the fields of a host type. The uniml
+# front reads that file now — an abstract `val` is a DECLARATION and emits nothing, which the owner
+# admitted the same day — and v3's own front refuses `extern class` outright with
+# `expected an expression, found class`: it knows `extern` only before a top-level `def`. Filed as
+# `v3-own-front-has-no-extern-class`. Declared rather than hidden, because this is a construct one
+# front has and the other does not, which is what this list is for — and it is worth saying that the
+# TOP-LEVEL declaration itself is NOT one-sided: both fronts read it, which is why
+# `v3/tests/front/abstract-val-declares.ssc` needs no declaration at all.
 declare -a KNOWN_CONF_UNIML_ONLY=(
+  curried-extern-import js-http-client-config
   actors-bounded-mailbox actors-process-info indent-block-statements
   actors-cluster-visibility
   coroutine-native-lifecycle

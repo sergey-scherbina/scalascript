@@ -784,7 +784,28 @@ object SpikeParse:
       var depth = 0
       var go = true
       while go && !c.eof do
-        c.peekKind match
+        // A TYPE ENDS AT THE END OF ITS LINE, at depth 0 — the same rule `postfix` states for a
+        // trailing `(` and `parseIdOrCall` was given on 2026-08-19: ssc1-front's layout inserts `;`
+        // at a newline, so nothing after one continues the construct.
+        //
+        // WITHOUT IT AN ABSTRACT `val` STOLE THE NEXT DECLARATION. This loop stops at `=` and a
+        // newline was not a stop, so
+        //
+        //     extern class UploadedFile:
+        //       val name: String
+        //
+        //     def main(): Unit = println("ok")
+        //
+        // skipped `String`, walked over `def main(): Unit` — the brackets balance, so `depth`
+        // returns to 0 — and stopped at THAT `=`. `val name` then took `println("ok")` as its
+        // right-hand side, `main` vanished from the program, and the tree printed
+        // `(val "name" (call "println" (str "ok")))` with no complaint at all. Every later
+        // declaration in that block was lost the same way.
+        //
+        // DEPTH GUARDS THE REAL MULTI-LINE TYPE: `: Map[String,` ⏎ `  Int]` is inside brackets, so
+        // it is unaffected — only a type that has already closed everything it opened ends here.
+        if depth == 0 && c.peekLine > c.prevEndLine then go = false
+        else c.peekKind match
           case "spike.lbracket" | "spike.lparen" => depth += 1; c.advance()
           case "spike.rbracket" | "spike.rparen" =>
             if depth == 0 then go = false else { depth -= 1; c.advance() }

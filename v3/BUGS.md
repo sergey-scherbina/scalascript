@@ -6,6 +6,102 @@ belong in the repository-root `BUGS.md` instead, not here.
 
 Query: `scripts/bugs-report --module v3`.
 
+## a-type-annotation-runs-past-its-line-and-steals-the-next-definition — the definition vanished, silently
+
+<!-- status: open
+     lane: v3
+     kind: bug
+     area: front
+     gate: v3/tests/front/abstract-val-declares.ssc
+     found-by: claude-code
+     found-at: 2026-08-19 -->
+
+**`skipTypeAnnotation` HAD NO LINE LIMIT.** It stops at `=`, `,`, `;`, `{` or `}`, and a newline was
+not among them — so from a `val` with no right-hand side it walked forward until it found somebody
+ELSE's `=`:
+
+    extern class UploadedFile:
+      val name: String
+
+    def main(): Unit = println("ok")
+
+    (program
+      (trait "UploadedFile" (parents) (methods))
+      (val "name" (call "println" (str "ok"))))
+
+`main` is GONE — its body became the declaration's right-hand side — and the tree printed with no
+complaint. The brackets in `def main(): Unit` balance, so the depth counter returns to zero and does
+not protect anything. Every declaration in that block after the first was lost the same way.
+
+**NOBODY SAW IT BECAUSE THE ONE FILE THAT USES THE CONSTRUCT ENDS THE BLOCK RIGHT THERE.**
+`std/http.ssc:169-175` is a fenced literate block whose fence closes immediately after the last
+`val`, so the annotation ran to end-of-input and the front reported the OTHER symptom — `the
+abstract val 'name' is outside SSC3 core Tier 0`. Two corpus cases carried that refusal and it read
+like a Tier 0 question. It was two defects wearing one message: a boundary decision AND a theft.
+
+**IT IS THE THIRD SITE OF ONE MISSING RULE, all three found on 2026-08-19.** `postfix` guards a
+trailing `(` with `c.peekLine == c.prevEndLine` and explains it; `parseIdOrCall` did not have it
+(`uniml-applies-an-identifier-to-a-parenthesis-on-the-next-line`); this is the third. The rule is
+ssc1-front's: layout inserts `;` at a newline, so nothing after one continues the construct.
+
+**FIXED** by stopping at depth 0 when the next token starts on a later line than the previous one
+ended. A genuine multi-line type is inside brackets, so `depth > 0` leaves it alone — `: Map[String,`
+newline `Int]` still parses.
+
+## v3-own-front-has-no-extern-class — `expected an expression, found class`
+
+<!-- status: open
+     lane: v3
+     kind: feature
+     area: front
+     gate: v3/front-diff.sh (curried-extern-import and js-http-client-config are declared uniml-only)
+     found-by: claude-code
+     found-at: 2026-08-19 -->
+
+**v3's own front knows `extern` only before a top-level `def`.** `extern class UploadedFile:` — the
+way `std/http.ssc:169` and `std/geo.ssc:101` describe a host type's fields — is refused with
+`expected an expression, found class`.
+
+**IT BECAME VISIBLE WHEN THE OTHER FRONT STOPPED REFUSING.** Until 2026-08-19 the uniml front
+refused those files too, at the abstract `val` inside the class, so the two cases were `neither` and
+the differential never compared them. With the declaration admitted, uniml reads them and v3 does
+not: the one-sided count rose 67 -> 69 and the capability gate named both by name.
+
+**WHAT UNIML DOES WITH IT IS NOT A MODEL TO COPY.** `extern class C: def f(): Int` becomes an EMPTY
+trait plus a top-level `def f` — the members are LIFTED out of the class rather than attached to it,
+which is why an abstract `val` written inside one arrives at `UniFront`'s top-level sorter with no
+context left. Whatever v3's front does here should attach them.
+
+## abstract-val-in-an-extern-class-is-a-field-declaration — a declaration emits nothing
+
+<!-- status: open
+     lane: v3
+     kind: feature
+     area: front
+     gate: v3/tests/front/abstract-val-declares.ssc
+     found-by: claude-code
+     found-at: 2026-08-19 -->
+
+**`val name: String` WITH NO `=` DECLARES that a value exists and that someone else provides it.**
+The owner admitted it on 2026-08-19, second of three Tier 0 groups. It emits nothing: `std/http.ssc`
+and `std/geo.ssc` write host types this way, which is the same fact `registerFieldNames` carries on
+the plugin side, and the field is read at run time through the host.
+
+**ONE SHAPE ADMITTED, ONE DELIBERATELY NOT.** A TRAIT's abstract state stays refused, by both fronts
+and with its own message — `20-core-language.md` and `UniFront`'s own comment already said v3's
+traits carry methods, not abstract state.
+
+**AND THE GATE CAUGHT ME PUTTING THAT BACK.** My first version of the v3-front half returned an empty
+statement list for the declaration, and `parseMembers` counts non-`def` members by counting
+statements — so a trait's abstract `val` produced zero of them and was accepted and DROPPED. That is
+the exact defect `front-capability-gate.sh` records as already fixed once ("accepted a trait's
+non-`def` member and dropped it SILENTLY"), and its `absval` probe went red on the first run after my
+change. An empty parse is not the same as no member, and the arm now says so.
+
+**BOTH FRONTS READ IT**, which is why the fixture is two-sided and no divergence is declared for it:
+teaching only the projection would have cost a declared one-sided row and a raised ceiling — a
+weakened guard bought to place a test.
+
 ## operator-outside-tier0-refuses-a-library-operator — the core's set was the language's set
 
 <!-- status: fixed
