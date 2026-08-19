@@ -116,6 +116,15 @@ both case-object-unchanged ok 'case object Marker
 
 def main(): Unit = println("ok")'
 
+# `extern class` MUST NOT become `extern case class`. std/http.ssc declares two of them, and
+# synthesizing a `case` there stopped the module parsing — 23 corpus files declined with
+# `unbound global: (global status)`, a name from a case class further down that same file, and NONE
+# of them contains the word `class`. Found only by a control run against origin/main, because the
+# gate stayed green: a decline is not a wrong answer.
+both extern-class-untouched ok '[httpClient](std/http.ssc)
+
+def main(): Unit = println("ok")'
+
 # ── the corpus files this unblocked ──────────────────────────────────────────────────────────────
 
 for case in parameterless-def-mention named-arg-defaults; do

@@ -3215,8 +3215,10 @@ def lastParamStar1(t, rest, d, prev) = if isTok(t, 2, 22) then (if d == 0 then i
 // SAME GUARD AS collectFields, and the reason it is needed in a SECOND place is worth stating: with
 // no parameter list at all (`class C:` / `case class C:`) this walks past the missing `(` and reads
 // the `:` as a parameter NAME — `expected Str, got 34`. A crash, not a decline, on a declaration
-// nothing had used yet. Anything that is not a name ends the list and leaves the stream where it was.
-def collectPD(ts, acc) = if isEmpty(ts) then (revL(acc), ts) else (if isTok(hd(ts), 2, 22) then (revL(acc), tl(ts)) else (if fst(hd(ts)) == 1 then collectPD1(ts, acc) else (revL(acc), ts)))
+// nothing had used yet. Stopping on the COLON is deliberately narrower than stopping on "not a
+// name": a parameter list may legally break the line, and the broad form discarded every parameter
+// of every multi-line declaration in the tree.
+def collectPD(ts, acc) = if isEmpty(ts) then (revL(acc), ts) else (if isTok(hd(ts), 2, 22) then (revL(acc), tl(ts)) else (if isTok(hd(ts), 2, 34) then (revL(acc), ts) else collectPD1(ts, acc)))
 def collectPD1(ts, acc) = collectPDafterName(snd(hd(ts)), tl(ts), acc)
 // A VARARG param (`xs: T*`) is marked by appending " *" to its registry name — a space cannot occur
 // in an identifier, so the mark cannot collide with a real param, and vaIdxOf reads it back. The def
@@ -3443,9 +3445,14 @@ def collectCC2(nm, ts) = collectFields(ts, Nil) match { case (fs, r) => Cons((nm
 // list and not the missing fields, and it predates plain-class support — `case class C:` fails the
 // same way on a build without it, which is why this is a guard here and not a special case there.
 //
-// Anything that is not a field name ends the list and leaves the stream untouched, so the caller
-// resumes exactly where it was: no parens means no fields, and the body parses as a body.
-def collectFields(ts, acc) = if isTok(hd(ts), 2, 22) then (revL(acc), tl(ts)) else (if fst(hd(ts)) == 1 then collectField(ts, acc) else (revL(acc), ts))
+// The guard stops on the BODY COLON specifically, not on "anything that is not a name". The broader
+// version cost 23 corpus files: a case class may open its parameter list and break the line —
+// `case class Response(\n  status: Int, …)` in `std/http.ssc` — and after layout the token following
+// `(` is not the identifier, so "not a name" threw away EVERY field. The files that declined had no
+// `class` of their own at all; they merely imported that module, which is what made the cause
+// invisible from their text. Measured against a control build: 21 declines that origin/main does not
+// have, on a gate that was GREEN because a decline is not a wrong answer.
+def collectFields(ts, acc) = if isTok(hd(ts), 2, 22) then (revL(acc), tl(ts)) else (if isTok(hd(ts), 2, 34) then (revL(acc), ts) else collectField(ts, acc))
 def collectField(ts, acc) = collectField1(snd(hd(ts)), tl(tl(ts)), acc)
 def collectField1(nm, ts, acc) = typeText(ts, 0, "") match { case (ty, r) => collectFieldEnd(nm, ty, r, acc) }
 // E1: a field may carry a DEFAULT `x: T = expr`. typeText stops at the `=` (code 20); the default value
@@ -3726,8 +3733,18 @@ def entryOf3(ts, cs, docEntry, nDoc, dq, cms) = ") (entry " ++ entryBody3(ts, cs
 def compile(src, dq, bs) = compile1(caseBeforeClass(layout(lex(src, 0, src.length))), dq, bs)
 def caseBeforeClass(ts) = if isEmpty(ts) then ts else caseBC1(hd(ts), tl(ts))
 // `case` already there -> leave the pair alone; a bare `class` -> synthesize the `case` in front of it.
-def caseBC1(h, r) = if isTok(h, 2, 6) then Cons(h, caseBCafterCase(r)) else (if isTok(h, 2, 10) then Cons((2, 6), Cons(h, caseBeforeClass(r))) else Cons(h, caseBeforeClass(r)))
-def caseBCafterCase(ts) = if isEmpty(ts) then ts else (if isTok(hd(ts), 2, 10) then Cons(hd(ts), caseBeforeClass(tl(ts))) else caseBeforeClass(ts))
+// `extern class` MUST NOT be touched, and this cost 23 corpus files to learn. `std/http.ssc` declares
+// `extern class SseStream:` and `extern class UploadedFile:`; synthesizing a `case` in front turned
+// them into `extern case class`, the module stopped parsing, and every file that merely IMPORTED it
+// declined with `unbound global: (global status)` — a name from a `case class Request(` further down
+// the same file. None of those 23 files contains the word `class` at all, which is what made the
+// cause invisible from their text and why only a CONTROL RUN against origin/main found it: the gate
+// was GREEN, because a decline is not a wrong answer and the ceiling only forbids being wrong.
+//
+// Measured: `extern` is the only word preceding `class` anywhere in the tree (6 occurrences), so the
+// exception is exactly one word wide rather than a guess at a modifier list.
+def caseBC1(h, r) = if isTok(h, 2, 6) then Cons(h, caseBCkeep(r)) else (if isWord(h, "extern") then Cons(h, caseBCkeep(r)) else (if isTok(h, 2, 10) then Cons((2, 6), Cons(h, caseBeforeClass(r))) else Cons(h, caseBeforeClass(r))))
+def caseBCkeep(ts) = if isEmpty(ts) then ts else (if isTok(hd(ts), 2, 10) then Cons(hd(ts), caseBeforeClass(tl(ts))) else caseBeforeClass(ts))
 def compile1(ts, dq, bs) = compile2(ts, collectCC(ts), collectTypeCases(ts), dq, bs)
 // The pre-pass results become the parse CONTEXT: case-class names (cs, cc-only, for isCC) + the UNIFIED
 // type-case field names (tcs, cc + enum cases) + top-level val names + the enum registries. Top-level vals
