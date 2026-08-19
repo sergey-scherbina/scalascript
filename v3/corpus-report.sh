@@ -50,6 +50,37 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# REFUSE BEFORE BUILDING ANYTHING, because the reason to refuse is known already. `v3/.jars/uniml.cp`
+# is a gitignored, per-checkout artifact, so EVERY fresh worktree starts without one — and this
+# script used to quietly measure v3's own front instead and print a number in the same shape as a
+# uniml one.
+#
+# THAT IS NOT A HYPOTHETICAL. Measuring `origin/main` as a control for a v3 change on 2026-08-19, I
+# made the control a fresh worktree and built it with `ssc3 selftest`, which does not build this
+# file. The control ran v3's own front while the experiment ran uniml: the two refusal histograms
+# shared almost nothing, the control was full of `expected an expression, found [` and `dedent to
+# column 12`, and the comparison was between two FRONTS rather than two commits. Four corpus runs,
+# about half an hour, measuring the wrong thing.
+#
+# THE GATES ALREADY DECIDED THIS ONE. `v3/exec-gate.sh` and `v3/front-gate.sh` go RED rather than
+# skip when this file is missing, and
+# `v3-gates-open-red-in-every-fresh-worktree-because-uniml-cp-is-per-checkout` calls that deliberate
+# and correct: a gate that goes green with fixtures unrun reports less than it claims. A report that
+# prints a number from the weaker front reports something worse than less — a number that COMPARES.
+#
+# `SSC3_FRONT=v3` still measures v3's own front, silently and on purpose. What is refused is the
+# DEFAULT silently becoming that. Placed here, ahead of the build, so the refusal costs a second
+# rather than the several minutes of packaging it used to sit behind.
+if [ "${SSC3_FRONT:-auto}" != "v3" ] && [ ! -s "$ROOT/v3/.jars/uniml.cp" ]; then
+  echo "corpus-report: v3/.jars/uniml.cp is absent, so the uniml front — the DEFAULT front — cannot" >&2
+  echo "               be used, and the numbers would come from v3's own front while looking exactly" >&2
+  echo "               like uniml numbers. This is a fresh checkout, not a broken tree." >&2
+  echo >&2
+  echo "  fix:   v3/uniml-classpath.sh          then re-run" >&2
+  echo "  or:    SSC3_FRONT=v3 v3/corpus-report.sh …    to measure v3's own front on purpose" >&2
+  exit 2
+fi
+
 # Package once. 383 cases against `scala-cli run` would be a JVM start per case per side; the jars
 # turn a ~50-minute report into a few minutes, which is the difference between a number that gets
 # looked at and one that does not.

@@ -44,6 +44,43 @@ the literal `85` now applies only when the capability gate is ABSENT; present-bu
 loudly, because a fallback that cannot tell those apart is how an unreadable list passes for a
 ceiling.
 
+## v3-corpus-report-degrades-to-a-weaker-front-without-saying-so — half an hour comparing two FRONTS
+
+<!-- status: open
+     lane: v3
+     kind: apparatus
+     area: build
+     gate: v3/corpus-report.sh (refuses when uniml.cp is absent and the front was not chosen)
+     found-by: claude-code
+     found-at: 2026-08-19 -->
+
+**`v3/.jars/uniml.cp` IS GITIGNORED AND PER-CHECKOUT, so every fresh worktree starts without one** —
+and `corpus-report.sh` responded by measuring v3's own front and printing a number in exactly the
+shape of a uniml number:
+
+    front_used="v3"
+    if [ "${SSC3_FRONT:-auto}" != "v3" ] && [ -s "$ROOT/v3/.jars/uniml.cp" ]; then … front_used="uniml"
+
+**MEASURED, not imagined.** Taking `origin/main` as a control for the JVM-interop change, I made the
+control a fresh worktree and built it with `ssc3 selftest` — which does not build this file. The
+control ran v3's own front and the experiment ran uniml. The tell was in the refusal histograms,
+which shared almost nothing: the control was full of `expected an expression, found [`, `dedent to
+column 12` and `a catch arm binds one name at Tier 0`, none of which an import change can remove.
+Four corpus runs, about half an hour, comparing two FRONTS rather than two commits.
+
+**THE GATES ALREADY DECIDED THIS AND THE REPORT WAS NEVER GIVEN THE SAME TREATMENT** — a twin, one
+side fixed. `v3/exec-gate.sh` and `v3/front-gate.sh` go RED rather than skip when this file is
+missing, and `v3-gates-open-red-in-every-fresh-worktree-because-uniml-cp-is-per-checkout` calls that
+deliberate and correct: a gate that goes green with fixtures unrun reports less than it claims. A
+report that prints a number from the weaker front reports something worse than less — a number that
+COMPARES.
+
+**REFUSED AHEAD OF THE BUILD**, so it costs a tenth of a second rather than the several minutes of
+packaging it would otherwise sit behind, and it names the one-line fix. `SSC3_FRONT=v3` still
+measures v3's own front, silently and on purpose; what is refused is the DEFAULT silently becoming
+that. The front-selection block itself is unchanged — 31 insertions, zero deletions — so a checkout
+that HAS the classpath behaves identically.
+
 ## v3-own-front-cannot-parse-a-parenthesised-match — two lines, and it is a capability gap
 
 <!-- status: open
