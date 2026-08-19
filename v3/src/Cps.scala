@@ -34,7 +34,19 @@ package ssc3
 //     left alone, because a region's remainder is not a suffix of an instruction list — that is
 //     step 3, and it is a step rather than a detail for exactly this reason;
 //   * it does not change what `Perform` MEANS. The executor's tail-resumptive path still runs
-//     unconverted functions unchanged; wiring this in is step 4.
+//     unconverted functions unchanged (`Exec.scala` relies on it for every arm that is not CPS
+//     encoded).
+//
+// WIRED IN SINCE `addd2d89c`, 2026-08-09 — this header said "wiring this in is step 4" for ten days
+// after it stopped being true, and it is the first thing anyone reads to understand the effects
+// pipeline. `Lower.scala` now ends with `TailCalls(Cps(Module(…)))`, which is also why a plugin
+// rewrite pass needs no coordination with this one: it runs strictly BEFORE, so whatever a marker
+// expands into arrives here as ordinary `handle`/`perform`.
+//
+// THE STEP 3 CLAUSE ABOVE IS STILL TRUE, and the distinction matters because half of this header
+// was stale and half was not. A CALL to a performing function inside a region is crossed now — by
+// the executor's frame chain and by the bridge's caller split, neither of which is this pass. A
+// `Perform` standing directly inside a region is still not split, and that is what step 3 means.
 object Cps:
 
   /** The suffix name for a split function. Positional, like everything else in a module: ids are

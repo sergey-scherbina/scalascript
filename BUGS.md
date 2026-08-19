@@ -2817,6 +2817,53 @@ rather than being decided where it arises, which is why the loop's own frame is 
     frame instead — expressible, since `(lam 0 …)` does not shift locals on that lane, but it has to
     be built by the EMITTER rather than by an IR pass, which is a different piece of work.
 
+## v3-spec-prescribes-a-loop-route-nobody-took — three descriptions of one thing, and the authoritative one is unbuilt
+
+<!-- status: open
+     lane: v3
+     area: docs
+     kind: apparatus
+     gate: -
+     fixed-in: -
+     reported-by: claude-code
+     reported-at: 2026-08-19
+     repro: v3/specs/10-ssc-ir.md §3, "The cost, stated because it is not small"
+     impact: none -->
+
+`v3/specs/10-ssc-ir.md` §3 prescribes how a region gets a continuation:
+
+> a `Loop` containing a `Perform` becomes a recursive function, since a loop's remainder cannot be a
+> closure without one. v3 has `TailCall`, so those recursions are constant-stack rather than a new
+> leak.
+
+**Nobody took that route, and two other routes were built instead.** Both are mine and both work:
+
+| where | mechanism |
+|---|---|
+| `v3/specs/10-ssc-ir.md` §3 | the LOWERING turns a loop containing a perform into a recursive function — **not implemented** |
+| `Exec.scala` (`830efe318`) | the executor records a `PendingFrame` on the way INTO a region; the loop frame carries its body and keeps iterating |
+| `BridgeV2.scala` (`bc78e963c`) | the compiler splits callers so a caller's remainder is a closure; regions there are still refused |
+
+So a reader who starts from the spec — which is where they are told to start — learns a design that
+does not exist, and two implementations that do exist are described only at their own sites.
+
+**Why the two differ is not stylistic and belongs in whatever replaces this.** In the executor a
+region does NOT open a frame: it runs in the frame around it, so both remainders share one register
+array and nothing has to be threaded. On the bridge a continuation is built by `MkClos`, which
+captures registers by VALUE, so a region continuation there has to share the frame by other means and
+be built by the emitter.
+
+**The shape of the repair**, raised in the meeting room and not yet agreed: state ONE invariant —
+what a continuation must contain (the rest of the performing function; the rest of every enclosing
+list up to the `handle`; for a loop, the back edge) — and record the two realisations under it as
+lane-specific, with the loop-to-recursive-function route marked as the one not taken. Not written
+unilaterally because §3 is a decision record with dates on it, and rewriting someone's decision
+without saying so is how a spec stops being trusted.
+
+Found by checking a claim made about `Cps.scala`'s header before answering it — the header was
+half-stale (the "step 4" clause), and looking for the authoritative statement of the same thing
+turned up a third.
+
 ## uniml-markdown-left-the-portable-subset-while-its-guard-ran-nowhere
 
 <!-- status: fixed
