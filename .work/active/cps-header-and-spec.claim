@@ -1,0 +1,11 @@
+slug: cps-header-and-spec
+branch: feature/cps-header-and-spec
+agent: claude-code
+started: 2026-08-19T14:30:17Z
+heartbeat: 2026-08-19T14:30:17Z
+status: claimed-before-planning
+items: cps-header-says-the-pass-is-not-wired-in v3-spec-prescribes-a-loop-route-nobody-took
+paths: file:v3/src/Cps.scala file:BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
