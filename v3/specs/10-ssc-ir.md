@@ -298,6 +298,74 @@ makes the zero-dependency invariant *checkable* rather than aspirational — the
 IR, the verifier and the executor; the primitive manifest is a data table, and anything with an
 external dependency lives behind a `primId` on the far side of it.
 
+#### WHAT A CONTINUATION MUST CONTAIN — one invariant, two realisations — written 2026-08-19
+
+The three subsections above say `k` is a closure, who produces it, and how both encodings reach the
+v2 bridge. They do not say what it must COVER, and by 2026-08-19 that had been answered three times
+in three places: once here, as a prescription nobody implemented, and twice in code, differently.
+This subsection states the invariant once and records the two realisations under it.
+
+**THE INVARIANT.** Resuming a continuation must run everything the handled computation had left to
+do, which is three things and not one:
+
+1. **the rest of the performing function** — what `Cps.split` makes a closure of;
+2. **the rest of every enclosing list up to the `handle`** — each caller's remainder, and each
+   enclosing REGION's remainder, because a `Perform` deep in a call chain leaves work behind at
+   every level it passed through;
+3. **for a `loop`, the back edge** — a resumed loop-body remainder does not finish the loop, it
+   finishes one ITERATION, and the loop must go on iterating afterwards.
+
+A mechanism that covers 1 but not 2 does not fail loudly. It answers, with the arm's value dropped
+and the caller carrying on — which is what both lanes did until this was written down.
+
+**HOW EACH CLAUSE IS CHECKED**, named per clause, because a rule that is stated and not checked is
+the shape that survives by never meeting an unusual input:
+
+| clause | what pins it |
+|---|---|
+| 1 — the performing function's rest | `v3/tests/effects/two-performs`, `multi-shot`, `zero-shot` |
+| 1 + the handler frame the continuation belongs to | `escaped-continuation` — an arm returns a closure resumed after its `handle` has finished |
+| 2 — a caller's remainder | `cross-frame-statement`, `cross-frame-in-handle-body` |
+| 3 — the back edge | **NOT pinned by a fixture.** Measured by hand against the v1 lane only |
+
+`v3/effects-gate.sh` requires the executor, the v2 bridge and the expectation to agree three ways, so
+a shape only one lane can run cannot be a fixture there. That is why clause 3 has no row: regions are
+crossed by the executor and still refused by the bridge. Closing that gap means either the bridge
+crossing regions too, or an executor-only fixture set with its own rule — a decision, not an
+oversight, and it is recorded here so the empty cell is not mistaken for coverage.
+
+**TWO REALISATIONS, AND THE DIFFERENCE IS NOT STYLISTIC.** It is a question about who owns the
+registers, and the two lanes answer it differently:
+
+* **the executor** (`Exec.scala`, `830efe318`) records a `PendingFrame` — an instruction suffix plus
+  a register array — at each call, and also on the way INTO a region. A region does not open a frame:
+  it runs in the frame around it, so the region's remainder and the enclosing one SHARE a register
+  array and nothing has to be threaded. The frame recorded for a `loop` carries its body, which is
+  clause 3. A snapshot of such a chain must clone one array per DISTINCT array, or the sharing that
+  makes it work is exactly what the snapshot destroys.
+* **the bridge** (`BridgeV2.scala`, `bc78e963c`) cannot record anything at run time — a v2 function
+  has no way to hand over "the rest of me" — so the COMPILER builds the closure instead, splitting a
+  caller at a non-tail call the way `Cps` splits at a perform. Its continuations are `MkClos`, which
+  captures registers BY VALUE, and that is why the same trick does not extend to regions there: code
+  after an `if` must see what the branch wrote. A region continuation on that lane has to SHARE the
+  frame and therefore be built by the emitter, which is why the bridge still refuses regions.
+
+**THE ROUTE NOT TAKEN.** The cost paragraph in "Capturing a continuation" above says:
+
+> a `Loop` containing a `Perform` becomes a recursive function, since a loop's remainder cannot be a
+> closure without one.
+
+That is a sound design and it is **not implemented**, on either lane. It is left in place as the
+decision it was, and flagged here because a specification describing a route nobody took is worse
+than two implementations describing themselves: it reads as an answer. Anyone taking it up should
+know it competes with two working mechanisms and would replace both — which is the only argument for
+doing it, and a good one, since it would leave ONE statement instead of this subsection.
+
+**AND ONE THING NEITHER REALISATION DOES.** A `Perform` standing directly inside a region is still
+not split — `Cps.scala` calls that step 3, and it remains true. What both mechanisms cross is a CALL
+to a function that performs, not a perform in place.
+
+
 ## 4 · Validation is mandatory, not a debug mode
 
 Every load of IR — from disk, from a front, from a test — runs the verifier. A module is valid iff

@@ -2853,12 +2853,20 @@ array and nothing has to be threaded. On the bridge a continuation is built by `
 captures registers by VALUE, so a region continuation there has to share the frame by other means and
 be built by the emitter.
 
-**The shape of the repair**, raised in the meeting room and not yet agreed: state ONE invariant —
-what a continuation must contain (the rest of the performing function; the rest of every enclosing
-list up to the `handle`; for a loop, the back edge) — and record the two realisations under it as
-lane-specific, with the loop-to-recursive-function route marked as the one not taken. Not written
-unilaterally because §3 is a decision record with dates on it, and rewriting someone's decision
-without saying so is how a spec stops being trusted.
+**AGREED IN THE ROOM AND WRITTEN.** `v3-compile-time-extension`'s owner confirmed their claim does
+not hold `specs/10-ssc-ir.md` and asked for it directly, adding one requirement that improved the
+shape: state not only WHAT a continuation must contain but **what checks each clause** — they had
+hit three rules that day which were written at one site and missing at two siblings, each surviving
+only because an unusual input never reached it.
+
+§3 now ends with "WHAT A CONTINUATION MUST CONTAIN — one invariant, two realisations": the three
+clauses, a table naming the fixture that pins each, the two lane-specific mechanisms with the reason
+they differ (who owns the registers), and the loop-to-recursive-function route marked as sound and
+unimplemented.
+
+**One cell of that table is deliberately empty**: the back edge is pinned by no fixture, because
+`effects-gate.sh` requires three-way agreement and the bridge still refuses regions. Recorded as a
+decision rather than left to look like coverage.
 
 Found by checking a claim made about `Cps.scala`'s header before answering it — the header was
 half-stale (the "step 4" clause), and looking for the authoritative statement of the same thing
