@@ -9,6 +9,46 @@ Pipeline: `source → AST → SSC IR → execute | translate`.
 **The order is deliberate: the IR is designed and verified before a front is written against it.**
 A compiler built on an IR that turns out to be wrong is work thrown away twice.
 
+## ssc3-compile-time-extension (claim `v3-compile-time-extension`) — a plugin supplies SYNTAX
+
+Design: [`specs/60-compile-time-extension.md`](specs/60-compile-time-extension.md). The owner's Tier
+0 decision of 2026-08-19 admitted the markers — `Focus` 5, `direct` 3, `Prism` 1 — and then asked
+for the extensible shape rather than two rewrites. This is that shape, and the markers are its first
+clients.
+
+**The one thing to keep in view:** every step is measured against the same corpus and the same two
+floors, and the mechanism must be switchable off from the first commit, because the control for
+every later step is `SSC3_FLEET=off`.
+
+**R1 — the node.** `Expr.Marker(name, typeArgs, args, pos)`, and the fronts stop refusing an unknown
+marker: `UniFront` builds it instead of `no("the marker '…'")`, v3's own parser leaves the shape it
+already cannot read alone. *Done when:* a marker survives to `Lower` and is refused THERE with a
+position, and both fronts agree on the tree. N must not move.
+
+**R2 — the pass and the door.** `Plugins.registerRewrite`, `Ctx.fresh`, `Refusal`, one bottom-up
+bounded fixed point between the front and `Lower`. *Done when:* `v3/rewrite-gate.sh` asserts all six
+rules from the spec, including the two that only fail when the mechanism is wrong — the duplicate
+claim and the runaway bound.
+
+**R3 — `direct[F] { … }`, the first client, 3 cases.** Bind (`x = e`), pure bind (`val x = e`),
+bind-and-discard (`val _ = e`), and the block's last expression. It needs nothing but the rewrite:
+`flatMap` and `map` are ordinary methods. *Done when:* `direct-syntax`, `direct-control-flow` and
+`tagless-direct-syntax` run on BOTH lanes and the two floors hold.
+
+**R4 — `Focus`/`Prism`, the second client, 6 cases.** The field chain is a LITERAL, so the rewrite
+emits the nested `copy(field = …)` that `Lower` already compiles statically — no runtime door,
+which is the assumption this plan corrects. `get`/`modify`/`andThen` are a small `Lens` in `std`.
+*Done when:* `lenses`, `optic-polish`, `optics-index-at`, `optional`, `prisms`, `traversal` run.
+
+**R5 — interpolators, the third client and the reason for the door.** `html"…"` is already decided
+as `pfx(parts, args)` and today is hardcoded to `s` in BOTH fronts. Moved here it is one client of
+one mechanism rather than a second mechanism of the same shape, and the hardcoded `s` goes with it.
+*Done when:* a user-defined interpolator works with no kernel change and `v3-an-interpolator-prefix-is-hardcoded-in-both-fronts` closes.
+
+**R6 — measure and release.** Both lanes, against a control on the day's `origin/main`, with all
+four runs verified to report the same front before any number is read. The expected movement is +9
+if every client lands; the floors are the point, not the number.
+
 ## ssc3-jvm-interop (claim `v3-jvm-interop`) — a JVM package is importable, from OUTSIDE the kernel
 
 The owner approved admitting `import scalascript.typeddata.{DatasetWire, DatasetWirePartition}`

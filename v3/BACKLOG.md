@@ -82,7 +82,7 @@ is cheapest-first because the third is a different kind of work:
 | --- | --- | --- | --- |
 | operators | 3 | an operator the core does not define is a METHOD CALL | claimed `v3-tier0-operator-as-method` |
 | abstract `val` | 2 | `val name: String` with no value — TWO shapes, see below | next |
-| markers | 9 | `Focus`/`direct`/`Prism` — a compile-time REWRITE in the front | a feature with a plan, last |
+| markers | 9 | `Focus`/`direct`/`Prism` — a compile-time REWRITE, and it belongs OUTSIDE the front | planned: `specs/60-compile-time-extension.md` |
 
 **THE ABSTRACT `val` IS TWO QUESTIONS WEARING ONE MESSAGE, and only one of them is the refusal's
 own.** `UniFront.scala:281` refuses `U.AbstractVal` wherever it appears, with the comment "v3's
@@ -97,6 +97,18 @@ Those are not abstract state: they DESCRIBE the fields of a host type, which is 
 `registerFieldNames` carries on the plugin side. So the slice is to accept an abstract `val` in an
 `extern class` as a field declaration and leave the trait refusal exactly as it is — one shape
 admitted, one deliberately not, rather than one message covering both.
+
+**THE OWNER ASKED FOR THE EXTENSIBLE SHAPE RATHER THAN TWO REWRITES, 2026-08-19, and the answer is
+a compile-time door** — `specs/60-compile-time-extension.md`. The runtime SPI supplies VALUES; a
+marker needs SYNTAX, because `Focus[Person](_.address.city)` must read field names out of a lambda
+and `direct[F] { x = e; … }` must see a block's statements unevaluated. A call receives values and
+can see neither, which is exactly what separates a macro from a function — and why the interpolator
+answer, which works because its pieces ARE values, does not extend to these.
+
+The door goes at the shared `Expr`, not in either front: one rewrite for two fronts, I-3 for free
+because it happens before lowering, and I-1 kept because the kernel gains one node and one pass
+while the meaning lives in `v3/plugins/`. Interpolators become its THIRD client rather than a second
+mechanism of the same shape, and the hardcoded `s` goes with them.
 
 The operator answer is the interpolator answer applied again: rather than widen Tier 0 to hold the
 operator, make the operator ORDINARY. `Lower` already lowered an ALPHANUMERIC infix operator to
