@@ -8,13 +8,14 @@ Query: `scripts/bugs-report --module v3`.
 
 ## a-type-annotation-runs-past-its-line-and-steals-the-next-definition — the definition vanished, silently
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      kind: bug
      area: front
      gate: v3/tests/front/abstract-val-declares.ssc
      found-by: claude-code
-     found-at: 2026-08-19 -->
+     found-at: 2026-08-19
+     fixed-in: 11ab3c2cd -->
 
 **`skipTypeAnnotation` HAD NO LINE LIMIT.** It stops at `=`, `,`, `;`, `{` or `}`, and a newline was
 not among them — so from a `val` with no right-hand side it walked forward until it found somebody
@@ -74,13 +75,14 @@ context left. Whatever v3's front does here should attach them.
 
 ## abstract-val-in-an-extern-class-is-a-field-declaration — a declaration emits nothing
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      kind: feature
      area: front
      gate: v3/tests/front/abstract-val-declares.ssc
      found-by: claude-code
-     found-at: 2026-08-19 -->
+     found-at: 2026-08-19
+     fixed-in: 11ab3c2cd -->
 
 **`val name: String` WITH NO `=` DECLARES that a value exists and that someone else provides it.**
 The owner admitted it on 2026-08-19, second of three Tier 0 groups. It emits nothing: `std/http.ssc`
