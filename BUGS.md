@@ -27,6 +27,81 @@ Newest first.
 
 
 
+## both-native-fronts-refuse-a-named-parameterised-given-the-oracle-runs — `given anyS[A]: S[A] with` answers `unbound global: __missing_using_S`
+
+<!-- status: open
+     lane: native
+     area: front
+     kind: bug
+     gate: tests/e2e/f-output-agreement-gate.sh
+     found-by: claude-code
+     found-at: 2026-08-19
+     ssc-version: a657c7bf1
+     repro: the four programs in the matrix below
+     confirmed: yes
+     fixed-in: - -->
+
+```scalascript
+trait S[A]:
+  def z(a: A): Int
+given anyS[A]: S[A] with
+  def z(a: A): Int = 7
+def go[A](a: A)(using s: S[A]): Int = s.z(a)
+println(go(1))
+```
+
+    ssc: unbound global: __missing_using_S      ← both native fronts
+    7                                           ← v1, the oracle
+
+**This is legal Scala 3 and the oracle runs it.** A type-parameter clause between a given's name
+and its `:` is the standard way to write a polymorphic instance — `given listOrd[A]: Ord[List[A]]
+with` — and it is the shape every `derives`-free typeclass library uses. The reference lane answers
+`7`. The default lane answers with the name of a compiler-internal synthetic.
+
+**Found while re-measuring `selfhost-front-accepts-a-parameterised-anonymous-given-the-language-rejects`
+before the 0.2.0 release.** That entry frames the subject as *anonymity* — "a parameterised
+ANONYMOUS given". A control run on 2026-08-19 says the discriminator is the **type-parameter
+clause**, and anonymity is a second, independent axis:
+
+| given | v1 (oracle) | F (default) | legacy (`SSC_FRONT=legacy`) |
+|---|---|---|---|
+| `given intS: S[Int] with` — named, monomorphic | `7` | `7` | `7` |
+| `given anyS[A]: S[A] with` — named, **parameterised**, legal | **`7`** | **`__missing_using_S`** | **`__missing_using_S`** |
+| `given [A]: S[A] with` — anonymous, parameterised | refuses at the parser | erases it, runs the rest | erases it, runs the rest |
+| `given [A] => S[A] with` — the other spelling | refuses at the parser | erases it, runs the rest | erases it, runs the rest |
+
+Row 1 is the control and it is what makes rows 2–4 mean something: the given machinery works, and it
+is the `[A]` that breaks it. Without that row the whole table is consistent with "givens are broken",
+which is not what happens.
+
+**The mechanism, named to the line.** In F, `collectGT` (`specs/v2.2-p6.5-fsub.ssc:2767`) requires the
+token after `given` to be an identifier, then `collectGT1` (:2768) requires the token straight after
+that name to be `:` — `isTok(hd(t2), 2, 34)`. For `given anyS[A]:` the token after `anyS` is `[`, the
+test fails, and the given never enters the table `findGivenF` later reads. The call site then finds
+no candidate and `usingPick2` (:2852) synthesises `(global __missing_using_S)` — the same expression
+it emits for a given that genuinely does not exist, which is why the error names an internal.
+The legacy front has the identical shape at `v2/lib/ssc1-lower.ssc0:1046`
+(`case None => Pair("var", #sconcat("__missing_using_", tc))`).
+
+**Two fronts, one defect — so a fix in one of them changes nothing a user sees.** `RunNativeV2`
+delegates a file F declines to `defaultRunner`, which IS the legacy runner (`ssc1-run.ssc0`,
+`RunNativeV2.scala:665` names the marker), so both halves have to land together or the behaviour is
+unchanged. The two fronts were confirmed to be genuinely different code paths rather than one path
+behind an ignored env var: with `bin/lib/standard/native-front/tower/bin/ssc1-run-fsub.ssc0` moved
+aside, the default lane fails to start and `SSC_FRONT=legacy` still runs. That check is recorded
+because three cheaper probes before it — `info --front-report`, a paren-cons pattern, and the
+`summon` fixture from `f-front-delegation-visible` — all answered identically on both fronts and
+proved nothing either way.
+
+**Done when** `given anyS[A]: S[A] with` answers `7` on both native fronts, asserted against the v1
+oracle in `tests/e2e/f-output-agreement-gate.sh`, with the monomorphic row of the matrix above kept
+as the anti-case so a fix that breaks ordinary givens cannot pass. The anonymous rows are the other
+entry's subject and are NOT closed by this one.
+
+**Not fixed here.** `specs/v2.2-p6.5-fsub.ssc` was held by a live sibling claim
+(`f-triple-quoted-interpolation`) for the whole of this measurement, and half of this fix is that
+file. Filed rather than half-landed.
+
 ## scaffolded-project-cannot-resolve-its-sbt-plugin — `ssc new` then `sbt compile` fails for everyone who is not a contributor
 
 <!-- status: fixed
@@ -8606,6 +8681,26 @@ does not do today. That is the work: either teach the gate a refuse-vs-refuse co
 
 **Gate named 2026-08-14: `tests/e2e/f-output-agreement-gate.sh`** — the gate whose whole subject is
 F agreeing with the v1 oracle, which is exactly the disagreement here: v1 refuses and F runs.
+
+**RE-MEASURED 2026-08-19 before the 0.2.0 release, and the prescribed fix is a HALF-FIX.** Both
+spellings still behave as recorded. What the 2026-08-13 measurement did not look at is the front the
+fix would hand the file to: this entry offers *"make `givenItem` decline a head it does not
+recognise instead of erasing it"*, and a declined file goes to `defaultRunner` — the LEGACY front
+(`ssc1-run.ssc0`; `RunNativeV2.scala:665`), not to v1. The legacy front **erases the given exactly as
+F does**: `SSC_FRONT=legacy` on both spellings prints `posle` and exits 0. So declining moves the
+erasure one front over and the user sees no change. The other half of the plan — teaching
+`f-output-agreement-gate.sh` a refuse-vs-refuse comparison — is unaffected by this.
+
+The two fronts were confirmed to be genuinely distinct code paths before that conclusion was drawn:
+with F's runner moved aside the default lane fails to start while `SSC_FRONT=legacy` still runs.
+Three cheaper probes answered identically on both fronts and settled nothing.
+
+**And anonymity is not the discriminator — the type-parameter clause is.** The NAMED parameterised
+form `given anyS[A]: S[A] with` is legal Scala 3, v1 answers `7`, and both native fronts answer
+`ssc: unbound global: __missing_using_S`. That is the opposite direction from this entry's subject —
+the fronts REFUSING what the language and the oracle both accept — and it is filed separately as
+`both-native-fronts-refuse-a-named-parameterised-given-the-oracle-runs`, with the mechanism named to
+the line. A fix for this entry that does not read that one will re-derive the same parser shape.
 
 **Done when** F refuses **both spellings** — `given [A]: S[A] with` and `given [A] => S[A] with` —
 asserted there against the v1 oracle's own message. Both, because the entry measured both and a gate
