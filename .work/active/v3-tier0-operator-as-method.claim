@@ -3,9 +3,9 @@ branch: feature/v3-tier0-operator-as-method
 agent: claude-code
 started: 2026-08-19T07:41:13Z
 heartbeat: 2026-08-19T07:41:13Z
-status: claimed-before-planning
+status: in-progress
 items: operator-outside-tier0-refuses-a-library-operator
-paths: file:v3/src/Lower.scala file:v3/BACKLOG.md file:v3/BUGS.md file:v3/tests/front/operator-as-method.ssc file:v3/tests/front/operator-as-method.expected
+paths: file:v3/src/Lower.scala file:v3/plugins/V2Fleet.scala file:v3/BACKLOG.md file:v3/BUGS.md file:v3/tests/front/operator-as-method.ssc file:v3/tests/front/operator-as-method.expected
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+next: the adapter must answer a symbolic method, or an honest refusal becomes a CRASH
