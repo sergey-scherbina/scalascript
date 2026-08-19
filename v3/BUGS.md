@@ -82,6 +82,48 @@ measures v3's own front, silently and on purpose; what is refused is the DEFAULT
 that. The front-selection block itself is unchanged — 31 insertions, zero deletions — so a checkout
 that HAS the classpath behaves identically.
 
+## uniml-applies-an-identifier-to-a-parenthesis-on-the-next-line — the DEFAULT front refuses a tuple line
+
+<!-- status: open
+     lane: v3
+     kind: bug
+     area: front
+     gate: v3/front-diff.sh (corpus DISAGREEMENTS, ceiling 0)
+     found-by: claude-code
+     found-at: 2026-08-19 -->
+
+**THE FRONT EVERY PROGRAM USES BY DEFAULT REFUSES THIS:**
+
+    def g(k: Int, xs: Any): Any =
+      val value = xs
+      (k, value)
+
+    uniml  ssc3: 3:7: unknown name 'value'
+    v3     (7, 1)
+
+`Nil` on the next line is applied to `(k, value)`, so the tuple becomes an argument list and `value`
+never becomes a binding.
+
+**ONE OF TWO DECISION SITES HAD THE RULE.** `postfix` guards chained application with
+`c.peekLine == c.prevEndLine` and states the reason in a comment — ssc1-front's layout inserts `;` at
+a newline, so a `(` on a LATER line begins a fresh statement. `parseIdOrCall`, which is where an
+application is built for a BARE IDENTIFIER, had no such guard and applied whatever `(` came next,
+however many lines away.
+
+**A LITERAL HID IT FOR MONTHS.** The right-hand side has to be a bare NAME to reach that site at all:
+
+    val v = 0        followed by a tuple line   fine — a literal takes no argument list
+    val v = List(1)  followed by a tuple line   fine — the call already consumed its brackets
+    val v = k + 1    followed by a tuple line   fine
+    val v = xs       followed by a tuple line   REFUSED
+
+**FOUND BY FIXING THE OTHER FRONT.** `std/mapreduce/shuffle.ssc:438` is written this way, and while
+v3's own front could not read the file at all the two fronts were never compared on it. The moment
+`v3-own-front-cannot-parse-a-parenthesised-match` was fixed, `front-diff` reported
+`corpus DISAGREEMENTS rose to 1` on `distributed-shuffle` — and v3 was the one that was right.
+
+**FIXED** by giving `parseIdOrCall` the same `c.peekLine == c.prevEndLine` test its twin already had.
+
 ## v3-own-front-cannot-parse-a-parenthesised-match — two lines, and it is a capability gap
 
 <!-- status: open
@@ -104,6 +146,26 @@ that HAS the classpath behaves identically.
 
 `std/mapreduce/distributed.ssc:424` is the shape in the wild — `}).asInstanceOf[…]` closing a
 parenthesised `match`.
+
+**THE TITLE OF THIS ENTRY IS TOO NARROW, corrected 2026-08-19 when the fix was written.** The
+defect is not about `match` in brackets: it is an ARM LIST WITH NO LAYOUT OF ITS OWN. Inside round
+brackets the lexer suppresses INDENT, DEDENT and NEWLINE — `Lexer.scala` skips a continuation line's
+indentation because "its width means nothing here" — so an arm list written there has neither a `}`
+nor a DEDENT to end it, and only a closing bracket can. Adding `)` and `]` as terminators moved the
+refusal from line 424 to line 464 rather than clearing it, because the shape in the wild is one step
+further in:
+
+    (receive {
+      case Exit(pid, reason) =>
+        val a = assignments.find { case (_, p, _) => p == pid }
+        a match                       // <- THIS list is the unlayered one
+          case None    => …
+          case Some(x) => …
+    }).asInstanceOf[DistributedResult[Any]]
+
+The INNER `match` is what has no terminator, and the token that ends it is the OUTER `}`. Chasing
+the refusal one line at a time is what turned a guess into the rule: any closing bracket ends an
+unlayered arm list.
 
 **IT WAS INVISIBLE UNTIL A JVM PACKAGE BECAME IMPORTABLE.** The five `distributed-*` cases died at
 `import scalascript.typeddata.…` on BOTH fronts, so they counted as `neither` rather than one-sided.

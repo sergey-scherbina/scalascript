@@ -1,0 +1,44 @@
+// An arm list with NO LAYOUT OF ITS OWN. Inside round brackets the lexer suppresses INDENT, DEDENT
+// and NEWLINE — "its width means nothing here" — so a `match` written there has neither a `}` nor a
+// DEDENT to end it, and the closing bracket is the only thing that can. v3's own front used to
+// refuse all four of these; the uniml front read them.
+
+// 1. the selection that makes the brackets necessary in the first place
+def one(v: Any): Int =
+  (v match
+    case _ => "a"
+  ).length
+
+// 2. more than one arm, so the list is not ended by the first body
+def two(v: Any): Int =
+  (v match
+    case 1 => "one"
+    case _ => "other"
+  ).length
+
+// 3. as an argument — the bracket that ends it is the call's, not a grouping one
+def plus(x: Int): Int = x + 1
+def three(v: Any): Int =
+  plus((v match
+    case _ => 41
+  ))
+
+// 4. THE SHAPE IN THE WILD, from `std/mapreduce/distributed.ssc`: a braced arm list inside brackets
+// whose arm contains a second, INDENTED match. The inner one is the unlayered list, and the token
+// that ends it is the OUTER brace — which is why fixing `)` alone moved the refusal to the next
+// line instead of clearing it.
+def receive(f: Any => String): String = f(1)
+def four(): Int =
+  (receive {
+    case n =>
+      val m = Some(n)
+      m match
+        case None    => "none"
+        case Some(_) => "some"
+  }).length
+
+def main(): Unit =
+  println(one(1))
+  println(two(1))
+  println(three(1))
+  println(four())

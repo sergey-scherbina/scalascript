@@ -53,11 +53,17 @@ if [ "${1:-}" = "--selftest" ]; then
   tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
   truth="$(read_count "$src")" || { echo "  FAIL selftest: the real list is unreadable"; exit 1; }
 
+  # PLANTED AT THE DECLARATION, NOT AT A NAME. The first version of this anchored its `sed` on
+  # `distributed-failure-partial`, a name that was in the list that day and was REMOVED the next —
+  # at which point every plant silently became a no-op, the "bad" file was byte-identical to the
+  # good one, and the selftest failed complaining that a clean list had been answered rather than
+  # refused. A plant must be anchored on something the thing under test cannot delete; the
+  # `declare -a` line is that, since without it there is no list to count.
+  plant() { awk -v ins="$2" '{print} /^declare -a KNOWN_CONF_UNIML_ONLY=\(/{print ins}' "$1"; }
+
   # THE TWO SHAPES THAT MOVED IT. Both are comments, and a comment must not be able to move a ceiling.
-  sed 's|^  distributed-failure-partial|  # cited at foo.ssc line 424 (right here)\
-  distributed-failure-partial|' "$src" > "$tmp/bracket.sh"
-  sed 's|^  distributed-failure-partial|  # cited at that file on line four hundred and twenty four\
-  distributed-failure-partial|' "$src" > "$tmp/prose.sh"
+  plant "$src" '  # cited at foo.ssc line 424 (right here)' > "$tmp/bracket.sh"
+  plant "$src" '  # cited at that file on line four hundred and twenty four' > "$tmp/prose.sh"
   for shape in bracket prose; do
     got="$(read_count "$tmp/$shape.sh")" || got="unreadable"
     if [ "$got" != "$truth" ]; then
@@ -68,7 +74,7 @@ if [ "${1:-}" = "--selftest" ]; then
 
   # AND THE TWO IT MUST REFUSE rather than answer. A prefix of a list is a number, and a number
   # compares — which is exactly how a truncated list passed for a ceiling.
-  sed 's|^  distributed-failure-partial|  distributed-failure-partial not-a-name-because-of-the-space!|' "$src" > "$tmp/prose-token.sh"
+  plant "$src" '  not-a-name-because-of-the-bang!' > "$tmp/prose-token.sh"
   awk '/^declare -a KNOWN_CONF_UNIML_ONLY=\(/{drop=1} drop && /^\)/{next} {print}' "$src" > "$tmp/unterminated.sh"
   for bad in prose-token unterminated; do
     if got="$(read_count "$tmp/$bad.sh" 2>/dev/null)"; then

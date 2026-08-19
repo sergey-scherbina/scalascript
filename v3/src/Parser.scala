@@ -577,6 +577,25 @@ object Parser:
       if go then endLine = endLineBetween(stepFrom, ts)
     (e, dropDedents(ts, pendingIndents))
 
+  /** ANY closing bracket ends an arm list that has no layout of its own. `)` and `]` close the
+    * round or square bracket that suppressed layout in the first place; `}` closes an enclosing
+    * BRACED arm list, which is how the shape in the wild actually appears:
+    *
+    *     (receive {
+    *       case Exit(pid, reason) =>
+    *         val a = assignments.find { case (_, p, _) => p == pid }
+    *         a match                       // <- unlayered: no INDENT is emitted inside `( … )`
+    *           case None    => …
+    *           case Some(x) => …
+    *     }).asInstanceOf[DistributedResult[Any]]
+    *
+    * The INNER `match` is the one with no terminator, and the token that ends it is the outer `}`.
+    * Leaving `}` out is why fixing `)` alone moved the refusal from one line to the next rather
+    * than clearing it — `std/mapreduce/distributed.ssc` has this twice, in two twin functions.
+    * Never consumed: the bracket belongs to whoever opened it. */
+  private def isClosingBracket(t: Tok): Boolean =
+    isPunct(t, ")") || isPunct(t, "]") || isPunct(t, "}")
+
   /** `match` arms, brace-delimited or indented. An arm's body runs until the next `case` or the end
     * of the block, which is why the body is parsed as a statement sequence rather than one
     * expression: `case X => a; b` is ordinary. */
@@ -612,6 +631,11 @@ object Parser:
         indented = true
         ts = t.tail
       else ts = t
+    // THE FOURTH SPELLING, and it is not a spelling anyone chose — it is what the other three look
+    // like inside `( … )`. `(v match case _ => "a").length` reaches here with no `{` and no INDENT,
+    // because layout is suppressed inside round brackets; v3's own front refused it with
+    // `expected an expression, found )` while the uniml front read it, which is how it surfaced.
+    val unlayered = !braced && !indented
     var arms: List[MatchArm] = Nil
     var go = true
     while go do
@@ -631,6 +655,12 @@ object Parser:
       else if indented && peek(ts).isInstanceOf[Tok.TDedent] then
         ts = ts.tail
         go = false
+      // NEITHER BRACED NOR INDENTED means the arms are inside ROUND BRACKETS, where the lexer
+      // suppresses layout entirely — `Lexer.scala` skips the indentation of a continuation line
+      // because "its width means nothing here". So there is no `}` and no DEDENT to end the list,
+      // and the closing bracket is the only thing that can. Not consumed: it belongs to whoever
+      // opened it.
+      else if unlayered && isClosingBracket(peek(ts)) then go = false
       else if peek(ts).isInstanceOf[Tok.TEof] then go = false
       else if !isId(peek(ts), "case") then
         if arms.isEmpty then throw ParseFail(posOf(ts), "expected `case`, found " + Lexer.show(peek(ts)))
@@ -645,14 +675,14 @@ object Parser:
             (Some(g), t)
           else (None, t1)
         val t2 = expectOp(t1g, "=>")
-        val (body, t3) = parseArmBody(t2, braced)
+        val (body, t3) = parseArmBody(t2, braced, unlayered)
         arms = MatchArm(pat, guard, body) :: arms
         ts = t3
     (arms.reverse, ts)
 
   /** An arm body: an indented block, or statements on the arm's own line. It stops at the next
     * `case`, at the DEDENT that closes the arm list, at `}`, or at end of input — never past them. */
-  private def parseArmBody(ts0: List[Tok], braced: Boolean): (Expr, List[Tok]) =
+  private def parseArmBody(ts0: List[Tok], braced: Boolean, unlayered: Boolean = false): (Expr, List[Tok]) =
     val p = posOf(ts0)
     if peek(ts0).isInstanceOf[Tok.TNewline] && peek(skipNewlines(ts0)).isInstanceOf[Tok.TIndent] then
       parseBlock(skipNewlines(ts0).tail)
@@ -663,7 +693,11 @@ object Parser:
       var go = true
       while go do
         if isId(peek(ts), "case") || peek(ts).isInstanceOf[Tok.TEof] ||
-           peek(ts).isInstanceOf[Tok.TDedent] || (braced && isPunct(peek(ts), "}")) then go = false
+           peek(ts).isInstanceOf[Tok.TDedent] || (braced && isPunct(peek(ts), "}")) ||
+           // The closing bracket ends the LAST arm as well as the list. Without this the body's
+           // statement loop reaches `)` and asks `parseStmt` for an expression, which is exactly
+           // the message the refusal used to carry.
+           (unlayered && isClosingBracket(peek(ts))) then go = false
         // `;` SEPARATES STATEMENTS INSIDE THE ARM, it does not end it — and that distinction is the
         // whole of it. `case A(s) => s; case _ => "?"` and `case A => val x = 1; x` are the same
         // syntax: the semicolon is consumed and the loop head decides, so the first stops at `case`

@@ -2616,7 +2616,19 @@ object SpikeParse:
 
   private def parseIdOrCall(c: Cur): Option[Node] =
     val id = c.advance().get
-    if c.peekKind != "spike.lparen" then Some(Node.Leaf(id, Some("var")))
+    // THE SAME-LINE RULE, WHICH THIS SITE DID NOT HAVE. `postfix` guards chained application with
+    // `c.peekLine == c.prevEndLine` and says why: ssc1-front's layout inserts `;` at a newline, so a
+    // `(` on a LATER line begins a fresh statement. This is the OTHER place an application is built —
+    // the first one, for a bare identifier — and it applied whatever `(` came next, however far away:
+    //
+    //     val value = Nil
+    //     (k, value)          // parsed as Nil(k, value); `value` then does not exist
+    //
+    // It refused `std/mapreduce/shuffle.ssc:438` and it is why `distributed-shuffle` disagreed
+    // between the two fronts once v3's own front learned to read the file at all. LITERALS HID IT:
+    // `val v = 0` followed by a tuple line is fine because a literal takes no argument list, so only
+    // a right-hand side that is a BARE NAME reaches here — which is why this survived so long.
+    if c.peekKind != "spike.lparen" || c.peekLine != c.prevEndLine then Some(Node.Leaf(id, Some("var")))
     else Some(applyArgs(c, Node.Leaf(id, None)))
 
   // apply `fn` to the argument list at the cursor's `(` → a spike.call. Shared by `f(a)` and, via

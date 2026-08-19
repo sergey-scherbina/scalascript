@@ -208,12 +208,21 @@ declare -a KNOWN_CONF_V3_ONLY=(
 # It also arrived here as a RED CI JOB rather than as a removal in `28c34951e`, which is what this
 # list is designed to do — but the gate names the row and not the reason, so recovering "why" cost a
 # separate investigation. If you close a divergence, take its row out in the same commit.
-# THE FIVE distributed-* NAMES were added 2026-08-18. They were `neither` before — both fronts died
-# on `import scalascript.typeddata.…` — and are uniml-only now that a JVM package is importable,
-# because v3's own front cannot parse a `match` in brackets followed by a selection, at
-# std/mapreduce/distributed.ssc line 424. Reduced to two lines in
-# `v3-own-front-cannot-parse-a-parenthesised-match`; declared rather than hidden, because this is a
-# construct one front has and the other does not, which is what this list is for.
+# `distributed-callback-user-throw` is the ONE of six that is still uniml-only, and it is not a
+# parser gap: v3 refuses it at `a \`catch\` arm binds one name at Tier 0`, which is a declared limit
+# of the core rather than a construct the front cannot read.
+#
+# ITS FIVE SIBLINGS WERE HERE FROM 2026-08-18 TO 2026-08-19 and are gone because the gap closed.
+# They were `neither` before — both fronts died on `import scalascript.typeddata.…` — became
+# uniml-only when a JVM package became importable, and now parse on both fronts:
+# `v3-own-front-cannot-parse-a-parenthesised-match` was an arm list with NO LAYOUT, which happens
+# inside round brackets, and it had no terminator. Removing them lowers this list, and with it the
+# ceiling derived from it, by five.
+#
+# AND FOUR MORE WENT WITH THEM — litdoc, scljet-pager-mutate, scljet-readonly-pager-btree,
+# string-eq-locals — which nobody had connected to that construct. This gate is what found them: it
+# FAILS the day a declared divergence stops diverging, so the same commit that fixed the parser was
+# told, by name, which four declarations had gone stale. 71 -> 67.
 #
 # THIS LIST IS CODE, not documentation: `v3/front-diff.sh` derives the one-sided CEILING from the
 # number of names below, so an edit here moves a threshold. It used to move on a COMMENT — the
@@ -227,8 +236,6 @@ declare -a KNOWN_CONF_UNIML_ONLY=(
   coroutine-native-lifecycle
   curried-def-clauses
   dataset-agg
-  distributed-failure-partial distributed-failure-retry distributed-heterogeneous
-  distributed-map distributed-shuffle
   distributed-callback-user-throw
   fewer-braces-colon
   for-comprehensions
@@ -237,7 +244,6 @@ declare -a KNOWN_CONF_UNIML_ONLY=(
   generator-callback-user-throw
   json-deep-import
   json-self-hosted-import
-  litdoc
   literal-pattern-in-case-lambda
   mcp-client-invoke
   mcp-server-resource
@@ -247,15 +253,12 @@ declare -a KNOWN_CONF_UNIML_ONLY=(
   parameterless-def-mention
   predef-notimplemented
   scljet-byte-codec
-  scljet-pager-mutate
-  scljet-readonly-pager-btree
   std-fs-failure
   std-fs-failure-raises
   std-ui-native-css-scope
   std-ui-native-css-scope-lib
   std-ui-native-pair-lib
   std-ui-native-pair-minimal
-  string-eq-locals
   tkv2-busi-home
   tkv2-button-size
   tkv2-button-variant
