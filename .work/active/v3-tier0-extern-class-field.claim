@@ -3,9 +3,9 @@ branch: feature/v3-tier0-extern-class-field
 agent: claude-code
 started: 2026-08-19T09:56:41Z
 heartbeat: 2026-08-19T09:56:41Z
-status: claimed-before-planning
+status: in-progress
 items: abstract-val-in-an-extern-class-is-a-field-declaration
-paths: file:v3/uniml/UniFront.scala file:v3/BACKLOG.md file:v3/BUGS.md file:v3/tests/front/extern-class-fields.ssc file:v3/tests/front/extern-class-fields.expected
+paths: file:v3/uniml/UniFront.scala file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/ScalaSpike.scala file:v3/BACKLOG.md file:v3/BUGS.md file:v3/tests/front/extern-class-fields.ssc file:v3/tests/front/extern-class-fields.expected
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+next: skipTypeAnnotation runs past the end of its line and steals the next declaration's 
