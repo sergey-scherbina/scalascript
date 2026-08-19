@@ -8,13 +8,14 @@ Query: `scripts/bugs-report --module v3`.
 
 ## operator-outside-tier0-refuses-a-library-operator — the core's set was the language's set
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      kind: feature
      area: front
      gate: v3/tests/front/operator-as-method.ssc
      found-by: claude-code
-     found-at: 2026-08-19 -->
+     found-at: 2026-08-19
+     fixed-in: fa93acc63 -->
 
 **`Lower.binOp` threw for any operator outside a fixed list** — `+ - * / % < <= > >= == != & | ^ <<
 >> >>>` — so `replyTo ! msg` was refused with `operator '!' is outside SSC3 core Tier 0`. Three
