@@ -52,6 +52,19 @@ enum Expr:
     * the lowering itself needs no extra parameter threaded through every case — the alternative was
     * a fifth argument on `lower`, and a list that one consumer forgets to pass is how the front ends
     * up with two notions of the same program. */
+  /** A MARKER — `Focus[Person](_.age)`, `direct[Option] { … }` — held as syntax so a plugin can
+    * rewrite it before lowering. `specs/60-compile-time-extension.md`.
+    *
+    * A name is a marker IFF a rewrite is registered for it, and both fronts ask the same question,
+    * so both build this node or both build an ordinary call. The kernel never learns a marker's
+    * name; with no plugins registered this node is never built and every file parses as it did
+    * before it existed.
+    *
+    * `typeArgs` is why the node exists at all rather than matching a plain `Call`: v3's parser
+    * erases type arguments, and `Prism[T]` needs them. They are kept as WRITTEN, unresolved — there
+    * is no checker at Tier 0 to resolve them against, and a rewrite that needs a type needs the
+    * text the user wrote. */
+  case Marker(name: String, typeArgs: List[String], args: List[Expr], pos: Pos)
   case Perform(op: Int, args: List[Expr], pos: Pos)
   /** `handle(body) { case E.op(args…, k) => … }`, with op ids resolved and binder NAMES kept —
     * registers are allocated by the lowering, which is the only place that knows the frame. */
@@ -284,6 +297,7 @@ object Expr:
     case Not(_, p)        => p
     case Call(_, _, p)    => p
     case Prim(_, _, p)    => p
+    case Marker(_, _, _, p) => p
     case Perform(_, _, p)  => p
     case Handle(_, _, p)   => p
     case Resume(_, _, p)   => p
@@ -341,6 +355,12 @@ object Expr:
       case Expr.Update(a, i, v, p)      => Expr.Update(go(a), go(i), go(v), p)
       case Expr.Apply(f2, as, p)        => Expr.Apply(go(f2), as.map(go), p)
       case Expr.Prim(n, as, p)          => Expr.Prim(n, as.map(go), p)
+      // A MARKER'S ARGUMENTS, and of the five walkers that had to learn this node THIS is the one
+      // that can be wrong today. `Loader.merge` walks with `mapDeep` to rename module-level `def`s,
+      // and it runs BEFORE the rewrite pass — so a marker is present when it walks. Without this
+      // line a call inside `direct { … }` would keep the pre-merge name and the file would fail
+      // with `unknown function`, which is the NamedArg hole above repeated on a new node.
+      case Expr.Marker(n, ts, as, p)    => Expr.Marker(n, ts, as.map(go), p)
       case Expr.Perform(o, as, p)       => Expr.Perform(o, as.map(go), p)
       case Expr.Handle(b, arms, p)      => Expr.Handle(go(b), arms.map(a => a.copy(body = go(a.body))), p)
       case Expr.Resume(k, v, p)         => Expr.Resume(k, go(v), p)

@@ -113,3 +113,54 @@ object Plugins:
       case Some(fn) => register(name, fn); true
       case None     => false
   }
+
+  // ── SYNTAX: a plugin supplies a REWRITE ───────────────────────────────────────────────────────
+  //
+  // Every door above answers about a NAME or a VALUE. This one takes a TREE and returns a TREE, and
+  // it is the only place in this file where a plugin can affect what a program MEANS rather than
+  // what it can reach. The design is `specs/60-compile-time-extension.md`; the six rules it states
+  // are enforced here and in the pass, not left to the client.
+  //
+  // A NAME IS A MARKER IFF A REWRITE IS REGISTERED FOR IT. Both fronts ask `hasRewrite` at the point
+  // where they would otherwise build an ordinary call, so both build the same tree — and with no
+  // plugins registered, no name is a marker and every file parses exactly as it did before this
+  // existed. That is why `SSC3_FLEET=off` is a control for this feature without a switch of its own.
+  //
+  // The kernel therefore never learns a marker's NAME. `Focus`, `direct` and `Prism` appear in no
+  // kernel source; they are keys a plugin puts in this map.
+
+  /** A rewrite's refusal, with the position it happened at. POSITIONED, always: `corpus-report.sh`
+    * classifies an honest refusal by the `:line:col:` shape, so an exception escaping a rewrite
+    * would be counted CRASH — a floor — rather than UNSUPPORTED. That conversion happened twice on
+    * 2026-08-19 while unblocking the operator path, once per lane. */
+  final case class Refusal(msg: String, pos: Pos)
+
+  /** What a rewrite is handed besides its own node. `fresh` is the ONLY source of generated names:
+    * a client that invents a binder captures one the user wrote. */
+  trait Ctx:
+    def fresh(prefix: String): String
+    def rewrite(e: Expr): Either[Refusal, Expr]
+
+  type Rewrite = (Expr, Ctx) => Either[Refusal, Expr]
+
+  private val rewrites = scala.collection.mutable.Map.empty[String, Rewrite]
+
+  /** A CLAIM IS EXCLUSIVE. Two plugins registering `Focus` is an error here rather than a race, and
+    * that is a rule with a scar behind it: v2's registry tables are last-registered-wins and say so
+    * in their own comment, and on 2026-08-19 a last-wins read of a duplicated key turned main red
+    * about a value two lines above the one it named. Silent precedence is how a mechanism becomes
+    * unattributable. */
+  def registerRewrite(name: String, fn: Rewrite): Unit =
+    if rewrites.contains(name) then
+      throw IllegalStateException(
+        "two rewrites claim the marker '" + name + "' — a claim is exclusive, see " +
+        "specs/60-compile-time-extension.md")
+    rewrites(name) = fn
+
+  /** Asked by BOTH fronts, at the point where a call would otherwise be built. */
+  def hasRewrite(name: String): Boolean = rewrites.contains(name)
+
+  def rewriteFor(name: String): Option[Rewrite] = rewrites.get(name)
+
+  /** The names claimed, for a gate to print. */
+  def rewriteNames: Set[String] = rewrites.keySet.toSet

@@ -245,6 +245,32 @@ object Parser:
     * Tier 0 for the same reason annotations are: there is no checker, and half-reading them would
     * put an unenforced notion of types into the front. Measured on the corpus, `[` was 9 of the
     * first 60 refusals — the second largest cause after `{`. */
+  /** The same walk as `skipBrackets`, but KEEPING the type arguments as the text they were written
+    * as, split at top-level commas. Only a MARKER needs them — `Prism[T]` cannot be rewritten
+    * without knowing `T` — and there is no checker to resolve them against at Tier 0, so what a
+    * client gets is the source text and nothing more. Everywhere else types are still erased, which
+    * is the rule this deliberately does not change. */
+  private def captureBrackets(ts: List[Tok]): (List[String], List[Tok]) =
+    if !isPunct(peek(ts), "[") then (Nil, ts)
+    else
+      var t = ts.tail
+      var depth = 1
+      var cur = new StringBuilder
+      var out: List[String] = Nil
+      while depth > 0 do
+        if peek(t).isInstanceOf[Tok.TEof] then throw ParseFail(posOf(t), "unclosed '['")
+        val tok = peek(t)
+        if isPunct(tok, "[") then { depth = depth + 1; cur.append("[") }
+        else if isPunct(tok, "]") then
+          depth = depth - 1
+          if depth > 0 then cur.append("]")
+        else if depth == 1 && isPunct(tok, ",") then
+          out = out :+ cur.toString.trim; cur = new StringBuilder
+        else cur.append(Lexer.show(tok))
+        t = t.tail
+      val last = cur.toString.trim
+      ((if last.isEmpty then out else out :+ last), t)
+
   private def skipBrackets(ts: List[Tok]): List[Tok] =
     if !isPunct(peek(ts), "[") then ts
     else
@@ -903,6 +929,24 @@ object Parser:
         head = head + "." + (peek(ht.tail) match { case Tok.TId(n, _) => n; case _ => "" })
         ht = ht.tail.tail
       (Expr.Call("__summon__", List(Expr.StrLit(head, p)), p), skipBrackets(ts.tail))
+    // A MARKER — `Focus[Person](_.age)` — held as syntax for a plugin to rewrite, and ONLY when a
+    // rewrite is registered for the name. `Plugins.hasRewrite` is the same question the UniML
+    // projection asks at its own marker arm, which is what keeps the two fronts building the same
+    // tree: these nine cases are declared v3-only TODAY precisely because this front reads them as
+    // ordinary calls while the projection refuses them, so answering in one front alone would turn
+    // nine one-sided rows into nine disagreements against a DIFF floor of zero.
+    //
+    // With no plugins registered nothing is a marker and this arm never fires — which is why
+    // `SSC3_FLEET=off` is the control for the whole feature rather than a switch of its own.
+    // `specs/60-compile-time-extension.md`.
+    case Tok.TId(n, p) if !keywords.contains(n) && Plugins.hasRewrite(n) =>
+      val (targs, afterTy) = captureBrackets(ts.tail)
+      if isPunct(peek(afterTy), "(") then
+        val (as, t) = parseArgs(afterTy.tail)
+        (Expr.Marker(n, targs, as, p), t)
+      // A BARE marker name is just a name: `Focus` alone is a value nobody claims, and refusing it
+      // here would make registering a rewrite change what an unrelated identifier means.
+      else (Expr.Name(n, p), afterTy)
     case Tok.TId(n, p) if !keywords.contains(n) =>
       // TYPE ARGUMENTS in an expression: `List[Int]()`, `Map[String, Int]()`, `empty[A]`. Skipped,
       // like every other type at Tier 0 — there is no checker, and half-reading them would put an

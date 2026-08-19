@@ -564,6 +564,29 @@ object UniFront:
 
     // Four UniML call shapes, two v3 ones. UniML keeps them apart because the CST does; here is
     // where collapsing them is the lowering's job rather than a premature decision.
+    // A CALL WHOSE NAME A PLUGIN CLAIMS IS A MARKER, and asking here rather than in the grammar is
+    // what makes the door extensible at all. ScalaSpike marks exactly three names — `Focus`,
+    // `Prism`, `direct` — so the registry could only ever NARROW that set; a fourth marker would
+    // have needed a grammar change, which is the opposite of the promise.
+    //
+    // WHAT THIS DOES NOT RECOVER, stated because it is a real boundary rather than a gap to fill in
+    // later: the grammar ERASES type arguments for an ordinary call, so a marker recognised HERE
+    // has none. The three planned clients are unaffected — they are the three the grammar marks,
+    // and those carry their type arguments — but a NEW marker name works only if it needs no type
+    // arguments. Widening that means teaching `postfix` to keep what it read, which is a change to
+    // the shared grammar and a decision of its own.
+    // THE GRAMMAR'S OWN MARKER NODES, applied. `Focus[Person](_.age)` reaches here as an APPLY of a
+    // `spike.focusmarker` whose first child is the `Focus` leaf and whose remaining children are the
+    // type-argument tokens — so the name the REGISTRY must be asked about is the one the user wrote,
+    // not the node's kind. ScalaSpike calls the node `focusmarker`; a plugin claims `Focus`.
+    case U.Apply(U.Marker(_, Some(U.Ident(nm, _)), targs, _), as, s) if Plugins.hasRewrite(nm) =>
+      Expr.Marker(nm, targs.toList, as.toList.map(expr), pos(s))
+    // `direct[Option] { … }` is the other shape the grammar builds: the node's kind IS the name and
+    // the block is its `inner`, already an expression.
+    case U.Marker(nm, Some(inner), targs, s) if Plugins.hasRewrite(nm) =>
+      Expr.Marker(nm, targs.toList, List(expr(inner)), pos(s))
+    case U.Apply(U.Ident(f, _), as, s) if Plugins.hasRewrite(f) =>
+      Expr.Marker(f, Nil, as.toList.map(expr), pos(s))
     case U.Apply(U.Ident(f, _), as, s)          => Expr.Call(f, as.toList.map(expr), pos(s))
     case U.Apply(U.Select(r, m, _), as, s)      => Expr.MethodCall(expr(r), m, as.toList.map(expr), pos(s))
     case U.Apply(f, as, s)                      => Expr.Apply(expr(f), as.toList.map(expr), pos(s))
@@ -640,6 +663,17 @@ object UniFront:
     case U.Quote(_, s)             => no("a quote", s)
     case U.Splice(_, s)            => no("a splice", s)
     case U.QuotedName(_, s)        => no("a quoted name", s)
+    // A MARKER IS HELD AS SYNTAX WHEN A PLUGIN CLAIMS IT, and refused exactly as before when none
+    // does. The question is `Plugins.hasRewrite`, which v3's own front asks at the same point — so
+    // the two fronts build the SAME tree, which is not a nicety: these nine cases are declared
+    // `KNOWN_CONF_V3_ONLY` today because v3's front reads `Focus[T](f)` as an ordinary call while
+    // this one refuses it. Answering here alone would turn nine one-sided rows into nine
+    // DISAGREEMENTS, against a DIFF floor of zero.
+    //
+    // With no plugins registered nothing is a marker and this line behaves as it always did, which
+    // is why `SSC3_FLEET=off` is a control for the whole feature. `specs/60-compile-time-extension.md`.
+    case U.Marker(n, inner, targs, s) if Plugins.hasRewrite(n) =>
+      Expr.Marker(n, targs.toList, inner.toList.map(expr), pos(s))
     case U.Marker(n, _, _, s)      => no("the marker '" + n + "'", s)
     // Scala's `???` throws `NotImplementedError` WHEN EVALUATED. Refusing the whole file at parse
     // time is stricter than the language and blocks programs whose `???` sits in a branch nobody

@@ -1951,7 +1951,11 @@ object SpikeParse:
       // is introspected by the lowerer (resolveFocusArgs, AST-derived) into `optics.focus([OField…])`. Other
       // `e[T]` type applications just erase the type args and continue the chain.
       nodeLexeme(atom) match
-        case "Focus"  => skipTypeParams(c); postfix(c, Node.Frame("spike.focusmarker", None, Vector(atom)))
+        // CAPTURED, not skipped — `Prism` two lines down already does this and `Focus` did not, which
+        // is one arm of one match disagreeing with its neighbour. It cost nothing while the marker
+        // was refused outright; it costs the type argument the moment a rewrite wants it, and the
+        // two fronts then print different trees for the same file (v3's own parser keeps them).
+        case "Focus"  => postfix(c, Node.Frame("spike.focusmarker", None, atom +: captureTypeArgTokens(c)))
         case "Prism"  => postfix(c, Node.Frame("spike.prism", None, atom +: captureTypeArgTokens(c)))
         case "direct" => postfix(c, Node.Frame("spike.directmarker", None, atom +: captureTypeArgTokens(c)))
         case _        => skipTypeParams(c); postfix(c, atom)

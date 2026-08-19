@@ -125,6 +125,7 @@ object Lower:
     case Expr.Update(a, i, v, _)  => freeVars(a, bound) ++ freeVars(i, bound) ++ freeVars(v, bound)
     case Expr.Apply(f, as, _)     => freeVars(f, bound) ++ as.flatMap(a => freeVars(a, bound))
     case Expr.Prim(_, as, _)      => as.flatMap(a => freeVars(a, bound))
+    case Expr.Marker(_, _, as, _) => as.flatMap(a => freeVars(a, bound))
     case Expr.Perform(_, as, _)   => as.flatMap(a => freeVars(a, bound))
     case Expr.Handle(b, arms, _)  =>
       freeVars(b, bound) ++ arms.flatMap(a => freeVars(a.body, bound ++ a.params ++ List(a.k)))
@@ -840,6 +841,17 @@ object Lower:
           val (d, st2) = st1.fresh
           (vi :+ Instr.Resume(d, kr, vr), d, st2)
 
+    // A MARKER THAT REACHED LOWERING WAS NOT REWRITTEN, and the refusal is here rather than in a
+    // front for the reason the whole door is here: the rewrite pass runs between the front and this
+    // file, so THIS is the first place that knows a marker survived it. Positioned, because an
+    // honest refusal is classified by `:line:col:` and an exception would be counted CRASH.
+    //
+    // It should be unreachable in practice — a name is a marker only when a rewrite is registered
+    // for it, and the pass rewrites every one it finds — so reaching it means the pass skipped a
+    // node, which is worth a sentence that says so rather than a generic "unsupported".
+    case Expr.Marker(name, _, _, p) =>
+      throw LowerFail(p, "the marker '" + name + "' reached lowering unrewritten — its rewrite is " +
+                         "registered but did not run, which is a defect in the rewrite pass")
     case Expr.Perform(op, argEs, _) =>
       var acc: List[Instr] = Nil
       var regs: List[Int] = Nil
@@ -1098,6 +1110,11 @@ object Lower:
       case Expr.Lambda(ps, b, p)             => Expr.Lambda(ps, selfCalls(b, ms.filter(m => !ps.exists(q => q.name == m))), p)
       case Expr.Try(b, x, h, p)              => Expr.Try(go(b), x, go(h), p)
       case Expr.Interp(parts, xs, p)         => Expr.Interp(parts, xs.map(go), p)
+      // A MARKER'S ARGUMENTS. The four walkers in THIS file run inside `Lower`, after the rewrite
+      // pass, so a marker reaching them is already a defect — but they descend rather than throw,
+      // because the one place that says so is `lower`, which answers with a POSITION. A walker that
+      // threw first would replace that message with a stack trace.
+      case Expr.Marker(n, ts, as, p)         => Expr.Marker(n, ts, as.map(go), p)
       case Expr.Match(sc, arms, p) =>
         Expr.Match(go(sc), arms.map(a => MatchArm(a.pat, a.guard.map(go), go(a.body))), p)
       case Expr.Block(sts, res, p) =>
@@ -2113,6 +2130,7 @@ object Lower:
     case Expr.Update(a, i, v, _)  => assignedFree(a, bound) ++ assignedFree(i, bound) ++ assignedFree(v, bound)
     case Expr.Apply(f, as, _)     => assignedFree(f, bound) ++ as.flatMap(a => assignedFree(a, bound))
     case Expr.Prim(_, as, _)      => as.flatMap(a => assignedFree(a, bound))
+    case Expr.Marker(_, _, as, _) => as.flatMap(a => assignedFree(a, bound))
     case Expr.If(c, t, el, _)     => assignedFree(c, bound) ++ assignedFree(t, bound) ++ el.toList.flatMap(x => assignedFree(x, bound))
     case Expr.While(c, b, _)      => assignedFree(c, bound) ++ assignedFree(b, bound)
     case Expr.Call(_, as, _)      => as.flatMap(a => assignedFree(a, bound))
@@ -2216,6 +2234,7 @@ object Lower:
         case Expr.Update(a, i, v, p)      => Expr.Update(go(a), go(i), go(v), p)
         case Expr.Apply(f, as, p)         => Expr.Apply(go(f), as.map(go), p)
         case Expr.Prim(n, as, p)          => Expr.Prim(n, as.map(go), p)
+        case Expr.Marker(n, ts, as, p)    => Expr.Marker(n, ts, as.map(go), p)
         case Expr.If(c, t, el, p)         => Expr.If(go(c), go(t), el.map(go), p)
         case Expr.While(c, b, p)          => Expr.While(go(c), go(b), p)
         case Expr.Call(f, as, p)          => Expr.Call(f, as.map(go), p)
@@ -2815,6 +2834,7 @@ object Lower:
       case Expr.NamedArg(n, v, p)       => Expr.NamedArg(n, go(v), p)
       case Expr.Apply(f, as, p)         => Expr.Apply(go(f), as.map(go), p)
       case Expr.Prim(n, as, p)          => Expr.Prim(n, as.map(go), p)
+      case Expr.Marker(n, ts, as, p)    => Expr.Marker(n, ts, as.map(go), p)
       case Expr.Perform(o, as, p)       => Expr.Perform(o, as.map(go), p)
       case Expr.Handle(b, arms, p)      => Expr.Handle(go(b), arms.map(a => a.copy(body = go(a.body))), p)
       case Expr.Resume(k, v, p)         => Expr.Resume(k, go(v), p)

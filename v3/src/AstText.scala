@@ -148,6 +148,11 @@ object AstText:
     // fudge: two fronts may legitimately differ on whether a one-expression body is wrapped, and a
     // gate that reported it would report a difference nobody can act on. Measured: it was the
     // single largest source of front-to-front difference on the first comparison.
+    // A MARKER prints with its type arguments, because they are the reason the node exists and a
+    // printer that dropped them would make two fronts look identical while carrying different
+    // information — which is precisely the failure this text form is the instrument for.
+    case Expr.Marker(n, targs, as, _) =>
+      sx("marker", List(q(n)) ++ targs.map(q) ++ as.map(expr))
     case Expr.Block(Nil, Some(r), _) => expr(r)
     // …and a block whose only content is ONE expression statement. `for x <- xs do println(x)`
     // produces that on one front and the bare call on the other, and they mean the same thing.

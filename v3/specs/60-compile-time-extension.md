@@ -181,6 +181,22 @@ is produced by a rewrite inside `Lower.programOf` "where the `effect` declaratio
 A pass that runs before lowering does not have that scope. It emits the SURFACE call and lets the
 existing rewrite resolve it — which is rule 6 doing its job rather than a limitation to work around.
 
+**A REWRITE MAY BUILD A `handle` REGION — decided 2026-08-19 by the author of the CPS work, with two
+conditions that belong here because they bind the CLIENT, not the machinery:**
+
+1. **One encoding per operation.** The bridge refuses when a single op is performed both with and
+   without a continuation — *"the bridge needs every `perform` of an operation to use one
+   encoding"*. So a rewrite must introduce its OWN operation rather than joining an existing one:
+   a plugin that emits `handle` for an op the user's code also performs at a different arity walks
+   into that refusal, and it will look like the plugin's fault when it is the mixing that is.
+2. **A `perform` sitting DIRECTLY inside a region is still unsplit.** `Cps` splits a top-level
+   `Perform`; one inside a `Loop`/`If`/`Switch` is left to the executor's fast tail-resumptive path,
+   where a non-tail-resumptive arm is refused. That is not a prohibition — it is what a client
+   expanding into `handle { while … perform … }` has to know BEFORE writing it, rather than
+   discovering as a refusal with someone else's name on it.
+
+Both are checkable by the client and neither needs anything from this door.
+
 **AND THE TRANSFORM ITSELF IS NOT THIS DOOR'S BUSINESS.** `Cps.scala` is `Module => Module`: it
 splits a function at a `Perform` INSTRUCTION, captures registers, mints new functions and changes
 the calling convention. Forcing it through here would cost three of the six rules above:
