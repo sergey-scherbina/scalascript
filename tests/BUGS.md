@@ -1,3 +1,51 @@
+## f-triple-quoted-interpolated-string-is-silently-wrong — s-triple answered 0
+
+<!-- status: fixed
+     lane: native
+     area: front
+     kind: bug
+     reported-by: claude-code
+     reported-at: 2026-08-18
+     fixed-at: 2026-08-19
+     fixed-in: 71c36060c
+     confirmed: yes
+     gate: tests/e2e/f-triple-interp-gate.sh -->
+
+```
+s"""hello ${x}"""                F: 0                     ref: hello A     <- a WRONG ANSWER
+s"""<div class="row ${x}">"""    F: unbound global: row   ref: the string  <- a decline
+```
+
+**The `0` is what makes this worse than the defects it was found beside**: exit 0, no diagnostic, a
+plausible value. `isInterpStart` fires on `s` followed by ANY quote, so a triple took the
+single-quote path and `scanInterp` stopped at the SECOND quote of the opening run — the token carried
+EMPTY content and the remainder of the string was lexed as CODE, which is where the `row` in the
+second line came from.
+
+**NEITHER FEATURE'S OWN ROWS COULD SEE IT.** A plain triple was always fine (`lexStrOrTriple` routes
+it to `lexTriple`) and a single-quoted interp with escaped quotes was always fine. Only the PAIRING
+broke, so every existing row for either half passed while the combination was silently wrong. Found
+by reducing a corpus decline: `examples/frontend/forjson-chat-demo` reported
+`unbound global: (global row)`, and `row` appears in that file ONLY inside a string.
+
+### Two more mistakes on the way, both caught by measurement
+
+**The escaping half.** A single-quoted interp carries source text whose quotes are already escaped,
+so `emitStr` wraps it unharmed; a triple carries the quote RAW and `emitStr` does not escape, so the
+literal closed early and the expression evaluated to nothing. `raw-quote-no-interp` fails on that
+alone, with no interpolation involved. `escTripleStr` already solved exactly this for the plain
+triple token, so the triple interp is lexed as its own token kind and routed through it.
+
+**Escaping the whole content was the obvious fix and it was wrong.** It escapes the quotes belonging
+to the interpolated EXPRESSION too, and the hole stops being code: an interpolation of
+`"x" + "," + "y"` answered `x" + "," + "y"` instead of `x,y`. Only the literal segments are escaped
+now, with the holes copied through verbatim — `quote-inside-the-hole` is that row.
+
+### Measured after
+
+Ten gate rows. `examples/frontend/forjson-chat-demo.ssc` now compiles on F and stops where the
+reference stops — on the `forJsonView` provider refusal, which is a different, filed gap.
+
 ## f-does-not-support-a-plain-class — and the estimate was priced against the wrong semantics
 
 <!-- status: fixed
