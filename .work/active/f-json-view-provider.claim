@@ -2,10 +2,24 @@ slug: f-json-view-provider
 branch: feature/f-json-view-provider
 agent: claude-code
 started: 2026-08-19T15:00:45Z
-heartbeat: 2026-08-19T15:00:45Z
-status: claimed-before-planning
+heartbeat: 2026-08-19T15:14:48Z
+status: in-progress
 items: v2-ui-provider-lacks-forJsonView-and-blocks-eight-unrelated-tests
-paths: file:v2/runtime/std/ui-plugin/src/main/scala/ssc/plugin/ui/UiNativePlugin.scala file:v2/runtime/std/ui-plugin/src/test/scala/ssc/plugin/ui/UiNativePluginTest.scala file:tests/e2e/ui-json-view-gate.sh file:v2/BUGS.md file:scripts/smoke-ci.ssc
+paths: file:v2/runtime/std/ui-plugin/src/main/scala/ssc/plugin/ui/UiNativePlugin.scala file:v2/runtime/std/ui-plugin/src/test/scala/ssc/plugin/ui/UiNativePluginTest.scala file:tests/e2e/ui-select-from-gate.sh file:tests/e2e/ui-provider-gap-gate.sh file:v2/BUGS.md file:tests/BUGS.md file:scripts/smoke-ci.ssc
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  Implement `selectFromView` on the native lane as a REAL primitive — the three parts the ledger entry
+  names (constructor + renderer arm + field-name registration), not a descriptor alone.
+
+  RETARGETED AFTER MEASURING, and the measurement is the reason: the claim was opened for
+  `forJsonView`, but a census of who actually calls these primitives found `selectFromView` has THREE
+  callers and `forJsonView` one. Measured where each stops on the native lane: `smoke-test.ssc` and
+  `select-reactive-demo.ssc` both refuse on `selectFromView`; `tkv2-select-reactive` already runs.
+  `forJsonView` additionally needs a JSON parser that does not exist natively (the v2 parser is
+  self-hosted in std/json-core.ssc), and its own JVM reference renders EMPTY — which on a lane that
+  renders server-side HTML would be a silently wrong page, not a fallback.
+
+  Widening `paths` by one file: `tests/e2e/ui-provider-gap-gate.sh` holds a `selectFromView-refuses`
+  row that MUST dissolve now that the refusal it guards is replaced by an implementation. Its other
+  rows stay: the remaining four primitives still refuse, and the `still-runs-*` rows still guard the
+  latent gap.
+next: gate the reactive select, dissolve the stale refusal row, close the entry
