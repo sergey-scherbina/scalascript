@@ -326,13 +326,21 @@ the shape that survives by never meeting an unusual input:
 | 1 — the performing function's rest | `v3/tests/effects/two-performs`, `multi-shot`, `zero-shot` |
 | 1 + the handler frame the continuation belongs to | `escaped-continuation` — an arm returns a closure resumed after its `handle` has finished |
 | 2 — a caller's remainder | `cross-frame-statement`, `cross-frame-in-handle-body` |
-| 3 — the back edge | **NOT pinned by a fixture.** Measured by hand against the v1 lane only |
+| 2 — a REGION's remainder | `perform-in-if`, `cross-frame-in-if` |
+| 3 — the back edge | `perform-in-loop`, `cross-frame-in-loop` |
+| 3 — a branch out of MORE than the enclosing region | `break-past-loop` |
 
 `v3/effects-gate.sh` requires the executor, the v2 bridge and the expectation to agree three ways, so
-a shape only one lane can run cannot be a fixture there. That is why clause 3 has no row: regions are
-crossed by the executor and still refused by the bridge. Closing that gap means either the bridge
-crossing regions too, or an executor-only fixture set with its own rule — a decision, not an
-oversight, and it is recorded here so the empty cell is not mistaken for coverage.
+a shape only one lane can run cannot be a fixture there. **Clause 3 had no row when this was written
+on 2026-08-19** and said so, because the bridge refused regions and the shape could therefore not be
+a fixture at all. It has one now: the bridge crosses regions too (`07350a0f1`), which was the first
+of the two ways out this paragraph named. The empty cell is what made the gap visible — it was left
+empty deliberately rather than described in prose, and prose is what would have hidden it.
+
+Worth keeping about those rows: the two lanes reach them by GENUINELY DIFFERENT machinery — a
+runtime chain of frames over a shared register array against a compile-time rebuild into separate
+functions — so their agreement is not the shared-lowering artifact a two-lane differential usually
+has to discount. Each `.expected` was derived by hand before either lane was asked.
 
 **TWO REALISATIONS, AND THE DIFFERENCE IS NOT STYLISTIC.** It is a question about who owns the
 registers, and the two lanes answer it differently:
@@ -346,9 +354,15 @@ registers, and the two lanes answer it differently:
 * **the bridge** (`BridgeV2.scala`, `bc78e963c`) cannot record anything at run time — a v2 function
   has no way to hand over "the rest of me" — so the COMPILER builds the closure instead, splitting a
   caller at a non-tail call the way `Cps` splits at a perform. Its continuations are `MkClos`, which
-  captures registers BY VALUE, and that is why the same trick does not extend to regions there: code
-  after an `if` must see what the branch wrote. A region continuation on that lane has to SHARE the
-  frame and therefore be built by the emitter, which is why the bridge still refuses regions.
+  captures registers BY VALUE, and that is why the executor's trick does not extend to regions there:
+  code after an `if` must see what the branch wrote, and two closures cannot share a write. So the
+  compiler REBUILDS instead (`cutAt`, `07350a0f1`) — the region suffix wrapped in a `Block`, then the
+  enclosing suffix, up to the function — and the whole remainder becomes ONE function with ONE frame,
+  where sharing is not needed because nothing was ever split. A `loop` rebuilds as
+  `Block(Block(suffix; br 1), Loop(splitBody))`, and the copy of the loop it puts back is the SPLIT
+  body, whose `mkclos` already names the continuation being built: the function refers to itself,
+  which is what makes the rebuild terminate. Copying the unsplit body instead mints a continuation of
+  the same shape for ever.
 
 **THE ROUTE NOT TAKEN.** The cost paragraph in "Capturing a continuation" above says:
 
@@ -361,9 +375,14 @@ than two implementations describing themselves: it reads as an answer. Anyone ta
 know it competes with two working mechanisms and would replace both — which is the only argument for
 doing it, and a good one, since it would leave ONE statement instead of this subsection.
 
-**AND ONE THING NEITHER REALISATION DOES.** A `Perform` standing directly inside a region is still
-not split — `Cps.scala` calls that step 3, and it remains true. What both mechanisms cross is a CALL
-to a function that performs, not a perform in place.
+**WHAT IS LEFT, named so it is not rediscovered.** A `Perform` standing directly inside a region is
+not split by `Cps` — that pass still only cuts at the top level of a function body, and its header
+still says so. Both lanes answer it by their own realisation instead (`Exec.performRest`,
+`BridgeV2.splitRegionPerforms`), which is this subsection's whole shape applied once more. The one
+position neither reaches is a call or a perform inside a region that is itself inside a `handle`
+BODY: the rebuild stops at a `handle` because a handle body's remainder ends AT the handle, with the
+handle's own destination register rather than with a `ret`, and that is a different contract. The
+bridge refuses it by name and says which combination it is.
 
 
 ## 4 · Validation is mandatory, not a debug mode

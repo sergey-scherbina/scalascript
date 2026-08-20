@@ -31,8 +31,7 @@ package ssc3
 //
 // WHAT THIS PASS DOES NOT DO, so nobody reads more into it than is here:
 //   * only a `Perform` at the TOP LEVEL of a body is split. One inside a `Loop`/`If`/`Switch` is
-//     left alone, because a region's remainder is not a suffix of an instruction list — that is
-//     step 3, and it is a step rather than a detail for exactly this reason;
+//     left alone, because a region's remainder is not a suffix of an instruction list;
 //   * it does not change what `Perform` MEANS. The executor's tail-resumptive path still runs
 //     unconverted functions unchanged (`Exec.scala` relies on it for every arm that is not CPS
 //     encoded).
@@ -43,10 +42,23 @@ package ssc3
 // rewrite pass needs no coordination with this one: it runs strictly BEFORE, so whatever a marker
 // expands into arrives here as ordinary `handle`/`perform`.
 //
-// THE STEP 3 CLAUSE ABOVE IS STILL TRUE, and the distinction matters because half of this header
-// was stale and half was not. A CALL to a performing function inside a region is crossed now — by
-// the executor's frame chain and by the bridge's caller split, neither of which is this pass. A
-// `Perform` standing directly inside a region is still not split, and that is what step 3 means.
+// STEP 3 IS ANSWERED, AND NOT HERE — which is the same correction this header needed once before,
+// so it is written the same way. The clause above still describes what THIS PASS does: a `Perform`
+// inside a region is not split by it, and a reader who wants to know why gets the reason. What is
+// no longer true is that nothing answers it. Both lanes do, and they do it differently on purpose,
+// because the difference is not stylistic — `v3/specs/10-ssc-ir.md` §3 states the one invariant and
+// names the two realisations:
+//
+//   * `Exec` hands the perform the rest of its own instruction list as a `PendingFrame`, the same
+//     shape it already records on the way into a region. There a region does not open a frame, so
+//     both remainders share one register array and there is nothing to thread.
+//   * `BridgeV2` REBUILDS the remainder into one function (`cutAt`, `splitRegionPerforms`), because
+//     `MkClos` captures registers by value and a continuation split across two closures would lose
+//     every write the first one made.
+//
+// LOWERING COULD STILL TAKE IT and the spec's own route says how — a `Loop` containing a `Perform`
+// becomes a recursive function — which would replace both of those with one statement. Nobody has,
+// and the argument for doing it is exactly that: one mechanism instead of two.
 object Cps:
 
   /** The suffix name for a split function. Positional, like everything else in a module: ids are
