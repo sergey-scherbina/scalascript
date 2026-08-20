@@ -1,0 +1,25 @@
+```scalascript
+effect A:
+  def a(): Int
+
+effect B:
+  def b(): Int
+
+def inner(): Int =
+  val x = A.a()
+  x + 1
+
+def outer(): Int =
+  handle(inner()) {
+    case a(k) =>
+      val y = B.b()
+      k(y) + k(y * 2)
+  }
+
+def top(): Int =
+  handle(outer()) {
+    case b(k2) => k2(5)
+  }
+
+println(top())
+```
