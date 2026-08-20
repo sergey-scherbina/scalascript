@@ -3208,7 +3208,18 @@ object Lower:
 
   def program(p: Program): Module = programOf(p, Nil)
 
-  def programOf(p: Program, blockEnds: List[Int]): Module =
+  def programOf(p0: Program, blockEnds: List[Int]): Module =
+    // THE REWRITE PASS RUNS HERE, and the seam is deliberate. `Driver` was built to be the one
+    // place a lane enters, and it enters TWICE — the lazy prelude retries — while `Lower.program`
+    // is a second door of its own. A pass wired at either would leave a caller that skips it, and
+    // the marker arm below would then refuse a program with "a defect in the rewrite pass" when the
+    // real defect is a call site. Wired here, that refusal is genuinely unreachable.
+    //
+    // A REWRITE MAY THEREFORE RUN TWICE on one file: `Driver.moduleOf` lowers without the prelude,
+    // and retries with it on any `LowerFail`. That is rule 7 in the spec — a rewrite is a function
+    // of its node, not a step in a build — and it is why `Ctx.fresh` counts from zero per pass, so
+    // the two attempts mint the same names.
+    val p = Rewrite.program(p0)
     if !p.hasCode then throw LowerFail(Pos.none, "empty program")
     val userMain = p.defs.find(d => d.name == "main" && d.params.isEmpty)
     // Auto-output: the LAST top-level expression of each block becomes `__autoOutput__(v)`, which

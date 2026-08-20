@@ -306,16 +306,43 @@ object Cli:
     * arrives after the program has been refused.
     *
     * A MISSING FLEET IS THE NORMAL CASE and is silent. `ClassNotFoundException` here means the
-    * providers were not built, which is exactly how `v3/uniml` is optional too. */
-  private def installFleet(): Unit =
-    try
-      val c = Class.forName("ssc3.plugins.V2Fleet$")
-      val m = c.getMethod("install")
-      m.invoke(c.getField("MODULE$").get(null))
-    catch case _: Throwable => ()
+    * providers were not built, which is exactly how `v3/uniml` is optional too.
+    *
+    * A FLEET THAT IS PRESENT AND THROWS IS NOT THAT CASE, and until 2026-08-19 this told the two
+    * apart not at all: `catch case _: Throwable => ()` swallowed both, so a fleet that failed
+    * halfway through installing left the compiler running with whatever had registered before the
+    * throw — a program whose meaning depended on how far installation got, reported nowhere. Found
+    * while building the syntax door, whose rule 1 is "two plugins claiming one marker is an error at
+    * registration, not a race": the registry threw exactly as designed and the message reached
+    * nobody.
+    *
+    * SO THE TWO ARE SPLIT BY WHERE THE THROW HAPPENS, which is a fact and not a guess.
+    * `Class.forName` and `getMethod` failing means the fleet is ABSENT — silent, today's normal
+    * case, unchanged. `invoke` throwing means the fleet was found and its own installation failed —
+    * `InvocationTargetException` wrapping the real cause — and that is reported and fatal. Fatal
+    * rather than a warning because the alternative is the state above: half a fleet, silently. */
+  private def installFleet(): Option[String] =
+    val cls =
+      try Some(Class.forName("ssc3.plugins.V2Fleet$"))
+      catch case _: Throwable => None
+    cls.flatMap { c =>
+      try
+        c.getMethod("install").invoke(c.getField("MODULE$").get(null))
+        None
+      catch
+        case e: java.lang.reflect.InvocationTargetException =>
+          val cause = if e.getCause != null then e.getCause else e
+          val msg = if cause.getMessage != null then cause.getMessage else cause.toString
+          Some("the plugin fleet is on the classpath and failed to install: " + msg)
+        case e: Throwable =>
+          Some("the plugin fleet is on the classpath and could not be called: " + e.toString)
+    }
 
   def run(args: List[String]): Int =
-    installFleet()
+    val fleetFailure = installFleet()
+    if fleetFailure.nonEmpty then
+      Console.err.println("ssc3: " + fleetFailure.get)
+      return 2
     try
       if args.isEmpty then
         println("usage: ssc3 build|ir|exec|ast <f.ssc> | check|fmt|emit-v2|exec <f.ssir> | sample | selftest | front")

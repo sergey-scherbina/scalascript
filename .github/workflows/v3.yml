@@ -324,6 +324,16 @@ jobs:
         if: ${{ !cancelled() }}
         run: v3/walker-gate.sh
 
+      # THE REWRITE PASS CAN SAY NO. A plugin supplies SYNTAX through `Plugins.registerRewrite`
+      # (`specs/60-compile-time-extension.md`), and six of that mechanism's seven rules are failure
+      # modes — a duplicate claim, a runaway rewrite, an exception escaping as a CRASH rather than a
+      # positioned refusal. `MarkerProbe` has a mode per failure precisely so this gate can pull the
+      # lever; without one, four of the seven are unfalsifiable from outside and a green gate would
+      # mean the happy path alone. It runs BOTH lanes where the assertion is behavioural.
+      - name: rewrite pass
+        if: ${{ !cancelled() }}
+        run: v3/rewrite-gate.sh
+
       # THE BENCH CORPUS IS A SEPARATE SET, and every other gate here reads tests/conformance. A
       # change can stop a bench row computing and nothing says a word — `typeclass-fold` did
       # exactly that for three days while `N` stayed at 191. This asks only whether each row still

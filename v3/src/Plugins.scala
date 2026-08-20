@@ -118,7 +118,7 @@ object Plugins:
   //
   // Every door above answers about a NAME or a VALUE. This one takes a TREE and returns a TREE, and
   // it is the only place in this file where a plugin can affect what a program MEANS rather than
-  // what it can reach. The design is `specs/60-compile-time-extension.md`; the six rules it states
+  // what it can reach. The design is `specs/60-compile-time-extension.md`; the seven rules it states
   // are enforced here and in the pass, not left to the client.
   //
   // A NAME IS A MARKER IFF A REWRITE IS REGISTERED FOR IT. Both fronts ask `hasRewrite` at the point
@@ -141,7 +141,10 @@ object Plugins:
     def fresh(prefix: String): String
     def rewrite(e: Expr): Either[Refusal, Expr]
 
-  type Rewrite = (Expr, Ctx) => Either[Refusal, Expr]
+  // TAKES THE MARKER, not any `Expr`: the pass only ever calls a rewrite with the node whose name
+  // it is registered under, so a client that had to re-match its own node would be writing a
+  // fallback arm for a case that cannot happen.
+  type Rewrite = (Expr.Marker, Ctx) => Either[Refusal, Expr]
 
   private val rewrites = scala.collection.mutable.Map.empty[String, Rewrite]
 

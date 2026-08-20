@@ -57,6 +57,14 @@ actually had:
 3. **I-1 is kept.** The kernel gains one AST node and one pass. No dependency; the meaning lives in
    `v3/plugins/`.
 
+**THE SEAM IS `Lower.programOf`'s first line**, not `Driver` — decided against the obvious choice
+after reading both. `Driver` exists to be the one place a lane enters, and it enters TWICE (the lazy
+prelude retries on any `LowerFail`), while `Lower.program` is a second public door with no callers
+today. Wiring the pass at either leaves a caller that skips it, and `lower`'s marker arm would then
+refuse a program with *"a defect in the rewrite pass"* when the real defect is a call site. Wired at
+`programOf`, that refusal is unreachable by construction — which is the only state in which a
+message like it is worth printing.
+
 ## The one open node
 
 ```scala
@@ -104,6 +112,29 @@ Three things follow, and each is worth more than the node itself:
   falls with them, while N does not move — the cases still refuse, one layer later, because no
   rewrite is registered yet.
 
+**THREE SPELLINGS, AND EACH IS DECIDED IN A DIFFERENT PLACE — measured 2026-08-20, after two of
+them agreed and the third did not.** A name with a rewrite registered can be written three ways, and
+a front has to answer each separately:
+
+| written | v3's own front | the UniML projection |
+| --- | --- | --- |
+| `probe(41)` | the marker arm, no brackets | an ordinary `Apply` of a claimed name |
+| `Focus[T](_.a)` | the marker arm, `captureBrackets` | `spike.focusmarker`, head-as-inner |
+| `direct[F] { … }` | the marker arm, **brace branch** | `spike.direct`, block by role |
+
+R1 verified the first two by hand and shipped the third broken in BOTH fronts at once: v3's parser
+read `direct[F] { … }` as an ordinary trailing-block call and wrapped the block in a LAMBDA, while
+the projection built a marker whose type arguments were `["direct", "Option"]` — the marker's own
+name arriving as its first type argument, because that one arm collected every child that was not
+the block instead of reading the `ta.tok` role its two neighbours read. Neither is visible until a
+client reads `typeArgs` or the block's statements, which is to say: it would have surfaced in R3 as
+a wrong program with the client's name on it.
+
+**So the gate compares the three spellings on both fronts, byte for byte** (`rewrite-gate.sh`
+check 8). A hand-verified sample is what let this through, and a hand-verified sample is exactly
+what a gate replaces. THE BLOCK IS PASSED RAW, never wrapped: a client that wants the statements as
+syntax cannot get them back out of a lambda, which is the whole reason this door exists.
+
 **Type arguments are the reason this needs a node at all.** Without one, a rewrite could match
 `Call(Name("Focus"), args)` and no AST change would be needed — but v3's parser ERASES type
 arguments (`skipBrackets`, `skipTypeParams`), and `Prism[T]` needs them: ScalaSpike already captures
@@ -121,7 +152,7 @@ type Rewrite = (Expr.Marker, Ctx) => Either[Refusal, Expr]
 def registerRewrite(name: String, fn: Rewrite): Unit
 ```
 
-## Six rules, each with the failure it prevents
+## Seven rules, each with the failure it prevents
 
 1. **A claim is EXCLUSIVE.** Two plugins registering `Focus` is an error at registration, not a
    race. *Why:* v2's registry tables are last-registered-wins and say so in their own comment; on
@@ -144,19 +175,33 @@ def registerRewrite(name: String, fn: Rewrite): Unit
 6. **The output is ORDINARY `Expr`.** No new IR node, no new instruction, nothing for a backend to
    learn. A rewrite that cannot be expressed in the existing AST is out of scope by construction —
    which is what keeps `Lower`, the verifier, the executor, the bridge and every emitter untouched.
+7. **A rewrite may RUN TWICE on one file, so it must be a function of its node.** Not a design
+   preference — a consequence of `Driver.moduleOf`, which lowers WITHOUT the prelude and retries
+   with it on any `LowerFail` (its own comment explains why the retry is unconditional). A rewrite
+   that counted, cached or logged would produce two different trees for one file and only the second
+   would ship. `Ctx.fresh` counts from zero per pass for the same reason, so both attempts mint
+   identical names. *Found by reading `Driver` while wiring the pass, not by designing:* nothing
+   about the door suggests it, and a client would meet it as a bug.
 
 ## The gate
 
-`v3/rewrite-gate.sh`, with a test plugin that registers one trivial marker, asserts:
+`v3/rewrite-gate.sh`, against `MarkerProbe` — which claims a name only when `SSC3_MARKER_PROBE`
+asks, and picks a behaviour with `SSC3_MARKER_PROBE_MODE`. **The modes exist for this gate:** four
+of the seven rules are unfalsifiable from outside without a lever per failure.
 
-- the pass runs and the marker becomes the client's tree;
-- an UNCLAIMED marker refuses with a position, and the sentence names the marker;
-- a client returning `Refusal` produces that same shape rather than a stack trace;
-- a rewrite that keeps producing markers stops at the bound and says which one;
-- registering a name twice is refused;
-- with `SSC3_FLEET=off` the marker refuses exactly as it did before this file existed.
+| check | mode | asserts |
+| --- | --- | --- |
+| the pass runs | `unwrap` | `probe(41)` answers `41` on BOTH lanes, and the same file with no claim still refuses — so green depends on the mechanism |
+| an unclaimed marker | `mint` | a positioned refusal naming `probe$ghost`, the client's output, not the name the user wrote |
+| a client refusal | `refuse` | the same `:line:col:` sentence a front produces, and no stack trace |
+| a runaway | `runaway` | stops at the bound and names the marker — identity IS the runaway |
+| an exclusive claim | `SSC3_MARKER_PROBE=probe,probe` | refused at registration |
+| the off switch | `SSC3_FLEET=off` | the probe variable changes the output not at all, byte for byte |
+| runs twice | a file naming `math.Pi` | the prelude retry lowers it twice and the marker answers the same as the same file written by hand |
 
-A gate that only proves the happy path would not have caught any of the six failures above.
+Both lanes where the assertion is about behaviour (I-3): a rewrite that ran on one lane and not the
+other is the two-front bug this pass exists to prevent. A gate that only proved the happy path would
+have caught none of the seven failures above.
 
 ## Where this meets the effects machinery — and where it deliberately does not
 
@@ -199,7 +244,7 @@ Both are checkable by the client and neither needs anything from this door.
 
 **AND THE TRANSFORM ITSELF IS NOT THIS DOOR'S BUSINESS.** `Cps.scala` is `Module => Module`: it
 splits a function at a `Perform` INSTRUCTION, captures registers, mints new functions and changes
-the calling convention. Forcing it through here would cost three of the six rules above:
+the calling convention. Forcing it through here would cost three of the seven rules above:
 
 | rule | why selective CPS breaks it |
 | --- | --- |

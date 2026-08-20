@@ -29,17 +29,50 @@ cases, one-sided today because v3's front reads `Focus[T](f)` as an ordinary cal
 projection refuses it. Build the node in only ONE front and those nine become nine DISAGREEMENTS
 against a floor of zero. Build it in both and they stop diverging.
 
-*Done when:* the capability gate names those nine as no longer diverging and they come out of the
-list, the derived ceiling falls with them, both fronts print the same tree, and N does NOT move —
-the cases still refuse, one layer later, with a position, because no rewrite is registered yet.
+*Done when:* both fronts print the same tree for a marker, and N does NOT move — the cases still
+refuse, one layer later, with a position, because no rewrite is registered yet.
+
+**[x] LANDED, and the FIRST HALF OF THIS ROW WAS WRONG — corrected here rather than quietly
+dropped.** It said the nine would stop diverging AT R1 and the ceiling would fall with them. They
+cannot: a name is a marker iff a rewrite is registered for it, so with no client registered the
+projection still refuses `Focus` by name and v3's front still reads it as a call — exactly as
+before. **The nine converge when their CLIENT lands, R3 and R4, and the ceiling falls there.** What
+R1 can prove, and does, is the other half: `SSC3_MARKER_PROBE=1` makes both fronts print the same
+`(marker …)` for the same file, `SSC3_MARKER_PROBE=Focus` does it for a name the grammar itself
+marks — the two different roads into the node — and with the probe off every tree is byte-identical
+to `origin/main` on both lanes.
+
+R1 also cost five walkers: `Expr.Marker` carries children, so `mapDeep`, `qualifyMembers`,
+`boxLocals`, `selfCalls` and `assignedFree` each needed an arm, and `walker-gate.sh` named all five
+on the first run. `mapDeep`'s is the one that can be wrong today — `Loader.merge` renames with it
+BEFORE the pass exists, so without that arm a call inside a marker's arguments would keep its
+pre-merge name.
 
 **R2 — the pass and the door.** `Plugins.registerRewrite`, `Ctx.fresh`, `Refusal`, one bottom-up
-bounded fixed point between the front and `Lower`. *Done when:* `v3/rewrite-gate.sh` asserts all six
-rules from the spec, including the two that only fail when the mechanism is wrong — the duplicate
-claim and the runaway bound.
+bounded fixed point, wired at `Lower.programOf`'s first line — not at `Driver`, which has two entries
+of its own, and not at a front. *Done when:* `v3/rewrite-gate.sh` asserts all seven rules from the
+spec, including the four that are unfalsifiable without a lever: the duplicate claim, the runaway
+bound, a client's `Refusal` keeping its `:line:col:` shape, and an unclaimed marker naming the
+CLIENT'S output rather than the name the user wrote. Reading the code added the seventh rule: the
+lazy-prelude retry lowers a failing file twice, so a rewrite runs twice and must be a function.
 
-**R3 — `direct[F] { … }`, the first client, 3 cases.** Bind (`x = e`), pure bind (`val x = e`),
-bind-and-discard (`val _ = e`), and the block's last expression. It needs nothing but the rewrite:
+**R3 — `direct[F] { … }`, the first client, 3 cases.** THE RULE IS THE REFERENCE'S, VERBATIM —
+`v2/lib/ssc1-lower.ssc0:2256-2312`, read before writing rather than re-derived, because a
+re-derivation is how the bridge lane and the frozen goldens come to disagree:
+
+- `x = e` where `x` is NOT a `var` declared earlier in the block → `e.flatMap(x => rest)`;
+- `var c = init` → kept as a statement, and `c` joins the mutable set, so a later `c = …` is an
+  ASSIGNMENT and not a bind. That distinction is the whole reason the reference threads a list;
+- `val y = e` → kept as a statement. **`val _ = e` is NOT a bind-and-discard**, whatever the corpus
+  file's own prose says: the reference treats every `val` as pure and the header is wrong about its
+  own case. Reading the code is what says so;
+- a non-final expression statement is kept; the FINAL one is the result;
+- an empty block is unit.
+
+`directSupportedMonad` is `Option` or `List` and nothing else — and all three corpus cases use only
+those two. The reference answers an unsupported monad with a variable named
+`__unsupported_direct_<M>`, i.e. an unknown name; this client refuses with a POSITION instead, which
+is rule 3 and strictly better than an invented identifier. It needs nothing but the rewrite:
 `flatMap` and `map` are ordinary methods. *Done when:* `direct-syntax`, `direct-control-flow` and
 `tagless-direct-syntax` run on BOTH lanes and the two floors hold.
 

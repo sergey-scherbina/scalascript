@@ -408,8 +408,15 @@ object SpikeTyped:
           TupleVal(allByRole(b, "tup.name").map(lex),
                    byRole(b, "val.rhs").map(expr).getOrElse(Unsupported("missing.rhs", span(b))), span(b))
         case "spike.direct" =>
+          // BY ROLE, not by "everything that is not the block". The children of a `spike.direct`
+          // are the `direct` LEAF followed by the type-argument tokens, so the not-the-block filter
+          // handed back `direct` as its own first type argument — `Marker("direct", ["direct",
+          // "Option"], …)`. Invisible while the node was refused outright; wrong the moment a
+          // rewrite reads `typeArgs.head` to find the monad. Its neighbour `spike.focusmarker`
+          // takes head-as-inner and tail-as-types, and ScalaSpike's own projection of THIS node
+          // collects `ta.tok` — two sites already had it right.
           Marker("direct", byRole(b, "direct.block").map(expr),
-                 kids(b).collect { case (r, c) if !r.contains("direct.block") => lex(c) }.filter(_.nonEmpty), span(b))
+                 allByRole(b, "ta.tok").map(lex).filter(_.nonEmpty), span(b))
         case "spike.focusmarker" | "spike.prism" | "spike.directmarker" =>
           val cs = kids(b).map((_, c) => c)
           Marker(b.kind.stripPrefix("spike."), cs.headOption.map(expr), cs.drop(1).map(lex).filter(_.nonEmpty), span(b))

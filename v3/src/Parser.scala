@@ -944,6 +944,16 @@ object Parser:
       if isPunct(peek(afterTy), "(") then
         val (as, t) = parseArgs(afterTy.tail)
         (Expr.Marker(n, targs, as, p), t)
+      // A BRACE BLOCK, which is the third spelling and the one the R1 probe never exercised:
+      // `probe(41)` is a call, `Focus[T](_.a)` is a call with type arguments, and `direct[F] { … }`
+      // is neither. Without this arm v3's front read it as an ordinary trailing-block call — the
+      // block wrapped in a LAMBDA — while the projection built a marker holding the raw block, so
+      // the two fronts printed different trees for the same file. The block is passed RAW: a
+      // client that wants the statements as syntax cannot get them back out of a lambda, which is
+      // the whole reason this door exists.
+      else if isPunct(peek(afterTy), "{") then
+        val (blk, t) = parseBraceBlock(afterTy.tail)
+        (Expr.Marker(n, targs, List(blk), p), t)
       // A BARE marker name is just a name: `Focus` alone is a value nobody claims, and refusing it
       // here would make registering a rewrite change what an unrelated identifier means.
       else (Expr.Name(n, p), afterTy)
