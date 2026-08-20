@@ -221,6 +221,17 @@ jobs:
       - name: Build the plugin fleet
         run: v3/plugin-classpath.sh
 
+      # THE THIRD CLASSPATH, and it was the missing one. `v3/.jars/` holds three per-checkout files
+      # and this workflow built two of them. Without `jvm.cp` an import of a JVM PACKAGE has nothing
+      # to resolve against, so v3 falls back — correctly — to treating it as a FILE import and
+      # refuses with four candidate paths to a file that cannot exist. `jvm-package-import` was red
+      # in `executor differential`, `front` and `front differential` on every run since the fixture
+      # landed (dff03be59), and green in every checkout where a person had ever run this script.
+      # That is the same shape as the `uniml.cp` entry: a gate whose colour depends on the CHECKOUT
+      # rather than on the code. Costs one sbt export, beside the two already here.
+      - name: Register the importable JVM packages
+        run: v3/jvm-classpath.sh
+
       # `if: !cancelled()` ON EVERY GATE, and it is the second half of the same defect. A step that
       # fails stops the job, so ONE red gate hid the other five — `bridge`, `parity`, `front`,
       # `front report` and both jit steps reported nothing at all while `executor differential` was
@@ -411,6 +422,17 @@ jobs:
       # measure — it is the default users get, so CI must measure it or say loudly that it cannot.
       - name: Build the plugin fleet
         run: v3/plugin-classpath.sh
+
+      # THE THIRD CLASSPATH, and it was the missing one. `v3/.jars/` holds three per-checkout files
+      # and this workflow built two of them. Without `jvm.cp` an import of a JVM PACKAGE has nothing
+      # to resolve against, so v3 falls back — correctly — to treating it as a FILE import and
+      # refuses with four candidate paths to a file that cannot exist. `jvm-package-import` was red
+      # in `executor differential`, `front` and `front differential` on every run since the fixture
+      # landed (dff03be59), and green in every checkout where a person had ever run this script.
+      # That is the same shape as the `uniml.cp` entry: a gate whose colour depends on the CHECKOUT
+      # rather than on the code. Costs one sbt export, beside the two already here.
+      - name: Register the importable JVM packages
+        run: v3/jvm-classpath.sh
 
       - name: Front capability parity
         run: v3/front-capability-gate.sh

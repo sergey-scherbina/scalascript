@@ -310,6 +310,56 @@ refusal restored on its own it goes red and `perform-in-if`, `perform-in-loop`, 
 and `cross-frame-in-loop` still answer 32, 12, 232 and 20 — so the row is not sharing its evidence
 with the other fixes.
 
+## v3-ci-never-registers-the-importable-jvm-packages — a gate whose colour depends on the checkout
+
+<!-- status: open
+     lane: v3
+     area: build
+     kind: apparatus
+     gate: .github/workflows/v3.yml
+     fixed-in: -
+     reported-by: claude-code
+     reported-at: 2026-08-20
+     repro: v3/tests/front/jvm-package-import.ssc with v3/.jars/jvm.cp absent and unbuildable
+     impact: workaround -->
+
+The `v3` CI job has been RED on main since the fixture landed (`dff03be59`), on one row in three
+gates at once — `executor differential`, `front` and `front differential`:
+
+```
+FAIL jvm-package-import — executor [] bridge [] expected [7/0]
+  ssc3: v3/tests/front/jvm-package-import.ssc:17:1: cannot find the import
+  'std/scalascript/typeddata.ssc' — looked in: v1/runtime/std/scalascript/typeddata.ssc,
+  std/scalascript/typeddata.ssc, v3/tests/front/std/scalascript/typeddata.ssc, scalascript/typeddata.ssc
+```
+
+**IT IS GREEN IN EVERY CHECKOUT A PERSON HAS EVER RUN, which is why nobody saw a defect.**
+`scalascript.typeddata` is a JVM PACKAGE, not a file. It is declared in `v3/jvm-classpath.sh` and the
+answer is cached in `v3/.jars/jvm.cp` — per checkout, exactly like `uniml.cp`. Without that file the
+loader cannot ask "is this a package you provide", so v3 falls back — correctly — to treating the
+import as a FILE, and refuses with four candidate paths to a file that cannot exist. The message is
+right about what it did and says nothing about why.
+
+**THE MECHANISM WAS MEASURED, not inferred from the message.** Deleting `jvm.cp` alone changes
+nothing: `v3/ssc3`'s `jvm_cp()` rebuilds it on first use and discards the output. Deleting the file
+AND the script that builds it reproduces the CI line character for character; restoring both answers
+`7` / `0`. So the CI failure is "`jvm.cp` is absent there", and the lazy rebuild is failing silently.
+
+**`.github/workflows/v3.yml` BUILDS TWO OF THE THREE PER-CHECKOUT CLASSPATH FILES** — `uniml.cp` and
+`plugins.cp` — and not this one. The comment beside the fleet step already contains the argument for
+why: building it there "makes the failure name itself" instead of letting a silent fallback shrink
+what the gates measure, two layers from the cause. That is the same reasoning, and it had one file
+missing from it.
+
+The step is added to BOTH jobs. Whether the runner can actually build it is what the next run
+answers — and that is the point of the change rather than a hole in it: if sbt cannot export
+`backendTypedDataRuntime` on CI, a named step now says so, where today the only symptom is a fixture
+claiming a Scala library should have been a file.
+
+**NOT MINE AND TAKEN ANYWAY.** No claim held `.github/workflows/v3.yml` or the fixture, and the red
+blocked the whole `v3` job for everyone. Diagnosed and offered in the coordination room first; taken
+when the diagnosis turned out to be one line of workflow and a measurable control.
+
 ## scaffolded-project-cannot-resolve-its-sbt-plugin — `ssc new` then `sbt compile` fails for everyone who is not a contributor
 
 <!-- status: fixed
