@@ -54,8 +54,15 @@ enum Value:
     * (BUGS.md v3-an-escaped-continuation-resumes-without-the-return-clause.)
     *
     * Carrying the frame is what makes the lookup STATIC: the clause is found from the continuation,
-    * which is where it belongs, so an escaped `k` behaves exactly like one called in place. */
-  case VCont(clos: Value, h: Exec.HandlerFrame, seg: List[Exec.PendingFrame])
+    * which is where it belongs, so an escaped `k` behaves exactly like one called in place.
+    *
+    * `clos` IS NULL FOR A PERFORM `Cps` DID NOT SPLIT — one standing inside an `if`, a `loop` or a
+    * `handle` body. There is then no compiler-built closure for the rest of the performing function,
+    * and none is needed: the rest of the list the perform stands in is the FIRST frame of `seg`, and
+    * a frame is exactly "these instructions, this register array, this destination". The null is the
+    * whole of the difference between the two encodings on this lane, which is why it is a null and
+    * not a second `Value` case. */
+  case VCont(clos: Value | Null, h: Exec.HandlerFrame, seg: List[Exec.PendingFrame])
   case VArr(items: Array[Value])
   /** A BUILT-IN method applied to only some of its arguments — `xs.foldLeft(0)` waiting for its
     * function. v3 has no partial application in general; a `VClos` needs a lifted function index
@@ -333,6 +340,11 @@ object Exec:
   private[ssc3] inline val FuncLevel   = -1
   private[ssc3] inline val RegionLevel = -2
   private var pending: List[PendingFrame] = Nil
+  /** The rest of the LIST a `Perform` stands in, set by `stepFramed` for the instruction it is about
+    * to run and read by that instruction alone. `null` when the perform was not reached through the
+    * framed walker, which is the one case where no continuation can be built and the old refusal is
+    * still the honest answer. */
+  private var performRest: PendingFrame | Null = null
   /** Non-zero exactly while a `handle` is live. An `Int` field rather than `handlers.isEmpty` because
     * the walker tests it once per INSTRUCTION: a program with no effects must pay one integer compare
     * and no allocation, which is what keeps the frame recording out of the hot loop's cost. */
@@ -445,7 +457,12 @@ object Exec:
         // continuation owes, innermost out, each on a FRESH copy of its registers so a second resume
         // starts where the first one did. `pending` is set to the frames still outstanding, so a
         // perform inside a resumed frame captures its own rest and not this one's.
-        var acc  = apply1(m, c.clos, v)
+        //
+        // NO CLOSURE MEANS `Cps` DID NOT SPLIT the performing function — the perform stood inside a
+        // region or a `handle` body. The rest of that list is `seg`'s first frame, which places the
+        // resumed value in the perform's own destination register, so the walk below IS the whole
+        // continuation and the value goes in unchanged.
+        var acc  = if c.clos == null then v else apply1(m, c.clos.nn, v)
         var seg  = cloneSeg(c.seg)
         // A `ret` INSIDE A REGION LEAVES THE FUNCTION, so the region frames of that same activation
         // are dead and must be skipped rather than run. Without this the value a returning branch
@@ -479,13 +496,31 @@ object Exec:
               // `Instr.Loop` does — fall off the end to exit, `Branch(0)` to repeat — and only then
               // run what follows the loop. This is the whole of resuming into a loop body: the
               // remainder of the interrupted iteration ran in the frame before this one.
+              // CONSUMED HERE, whether or not this frame is the one that can act on it. A frame
+              // that is not a loop simply continues with its remainder — which is what `Branch(0)`
+              // into an `if` or a `block` means — and leaving the flag set would make the NEXT loop
+              // frame out iterate for a branch that was already answered.
+              val wantsBack = backEdge
+              backEdge = false
               val loopSig =
-                if backEdge && f.loopBody.nonEmpty then
-                  backEdge = false
+                if wantsBack && f.loopBody.nonEmpty then
+                  // THE LOOP IS STILL LIVE WHILE IT ITERATES, so it goes back on `pending`.
+                  //
+                  // Every other frame in this walk is FINISHED when its remainder runs, and the
+                  // frames outward from it are exactly `seg`. A loop being re-entered is not: a
+                  // perform inside a later iteration owes the rest of THIS loop as well, and
+                  // `stepFramed` cannot supply it because the iteration is run from here rather than
+                  // through `step(Instr.Loop)`. Without this the second perform of a self-recursive
+                  // function captured a segment with no loop in it, its `br` found a call frame
+                  // where a region belonged, the back edge was dropped and the arm was handed unit.
+                  val here = f.copy(regs = r)
                   var out: Signal = Signal.Done
                   var looping = true
                   while looping do
-                    exec(f.m, f.loopBody, r, RegionLevel) match
+                    val save = pending
+                    pending = here :: save
+                    val it = try exec(f.m, f.loopBody, r, RegionLevel) finally pending = save
+                    it match
                       case Signal.Branch(0) => ()
                       case Signal.Branch(dd) => out = Signal.Branch(dd - 1); looping = false
                       case Signal.Done       => looping = false
@@ -496,19 +531,32 @@ object Exec:
                  case Signal.Ret(x) => Signal.Ret(x)
                  case _             => exec(f.m, f.rest, r, f.fall)) match
                 case Signal.Ret(x) => acc = x; skipping = true
-                case Signal.Branch(0) => backEdge = true
                 case Signal.Done   => acc = (if f.fall >= 0 then r(f.fall) else Value.VUnit)
-                // A LOOP IS THE ONE REGION THIS CHAIN STILL CANNOT RESUME INTO, and it says so
-                // by name rather than by leaking a `Signal`. A resumed loop-body remainder ends in
-                // `Branch`, meaning "take the back edge" — the continuation would have to RE-ENTER
-                // the loop, and a frame models "finish this list", not "run this region again".
-                // `if` and `try` need no such thing: their remainders run once and fall out.
-                // A branch PAST the enclosing loop — `break` out of more than one level — is the
-                // one shape left: the chain would have to know how many region frames it unwinds,
-                // and it records depth per frame rather than per branch.
-                case Signal.Branch(dd) => throw ExecError(
-                  "a continuation resumed into a `loop` and its remainder branched out " + dd +
-                  " level(s); v3 crosses a back edge but not a break past the loop it is in")
+                // A BRANCH OUT OF THIS FRAME'S OWN LEVEL, at any depth.
+                //
+                // `Branch(dd)` from a frame's remainder means the level that frame finishes wants to
+                // leave `dd` more regions before it lands. Each of those regions IS the next frame
+                // in the segment — `stepFramed` records one per region on the way in — so unwinding
+                // the branch is dropping `dd` frames, and what is then at the head is the region the
+                // branch was aimed at. Delivering to it is exactly `Branch(0)`: a loop repeats, an
+                // `if` or a `block` is finished and its remainder runs.
+                //
+                // `dd > 0` USED TO BE A NAMED REFUSAL — "v3 crosses a back edge but not a break past
+                // the loop it is in" — on the ground that the chain records depth per frame rather
+                // than per branch. It records per frame, and a branch's depth is a COUNT OF FRAMES,
+                // which is what the loop below spends. Reachable from ordinary source: `TailCalls`
+                // turns a self tail call inside two nested `if`s into `br 1`, so a perform in the
+                // inner one captures a remainder that branches out two levels.
+                case Signal.Branch(dd) =>
+                  var n = dd
+                  while n > 0 && seg.nonEmpty && seg.head.d == RegionLevel do
+                    seg = seg.tail
+                    n = n - 1
+                  if n > 0 then throw ExecError(
+                    "a continuation's remainder branched out " + dd + " level(s) and the segment " +
+                    "holds only " + (dd - n) + " region(s) below it; a branch cannot cross a call " +
+                    "frame or leave the `handle` that delimits the continuation")
+                  backEdge = true
                 case other         => throw ExecError(
                   "a continuation frame ended with " + other + "; only a value or a fall-through " +
                   "can leave one")
@@ -800,13 +848,33 @@ object Exec:
       // produce one into a register the way a call does — and `resumeCont` skips the write for it.
       case _: Instr.If | _: Instr.Loop | _: Instr.Switch | _: Instr.Block | _: Instr.Try => -2
       case _                     => -1
-    if d == -1 then step(m, ins, regs)
-    else
-      val lb = ins match
-        case Instr.Loop(b) => b
-        case _             => Nil
-      pending = PendingFrame(m, rest, regs, d, fall, lb) :: pending
-      try step(m, ins, regs) finally pending = pending.tail
+    // A `Perform` GETS ITS OWN REMAINDER HANDED TO IT, and not through `pending`.
+    //
+    // `Cps.split` builds the rest of the performing function as a closure, but only for a perform at
+    // the TOP LEVEL of a function body. One inside an `if`, a `loop` or a `handle` body is not split
+    // — a region's remainder is not a suffix of the function's instruction list — so that perform
+    // arrives here with no continuation at all, and the arm was refused unless it was
+    // tail-resumptive. It needs exactly what a frame already is: the rest of THIS list, the register
+    // array, and the register the value lands in.
+    //
+    // NOT PUSHED ONTO `pending`, because a perform is not a frame anything else can be inside of:
+    // pushing it would put it in the segment of a CPS perform too, whose remainder is already in its
+    // closure and whose `rest` is the `ret` the split appended — the continuation would then be "the
+    // resumed value, returned", and every fixture that works today would answer wrongly. Handed over
+    // in a field the `Perform` case reads and nobody else does.
+    ins match
+      case Instr.Perform(pd, _, _) =>
+        val save = performRest
+        performRest = PendingFrame(m, rest, regs, pd, fall)
+        try step(m, ins, regs) finally performRest = save
+      case _ =>
+        if d == -1 then step(m, ins, regs)
+        else
+          val lb = ins match
+            case Instr.Loop(b) => b
+            case _             => Nil
+          pending = PendingFrame(m, rest, regs, d, fall, lb) :: pending
+          try step(m, ins, regs) finally pending = pending.tail
 
   /** TWO WALKERS, CHOSEN ONCE PER BODY. The frame recording below is needed only inside a `handle`,
     * and asking that question per INSTRUCTION cost about 9% on a tight loop — measured, alternating
@@ -1175,7 +1243,25 @@ object Exec:
           //
           // No tail-resumptive check here, and that is the point of the whole design: an arm may
           // resume once, not at all, or many times, because resuming is calling a closure.
-          if args.length == arm.params.length + 1 then
+          // ONE ARM, TWO ENCODINGS, ONE ACTIVATION. The question below is only "is there a
+          // continuation to hand this arm", and there are two ways for the answer to be yes:
+          //
+          //   * `Cps.split` cut the performing function and passed the rest as the LAST argument —
+          //     one more than the arm binds;
+          //   * it did NOT cut it, because the perform stands inside a region or a `handle` body,
+          //     and the rest of that list is `performRest` — the frame `stepFramed` just handed
+          //     over. The chain then runs list-suffix, enclosing suffixes, callers, exactly as it
+          //     does for a CALL inside a region, and for the same reason: a region shares the
+          //     register array of the level around it, so nothing has to be threaded.
+          //
+          // The SECOND is used only when the arm is not tail-resumptive. When it is, "run the arm
+          // and take its value" is the same computation and costs no frame cloning and no unwind —
+          // the fast path below, which every tail-resumptive handler in the corpus takes.
+          val cpsEncoded = args.length == arm.params.length + 1
+          val ownRest    = performRest
+          val fromChain  = !cpsEncoded && args.length == arm.params.length &&
+                           !tailResumptive(arm) && ownRest != null
+          if cpsEncoded || fromChain then
             // A FRESH COPY OF THE HANDLER'S FRAME PER ACTIVATION.
             //
             // The arm reads its `params` and `k` from the HANDLING function's registers, and one
@@ -1203,14 +1289,18 @@ object Exec:
               throw ExecError("a handler for operation " + op + " is on the stack with no live " +
                               "activation; this is an executor invariant, not a program error"))
             val depth = pending.length - act.pendingDepth
-            val seg   = cloneSeg(pending.take(if depth > 0 then depth else 0))
+            val outer = pending.take(if depth > 0 then depth else 0)
+            val seg   = cloneSeg(if cpsEncoded then outer else ownRest.nn :: outer)
             // NO REFUSAL FOR A REGION ANY MORE. It used to say a continuation could not resume
             // into an `if`/`loop`/`try` because the frame's remainder was a suffix of the region
             // rather than of the function — true of that ONE frame, and answered by recording the
             // enclosing level's remainder as its own frame (see `stepFramed`). The chain now runs
             // region-suffix, then enclosing suffix, then callers, and the register array is shared
             // all the way down because a region does not open a frame of its own.
-            frame(arm.k) = Value.VCont(args.last, h, seg)
+            // `null` FOR THE UNSPLIT PERFORM: there is no compiler-built closure for the rest of
+            // the performing function, because the rest of the list it stands in is `seg`'s first
+            // frame instead. `resumeCont` reads the null and starts the walk with the value.
+            frame(arm.k) = Value.VCont(if cpsEncoded then args.last else null, h, seg)
             // The arm RETURNS its value — the lowering ends every arm body with a `Ret`, so there
             // is one place the answer comes from rather than a register the executor has to guess.
             // THE ARM RUNS AT THE HANDLER'S OWN SEGMENT DEPTH. Its body is part of the handling
@@ -1229,18 +1319,22 @@ object Exec:
                   "the handler for operation " + op + " ended without a value; a handler arm must " +
                   "produce one, and the lowering appends the `ret` that does it")
           else
-            // THE UNCONVERTED PATH, unchanged. Reached only when the perform carries no
-            // continuation — the function it came from was not split, so the tail-resumptive
-            // fast path is the only thing that can run it.
+            // THE TAIL-RESUMPTIVE FAST PATH, unchanged. Reached when the perform carries no
+            // continuation AND the arm needs none: its last act is a single `resume`, so the arm's
+            // value and the resumed computation's value are the same thing and no frame is captured.
             if arm.params.length != args.length then
               throw ExecError(
                 "effect operation " + op + " was performed with " + args.length +
                 " argument(s) and its handler binds " + arm.params.length)
             if !tailResumptive(arm) then
+              // ONLY ONE WAY TO GET HERE NOW, and naming it is the point: the perform was not
+              // reached through the framed walker, so there is no `performRest` to build the
+              // continuation from. That is `Compile`'s specialized lane, which calls `stepOne`
+              // directly. Everything a `handle` can actually reach takes one of the two paths above.
               throw ExecError(
-                "this handler for operation " + op + " is not tail-resumptive — the executor " +
-                "implements only an arm whose LAST act is a single `resume`. Capturing a " +
-                "continuation needs the reified stack v3 does not have yet")
+                "this handler for operation " + op + " is not tail-resumptive and the perform was " +
+                "not reached through the frame-recording walker, so there is no remainder to " +
+                "capture; run it on the tree-walking lane")
             var i = 0
             while i < arm.params.length do
               h.regs(arm.params(i)) = args(i)

@@ -1,0 +1,20 @@
+```scalascript
+effect E:
+  def op(n: Int): Int
+
+def go(n: Int, acc: Int): Int =
+  if n > 0 then
+    var v = 0
+    if n > 0 then
+      v = E.op(n)
+    go(n - 1, acc + v)
+  else
+    acc
+
+def workload(): Int =
+  handle(go(2, 0)) {
+    case op(n, k) => k(n * 10) + 1
+  }
+
+println(workload())
+```
