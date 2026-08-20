@@ -903,9 +903,17 @@ object BridgeV2:
         i match
           case Instr.Call(_, f, _) =>
             if inHandle && inRegion && mayPerform.contains(f) && !alreadySplit(b, k) then refuse(f)
+          // `inRegion` RESETS AT A `handle`, and getting that wrong refused a program that works.
+          // The flag has to mean "inside a region the rebuild cannot reach", and the rebuild stops
+          // AT the handle — so a region OUTSIDE it is irrelevant: the handle body's own top level is
+          // `splitCallers`'s `hAt` case and is already answered. Carrying the flag in refused
+          // `js-effect-multishot-long-fold`, whose `handle(program())` sits inside a `while` and
+          // whose call is at the handle body's top level, where it had been split correctly since
+          // `bc78e963c`. Measured, not reasoned: an A/B over every conformance case that mentions an
+          // effect turned that one from `204` into a refusal, and nothing else moved.
           case Instr.Handle(_, hb, arms) =>
-            walk(hb, true, inRegion)
-            arms.foreach(a => walk(a.body, true, inRegion))
+            walk(hb, true, false)
+            arms.foreach(a => walk(a.body, true, false))
           case Instr.Block(bb)   => walk(bb, inHandle, true)
           case Instr.Loop(bb)    => walk(bb, inHandle, true)
           case Instr.If(_, t, e) => walk(t, inHandle, true); walk(e, inHandle, true)
