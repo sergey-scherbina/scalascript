@@ -356,6 +356,30 @@ answers — and that is the point of the change rather than a hole in it: if sbt
 `backendTypedDataRuntime` on CI, a named step now says so, where today the only symptom is a fixture
 claiming a Scala library should have been a file.
 
+**IT ANSWERED, AND THE ANSWER WAS "THE STEP SUCCEEDS AND THE FILE IS GARBAGE".** `Register the
+importable JVM packages` came back green on `22a36413d` and `executor differential` stayed red. The
+cause was forty lines away, in the SIBLING script: `plugin-classpath.sh` carries
+`-Dsbt.supershell=false`, an ANSI-escape strip and a per-entry existence check, all three added on
+2026-08-18 after this exact failure cost a CI-log archaeology session. `jvm-classpath.sh` had none of
+them.
+
+Reproduced with a stub `sbt` that prints a classpath and then `ESC[0J`, which is what a COLD runner's
+supershell emits as its last stdout line:
+
+| script | result |
+|---|---|
+| old | reports success, writes **4 bytes** — `\033[0J` — as the classpath |
+| new | strips the escape, validates, exits naming the module and the entry |
+
+A non-empty file passes the emptiness check, so the step is green and the driver believes the
+packages are available. That is why the symptom appeared as a FILE-import refusal three gates away.
+A warm local sbt never prints the sequence, which is the whole reason every checkout is green.
+
+**ONE RULE, TWO SITES, AND ONLY ONE OF THEM HAD IT.** The guards are lifted VERBATIM rather than
+paraphrased, comments included, so the two scripts cannot drift again. Control both ways: the normal
+run produces a byte-identical `jvm.cp`, and the stub run turns the old script's silent success into a
+named failure.
+
 **NOT MINE AND TAKEN ANYWAY.** No claim held `.github/workflows/v3.yml` or the fixture, and the red
 blocked the whole `v3` job for everyone. Diagnosed and offered in the coordination room first; taken
 when the diagnosis turned out to be one line of workflow and a measurable control.
