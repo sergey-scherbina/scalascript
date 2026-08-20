@@ -102,6 +102,214 @@ entry's subject and are NOT closed by this one.
 (`f-triple-quoted-interpolation`) for the whole of this measurement, and half of this fix is that
 file. Filed rather than half-landed.
 
+## v3-effects-refuse-a-perform-inside-a-region — the `if` was the boundary, on both lanes
+
+<!-- status: fixed
+     lane: v3
+     area: runtime
+     kind: bug
+     gate: v3/effects-gate.sh
+     fixed-in: f0a6e4840
+     confirmed: yes
+     reported-by: claude-code
+     reported-at: 2026-08-20
+     repro: v3/tests/effects/perform-in-if.ssc, perform-in-loop.ssc
+     impact: workaround -->
+
+A `perform` standing directly inside an `if` or a `while` was refused by BOTH lanes whenever its
+handler arm was not tail-resumptive:
+
+```scalascript
+def f(x: Int): Int =
+  if x > 0 then
+    val a = E.op()          // ssc3: this handler for operation 0 is not tail-resumptive
+    a + 1
+  else 0
+
+handle(f(5)) { case op(k) => k(10) + k(20) }     // the answer is 32
+```
+
+**THE REFUSAL NAMED THE WRONG THING**, which is why it lasted. It said the ARM was the problem — "the
+executor implements only an arm whose LAST act is a single `resume`" — and the arm is fine; the same
+arm over the same effect works when the `perform` sits at a function's top level. What was missing
+was the CONTINUATION, and `Cps.split` only cuts at the top level of a function body. `Cps.scala`'s
+header calls that step 3 and is accurate about it: this is not fixed there either.
+
+**BOTH LANES ANSWER IT NOW AND NEITHER ANSWERS IT THE SAME WAY**, which is `v3/specs/10-ssc-ir.md`
+§3's own shape — one invariant, two realisations, because the lanes differ on who owns the registers:
+
+| lane | what it does |
+|---|---|
+| executor | `stepFramed` hands the perform the rest of ITS OWN list as a `PendingFrame` (`performRest`), and `k` becomes a `VCont` whose closure is null — the rest of the list IS the segment's first frame |
+| v2 bridge | `splitRegionPerforms` REBUILDS the remainder into one function (`cutAt`), because `MkClos` captures by value and two closures cannot share a write |
+
+The null closure is the whole difference on the executor side and is a null rather than a second
+`Value` case for that reason: there is nothing for it to hold.
+
+**IT ALSO CLOSED A REFUSAL NOBODY FILED.** An operation performed at a function's top level (which
+`Cps` cuts) AND inside a region (which it does not) had two encodings in one module, and the bridge
+refuses that by name — "the bridge needs every `perform` of an operation to use one encoding". The
+region split is what makes them agree, so `splitRegionPerforms` takes an op that is CPS-encoded
+anywhere, not only one whose arm needs a continuation.
+
+Control: reverting `v3/src` turns exactly `perform-in-if` and `perform-in-loop` red and leaves the
+other 19 rows of `effects-gate.sh` green.
+
+## v3-bridge-refuses-a-call-inside-a-region — a rebuild, not a closure
+
+<!-- status: fixed
+     lane: v3
+     area: codegen
+     kind: bug
+     gate: v3/effects-gate.sh
+     fixed-in: f0a6e4840
+     confirmed: yes
+     reported-by: claude-code
+     reported-at: 2026-08-20
+     repro: v3/tests/effects/cross-frame-in-if.ssc, cross-frame-in-loop.ssc
+     impact: workaround -->
+
+The executor has crossed a call frame into a region since `830efe318`; the v2 bridge refused it by
+name, and the refusal explained itself correctly:
+
+> `g` performs an effect and is called inside an `if`, `loop` or `try`, where the continuation would
+> have to resume into that region — this lane can make a closure of a list's remainder, not of a
+> region's
+
+**THE REASON IT COULD NOT WAS REAL.** `MkClos` captures registers BY VALUE, so a continuation made of
+two closures — "finish the region", then "finish what encloses it" — loses every register the first
+one wrote before the second reads it. Code after an `if` must see what the branch wrote.
+
+**SO THE COMPILER REBUILDS INSTEAD OF SPLITTING.** `cutAt` reconstructs the whole remainder as ONE
+instruction list — the region suffix wrapped in a `Block`, then the enclosing suffix, up to the
+function — which becomes one continuation function with one frame, where nothing has to be shared
+because nothing was ever split. `Block` consumes a branch level exactly as an `if` arm and a `switch`
+arm do, so depths need no adjustment; `Try` is branch-transparent on both lanes and adds none.
+
+**THE LOOP IS THE CASE WITH A TRAP IN IT.** The rebuild is
+
+    Block( Block( suffix ; br 1 ) , Loop( splitBody ) )
+
+— the inner block finishes the interrupted iteration, falling off its end leaves the loop, a `br 0`
+drops into the loop for the next one, and depths past the loop shift by one for the added block.
+Putting the UNSPLIT body back there does not terminate: the copy contains the same cross-frame call,
+gets cut, and mints a continuation of the same shape for ever. Putting the SPLIT body back does,
+because its `mkclos` already names the continuation being built — **the function refers to itself**.
+`alreadySplit` is what keeps the walk off that copy.
+
+Two smaller things the region case forced, both of which the top-level rule never had to think about:
+
+* **the function goes back on the worklist, not only its continuation.** One cut no longer empties a
+  function — `if c then f() else g()` keeps the second call in the arm the cut did not touch.
+* **one `k` register per function, reused by every cut in it.** The emitter carries a single
+  `crossK`; a second cut with a second register makes the first call site read the wrong one. Safe
+  because a `k` is live for exactly two instructions.
+
+**THE NARROWED REFUSAL WAS WRONG ABOUT CORRECT CODE, AND ONLY THE A/B SAID SO.** What is left to
+refuse is a call inside a region that is itself inside a `handle` BODY, and the first version tracked
+"inside a region" from the FUNCTION inward rather than from the handle inward. `handle(program())`
+sitting inside a `while` — `tests/conformance/js-effect-multishot-long-fold` — then looked like the
+refused combination, when its call is at the handle body's top level and has been split correctly
+since `bc78e963c`. It printed `204` before this work and a refusal after.
+
+The flag has to mean "inside a region the rebuild cannot reach", and the rebuild stops AT the handle,
+so a region OUTSIDE the handle is irrelevant and `inRegion` resets there. Found by an A/B over every
+conformance case that mentions an effect, same tree, only `v3/src` swapped: three of 54 cells moved
+and that was one of them. Reading the new refusal against the new fixtures would never have found it
+— it is correct on all five of those.
+
+Control: reverting `v3/src` turns exactly `cross-frame-in-if` and `cross-frame-in-loop` red.
+
+## v3-bridge-arm-composed-with-frames-the-continuation-already-owned — invisible until a loop
+
+<!-- status: fixed
+     lane: v3
+     area: runtime
+     kind: bug
+     gate: v3/effects-gate.sh
+     fixed-in: f0a6e4840
+     confirmed: yes
+     reported-by: claude-code
+     reported-at: 2026-08-20
+     repro: v3/tests/effects/cross-frame-in-loop.ssc
+     impact: wrong-answer -->
+
+The bridge never took the parked caller frames off `__ssc3_eff_pending__` while a handler arm ran. A
+perform inside the arm — or inside a resume the arm makes — therefore composed its continuation with
+frames that had ALREADY been handed to the previous continuation. `Exec.Perform` has spelled the
+correct rule since the cross-frame work (`pending = pending.drop(depth)` with a `finally` that puts
+it back); the emitted runtime had no equivalent.
+
+**IT WAS INVISIBLE, AND THE REASON IS THE POINT.** The only fixture that could reach it before regions
+was `cross-frame-statement`, whose caller remainder is
+
+    def body(): String ! C =
+      prog()
+      "END"
+
+— a function whose value does not depend on its argument. Composing it twice answers what composing
+it once answers, so the fixture stayed green over the defect for as long as it existed. A green suite
+saying nothing, of the kind this repository has recorded before.
+
+**A LOOP MADE IT FATAL RATHER THAN HARMLESS**, because there the stale frame is the PREVIOUS
+ITERATION's continuation. It resumed the loop from the state it had captured, so the program printed
+`iter i=1 acc=2` for ever and the v2 stack went with a `StackOverflowError` — no message, no lane
+disagreement, just a crash. Found by instrumenting the emitted `__ssc3_eff_push__` to print its own
+depth: the pending stack grew 0, 1, 2, 3, … one entry per iteration, which named the mechanism in one
+run after an hour of reading the rebuild for a fault that was not in it.
+
+Filed separately from the two entries above because it is a different defect that they merely
+UNCOVERED: it predates them, it is in the emitted runtime rather than in any pass, and a reader
+looking for why an arm sees the wrong pending stack should not have to find it inside an entry about
+regions.
+
+## v3-continuation-cannot-break-past-its-loop — a branch's depth is a count of frames
+
+<!-- status: fixed
+     lane: v3
+     area: runtime
+     kind: bug
+     gate: v3/effects-gate.sh
+     fixed-in: f0a6e4840
+     confirmed: yes
+     reported-by: claude-code
+     reported-at: 2026-08-20
+     repro: v3/tests/effects/break-past-loop.ssc
+     impact: workaround -->
+
+`Exec.resumeCont` refused a resumed remainder that branched out more than one level:
+
+> a continuation resumed into a `loop` and its remainder branched out 1 level(s); v3 crosses a back
+> edge but not a break past the loop it is in
+
+**THE STATED REASON WAS THE ANSWER.** It said "the chain would have to know how many region frames it
+unwinds, and it records depth per frame rather than per branch". It does record per frame — and a
+branch's depth IS a count of frames, because `stepFramed` records exactly one per region on the way
+in. Unwinding `Branch(dd)` is dropping `dd` frames; what is then at the head is the region the branch
+was aimed at, and delivering to it is `Branch(0)` — a loop repeats, an `if` or a `block` finishes and
+its remainder runs.
+
+**REACHABLE FROM ORDINARY SOURCE, which is not obvious**: `Lower` emits `br` at depths 0 and 1 only,
+from the one site that builds a `while`. The deeper ones come from `TailCalls`, which turns a self
+tail call inside nested regions into `br <nesting>`. Two nested `if`s and a self-recursive function
+is enough, and `break-past-loop.ssc` is that program.
+
+**FIXING IT EXPOSED A SECOND ONE IN THE SAME WALK.** A loop being re-entered is still LIVE, unlike
+every other frame in the chain, whose remainder runs once and is finished. It has to go back on
+`pending` while it iterates, because the iteration is run from `resumeCont` rather than through
+`step(Instr.Loop)` and so records nothing for itself. Without it the second perform of a
+self-recursive function captured a segment with no loop in it, its `br` found a call frame where a
+region belonged, the back edge was dropped and the arm was handed unit — `Add on Unit () and Int 1`.
+
+A third, smaller thing found by reading the same lines: `backEdge` was consumed only by a frame that
+had a loop body, so at any other frame it stayed set and the NEXT loop out would iterate for a branch
+that had already been answered. Now consumed at whichever frame receives it.
+
+Control: `break-past-loop` is the only one of the five new fixtures that pins this. With the old
+refusal restored on its own it goes red and `perform-in-if`, `perform-in-loop`, `cross-frame-in-if`
+and `cross-frame-in-loop` still answer 32, 12, 232 and 20 — so the row is not sharing its evidence
+with the other fixes.
+
 ## scaffolded-project-cannot-resolve-its-sbt-plugin — `ssc new` then `sbt compile` fails for everyone who is not a contributor
 
 <!-- status: fixed
@@ -2894,12 +3102,13 @@ rather than being decided where it arises, which is why the loop's own frame is 
 
 ## v3-spec-prescribes-a-loop-route-nobody-took — three descriptions of one thing, and the authoritative one is unbuilt
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      area: docs
      kind: apparatus
-     gate: -
-     fixed-in: -
+     gate: v3/effects-gate.sh
+     fixed-in: be8c74275
+     confirmed: yes
      reported-by: claude-code
      reported-at: 2026-08-19
      repro: v3/specs/10-ssc-ir.md §3, "The cost, stated because it is not small"
@@ -2939,13 +3148,24 @@ clauses, a table naming the fixture that pins each, the two lane-specific mechan
 they differ (who owns the registers), and the loop-to-recursive-function route marked as sound and
 unimplemented.
 
-**One cell of that table is deliberately empty**: the back edge is pinned by no fixture, because
-`effects-gate.sh` requires three-way agreement and the bridge still refuses regions. Recorded as a
+**One cell of that table was deliberately empty**: the back edge was pinned by no fixture, because
+`effects-gate.sh` requires three-way agreement and the bridge refused regions. Recorded as a
 decision rather than left to look like coverage.
 
 Found by checking a claim made about `Cps.scala`'s header before answering it — the header was
 half-stale (the "step 4" clause), and looking for the authoritative statement of the same thing
 turned up a third.
+
+**THE EMPTY CELL IS FILLED, and it is why the gap got closed rather than described.** `f0a6e4840`
+taught the bridge to cross regions — the first of the two ways out this entry named — so clause 3 has
+two rows now and a third arrived with it. A table entry a reader can see is missing is a different
+object from the same fact in prose, which would have read as an account of coverage. Recording the
+shape of the hole is what made someone go and fill it, one day later.
+
+**THE ROUTE ITSELF IS STILL UNBUILT** and that is now a recorded decision rather than a spec reading
+as an answer: §3 quotes it, marks it unimplemented on both lanes, and says what it would replace.
+Anyone taking it up would collapse two mechanisms into one statement, which is the only argument for
+doing it and a good one.
 
 ## uniml-markdown-left-the-portable-subset-while-its-guard-ran-nowhere
 
