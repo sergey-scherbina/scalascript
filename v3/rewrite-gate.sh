@@ -149,12 +149,21 @@ else say ok "the prelude retry lowers twice and mints the same name both times (
 printf 'val a = probe(41)\n'                                   > "$TMP/s1.ssc"
 printf 'val b = Focus[Person](_.age)\n'                        > "$TMP/s2.ssc"
 printf 'val c = direct[Option] {\n  x = Some(40)\n  Some(x)\n}\n' > "$TMP/s3.ssc"
-# THE PROBE CLAIMS ONLY WHAT NOBODY OWNS, and finding that out cost one red run: `direct` belongs to
-# `DirectSyntax` now, so asking the probe for it too is two plugins claiming one marker — rule 1 —
-# and the fleet refuses to install at all. Spelling 3 needs no probe for exactly that reason: its
-# name is already claimed by a real client, and `ssc3 ast` renders the tree WITHOUT running the pass,
-# so which plugin owns the name does not enter into what the fronts print.
-for n in 1 2 3; do
+# THE FOURTH SPELLING: type arguments and NO argument list. `Prism[S, C]` is named entirely by
+# its types, and the two fronts threw that away differently — v3's own parser dropped the captured
+# brackets and left a bare name, while the projection named the marker after the node's KIND
+# (`prism`) instead of what the person wrote. The nested one is here because the two capturers
+# disagreed once more the moment they stopped disagreeing about the first: the projection kept the
+# COMMA as a list element (`["Shape", ",", "Circle"]`) where v3 splits at top-level commas.
+printf 'val d = Prism[Shape, Circle]\n' > "$TMP/s4.ssc"
+printf 'val e = Focus[Map[String, Int]](_.size)\n' > "$TMP/s5.ssc"
+# THE PROBE CLAIMS ONLY WHAT NO CLIENT OWNS, and this line has been paid for twice — once when
+# `DirectSyntax` took `direct`, once when `PrismSyntax` took `Prism`. Asking the probe for a claimed
+# name is two plugins claiming one marker, rule 1, and the fleet refuses to install at all rather
+# than picking a winner. Neither spelling needs a probe once its client exists: `ssc3 ast` renders
+# the tree WITHOUT running the pass, so which plugin owns the name does not enter into what the
+# fronts print — only THAT one owns it does. Every future client shortens this list by one.
+for n in 1 2 3 4 5; do
   f="$TMP/s$n.ssc"
   u="$(SSC3_MARKER_PROBE=probe,Focus timeout 60 $SSC3 ast "$f" 2>&1)"
   v="$(SSC3_FRONT=v3 SSC3_MARKER_PROBE=probe,Focus timeout 60 $SSC3 ast "$f" 2>&1)"
@@ -234,6 +243,47 @@ if [ "$eu" != "$ev" ]; then
 elif ! grep -qE ':[0-9]+:[0-9]+: direct\[Option\] \{ \} has an empty block' <<<"$eu"; then
   red "direct: an empty block is not refused with a position — [$(cut -c1-110 <<<"$eu")]"
 else say ok "direct: an empty block refuses identically on both fronts"; fi
+
+# ── 12. `Prism[S, C]` — the second client, on BOTH lanes, plus the two ways to name it wrongly.
+# A prism is named ENTIRELY by its type arguments, so this is also the only client whose whole input
+# is the fourth spelling checked above. The emitted value is a `PrismOptic` from the prelude holding
+# a type-ascription match; what this asserts is the behaviour a person would get from writing that
+# match by hand — `Some` on the variant, the value UNCHANGED on a miss, and `reverseGet` putting a
+# variant back.
+P="$TMP/prism.ssc"
+printf 'enum Shape:\n  case Circle(radius: Int)\n  case Rect(width: Int, height: Int)\n\nval c: Shape = Circle(5)\nval r: Shape = Rect(3, 4)\nval p = Prism[Shape, Circle]\nprintln(p.getOption(c))\nprintln(p.getOption(r))\nprintln(p.modify(r, x => Circle(9)))\nprintln(p.reverseGet(Circle(7)))\n' > "$P"
+want='Some(Circle(5))
+None
+Rect(3, 4)
+Circle(7)'
+pgot="$(timeout 60 $SSC3 run "$P" 2>"$TMP/e12")"; prc=$?
+pvia="$(timeout 180 $SSC3 run --bridge "$P" 2>"$TMP/e12b")"; pbrc=$?
+if [ $prc -ne 0 ] || [ "$pgot" != "$want" ]; then
+  red "prism: executor rc=$prc [$(printf '%s' "$pgot" | tr '\n' '/')] — $(grep -m1 '^ssc3:' "$TMP/e12" | cut -c1-100)"
+elif [ $pbrc -ne 0 ] || [ "$pvia" != "$want" ]; then
+  red "prism: bridge rc=$pbrc [$(printf '%s' "$pvia" | tr '\n' '/')] — $(grep -m1 '^ssc3:' "$TMP/e12b" | cut -c1-100)"
+else say ok "prism: getOption hits and misses, modify is a no-op on a miss, reverseGet wraps — both lanes"; fi
+
+# NAMED BY ITS TYPES MEANS BOTH OF THEM, and guessing here would pick a variant for the author.
+for n in 1 3; do
+  case $n in
+    1) printf 'val q = Prism[Shape]\n' > "$TMP/pn.ssc" ;;
+    3) printf 'val q = Prism[A, B, C]\n' > "$TMP/pn.ssc" ;;
+  esac
+  perr="$(timeout 60 $SSC3 run "$TMP/pn.ssc" 2>&1 >/dev/null)"; prc=$?
+  if [ $prc -eq 0 ]; then red "prism: $n type argument(s) was accepted"
+  elif ! grep -qE ':[0-9]+:[0-9]+: Prism needs exactly two type arguments' <<<"$perr"; then
+    red "prism: $n type argument(s) refused in the wrong shape — [$(cut -c1-110 <<<"$perr")]"
+  else say ok "prism: $n type argument(s) refuses with a position and says how many it saw"; fi
+done
+
+# HYGIENE, rule 4: the binders come from `Ctx.fresh`, so a user name in the same scope cannot be
+# captured by the lambda the rewrite emits. Written so that capture would answer a different number.
+printf 'enum Shape:\n  case Circle(radius: Int)\n\nval s: Shape = Circle(5)\nval x = 7\nval p = Prism[Shape, Circle]\nprintln(p.modify(s, c => Circle(c.radius + x)))\n' > "$TMP/pcap.ssc"
+cgot="$(timeout 60 $SSC3 run "$TMP/pcap.ssc" 2>"$TMP/e12c")"
+if [ "$cgot" != "Circle(12)" ]; then
+  red "prism: a free name in scope was captured — got [$cgot], wanted Circle(12) — $(grep -m1 '^ssc3:' "$TMP/e12c" | cut -c1-90)"
+else say ok "prism: a user name x in the same scope survives the rewrite's own binders"; fi
 
 if [ $fails -gt 0 ]; then echo "rewrite-gate: FAIL ($fails)"; exit 1; fi
 echo "rewrite-gate: OK"

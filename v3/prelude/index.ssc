@@ -268,3 +268,35 @@ case class Yielded[A](value: A)
 case class Returned[A](value: A)
 case class Errored[A](error: A)
 ```
+
+## Optics
+
+**`Prism[S, C]` is written by a person and BUILT BY A PLUGIN** — `v3/plugins/PrismSyntax.scala`
+rewrites the marker into a `PrismOptic` holding two functions, and this is the value it holds. The
+kernel knows neither `Prism` nor this class; the rewrite names it and the prelude defines it, which
+is the same split `direct` uses.
+
+**THE NAME IS NOT `Prism`, and that is load-bearing rather than shy.** A name with a registered
+rewrite is a marker wherever it appears with brackets or an argument list, so a class called `Prism`
+could never be CONSTRUCTED — `Prism(test, wrap)` would be read as a marker with two arguments and
+handed back to the very rewrite that is trying to emit it. The emitted name has to be one no marker
+claims.
+
+**Both functions are needed even though one is the identity today.** `wrap` puts a matched variant
+back into the outer type, and at Tier 0 a variant IS its enum at runtime, so `x => x` is correct and
+`reverseGet` is a wrapper call rather than a special case. Writing it as a field keeps the shape
+honest for a representation that ever boxes.
+
+```scalascript
+case class PrismOptic(test: Any, wrap: Any):
+  def getOption(s: Any): Any = test(s)
+  def modify(s: Any, f: Any): Any =
+    test(s) match
+      case Some(x) => wrap(f(x))
+      case None => s
+  def set(s: Any, v: Any): Any =
+    test(s) match
+      case Some(_) => wrap(v)
+      case None => s
+  def reverseGet(x: Any): Any = wrap(x)
+```

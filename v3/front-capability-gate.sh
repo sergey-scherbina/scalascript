@@ -172,7 +172,9 @@ check_set "uniml" "${KNOWN_UNIML_ONLY[*]}" "$uniml_only"
 # changed its mind: `v3/plugins/DirectSyntax.scala` registered a rewrite for `direct`, and a name is
 # a marker iff a rewrite is registered for it — so both fronts started building the same node on the
 # same question, and the divergence stopped. The gate demanded the removal in the same commit, which
-# is exactly what it is for; the six optics rows below stay until `Focus`/`Prism` have their client.
+# is exactly what it is for. `prisms` FOLLOWED THE SAME DAY, for the same reason and by a different
+# route: `Prism[S, C]` is named entirely by its type arguments, so its client needed no path grammar
+# at all — which is why it landed before the five `Focus` rows, and they stay until `Focus` has one.
 declare -a KNOWN_CONF_V3_ONLY=(
   # v3's front took `;` as a statement separator (v3-block-has-no-semicolon-statement-separator) and
   # this case is the one where that made v3 the MORE permissive of the two: uniml still refuses it.
@@ -183,7 +185,6 @@ declare -a KNOWN_CONF_V3_ONLY=(
   optic-polish
   optics-index-at
   optional
-  prisms
   traversal
 )
 

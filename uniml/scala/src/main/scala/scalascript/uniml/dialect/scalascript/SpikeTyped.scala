@@ -83,6 +83,31 @@ object SpikeTyped:
   private def byRole(n: UniNode, role: String): Option[UniNode] =
     kids(n).collectFirst { case (Some(r), c) if r == role => c }
 
+  /** The type-argument TOKENS as a list of type ARGUMENTS — split at top-level commas, nesting kept.
+    *
+    * `captureTypeArgTokens` hands back raw tokens because ScalaSpike's own projection joins them
+    * with `mkString` into the reference's `"Shape,Circle"` spelling. A typed `Marker` wants what a
+    * person would call the list: `Prism[Shape, Circle]` is TWO arguments, not three with a comma in
+    * the middle, and `Focus[Map[String, Int]]` is one.
+    *
+    * WRITTEN TWICE ON PURPOSE, and that is not duplication to be factored out: v3's own parser has
+    * the same rule in `Parser.captureBrackets`, the two fronts share no code by design, and
+    * `v3/rewrite-gate.sh` compares the trees they build. Before this existed the projection put the
+    * COMMA in the list — `["Shape", ",", "Circle"]` against v3's `["Shape", "Circle"]` — which the
+    * gate's spelling check is exactly what caught. */
+  private def typeArgList(lexemes: Vector[String]): Vector[String] =
+    var out = Vector.empty[String]
+    val cur = new StringBuilder
+    var depth = 0
+    lexemes.foreach { t =>
+      if t == "[" then { depth += 1; cur.append(t) }
+      else if t == "]" then { depth -= 1; cur.append(t) }
+      else if t == "," && depth == 0 then { out = out :+ cur.toString.trim; cur.setLength(0) }
+      else cur.append(t)
+    }
+    val last = cur.toString.trim
+    (if last.isEmpty then out else out :+ last).filter(_.nonEmpty)
+
   private def allByRole(n: UniNode, role: String): Vector[UniNode] =
     kids(n).collect { case (Some(r), c) if r == role => c }
 
@@ -416,10 +441,11 @@ object SpikeTyped:
           // takes head-as-inner and tail-as-types, and ScalaSpike's own projection of THIS node
           // collects `ta.tok` — two sites already had it right.
           Marker("direct", byRole(b, "direct.block").map(expr),
-                 allByRole(b, "ta.tok").map(lex).filter(_.nonEmpty), span(b))
+                 typeArgList(allByRole(b, "ta.tok").map(lex)), span(b))
         case "spike.focusmarker" | "spike.prism" | "spike.directmarker" =>
           val cs = kids(b).map((_, c) => c)
-          Marker(b.kind.stripPrefix("spike."), cs.headOption.map(expr), cs.drop(1).map(lex).filter(_.nonEmpty), span(b))
+          Marker(b.kind.stripPrefix("spike."), cs.headOption.map(expr),
+                 typeArgList(cs.drop(1).map(lex)), span(b))
         case "spike.assign" =>
           // A DOTTED target — `Cfg.count = 7` — is head plus `assign.nameseg` per segment, the same
           // shape `defDecl` reads for `def Source.distributed`. Reading only the head assigned to

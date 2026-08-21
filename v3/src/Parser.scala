@@ -954,8 +954,14 @@ object Parser:
       else if isPunct(peek(afterTy), "{") then
         val (blk, t) = parseBraceBlock(afterTy.tail)
         (Expr.Marker(n, targs, List(blk), p), t)
-      // A BARE marker name is just a name: `Focus` alone is a value nobody claims, and refusing it
-      // here would make registering a rewrite change what an unrelated identifier means.
+      // `Prism[Shape, Circle]` — TYPE ARGUMENTS AND NO ARGUMENT LIST. The type arguments ARE the
+      // whole node here: a prism is named by the two types and takes no path, so dropping them (as
+      // this arm did, falling through to a bare name) threw away everything the client needs and
+      // left `unknown name 'Prism'` behind.
+      else if targs.nonEmpty then (Expr.Marker(n, targs, Nil, p), afterTy)
+      // A BARE marker name with no brackets at all is just a name: `Focus` alone is a value nobody
+      // claims, and refusing it here would make registering a rewrite change what an unrelated
+      // identifier means.
       else (Expr.Name(n, p), afterTy)
     case Tok.TId(n, p) if !keywords.contains(n) =>
       // TYPE ARGUMENTS in an expression: `List[Int]()`, `Map[String, Int]()`, `empty[A]`. Skipped,

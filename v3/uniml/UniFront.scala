@@ -581,6 +581,15 @@ object UniFront:
     // not the node's kind. ScalaSpike calls the node `focusmarker`; a plugin claims `Focus`.
     case U.Apply(U.Marker(_, Some(U.Ident(nm, _)), targs, _), as, s) if Plugins.hasRewrite(nm) =>
       Expr.Marker(nm, targs.toList, as.toList.map(expr), pos(s))
+    // `Prism[Shape, Circle]` — TYPE ARGUMENTS AND NO ARGUMENT LIST, the fourth spelling, and the one
+    // where the node's kind and the written name differ with nothing to paper over it. The grammar
+    // calls this node `spike.prism` and keeps the identifier as its `inner`, so asking the registry
+    // about `nm` asks it about `prism` — a name no plugin will ever claim, because a plugin claims
+    // what a person writes. The arm above already takes the name from the inner identifier for the
+    // APPLIED spelling; this is the same rule for the bare one, and the identifier is the whole
+    // node, so there is no argument to carry.
+    case U.Marker(_, Some(U.Ident(nm, _)), targs, s) if Plugins.hasRewrite(nm) =>
+      Expr.Marker(nm, targs.toList, Nil, pos(s))
     // `direct[Option] { … }` is the other shape the grammar builds: the node's kind IS the name and
     // the block is its `inner`, already an expression.
     case U.Marker(nm, Some(inner), targs, s) if Plugins.hasRewrite(nm) =>

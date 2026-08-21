@@ -56,6 +56,8 @@ object V2Fleet:
       // THE FIRST REAL CLIENT of that door: `direct[M] { … }` do-notation, whose whole
       // implementation is one rewrite in `v3/plugins` and no kernel change at all.
       DirectSyntax.install()
+      // THE SECOND: `Prism[S, C]`, named entirely by its type arguments — no path, no block.
+      PrismSyntax.install()
       // v2's own renderer, which knows what a provider's handle means — its `Show` has an arm for
       // `ForeignV(nmo: NamedMethodObj)` precisely so a boxed option prints as `None`. Failures
       // decline rather than propagate: a value this cannot convert is not a value whose printing

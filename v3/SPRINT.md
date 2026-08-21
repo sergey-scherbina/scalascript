@@ -104,7 +104,11 @@ Four optic KINDS, not one, and composition between kinds (`andThen` of a Lens an
 
 - **R4a** `lenses` — `Lens` only, the row's original claim, and the only one it described.
 - **R4b** `optional` — `.some`, `Optional`, and Lens∘Optional composition.
-- **R4c** `prisms` — `Prism[S, C]`, which needs no path rewrite at all and may land independently.
+- **[x] R4c** `prisms` — LANDED, and it did land independently, which is why it went first. 55 lines
+  in `v3/plugins/PrismSyntax.scala` plus a `PrismOptic` case class in the prelude; +1 on both lanes.
+  It also paid for the FOURTH marker spelling — type arguments and NO argument list — which both
+  fronts were losing differently, and for the type-argument SPLIT, which they disagreed about the
+  moment they stopped disagreeing about the spelling.
 - **R4d** `optics-index-at` — `.index`/`.at` over `List`/`Map`.
 - **R4e** `traversal` + `optic-polish` — `.each`, and an optic that prints.
 
