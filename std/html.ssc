@@ -1,0 +1,78 @@
+---
+name: std-html
+version: 1.0.0
+description: The html"…" interpolator and its raw escape hatch, in ScalaScript
+package: std.html
+exports:
+  - html
+  - raw
+  - htmlEscape
+  - htmlValue
+---
+
+# HTML interpolation
+
+**`html"<p>${x}</p>"` ESCAPES what it interpolates and `raw(v)` opts out**, which is the whole point:
+the escaping is the default so that forgetting it is not the failure mode. The reference does both in
+the FRONT — `buildHtmlInterp` wraps every hole in the `__htmlEscape__` prim — and this file does them
+in the language, because `pfx"…"` lowers to `pfx(parts, args)` and an interpolator is therefore an
+ordinary function (`v3-an-interpolator-prefix-is-hardcoded-in-both-fronts`, fixed f92e3c644).
+
+**THE ESCAPE SET AND THE RAW RULE ARE THE REFERENCE'S, verbatim** — `v2/src/Runtime.scala`'s
+`htmlEscape` and the `__htmlEscape__` prim beside it: five characters, `&` first so its replacement
+is not re-escaped, and a `_Raw` value passes through as its own text.
+
+**WHAT IS SHARED HERE AND WHAT IS NOT — measured on the v2 reference, not assumed.** `htmlEscape`
+and `html(parts, args)` run there and answer exactly what they answer on v3: the escaping half of
+this file is portable and the same probe prints the same line on all three lanes.
+
+**THE `raw` HATCH IS NOT, and the reason is the interpolator decision seen from the other side.**
+On v2 the prefixes are FRONT constructs — `html"…"` never becomes a call there at all, it is built by
+`buildHtmlInterp`, and `raw` is a built-in that answers `_Raw(v)`. So a library `def raw` is shadowed
+on that lane, and the shadowing cannot be worked around from here: `_Raw` is exactly the shape v2
+cannot match, because **a constructor pattern whose name starts with `_` never matches on v2** —
+isolated to the underscore (`Bar(x)` matches on both lanes, `_Bar(x)` only on v3) and filed as
+`v2-a-constructor-pattern-named-with-a-leading-underscore-never-matches`.
+
+Measured end to end: `html(parts, [raw("<em>ok</em>")])` answers `<p><em>ok</em></p>` on both v3
+lanes and `<p>&lt;em&gt;ok&lt;/em&gt;</p>` on v2, because there `raw` is v2's own and this file's
+`HtmlRaw` arm cannot see it.
+
+**SO THE WRAPPER IS NAMED `HtmlRaw`, NOT the reference's `_Raw`** — a portable file cannot use a name
+one of its readers is unable to match, and copying the reference's tag would have bought nothing but
+that.
+
+```scalascript
+case class HtmlRaw(value: Any)
+
+def raw(v: Any): Any = HtmlRaw(v)
+
+def htmlEscape(s: String): String =
+  var out = ""
+  var i = 0
+  while i < s.length do
+    val c = s.charAt(i)
+    if c == '&' then out = out + "&amp;"
+    else if c == '<' then out = out + "&lt;"
+    else if c == '>' then out = out + "&gt;"
+    else if c == '"' then out = out + "&quot;"
+    else if c == '\'' then out = out + "&#39;"
+    else out = out + c.toString
+    i = i + 1
+  out
+
+def htmlValue(v: Any): String =
+  v match
+    case HtmlRaw(x) => x.toString
+    case other => htmlEscape(other.toString)
+
+def html(parts: List[String], args: List[Any]): String =
+  var out = ""
+  var i = 0
+  parts.foreach { p =>
+    out = out + p
+    if i < args.length then out = out + htmlValue(args(i))
+    i = i + 1
+  }
+  out
+```

@@ -14023,3 +14023,43 @@ was failing: F comes from a different source (`specs/v2.2-p6.5-fsub.ssc`) staged
 and a front fix that is live on one lane and absent on the other, on a lexer the checkout shows as
 fixed, is a build question before it is a code question. **A row where the two fronts DISAGREE and
 the checkout says they should not is a staleness signal, not a defect signal.**
+
+## v2-a-constructor-pattern-named-with-a-leading-underscore-never-matches
+
+<!-- status: open
+     lane: v2-jvm
+     kind: bug
+     area: front
+     found-by: claude-code
+     found-at: 2026-08-21 -->
+
+**A `case class` whose name begins with `_` can be CONSTRUCTED and cannot be MATCHED.** Isolated to
+the underscore — the same file, two classes, one pattern each:
+
+```scalascript
+case class _Bar(v: Any)
+case class Bar(v: Any)
+println(_Bar(1) match { case _Bar(x) => "underscore matched"; case o => "underscore FELL THROUGH" })
+println(Bar(2)  match { case Bar(x)  => "plain matched";      case o => "plain FELL THROUGH" })
+```
+
+    v2   underscore FELL THROUGH / plain matched
+    v3   underscore matched      / plain matched
+
+So it is neither "underscore names are illegal" nor a construction problem: the value exists, the
+plain pattern beside it works, and only the matching of the underscore-named constructor silently
+does nothing. **Silently** is the word that matters — a fall-through arm answers, so the program runs
+and is wrong.
+
+**FOUND THROUGH v2's OWN CODE.** `v2/src/Runtime.scala` names its HTML raw-markup wrapper `_Raw` and
+renders `DataV("_Raw", …)` by its first field; `__htmlEscape__` recognises it the same way, in Scala.
+A ScalaScript program cannot do what the runtime does with its own tag — which is how this surfaced:
+`std/html.ssc` tried to match `_Raw` to honour v2's `raw(v)` and every value fell through to the
+escaping arm, so `raw("<em>ok</em>")` came back `&lt;em&gt;ok&lt;/em&gt;`.
+
+**THE LIKELY SITE** is the pattern parser reading a leading `_` as the wildcard and stopping there —
+`_Bar(x)` would then parse as a wildcard followed by an application it discards. Not confirmed; the
+measurement above is, and it is what a fix has to move.
+
+**WORKAROUND, already taken in `std/html.ssc`:** do not name a constructor with a leading underscore
+in portable code. That is a rule about a defect, not a design, and it goes when this does.

@@ -1834,16 +1834,26 @@ so that case needs `html(parts, args)` AND a one-argument `raw(value)` — the H
 value as already-escaped. Define `raw(parts, args)` for the interpolator and the file's refusal turns
 from `unknown function 'raw'` into `call to 'raw' passes 1 argument(s)`. The two cannot coexist.
 
-**CORRECTED 2026-08-21 AFTER COUNTING: THE COLLISION IS LATENT, NOT LIVE, and the difference decides
-what to do about it.** This entry was filed from a probe that defined `raw` as an interpolator — my
-own assumption, not the file's need. Swept afterwards: **no file in the corpus or in `std/` uses the
-`raw"…"` interpolator at all** (the one grep hit, `std/cluster/coord-consul.ssc:123`, is `"?raw"`
-inside a URL). So nothing today needs both spellings of the name, and the fix for the case is simply
-to define `html(parts, args)` and a one-argument `raw(value)`.
+**CORRECTED TWICE ON 2026-08-21, and the second correction is the one that matters.**
 
-What stays true is the shape: an interpolator prefix IS an ordinary global name, so the FIRST program
-that wants both `raw"…"` and `raw(x)` cannot have them. That is worth deciding before `def html` is
-written into `std`, and worth nothing sooner.
+FIRST: the collision I filed was not the file's need but my probe's — I had defined `raw` as an
+interpolator. Swept: no file in the corpus or in `std/` uses the `raw"…"` interpolator at all (the one
+grep hit, `std/cluster/coord-consul.ssc:123`, is `"?raw"` inside a URL). Within v3, defining
+`html(parts, args)` and a one-argument `raw(value)` is enough, and `std/html.ssc` now does — the case
+`std-ui-native-html-lambda` PASSES on both v3 lanes.
+
+SECOND, AND THE REAL FINDING: **the collision is live on v2, in the other direction.** There the
+prefixes are FRONT constructs — `html"…"` never becomes a call, and `raw` is a BUILT-IN answering
+`_Raw(v)`. So a library `def raw` is shadowed on that lane, measured: `html(parts, [raw("<em>ok</em>")])`
+answers `<p><em>ok</em></p>` on both v3 lanes and `<p>&lt;em&gt;ok&lt;/em&gt;</p>` on v2. And it
+cannot be worked around from a portable file, because honouring v2's wrapper needs a `case _Raw(x)`
+pattern and **v2 cannot match a constructor named with a leading underscore**
+(`v2-a-constructor-pattern-named-with-a-leading-underscore-never-matches`, filed alongside).
+
+So the shape stands and is sharper than filed: an interpolator prefix is an ordinary global name in
+v3 and an owned front word in v2. A file that wants to be read by both can share the WORK — the
+escaping in `std/html.ssc` runs identically on all three lanes — and cannot share the ENTRY POINT.
+That is what to decide before more prefixes are written into `std`.
 
 **Scala does not have this problem** because `raw"…"` is a method on `StringContext` and `raw(x)` is
 a plain function — two namespaces. v3 has one.

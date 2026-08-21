@@ -306,6 +306,16 @@ case class PrismOptic(test: Any, wrap: Any):
   def reverseGet(x: Any): Any = wrap(x)
 ```
 
+## HTML
+
+**`html"…"` and `raw(v)` live in [`std/html.ssc`](../../std/html.ssc)**, for the same reason the
+optics do: `pfx"…"` lowers to `pfx(parts, args)`, so an interpolator IS an ordinary function and
+belongs in a file every version can read. The reference does the escaping in the FRONT — every hole
+wrapped in the `__htmlEscape__` prim — which is a front's decision the language no longer has to
+take.
+
+[html, raw, htmlEscape, htmlValue, HtmlRaw](../../std/html.ssc)
+
 ## md
 
 **`md"…"` is an ordinary function, and that is the whole point of the interpolator decision** —
