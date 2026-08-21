@@ -1826,6 +1826,17 @@ so that case needs `html(parts, args)` AND a one-argument `raw(value)` — the H
 value as already-escaped. Define `raw(parts, args)` for the interpolator and the file's refusal turns
 from `unknown function 'raw'` into `call to 'raw' passes 1 argument(s)`. The two cannot coexist.
 
+**CORRECTED 2026-08-21 AFTER COUNTING: THE COLLISION IS LATENT, NOT LIVE, and the difference decides
+what to do about it.** This entry was filed from a probe that defined `raw` as an interpolator — my
+own assumption, not the file's need. Swept afterwards: **no file in the corpus or in `std/` uses the
+`raw"…"` interpolator at all** (the one grep hit, `std/cluster/coord-consul.ssc:123`, is `"?raw"`
+inside a URL). So nothing today needs both spellings of the name, and the fix for the case is simply
+to define `html(parts, args)` and a one-argument `raw(value)`.
+
+What stays true is the shape: an interpolator prefix IS an ordinary global name, so the FIRST program
+that wants both `raw"…"` and `raw(x)` cannot have them. That is worth deciding before `def html` is
+written into `std`, and worth nothing sooner.
+
 **Scala does not have this problem** because `raw"…"` is a method on `StringContext` and `raw(x)` is
 a plain function — two namespaces. v3 has one.
 
@@ -1833,3 +1844,79 @@ a plain function — two namespaces. v3 has one.
 library encoding is what made `md` a twelve-line function this week. It is an argument for deciding
 where an interpolator's name lives — an owner decision, recorded before anyone writes `def html`,
 because writing it is what makes the collision permanent.
+
+## v3-an-optic-cannot-print-itself-because-no-lane-renders-a-value-by-its-own-rule
+
+<!-- status: open
+     lane: v3
+     kind: feature
+     area: runtime
+     found-by: claude-code
+     found-at: 2026-08-21 -->
+
+**`tests/conformance/optic-polish.ssc` expects `println(xLens)` to print `Lens(_.x)`**, and the
+optic knows both halves — its kind and its path are ordinary fields. What is missing is a way for a
+ScalaScript value to say how it renders. Every lane renders a data value STRUCTURALLY:
+
+    Optic(Lens, .x, <closure 77>, <closure 78>)     v3 executor
+    Optic(Lens, .x, <closure>, <closure>)           v3 bridge (v2 renders it)
+
+**A USER `toString` DOES NOT DO IT, and that was measured on all three lanes:** `def toString()` is
+callable and `println(x)` ignores it — `X(1)` from v3's executor, v3's bridge and the v2 reference
+alike.
+
+**THE REFERENCE SOLVES IT FOR HOST VALUES ONLY.** `v2/src/Runtime.scala` renders a `ForeignV` whose
+`NamedMethodObj` exposes a `_show` field by that string — the comment there names optics as the
+reason — and it has a second precedent one screen away: `case DataV("_Raw", fields) => anyStr(fields.head)`
+renders one specific tag by its first field. Neither reaches a value written in ScalaScript.
+
+**WHY IT IS NOT A SMALL FIX, stated so nobody re-derives it:** the bridge lane renders with v2, so
+any rule has to hold in BOTH lanes or the two disagree — and v3 cannot implement the obvious form.
+`Ir.TypeDef` is `(name: String, fields: Int)`: the IR keeps a class's ARITY and not its field names,
+so `showV` cannot look for a field called `_show`. The candidates are therefore
+
+  1. carry field names in `TypeDef` — an IR change, `specs/10-ssc-ir.md` §vocabulary, and every
+     reader of the IR;
+  2. ask the PLUGIN registry to render a data value, as `Plugins.showHost` already does for a
+     foreign one — the kernel learns nothing, but v2 still needs its own half for the bridge;
+  3. a `_show` field rule in v2's `Show` plus (2) — two mechanisms, one per lane, both outside the
+     kernels.
+
+**This is an owner decision, not a defect to fix quietly**, because option 1 changes the IR and
+option 3 puts one rule in two places. Recorded with the measurement so the decision starts from
+facts rather than from a guess.
+
+## v3-copy-with-positional-or-mixed-arguments — the fix is written and HELD
+
+<!-- status: open
+     lane: v3
+     kind: bug
+     area: codegen
+     found-by: claude-code
+     found-at: 2026-08-21 -->
+
+**`copy` took named arguments only, and the two other spellings failed in two different places:**
+
+    p.copy(10, 20, 30)     "method 'copy' … is not implemented by v3's executor" — it fell
+                           through `copyFits` to a runtime method dispatch
+    p.copy(10, z = 99)     "a named argument 'z' in a call whose signature is not known" — refused
+                           at lowering
+
+Both are ordinary Scala, the v2 reference answers both, and `tests/conformance/optic-polish.ssc`
+uses both.
+
+**THE FIX IS WRITTEN AND MEASURED** — `copyFits` accepts positional arguments first and named ones
+after, refusing a named argument that names a field a positional one already filled and a positional
+argument after a named one; the lowering fills each field by position, then by name, then off the
+receiver. All three forms then answer what the reference answers, on both lanes.
+
+**IT IS HELD, AND THE REASON IS THE FLOOR RULE.** With `copy` fixed, `optic-polish` stops being
+refused and starts producing output — which is WRONG output, because printing an optic needs a
+rendering hook no lane has (the entry above). A refusal is honest; a wrong answer is a DIFF, and DIFF
+is a floor that does not rise. Measured exactly that way: landing both moved DIFF 0 → 1 on both
+lanes, landing neither keeps it at 0, and landing only the optics keeps `optic-polish` refused at the
+mixed `copy` one line earlier.
+
+So this lands the day the rendering question is answered, together with it. The patch is kept with
+the claim rather than in the tree; re-deriving it is twenty lines in `Lower.copyFits` and the `copy`
+arm beside it.

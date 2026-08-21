@@ -1802,6 +1802,18 @@ object Exec:
         args.head match
           case Value.VStr(x) => Value.VBool(s.endsWith(x))
           case v             => throw ExecError("endsWith " + show(v))
+      // `takeWhile`/`dropWhile` ON A STRING, added 2026-08-21. The bridge answered them and this lane
+      // refused — `"Circle(3)".takeWhile(c => c != '(')` printed `Circle` on v2 and
+      // `method 'takeWhile' … is not implemented by v3's executor` here — so the two lanes disagreed
+      // about a program neither was wrong to accept. On a LIST both already answered, which is what
+      // made it a lane pair rather than a missing feature.
+      //
+      // THE PREDICATE TAKES A CHAR, exactly as it does on a list of chars, so `c != '('` is the
+      // ordinary comparison and nothing here has to know about strings-as-lists.
+      case (Value.VStr(s), "takeWhile") =>
+        Value.VStr(s.takeWhile(c => truthy(apply1(m, args.head, Value.VChar(c)))))
+      case (Value.VStr(s), "dropWhile") =>
+        Value.VStr(s.dropWhile(c => truthy(apply1(m, args.head, Value.VChar(c)))))
       case (Value.VStr(s), "nonEmpty") => Value.VBool(s.nonEmpty)
       case (Value.VStr(s), "reverse")  => Value.VStr(s.reverse)
       // A full-string regex match. Delegated to the HOST rather than given a matcher of its own:

@@ -307,23 +307,50 @@ elif [ $lbrc -ne 0 ] || [ "$lvia" != "$lwant" ]; then
   red "focus: bridge rc=$lbrc [$(printf '%s' "$lvia" | tr '\n' '/')] — $(grep -m1 '^ssc3:' "$TMP/e13b" | cut -c1-100)"
 else say ok "focus: get, a nested set that leaves its sibling alone, modify, andThen — both lanes"; fi
 
-# THE FOUR STEPS THAT ARE NOT LENSES, told apart BY NAME because two of them cannot be told apart by
-# shape: `.index(1)` and `.at("k")` are calls, but `.some` and `.each` are ordinary selections,
-# identical to a field of that name. The first version of the client checked the shape and let
-# `_.profile.some.city` through as a three-field lens — a set of a field named `some`, failing at run
-# time with the plugin's name nowhere near it.
-for step in some each index at; do
-  case $step in
-    some|each) printf 'val l = Focus[T](_.a.%s.b)\n' "$step" > "$TMP/fs.ssc" ;;
-    index)     printf 'val l = Focus[T](_.a.index(1))\n' > "$TMP/fs.ssc" ;;
-    at)        printf 'val l = Focus[T](_.a.at("k"))\n' > "$TMP/fs.ssc" ;;
-  esac
-  ferr="$(timeout 60 $SSC3 run "$TMP/fs.ssc" 2>&1 >/dev/null)"; frc=$?
-  if [ $frc -eq 0 ]; then red "focus: '.$step' was accepted as a lens step"
-  elif ! grep -qE ":[0-9]+:[0-9]+: Focus cannot take '$step'" <<<"$ferr"; then
-    red "focus: '.$step' refused in the wrong shape — [$(cut -c1-110 <<<"$ferr")]"
-  else say ok "focus: '.$step' refuses by name and says which kind it would need"; fi
-done
+# ── 14. THE FOUR NON-FIELD STEPS, each with the KIND it produces, on both lanes.
+# THESE CHECKS REPLACED FOUR THAT ASSERTED THE OPPOSITE, and the replacement is the point: while
+# `Focus` was lenses only, `.some`, `.each`, `.index(i)` and `.at(k)` were refused BY NAME and four
+# checks pinned that refusal. A guard is worth exactly what the thing it guards against is worth, and
+# it dissolves when its replacement lands — `std/optics.ssc` landed, so what these assert now is what
+# each step MEANS. The old checks going red in the same run is how the gate said so.
+#
+# THE KIND IS ASSERTED, not only the value: a Lens always hits, an Optional may miss, a Traversal may
+# hit many, and `opticJoinKind` decides a composition's kind while composing. A step that answered
+# correctly under the wrong kind would offer `get` where only `getOption` is due.
+O="$TMP/optics.ssc"
+printf 'case class W(p: Any)\ncase class B(xs: Any)\ncase class Pt(x: Int)\ncase class M(m: Any)\n\nval w = W(Some(Pt(1)))\nval some = Focus[W](_.p.some.x)\nprintln(some.getOption(w))\nprintln(some.getOption(W(None)))\nprintln(some.set(w, 9).p)\nprintln(opticShow(some))\n\nval b = B(List(Pt(1), Pt(2)))\nval each = Focus[B](_.xs.each.x)\nprintln(each.getAll(b))\nprintln(each.modify(b, n => n + 10).xs)\nprintln(opticShow(each))\n\nval idx = Focus[B](_.xs.index(1).x)\nprintln(idx.getOption(b))\nprintln(Focus[B](_.xs.index(9).x).getOption(b))\nprintln(opticShow(idx))\n\nval mm = M(Map("k" -> Pt(5)))\nval at = Focus[M](_.m.at("k").x)\nprintln(at.getOption(mm))\nprintln(Focus[M](_.m.at("zz").x).getOption(mm))\nprintln(opticShow(at))\n' > "$O"
+owant='Some(1)
+None
+Some(Pt(9))
+Optional(_.p.some.x)
+List(1, 2)
+List(Pt(11), Pt(12))
+Traversal(_.xs.each.x)
+Some(2)
+None
+Optional(_.xs.index(1).x)
+Some(5)
+None
+Optional(_.m.at("k").x)'
+ogot="$(timeout 60 $SSC3 run "$O" 2>"$TMP/e14")"; orc=$?
+ovia="$(timeout 180 $SSC3 run --bridge "$O" 2>"$TMP/e14b")"; obrc=$?
+if [ $orc -ne 0 ] || [ "$ogot" != "$owant" ]; then
+  red "optics: executor rc=$orc
+      got  [$(printf '%s' "$ogot" | tr '\n' '/')]
+      want [$(printf '%s' "$owant" | tr '\n' '/')]
+      $(grep -m1 '^ssc3:' "$TMP/e14" | cut -c1-100)"
+elif [ $obrc -ne 0 ] || [ "$ovia" != "$owant" ]; then
+  red "optics: bridge rc=$obrc [$(printf '%s' "$ovia" | tr '\n' '/')] — $(grep -m1 '^ssc3:' "$TMP/e14b" | cut -c1-100)"
+else say ok "optics: .some, .each, .index and .at — values AND kinds, both lanes"; fi
+
+# A STEP THIS REWRITE CANNOT READ still refuses by name, and that arm has to keep working: a path may
+# hold any call at all, and the message must name the step rather than the shape.
+printf 'val l = Focus[T](_.a.mystery(1))\n' > "$TMP/fs.ssc"
+ferr="$(timeout 60 $SSC3 run "$TMP/fs.ssc" 2>&1 >/dev/null)"; frc=$?
+if [ $frc -eq 0 ]; then red "focus: an unreadable step was accepted"
+elif ! grep -qE ":[0-9]+:[0-9]+: Focus takes a path of fields and optic steps" <<<"$ferr"; then
+  red "focus: an unreadable step refused in the wrong shape — [$(cut -c1-120 <<<"$ferr")]"
+else say ok "focus: a step that is neither a field nor an optic step refuses by name"; fi
 
 if [ $fails -gt 0 ]; then echo "rewrite-gate: FAIL ($fails)"; exit 1; fi
 echo "rewrite-gate: OK"

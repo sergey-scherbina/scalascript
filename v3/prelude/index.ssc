@@ -271,21 +271,26 @@ case class Errored[A](error: A)
 
 ## Optics
 
-**`Prism[S, C]` is written by a person and BUILT BY A PLUGIN** — `v3/plugins/PrismSyntax.scala`
-rewrites the marker into a `PrismOptic` holding two functions, and this is the value it holds. The
-kernel knows neither `Prism` nor this class; the rewrite names it and the prelude defines it, which
-is the same split `direct` uses.
+**THE OPTIC VALUES ARE NOT DEFINED HERE.** They live in [`std/optics.ssc`](../../std/optics.ssc) —
+ordinary ScalaScript, no host surface, and MEASURED to give byte-identical output on the v2 reference
+lane and on both v3 lanes. The prelude imports them so `Focus`/`Prism` need no import at the use
+site, which is the only thing this file adds.
 
-**THE NAME IS NOT `Prism`, and that is load-bearing rather than shy.** A name with a registered
-rewrite is a marker wherever it appears with brackets or an argument list, so a class called `Prism`
-could never be CONSTRUCTED — `Prism(test, wrap)` would be read as a marker with two arguments and
-handed back to the very rewrite that is trying to emit it. The emitted name has to be one no marker
-claims.
+**WHY A SHARED FILE AND NOT A PRELUDE SECTION.** The reference implements optics as a host plugin
+(`v2/runtime/std/optics-plugin`), because a path step that reads a field BY NAME needs reflection.
+The library needs none: a FIELD step is handed a getter and a setter, and whoever knows the field
+names supplies them — a front that reads `_.address.city` knows them at compile time. Everything
+else (`.some`, `.each`, `.index`, `.at`) is Option, List and Map, which need no names. So the
+semantics can be one file every version shares, and only the syntax stays per-version. That is the
+choice the owner already took for `Dataset` (`BACKLOG.md`, option 3): write the library IN
+ScalaScript so every lane gets one implementation and none grows host surface.
 
-**Both functions are needed even though one is the identity today.** `wrap` puts a matched variant
-back into the outer type, and at Tier 0 a variant IS its enum at runtime, so `x => x` is correct and
-`reverseGet` is a wrapper call rather than a special case. Writing it as a field keeps the shape
-honest for a representation that ever boxes.
+[Optic, opticField, opticSome, opticEach, opticIndex, opticAt, opticShow, opticJoinKind, opticMissing, opticSomeAll, opticSomeOver, opticAtAll, opticAtOver, opticAtLabel, opticIndexUpdate](../../std/optics.ssc)
+
+**`PrismOptic` STAYS HERE, and the asymmetry is honest:** a prism tests a variant TAG, which a
+`case c: Circle =>` pattern does and a portable library cannot express without knowing the name. The
+rewrite emits that pattern, so what is left for a value to hold is two closures — small enough that a
+shared file would carry nothing but a constructor.
 
 ```scalascript
 case class PrismOptic(test: Any, wrap: Any):
@@ -299,24 +304,6 @@ case class PrismOptic(test: Any, wrap: Any):
       case Some(_) => wrap(v)
       case None => s
   def reverseGet(x: Any): Any = wrap(x)
-```
-
-**`Focus[S](_.a.b)` is the other half**, and it is a different KIND of optic: a prism may miss, a
-lens never does. `v3/plugins/FocusSyntax.scala` reads the field names out of the path — which is the
-whole reason the door exists, because a call receives a FUNCTION and cannot see `_.a.b` as a path —
-and emits the getter and the nested `copy` as ordinary expressions. `LensOptic` is what holds them.
-
-**`andThen` builds a third lens out of two, in ScalaScript rather than in the rewrite**, because
-composition is a fact about lenses and not about syntax: the rewrite has no idea what it is being
-composed with, and a `LensOptic` handed another one can answer without either of them being a marker.
-
-```scalascript
-case class LensOptic(getf: Any, setf: Any):
-  def get(s: Any): Any = getf(s)
-  def set(s: Any, v: Any): Any = setf(s, v)
-  def modify(s: Any, f: Any): Any = setf(s, f(getf(s)))
-  def andThen(o: Any): Any =
-    LensOptic((s: Any) => o.get(getf(s)), (s: Any, v: Any) => setf(s, o.set(getf(s), v)))
 ```
 
 ## md

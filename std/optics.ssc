@@ -1,0 +1,196 @@
+---
+name: std-optics
+version: 1.0.0
+description: Optics — Lens, Optional and Traversal as ONE composable value, in ScalaScript
+package: std.optics
+exports:
+  - Optic
+  - opticField
+  - opticSome
+  - opticEach
+  - opticIndex
+  - opticAt
+  - opticJoinKind
+  - opticShow
+---
+
+# Optics
+
+**ONE VALUE, THREE KINDS.** A `Lens` always hits, an `Optional` may miss, a `Traversal` may hit many
+— and they are the same structure with different numbers of foci. So this module carries one
+`Optic`, built from two functions:
+
+- `allOf(s)` — every focus, as a `List`. One element for a lens, zero or one for an optional, any
+  number for a traversal.
+- `overAll(s, f)` — the source rebuilt with `f` applied at every focus.
+
+`get`, `getOption`, `getAll`, `set` and `modify` are views on those two, and `andThen` composes any
+kind with any other. That is why composition needs no cases: `Lens.andThen(Traversal)` is a
+traversal because the KIND is joined separately from the functions.
+
+## WHY THIS IS A LIBRARY AND NOT A COMPILER FEATURE
+
+The reference implements optics as a HOST plugin (`v2/runtime/std/optics-plugin`), which is the
+straightforward way when the path steps have to read a field BY NAME at run time. **This module does
+not need that**, and the reason is worth stating because it is what makes the code portable: a FIELD
+step is supplied as a getter and a setter — two ordinary functions — by whoever knows the field
+names. A compiler front that reads `_.address.city` knows them at compile time and can pass
+`(s => s.address.city, (s, v) => s.copy(address = s.address.copy(city = v)))`; nothing here reflects.
+
+Everything else — `.some`, `.each`, `.index(i)`, `.at(k)` — is about Option, List and Map, and needs
+no names at all. So the split is: **the syntax is a front's business, the semantics are this file's,
+and only the field step crosses between them.**
+
+This is the same choice the owner already took for `Dataset` (`v3/BACKLOG.md`, option 3): write the
+library IN ScalaScript, over lists, so every lane gets one implementation and no lane grows host
+surface.
+
+## THE RULES ARE THE REFERENCE'S
+
+Every clause below is `OpticsNativePlugin.scala`'s, read before writing. `.index` and `.at` are
+BOUNDS-CHECKED and answer `None` when they miss; `.at` on an absent key SETS only when it is the last
+step; a traversal's `set` is `modify` with a constant; and the kind is `Traversal` if any step is
+`.each`, `Optional` if any step may miss, `Lens` otherwise.
+
+```scalascript
+case class Optic(kind: String, path: String, allOf: Any, overAll: Any):
+  def getAll(s: Any): Any = allOf(s)
+
+  def getOption(s: Any): Any =
+    allOf(s) match
+      case h :: t => Some(h)
+      case _ => None
+
+  def get(s: Any): Any =
+    allOf(s) match
+      case h :: t => h
+      case _ => opticMissing(path)
+
+  def set(s: Any, v: Any): Any = overAll(s, (x: Any) => v)
+
+  def modify(s: Any, f: Any): Any = overAll(s, f)
+
+  def andThen(o: Any): Optic =
+    Optic(opticJoinKind(kind, o.kind), path + o.path,
+          (s: Any) => allOf(s).flatMap((x: Any) => o.allOf(x)),
+          (s: Any, f: Any) => overAll(s, (x: Any) => o.overAll(x, f)))
+```
+
+`get` on an optic that missed is the one operation with no answer. The reference throws; this says
+which path failed, because an optic's whole point is that the path is visible.
+
+```scalascript
+def opticMissing(path: String): Any =
+  throw new RuntimeException("optic.get: no focus at _" + path)
+```
+
+## Joining kinds
+
+A composition is a traversal if either side is one; otherwise an optional if either side may miss;
+otherwise a lens. Written as one function so the rule lives in one place.
+
+```scalascript
+def opticJoinKind(a: String, b: String): String =
+  if a == "Traversal" || b == "Traversal" then "Traversal"
+  else if a == "Optional" || b == "Optional" then "Optional"
+  else "Lens"
+```
+
+## The steps
+
+A FIELD is the only step that needs to be told the names, and it is told them as functions.
+
+```scalascript
+def opticField(name: String, g: Any, s: Any): Optic =
+  Optic("Lens", "." + name,
+        (x: Any) => List(g(x)),
+        (x: Any, f: Any) => s(x, f(g(x))))
+```
+
+`.some` focuses through `Some` and misses on `None`.
+
+Each step's two functions are named `def`s rather than lambdas written inside the argument list, and
+that is a LAYOUT fact rather than a style choice: an indented `match` inside a bracketed argument list
+has no layout to end it, so the front reads the `,` after the last arm as a statement separator and
+refuses the file. Named, they are also readable.
+
+```scalascript
+def opticSomeAll(x: Any): Any =
+  x match
+    case Some(v) => List(v)
+    case _ => List()
+
+def opticSomeOver(x: Any, f: Any): Any =
+  x match
+    case Some(v) => Some(f(v))
+    case _ => x
+
+def opticSome(): Optic =
+  Optic("Optional", ".some",
+        (x: Any) => opticSomeAll(x),
+        (x: Any, f: Any) => opticSomeOver(x, f))
+```
+
+`.each` focuses every element of a list — the only step that can produce more than one focus.
+
+```scalascript
+def opticEach(): Optic =
+  Optic("Traversal", ".each",
+        (x: Any) => x,
+        (x: Any, f: Any) => x.map(f))
+```
+
+`.index(i)` is bounds-checked on both sides: out of range is a MISS for reading and a NO-OP for
+writing, never an error and never a list that changed length.
+
+```scalascript
+def opticIndexUpdate(xs: Any, i: Int, f: Any): Any =
+  var out = List()
+  var j = 0
+  xs.foreach { x =>
+    if j == i then out = out :+ f(x) else out = out :+ x
+    j = j + 1
+  }
+  out
+
+def opticIndex(i: Int): Optic =
+  Optic("Optional", ".index(" + i.toString + ")",
+        (x: Any) => if i >= 0 && i < x.length then List(x(i)) else List(),
+        (x: Any, f: Any) => if i >= 0 && i < x.length then opticIndexUpdate(x, i, f) else x)
+```
+
+`.at(k)` reads a map key. A present key is a focus; an absent one is a miss, and modifying through a
+miss leaves the map alone — the reference inserts only when `.at` is the LAST step, which `set`
+reaches through `overAll` with a constant function and an absent key cannot.
+
+```scalascript
+def opticAtLabel(k: Any): String =
+  k match
+    case s: String => ".at(\"" + s + "\")"
+    case other => ".at(_)"
+
+def opticAtAll(x: Any, k: Any): Any =
+  x.get(k) match
+    case Some(v) => List(v)
+    case _ => List()
+
+def opticAtOver(x: Any, k: Any, f: Any): Any =
+  x.get(k) match
+    case Some(v) => x.updated(k, f(v))
+    case _ => x
+
+def opticAt(k: Any): Optic =
+  Optic("Optional", opticAtLabel(k),
+        (x: Any) => opticAtAll(x, k),
+        (x: Any, f: Any) => opticAtOver(x, k, f))
+```
+
+## Printing
+
+`Lens(_.x)`, `Optional(_.point.some.y)`, `Traversal(_.points.each.z)` — the kind and the path the
+person wrote. Kept as a function rather than a `toString` because a rendering hook that every lane
+honours for a data value is a separate question from what the string should be.
+
+```scalascript
+def opticShow(o: Optic): String = o.kind + "(_" + o.path + ")"
+```

@@ -109,18 +109,28 @@ Four optic KINDS, not one, and composition between kinds (`andThen` of a Lens an
   and `.at("k")` are calls, but `.some` and `.each` are ordinary SELECTIONS, identical in tree shape
   to a field of that name — the first version checked the shape and let `_.profile.some.city`
   through as a three-field lens.
-- **R4b** `optional` — `.some`, `Optional`, and Lens∘Optional composition. NOTE, from R4a: the four
-  remaining cases now REFUSE identically on both fronts with a position naming the step, so they are
-  no longer one-sided and no longer sit in `KNOWN_CONF_V3_ONLY`. Convergence on a refusal is still
-  convergence, and it is the more useful kind to have reached first: a one-sided refusal is how a gap
-  hides, and these four now say exactly which kind of optic they are waiting for.
-- **[x] R4c** `prisms` — LANDED, and it did land independently, which is why it went first. 55 lines
-  in `v3/plugins/PrismSyntax.scala` plus a `PrismOptic` case class in the prelude; +1 on both lanes.
-  It also paid for the FOURTH marker spelling — type arguments and NO argument list — which both
-  fronts were losing differently, and for the type-argument SPLIT, which they disagreed about the
-  moment they stopped disagreeing about the spelling.
-- **R4d** `optics-index-at` — `.index`/`.at` over `List`/`Map`.
-- **R4e** `traversal` + `optic-polish` — `.each`, and an optic that prints.
+- **[x] R4b, R4d and R4e's `traversal` — LANDED TOGETHER, because they turned out to be one thing.**
+  The step kinds are not separate features: `Lens`, `Optional` and `Traversal` are the same structure
+  with different numbers of foci, so `std/optics.ssc` carries ONE `Optic` built from `allOf(s)` and
+  `overAll(s, f)`, and `get`/`getOption`/`getAll`/`set`/`modify` are views on those two. Composition
+  needs no cases at all — `opticJoinKind` joins the kind while the functions compose — which is why
+  `Lens.andThen(Traversal)` is a traversal by the same rule whether the halves came from one `Focus`
+  or from a user's own `andThen` of two of them.
+- **[x] R4c** `prisms` — landed earlier, and independently as planned.
+- **[ ] R4e's `optic-polish` — BLOCKED, and on nothing to do with optics.** It needs `println(lens)`
+  to print `Lens(_.x)`, which no lane can do for a ScalaScript value, and positional/mixed `copy`.
+  Both are filed (`v3-an-optic-cannot-print-itself-…`, `v3-copy-with-positional-or-mixed-arguments`).
+  The `copy` fix is written and measured and is HELD: landing it alone makes `optic-polish` stop
+  refusing and start answering WRONGLY, which moved DIFF 0 → 1 in the A/B — and DIFF is a floor.
+
+**THE LIBRARY IS SHARED, AND THAT WAS MEASURED RATHER THAN CLAIMED.** `std/optics.ssc` is ordinary
+ScalaScript with no host surface, and one probe prints the same sixteen lines on the v2 REFERENCE
+lane, on v3's executor and on v3's bridge. The reference implements optics as a host plugin because a
+field step reads a field BY NAME at run time; this library never does — a field step is handed a
+getter and a setter by whoever knows the names, and a front that reads `_.address.city` knows them at
+compile time. Everything else (`.some`, `.each`, `.index`, `.at`) is Option, List and Map. So the
+split is: the syntax is a front's business, the semantics are one shared file's, and only the field
+step crosses between them. Same choice the owner already took for `Dataset` (option 3).
 
 *Done when:* each of the six runs on BOTH lanes, and the optic library lives in `std`/`prelude` with
 the rewrite emitting calls into it — never a second implementation inside the kernel.
