@@ -1765,3 +1765,71 @@ regression cannot come back silently.
 **Still open, and not v3's:** interp answers `1 == 1.0` with `false` while the v2 runtime answers
 `true`, and the native front refuses every mixed comparison at type-check with `cannot unify
 Int vs Float`. Filed as `lanes-disagree-on-mixed-numeric-comparison` in the root `BUGS.md`.
+
+## v3-takewhile-on-a-string-is-executor-only — the bridge answers, the executor refuses
+
+<!-- status: open
+     lane: v3
+     kind: bug
+     area: runtime
+     found-by: claude-code
+     found-at: 2026-08-21 -->
+
+**`"Circle(3)".takeWhile(c => c != '(')` prints `Circle` on the bridge and is REFUSED on the
+executor:**
+
+    ssc3: method 'takeWhile' on Circle(3)' is not implemented by v3's executor —
+          `ssc3 run --bridge` runs it on v2
+
+`takeWhile` on a LIST works on both lanes; it is the String receiver that only one lane answers.
+That makes this a lane pair rather than a missing feature: the two lanes are supposed to answer the
+same IR, and here one of them declines a method the other performs.
+
+**FOUND WHILE MEASURING SOMETHING ELSE, and the measurement is the point.** The corpus row
+`standard-scala-multifence` refuses with `call to unknown function 'f'`, so it was counted as an
+interpolator case waiting for `def f(parts, args)`. Defining `f` moves the refusal one line down, to
+this. **The interpolator was never its blocker** — a refusal short-circuits, so every "N cases need
+X" is a lower bound until X exists, and this row's real need is a string method.
+
+**Repro:**
+
+    println("Circle(3)".takeWhile(c => c != OPEN))    # OPEN is the character literal for `(`
+
+    v3/ssc3 run f.ssc            # refused, the message above
+    v3/ssc3 run --bridge f.ssc   # Circle
+
+**Fix goes in** `v3/src/Exec.scala`, beside the other String methods — and `v3/extension-gate.sh`
+derives `Lower`'s built-in vocabulary from `Exec`'s table, so adding it there is what keeps the two
+in step.
+
+## v3-an-interpolator-prefix-and-an-ordinary-function-share-one-namespace — `raw` cannot be both
+
+<!-- status: open
+     lane: v3
+     kind: bug
+     area: front
+     found-by: claude-code
+     found-at: 2026-08-21 -->
+
+**`pfx"…"` lowers to `pfx(parts, args)`, so an interpolator's prefix IS an ordinary global name** —
+which is what made interpolators definable in a library (`v3-an-interpolator-prefix-is-hardcoded-in-
+both-fronts`, fixed f92e3c644) and is also this defect. A program cannot have both `raw"…"` and a
+one-argument `raw(value)`, because v3 has no arity overloading: two `def`s of one name leave the
+first winning.
+
+**MEASURED ON A REAL FILE, not imagined.** `tests/conformance/std-ui-native-html-lambda-lib.ssc:11`
+is
+
+    html"""<p>${raw(value)}</p>"""
+
+so that case needs `html(parts, args)` AND a one-argument `raw(value)` — the HTML helper that marks a
+value as already-escaped. Define `raw(parts, args)` for the interpolator and the file's refusal turns
+from `unknown function 'raw'` into `call to 'raw' passes 1 argument(s)`. The two cannot coexist.
+
+**Scala does not have this problem** because `raw"…"` is a method on `StringContext` and `raw(x)` is
+a plain function — two namespaces. v3 has one.
+
+**WHAT THIS IS NOT:** it is not an argument for putting interpolators back in the kernel. The
+library encoding is what made `md` a twelve-line function this week. It is an argument for deciding
+where an interpolator's name lives — an owner decision, recorded before anyone writes `def html`,
+because writing it is what makes the collision permanent.
