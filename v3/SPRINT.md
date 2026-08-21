@@ -102,8 +102,18 @@ nested `copy(field = …)`, and `get`/`modify`/`andThen` are a small `Lens` in `
 Four optic KINDS, not one, and composition between kinds (`andThen` of a Lens and an Optional in
 `optional.ssc:40`). So R4 splits, each step a corpus case that either runs or does not:
 
-- **R4a** `lenses` — `Lens` only, the row's original claim, and the only one it described.
-- **R4b** `optional` — `.some`, `Optional`, and Lens∘Optional composition.
+- **[x] R4a** `lenses` — LANDED. `Focus[S](_.a.b)` reads the field names off the path and emits the
+  nested `copy` a person would have written; `LensOptic` in the prelude holds the getter and the
+  setter, and `andThen` composes two of them in ScalaScript rather than in the rewrite. THE FOUR
+  NON-LENS STEPS ARE REFUSED BY NAME, not by shape, and that distinction was measured: `.index(1)`
+  and `.at("k")` are calls, but `.some` and `.each` are ordinary SELECTIONS, identical in tree shape
+  to a field of that name — the first version checked the shape and let `_.profile.some.city`
+  through as a three-field lens.
+- **R4b** `optional` — `.some`, `Optional`, and Lens∘Optional composition. NOTE, from R4a: the four
+  remaining cases now REFUSE identically on both fronts with a position naming the step, so they are
+  no longer one-sided and no longer sit in `KNOWN_CONF_V3_ONLY`. Convergence on a refusal is still
+  convergence, and it is the more useful kind to have reached first: a one-sided refusal is how a gap
+  hides, and these four now say exactly which kind of optic they are waiting for.
 - **[x] R4c** `prisms` — LANDED, and it did land independently, which is why it went first. 55 lines
   in `v3/plugins/PrismSyntax.scala` plus a `PrismOptic` case class in the prelude; +1 on both lanes.
   It also paid for the FOURTH marker spelling — type arguments and NO argument list — which both

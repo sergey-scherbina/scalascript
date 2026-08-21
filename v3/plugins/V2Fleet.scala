@@ -58,6 +58,9 @@ object V2Fleet:
       DirectSyntax.install()
       // THE SECOND: `Prism[S, C]`, named entirely by its type arguments — no path, no block.
       PrismSyntax.install()
+      // AND THE THIRD, the one the door was built for: `Focus[S](_.a.b)` reads FIELD NAMES out of a
+      // path a call would only ever see as a function.
+      FocusSyntax.install()
       // v2's own renderer, which knows what a provider's handle means — its `Show` has an arm for
       // `ForeignV(nmo: NamedMethodObj)` precisely so a boxed option prints as `None`. Failures
       // decline rather than propagate: a value this cannot convert is not a value whose printing

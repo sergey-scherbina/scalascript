@@ -174,18 +174,22 @@ check_set "uniml" "${KNOWN_UNIML_ONLY[*]}" "$uniml_only"
 # same question, and the divergence stopped. The gate demanded the removal in the same commit, which
 # is exactly what it is for. `prisms` FOLLOWED THE SAME DAY, for the same reason and by a different
 # route: `Prism[S, C]` is named entirely by its type arguments, so its client needed no path grammar
-# at all — which is why it landed before the five `Focus` rows, and they stay until `Focus` has one.
+# at all.
+#
+# AND THEN THE FIVE `Focus` ROWS WENT TOGETHER, which is worth reading carefully because they did not
+# all converge the same way. `lenses` converged on RUNNING — both fronts build the marker, the client
+# rewrites it, the case answers. The other four converged on REFUSING: `.some`, `.each`, `.index` and
+# `.at` are steps in the same path grammar that are NOT lenses, so the client refuses them by name,
+# with a position, on both fronts. Both are convergence — this list is about the two fronts giving
+# the SAME verdict, not about the verdict being yes — and the second kind is the more useful one to
+# have noticed, because a one-sided refusal is how a gap hides. What is left here is one row that has
+# nothing to do with optics.
 declare -a KNOWN_CONF_V3_ONLY=(
   # v3's front took `;` as a statement separator (v3-block-has-no-semicolon-statement-separator) and
   # this case is the one where that made v3 the MORE permissive of the two: uniml still refuses it.
   # Listed rather than chased, because the six cases the same change moved the other way — dropped
   # from KNOWN_CONF_UNIML_ONLY just below — are the direction that mattered.
   enum-shared-casename
-  lenses
-  optic-polish
-  optics-index-at
-  optional
-  traversal
 )
 
 # THREE ENTRIES ADDED 2026-08-10 WITH `extension`, AND NONE OF THEM IS ABOUT EXTENSIONS.

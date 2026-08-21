@@ -162,11 +162,12 @@ printf 'val e = Focus[Map[String, Int]](_.size)\n' > "$TMP/s5.ssc"
 # name is two plugins claiming one marker, rule 1, and the fleet refuses to install at all rather
 # than picking a winner. Neither spelling needs a probe once its client exists: `ssc3 ast` renders
 # the tree WITHOUT running the pass, so which plugin owns the name does not enter into what the
-# fronts print — only THAT one owns it does. Every future client shortens this list by one.
+# fronts print — only THAT one owns it does. Every client shortened this list by one, and it is now
+# at its floor: `probe` is a name no client will ever claim, which is what it is for.
 for n in 1 2 3 4 5; do
   f="$TMP/s$n.ssc"
-  u="$(SSC3_MARKER_PROBE=probe,Focus timeout 60 $SSC3 ast "$f" 2>&1)"
-  v="$(SSC3_FRONT=v3 SSC3_MARKER_PROBE=probe,Focus timeout 60 $SSC3 ast "$f" 2>&1)"
+  u="$(SSC3_MARKER_PROBE=probe timeout 60 $SSC3 ast "$f" 2>&1)"
+  v="$(SSC3_FRONT=v3 SSC3_MARKER_PROBE=probe timeout 60 $SSC3 ast "$f" 2>&1)"
   if [ "$u" != "$v" ]; then
     red "spelling $n: the fronts print different trees
       uniml: $(printf '%s' "$u" | tr -d '\n' | cut -c1-150)
@@ -284,6 +285,45 @@ cgot="$(timeout 60 $SSC3 run "$TMP/pcap.ssc" 2>"$TMP/e12c")"
 if [ "$cgot" != "Circle(12)" ]; then
   red "prism: a free name in scope was captured — got [$cgot], wanted Circle(12) — $(grep -m1 '^ssc3:' "$TMP/e12c" | cut -c1-90)"
 else say ok "prism: a user name x in the same scope survives the rewrite's own binders"; fi
+
+# ── 13. `Focus[S](_.a.b)` — the client the door was built for, on BOTH lanes.
+# A call receives `_.address.city` as a FUNCTION and can never ask which fields it selected. This
+# reads the names off the tree and emits the nested `copy` a person would have written by hand — the
+# same one `lenses.ssc` writes three lines above its first `Focus`. Nested, because a one-field lens
+# would pass with the recursion wrong.
+L="$TMP/focus.ssc"
+printf 'case class A(street: String, city: String)\ncase class P(name: String, addr: A)\n\nval p = P("x", A("Main", "Boston"))\nval city = Focus[P](_.addr.city)\nval addr = Focus[P](_.addr)\nval street = Focus[A](_.street)\nprintln(city.get(p))\nprintln(city.set(p, "NYC").addr.city)\nprintln(city.set(p, "NYC").addr.street)\nprintln(city.modify(p, c => c + "!").addr.city)\nprintln(addr.andThen(street).get(p))\nprintln(addr.andThen(street).set(p, "Broadway").addr.street)\n' > "$L"
+lwant='Boston
+NYC
+Main
+Boston!
+Main
+Broadway'
+lgot="$(timeout 60 $SSC3 run "$L" 2>"$TMP/e13")"; lrc=$?
+lvia="$(timeout 180 $SSC3 run --bridge "$L" 2>"$TMP/e13b")"; lbrc=$?
+if [ $lrc -ne 0 ] || [ "$lgot" != "$lwant" ]; then
+  red "focus: executor rc=$lrc [$(printf '%s' "$lgot" | tr '\n' '/')] — $(grep -m1 '^ssc3:' "$TMP/e13" | cut -c1-100)"
+elif [ $lbrc -ne 0 ] || [ "$lvia" != "$lwant" ]; then
+  red "focus: bridge rc=$lbrc [$(printf '%s' "$lvia" | tr '\n' '/')] — $(grep -m1 '^ssc3:' "$TMP/e13b" | cut -c1-100)"
+else say ok "focus: get, a nested set that leaves its sibling alone, modify, andThen — both lanes"; fi
+
+# THE FOUR STEPS THAT ARE NOT LENSES, told apart BY NAME because two of them cannot be told apart by
+# shape: `.index(1)` and `.at("k")` are calls, but `.some` and `.each` are ordinary selections,
+# identical to a field of that name. The first version of the client checked the shape and let
+# `_.profile.some.city` through as a three-field lens — a set of a field named `some`, failing at run
+# time with the plugin's name nowhere near it.
+for step in some each index at; do
+  case $step in
+    some|each) printf 'val l = Focus[T](_.a.%s.b)\n' "$step" > "$TMP/fs.ssc" ;;
+    index)     printf 'val l = Focus[T](_.a.index(1))\n' > "$TMP/fs.ssc" ;;
+    at)        printf 'val l = Focus[T](_.a.at("k"))\n' > "$TMP/fs.ssc" ;;
+  esac
+  ferr="$(timeout 60 $SSC3 run "$TMP/fs.ssc" 2>&1 >/dev/null)"; frc=$?
+  if [ $frc -eq 0 ]; then red "focus: '.$step' was accepted as a lens step"
+  elif ! grep -qE ":[0-9]+:[0-9]+: Focus cannot take '$step'" <<<"$ferr"; then
+    red "focus: '.$step' refused in the wrong shape — [$(cut -c1-110 <<<"$ferr")]"
+  else say ok "focus: '.$step' refuses by name and says which kind it would need"; fi
+done
 
 if [ $fails -gt 0 ]; then echo "rewrite-gate: FAIL ($fails)"; exit 1; fi
 echo "rewrite-gate: OK"

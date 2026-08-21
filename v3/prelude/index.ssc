@@ -300,3 +300,21 @@ case class PrismOptic(test: Any, wrap: Any):
       case None => s
   def reverseGet(x: Any): Any = wrap(x)
 ```
+
+**`Focus[S](_.a.b)` is the other half**, and it is a different KIND of optic: a prism may miss, a
+lens never does. `v3/plugins/FocusSyntax.scala` reads the field names out of the path — which is the
+whole reason the door exists, because a call receives a FUNCTION and cannot see `_.a.b` as a path —
+and emits the getter and the nested `copy` as ordinary expressions. `LensOptic` is what holds them.
+
+**`andThen` builds a third lens out of two, in ScalaScript rather than in the rewrite**, because
+composition is a fact about lenses and not about syntax: the rewrite has no idea what it is being
+composed with, and a `LensOptic` handed another one can answer without either of them being a marker.
+
+```scalascript
+case class LensOptic(getf: Any, setf: Any):
+  def get(s: Any): Any = getf(s)
+  def set(s: Any, v: Any): Any = setf(s, v)
+  def modify(s: Any, f: Any): Any = setf(s, f(getf(s)))
+  def andThen(o: Any): Any =
+    LensOptic((s: Any) => o.get(getf(s)), (s: Any, v: Any) => setf(s, o.set(getf(s), v)))
+```
