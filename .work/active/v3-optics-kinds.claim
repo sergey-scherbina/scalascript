@@ -5,7 +5,7 @@ started: 2026-08-21T14:14:30Z
 heartbeat: 2026-08-21T14:14:30Z
 status: claimed-before-planning
 items: v3-optics-optional-traversal-kinds v3-takewhile-on-a-string-is-executor-only v3-an-interpolator-prefix-and-an-ordinary-function-share-one-namespace
-paths: file:std/optics.ssc file:v3/prelude/index.ssc file:v3/plugins/FocusSyntax.scala file:v3/plugins/PrismSyntax.scala file:v3/rewrite-gate.sh file:v3/front-capability-gate.sh file:v3/src/Exec.scala file:v3/BUGS.md file:v3/SPRINT.md
+paths: file:std/optics.ssc file:v3/prelude/index.ssc file:v3/plugins/FocusSyntax.scala file:v3/plugins/PrismSyntax.scala file:v3/rewrite-gate.sh file:v3/front-capability-gate.sh file:v3/src/Exec.scala file:v3/src/Lower.scala file:v3/BUGS.md file:v3/SPRINT.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+next: positional and mixed copy, then the optic rendering hook
