@@ -317,7 +317,7 @@ with the other fixes.
      area: build
      kind: apparatus
      gate: .github/workflows/v3.yml
-     fixed-in: CAPSHA
+     fixed-in: 7320efbcc
      confirmed: yes
      reported-by: claude-code
      reported-at: 2026-08-21
