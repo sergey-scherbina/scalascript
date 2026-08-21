@@ -39,14 +39,34 @@ object DirectSyntax:
         "direct[" + monad + "] is not supported — the desugaring is defined for Option and List, " +
         "and nothing else has a `flatMap` this rewrite may assume", m.pos))
     else m.args match
+      // AN EMPTY BLOCK IS ONE ANSWER ON BOTH FRONTS ONLY IF IT IS THIS ONE. `direct[M] { }` reaches
+      // v3's own front as `Block(Nil, None)` and the projection as NO ARGUMENT — it drops an empty
+      // block entirely — so a client that answered unit for the first would refuse the second, and
+      // the two fronts would disagree about a program that is legal on neither. Measured before it
+      // could ship: v3's front answered `()` while uniml refused. Refusing both is the only verdict
+      // a front that has already lost the block can still give.
+      case List(Expr.Block(Nil, None, _)) | Nil => Left(Plugins.Refusal(
+        "direct[" + monad + "] { } has an empty block — nothing to bind and no value to answer with", m.pos))
       case List(b @ Expr.Block(_, _, _)) => Right(desugar(b, monad))
-      // Unreachable from either front — both build the marker only for the brace spelling — so this
-      // is about a rewrite that MINTS a `direct` marker, which rule 2 allows.
+      // A rewrite that MINTED a `direct` marker holding something that is not a block; rule 2
+      // allows one, and neither front can produce this shape.
       case _ => Left(Plugins.Refusal("direct expects a block: `direct[" + monad + "] { … }`", m.pos))
 
   private def desugar(b: Expr.Block, monad: String): Expr =
     def go(stmts: List[Stmt], mutables: Set[String]): Expr = stmts match
-      case Nil => b.result.getOrElse(Expr.Block(Nil, None, b.pos))
+      // THE RESULT POSITION CAN HOLD A BIND, and this is where v3's shape differs from the
+      // reference's without the RULE differing. `directStmts` matches `assign` FIRST, in any
+      // position, so a block whose last statement is `x = e` binds with an empty remainder; v3's
+      // parser has already moved that trailing statement out of `stmts` and into `result`, so the
+      // same clause has to be asked here too. Measured: without it `direct[Option] { x = Some(1) }`
+      // reached the lowering as a bare assignment and was refused with `assignment to unknown name
+      // 'x'` — blaming the author for an assignment they did not write.
+      case Nil =>
+        b.result match
+          case Some(Expr.Assign(n, rhs, q)) if !mutables.contains(n) =>
+            Expr.MethodCall(rhs, "flatMap",
+                            List(Expr.Lambda(List(Param(n, q)), Expr.UnitLit(q), q)), q)
+          case other => other.getOrElse(Expr.UnitLit(b.pos))
       case st :: rest =>
         st match
           case Stmt.Exp(Expr.Assign(n, rhs, q)) if !mutables.contains(n) =>

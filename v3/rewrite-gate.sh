@@ -204,5 +204,36 @@ elif grep -q "__unsupported_direct" <<<"$uerr"; then
   red "direct: refused by inventing an identifier, the reference's way, rather than by position"
 else say ok "direct[IO] refuses with a position instead of inventing a name"; fi
 
+# ── 11. THE TWO DEGENERATE BLOCKS, both found by asking rather than by a corpus case — the corpus
+# has neither shape, so nothing else in this repository would have said a word.
+#
+# A TRAILING BIND. `direct[M] { x = e }` binds with an empty remainder in the reference, whose
+# `directStmts` matches `assign` FIRST in any position. v3's parser has already moved that trailing
+# statement out of `stmts` and into `result`, so a client that only reads `stmts` hands the raw
+# assignment to the lowering and the author is told `assignment to unknown name 'x'` — blamed for an
+# assignment they did not write.
+#
+# AN EMPTY BLOCK. `direct[M] { }` reaches v3's own front as `Block(Nil, None)` and the projection as
+# NO ARGUMENT, because it drops an empty block entirely. Answering unit for the first would refuse
+# the second, so the two fronts would disagree about a program legal on neither. Both refuse.
+printf 'val a = direct[Option] {\n  x = Some(1)\n}\nprintln(a)\n' > "$TMP/tail.ssc"
+printf 'val b = direct[Option] {\n}\n' > "$TMP/empty.ssc"
+tgot="$(timeout 60 $SSC3 run "$TMP/tail.ssc" 2>"$TMP/e11")"; trc=$?
+if [ $trc -ne 0 ] || [ "$tgot" != "()" ]; then
+  red "direct: a trailing bind gave rc=$trc [$tgot], wanted () — $(grep -m1 '^ssc3:' "$TMP/e11" | cut -c1-100)"
+elif grep -q "assignment to unknown name" "$TMP/e11"; then
+  red "direct: a trailing bind reached the lowering as a bare assignment"
+else say ok "direct: a trailing bind binds with an empty remainder, as the reference does"; fi
+
+eu="$(timeout 60 $SSC3 run "$TMP/empty.ssc" 2>&1 >/dev/null)"
+ev="$(SSC3_FRONT=v3 timeout 60 $SSC3 run "$TMP/empty.ssc" 2>&1 >/dev/null)"
+if [ "$eu" != "$ev" ]; then
+  red "direct: an empty block differs by FRONT
+      uniml: $(printf '%s' "$eu" | tr -d '\n' | cut -c1-110)
+      v3   : $(printf '%s' "$ev" | tr -d '\n' | cut -c1-110)"
+elif ! grep -qE ':[0-9]+:[0-9]+: direct\[Option\] \{ \} has an empty block' <<<"$eu"; then
+  red "direct: an empty block is not refused with a position — [$(cut -c1-110 <<<"$eu")]"
+else say ok "direct: an empty block refuses identically on both fronts"; fi
+
 if [ $fails -gt 0 ]; then echo "rewrite-gate: FAIL ($fails)"; exit 1; fi
 echo "rewrite-gate: OK"
