@@ -146,9 +146,30 @@ right about one case of three:
 *Done when:* the remaining two are re-filed against what actually blocks them, which is not this
 row's subject. A refusal short-circuits, so "N cases need X" is always a lower bound until X exists.
 
-**R6 — measure and release.** Both lanes, against a control on the day's `origin/main`, with all
-four runs verified to report the same front before any number is read. The expected movement is +9
-if every client lands; the floors are the point, not the number.
+**[x] R6 — MEASURED 2026-08-21, against the commit BEFORE R1 rather than the day's `origin/main`,
+because the question is what the series bought and the baseline moved under it.**
+
+    exec    266 → 273     DIFF 0 → 0     CRASH 3 → 2
+    bridge  263 → 270     DIFF 0 → 0     CRASH 0 → 0
+
+All four runs verified to report the same lane and the same front before any number was read.
+
+**+7 IS THE WINDOW, NOT THE CONTRIBUTION, and the difference is the whole reason to say both.** Each
+step was also measured against a control on its own `origin/main`, and those add to **+6** on each
+lane: `direct` +3, `prisms` +1, `lenses` +1, `md` +1. The seventh row on each lane, and the CRASH
+3 → 2, are a sibling's effects work that landed between R2 and R3 — visible because the control's own
+number moved from 266 to 267 mid-series. Reporting +7 as this claim's result would credit someone
+else's commit to this one, which is the failure mode a per-step control exists to prevent.
+
+**5 OF THE 9 MARKER CASES, not 9.** The row used to expect +9 "if every client lands". Three
+`direct`, one `prisms`, one `lenses` landed; the four remaining `Focus` cases each need an optic KIND
+that does not exist yet — `Optional` for `.some`, an `Optional` over collections for `.index`/`.at`,
+`Traversal` for `.each` — and they now REFUSE identically on both fronts with a position naming the
+step, which is why they left `KNOWN_CONF_V3_ONLY` without passing. R4b, R4d and R4e are what remains,
+and they are library work behind a client that already exists.
+
+**THE FLOORS WERE THE POINT AND THEY HELD**: DIFF stayed 0 on both lanes through eight landings, and
+CRASH never rose.
 
 ## ssc3-jvm-interop (claim `v3-jvm-interop`) — a JVM package is importable, from OUTSIDE the kernel
 
