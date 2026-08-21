@@ -310,18 +310,76 @@ refusal restored on its own it goes red and `perform-in-if`, `perform-in-loop`, 
 and `cross-frame-in-loop` still answer 32, 12, 232 and 20 — so the row is not sharing its evidence
 with the other fixes.
 
-## v3-ci-never-registers-the-importable-jvm-packages — a gate whose colour depends on the checkout
+## v3-gates-job-is-killed-at-its-cap-and-reports-cancelled — 42 minutes of work, 45 of budget
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      area: build
      kind: apparatus
      gate: .github/workflows/v3.yml
-     fixed-in: -
+     fixed-in: TIMEOUTSHA
+     confirmed: yes
+     reported-by: claude-code
+     reported-at: 2026-08-21
+     repro: compare startedAt/completedAt of the `v3 gates` job across consecutive runs
+     impact: none -->
+
+**A JOB KILLED BY `timeout-minutes` IS REPORTED AS `cancelled`, NOT AS A FAILURE**, and `cancelled`
+reads exactly like "a newer push superseded it". I read four runs of this job that way before
+checking a clock, and each time concluded the run had simply been overtaken.
+
+    8a42cbfad  41m58s  failure    (reported)
+    74bbc4b1d  45m16s  cancelled  (killed at the cap)
+    22a36413d  41m29s  failure    (reported)
+    b894bcb09  45m16s  cancelled  (killed at the cap, on the nightly)
+
+Two of them are the cap to the second. **42 minutes of work under a 45-minute cap is a 7% margin on
+a shared runner**, so roughly half the runs die with nothing to say — and the half that survive are
+the only reason anybody has ever seen this job's verdict.
+
+**PRICED PER STEP** on the run that did finish (41.4 min over 30 steps), because "the job got slower"
+and "the cap was always too tight" are different diagnoses and only one of them is true here:
+
+| step | min |
+|---|---|
+| `front differential` | 12.4 |
+| `jit gate — method sizes and the specializer` | 10.9 |
+| `Build the plugin fleet` | 4.4 |
+| `executor differential` | 4.2 |
+| … | |
+| `effects` — 22 fixtures on BOTH lanes | **0.6** |
+| `Register the importable JVM packages` | **0.6** |
+
+Two steps are 56% of the job. Nothing recent is a slow gate that snuck in: the effects suite that
+grew from 16 to 22 fixtures this week costs 37 seconds in total, and the classpath step added
+alongside it costs 34. **The cap was set when the job was smaller and never re-priced.**
+
+**THE SIBLING JOB IN THE SAME FILE ASKS FOR 60 AND FINISHES IN 20.** Giving the 42-minute job less
+budget than the 20-minute one was backwards; raising `gates` to 60 is the whole fix.
+
+Found while trying to read a verdict for unrelated work — every `v3` run on the branch came back
+`cancelled` and I had explained it to myself twice as "superseded" before comparing `startedAt` with
+`completedAt`. Same species as `corpus-contract-gate`, where a job timeout also surfaced as
+`cancelled`; the lesson did not carry across workflows because nothing wrote the number down.
+
+## v3-jvm-classpath-writes-an-escape-sequence-and-calls-it-a-classpath — four bytes, three gates, two weeks
+
+<!-- status: fixed
+     lane: v3
+     area: build
+     kind: bug
+     gate: .github/workflows/v3.yml
+     fixed-in: b894bcb09
+     confirmed: yes
      reported-by: claude-code
      reported-at: 2026-08-20
-     repro: v3/tests/front/jvm-package-import.ssc with v3/.jars/jvm.cp absent and unbuildable
+     repro: a stub `sbt` on PATH printing a classpath then ESC[0J; v3/jvm-classpath.sh writes 4 bytes
      impact: workaround -->
+
+**THE TITLE THIS ENTRY WAS FILED UNDER WAS WRONG**, and it is kept in the body rather than quietly
+replaced because the wrong one is half the lesson: `v3-ci-never-registers-the-importable-jvm-packages`
+described a workflow with a missing step. CI DID register the packages, both before the step existed
+(lazily, from the driver) and after it (explicitly). What it registered was garbage.
 
 The `v3` CI job has been RED on main since the fixture landed (`dff03be59`), on one row in three
 gates at once — `executor differential`, `front` and `front differential`:
@@ -379,6 +437,24 @@ A warm local sbt never prints the sequence, which is the whole reason every chec
 paraphrased, comments included, so the two scripts cannot drift again. Control both ways: the normal
 run produces a byte-identical `jvm.cp`, and the stub run turns the old script's silent success into a
 named failure.
+
+**CONFIRMED ON CI.** `b894bcb09` turned both gates that carried the row green — `executor
+differential` and `front` — after two weeks red. The explicit step (`22a36413d`) stays: it is what
+made the difference between "CI cannot build this" and "CI built four bytes" visible at all, and
+without it the lazy rebuild leaves no trace to read.
+
+**THREE WRONG ANSWERS ON THE WAY, and each was needed to reach the next**, which is why they are
+written down rather than tidied away:
+
+1. *"the workflow never registers it."* True as a fact about the file, false as a cause. The control
+   — delete `jvm.cp` — changed NOTHING, because `v3/ssc3`'s `jvm_cp()` rebuilds it silently. **A
+   control that changes nothing is a refutation, not a confirmation**, and this one was run only
+   after the fix and the entry were already written.
+2. *"then CI cannot build it, and an explicit step will say so."* The step went GREEN and the gate
+   stayed red — which is the useful kind of wrong answer, because it moved the question from
+   "can it build" to "what did it build".
+3. *"the answer must be in the new code."* It was in a sibling script nobody had touched, forty lines
+   away, carrying the fix and its own CI history since 2026-08-18.
 
 **NOT MINE AND TAKEN ANYWAY.** No claim held `.github/workflows/v3.yml` or the fixture, and the red
 blocked the whole `v3` job for everyone. Diagnosed and offered in the coordination room first; taken

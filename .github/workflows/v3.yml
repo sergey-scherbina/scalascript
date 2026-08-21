@@ -156,7 +156,27 @@ jobs:
   gates:
     name: v3 gates
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # 60, NOT 45, AND THE THREE MINUTES BETWEEN THEM WERE COSTING EVERY VERDICT THIS JOB PRODUCES.
+    #
+    # A job killed by `timeout-minutes` is reported by GitHub as **cancelled**, which reads exactly
+    # like "a newer push superseded it" — so the job looked busy rather than broken, and I read four
+    # of its runs that way before checking a clock. Measured across five consecutive runs:
+    #
+    #     8a42cbfad  41m58s  failure    (reported)
+    #     74bbc4b1d  45m16s  cancelled  (killed at the cap)
+    #     22a36413d  41m29s  failure    (reported)
+    #     b894bcb09  45m16s  cancelled  (killed at the cap)
+    #
+    # 42 minutes of work under a 45-minute cap is a 7% margin on a shared runner, so roughly half the
+    # runs die with nothing to say. Priced per step on the run that did finish (41.4 min, 30 steps):
+    # `front differential` 12.4 and `jit gate — method sizes` 10.9 are 56% of it between them; the
+    # whole effects suite — 22 fixtures on BOTH lanes — is 0.6, and this file's own classpath step is
+    # 0.6. Nothing here is a slow gate that snuck in; the cap was simply set when the job was smaller
+    # and never re-priced.
+    #
+    # The SIBLING job below asks for 60 and finishes in 20. Giving the 42-minute job less than the
+    # 20-minute one was backwards, and is the whole of this change.
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
