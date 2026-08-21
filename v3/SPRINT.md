@@ -76,10 +76,40 @@ is rule 3 and strictly better than an invented identifier. It needs nothing but 
 `flatMap` and `map` are ordinary methods. *Done when:* `direct-syntax`, `direct-control-flow` and
 `tagless-direct-syntax` run on BOTH lanes and the two floors hold.
 
-**R4 — `Focus`/`Prism`, the second client, 6 cases.** The field chain is a LITERAL, so the rewrite
-emits the nested `copy(field = …)` that `Lower` already compiles statically — no runtime door,
-which is the assumption this plan corrects. `get`/`modify`/`andThen` are a small `Lens` in `std`.
-*Done when:* `lenses`, `optic-polish`, `optics-index-at`, `optional`, `prisms`, `traversal` run.
+**[x] LANDED.** All three match their recorded expectation on both lanes; N +3 on each. The
+implementation is 60 lines in `v3/plugins/DirectSyntax.scala` and the kernel is untouched, which is
+the claim the door was built to make. Two things reading the reference bought that writing from the
+corpus file's prose would not have: `val _ = e` is a PURE val and not a bind-and-discard (the
+header is wrong about its own case, and implementing it would have answered `Some(Some(42))`), and
+the bind-vs-assignment distinction is carried by a MUTABLE SET rather than by the node's shape.
+Rule 1 also fired for real: the gate had been asking the probe to claim `direct`, which this client
+now owns, and the fleet refused to install and named the marker.
+
+**R4 — `Focus`/`Prism`, the second client, 6 cases. SIZED AGAINST THE ACTUAL FILES 2026-08-21, and
+it is not one step.** The row used to say "the field chain is a LITERAL, so the rewrite emits the
+nested `copy(field = …)`, and `get`/`modify`/`andThen` are a small `Lens` in `std`". That is true of
+`lenses.ssc` and of nothing else. Read across all six, the path grammar is:
+
+| step | appears in | needs |
+| --- | --- | --- |
+| `_.a.b` plain fields | `lenses`, `optional`, `optic-polish` | `Lens` with get/set/modify/andThen |
+| `.some` | `optional`, `optic-polish` | an `Optional` — `getOption`, and set that may miss |
+| `.index(i)` / `.at(k)` | `optics-index-at` | `Optional` over `List`/`Map`, plus `at` semantics |
+| `.each` | `optic-polish`, `traversal` | a `Traversal` — a DIFFERENT kind, not a lens |
+| `Prism[S, C]` | `prisms`, `optic-polish` | case-test + construct, no path at all |
+| `println(xLens)` | `optic-polish` | an optic has to PRINT, so it is a value with a `Show` |
+
+Four optic KINDS, not one, and composition between kinds (`andThen` of a Lens and an Optional in
+`optional.ssc:40`). So R4 splits, each step a corpus case that either runs or does not:
+
+- **R4a** `lenses` — `Lens` only, the row's original claim, and the only one it described.
+- **R4b** `optional` — `.some`, `Optional`, and Lens∘Optional composition.
+- **R4c** `prisms` — `Prism[S, C]`, which needs no path rewrite at all and may land independently.
+- **R4d** `optics-index-at` — `.index`/`.at` over `List`/`Map`.
+- **R4e** `traversal` + `optic-polish` — `.each`, and an optic that prints.
+
+*Done when:* each of the six runs on BOTH lanes, and the optic library lives in `std`/`prelude` with
+the rewrite emitting calls into it — never a second implementation inside the kernel.
 
 **R5 — interpolators, the third client and the reason for the door.** `html"…"` is already decided
 as `pfx(parts, args)` and today is hardcoded to `s` in BOTH fronts. Moved here it is one client of

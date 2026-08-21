@@ -166,20 +166,24 @@ check_set "uniml" "${KNOWN_UNIML_ONLY[*]}" "$uniml_only"
 # is a token here, so the test always said "adjacent". Fixing that made the two fronts agree on this
 # file, and this list going red in the same run is the difference between a closed gap and a
 # permanent exemption for a fixed bug.
+# THE THREE `direct` ROWS CAME OUT 2026-08-21, and they are the first rows this list has lost to a
+# PLUGIN rather than to a front fix. `direct[M] { … }` was one-sided because v3's own front read it
+# as an ordinary trailing-block call while the projection refused the marker by name. Neither front
+# changed its mind: `v3/plugins/DirectSyntax.scala` registered a rewrite for `direct`, and a name is
+# a marker iff a rewrite is registered for it — so both fronts started building the same node on the
+# same question, and the divergence stopped. The gate demanded the removal in the same commit, which
+# is exactly what it is for; the six optics rows below stay until `Focus`/`Prism` have their client.
 declare -a KNOWN_CONF_V3_ONLY=(
   # v3's front took `;` as a statement separator (v3-block-has-no-semicolon-statement-separator) and
   # this case is the one where that made v3 the MORE permissive of the two: uniml still refuses it.
   # Listed rather than chased, because the six cases the same change moved the other way — dropped
   # from KNOWN_CONF_UNIML_ONLY just below — are the direction that mattered.
-  direct-control-flow
-  direct-syntax
   enum-shared-casename
   lenses
   optic-polish
   optics-index-at
   optional
   prisms
-  tagless-direct-syntax
   traversal
 )
 

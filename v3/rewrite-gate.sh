@@ -149,10 +149,15 @@ else say ok "the prelude retry lowers twice and mints the same name both times (
 printf 'val a = probe(41)\n'                                   > "$TMP/s1.ssc"
 printf 'val b = Focus[Person](_.age)\n'                        > "$TMP/s2.ssc"
 printf 'val c = direct[Option] {\n  x = Some(40)\n  Some(x)\n}\n' > "$TMP/s3.ssc"
+# THE PROBE CLAIMS ONLY WHAT NOBODY OWNS, and finding that out cost one red run: `direct` belongs to
+# `DirectSyntax` now, so asking the probe for it too is two plugins claiming one marker — rule 1 —
+# and the fleet refuses to install at all. Spelling 3 needs no probe for exactly that reason: its
+# name is already claimed by a real client, and `ssc3 ast` renders the tree WITHOUT running the pass,
+# so which plugin owns the name does not enter into what the fronts print.
 for n in 1 2 3; do
   f="$TMP/s$n.ssc"
-  u="$(SSC3_MARKER_PROBE=probe,Focus,direct timeout 60 $SSC3 ast "$f" 2>&1)"
-  v="$(SSC3_FRONT=v3 SSC3_MARKER_PROBE=probe,Focus,direct timeout 60 $SSC3 ast "$f" 2>&1)"
+  u="$(SSC3_MARKER_PROBE=probe,Focus timeout 60 $SSC3 ast "$f" 2>&1)"
+  v="$(SSC3_FRONT=v3 SSC3_MARKER_PROBE=probe,Focus timeout 60 $SSC3 ast "$f" 2>&1)"
   if [ "$u" != "$v" ]; then
     red "spelling $n: the fronts print different trees
       uniml: $(printf '%s' "$u" | tr -d '\n' | cut -c1-150)
@@ -163,6 +168,41 @@ for n in 1 2 3; do
     say ok "spelling $n prints one tree on both fronts: $(printf '%s' "$u" | tr -d '\n' | grep -o '(marker [^()]*' | head -1)"
   fi
 done
+
+# ══ THE CLIENTS ══════════════════════════════════════════════════════════════════════════════════
+# Checks 1-8 are about the MECHANISM. What follows is one section per registered client, and they
+# live here rather than in `v3/tests/front/` for a precondition reason: a client is a plugin, so a
+# tree without the fleet cannot run it — and this gate already refuses to be green in that tree,
+# which a front fixture would not.
+
+# ── 9. `direct[M] { … }` — every clause of the reference rule in ONE program, on BOTH lanes.
+# The four statement kinds are the whole desugaring (`v2/lib/ssc1-lower.ssc0:2273`, `directStmts`),
+# and the one that catches a re-derivation is the MUTABLE one: `x = Some(2)` and `c = c + x` are the
+# same node, `Expr.Assign`, and only the `var` declared above tells the second from the first. A
+# client that dropped the mutable set would bind `c` monadically and answer `Some(Some(…))` or
+# refuse — so this program is written so that getting it wrong cannot answer 44.
+D="$TMP/direct.ssc"
+printf 'val r = direct[Option] {\n  var c = 40\n  x = Some(2)\n  val doubled = x * 2\n  val _ = Some("ignored")\n  c = c + doubled\n  Some(c)\n}\nprintln(r)\n' > "$D"
+dgot="$(timeout 60 $SSC3 run "$D" 2>"$TMP/e9")"; drc=$?
+dvia="$(timeout 120 $SSC3 run --bridge "$D" 2>"$TMP/e9b")"; dbrc=$?
+if [ $drc -ne 0 ] || [ "$dgot" != "Some(44)" ]; then
+  red "direct: executor said rc=$drc [$dgot], wanted Some(44) — $(grep -m1 '^ssc3:' "$TMP/e9" | cut -c1-100)"
+elif [ $dbrc -ne 0 ] || [ "$dvia" != "Some(44)" ]; then
+  red "direct: bridge said rc=$dbrc [$dvia], wanted Some(44) — $(grep -m1 '^ssc3:' "$TMP/e9b") "
+else say ok "direct: bind, pure val, discarded val, var-and-assignment — Some(44) on both lanes"; fi
+
+# ── 10. AN UNSUPPORTED MONAD REFUSES WITH A POSITION. The reference answers `direct[IO] { … }` with
+# a VARIABLE named `__unsupported_direct_IO` — an unknown name, reported wherever names resolve and
+# naming nothing the author can act on. A client refuses instead, which is rule 3, and this check is
+# what keeps that from quietly regressing to an invented identifier.
+printf 'val r = direct[IO] {\n  x = Some(1)\n  Some(x)\n}\n' > "$TMP/unsup.ssc"
+uerr="$(timeout 60 $SSC3 run "$TMP/unsup.ssc" 2>&1 >/dev/null)"; urc=$?
+if [ $urc -eq 0 ]; then red "direct: an unsupported monad was accepted"
+elif ! grep -qE ':[0-9]+:[0-9]+: direct\[IO\] is not supported' <<<"$uerr"; then
+  red "direct: the unsupported-monad refusal is the wrong shape — [$(cut -c1-120 <<<"$uerr")]"
+elif grep -q "__unsupported_direct" <<<"$uerr"; then
+  red "direct: refused by inventing an identifier, the reference's way, rather than by position"
+else say ok "direct[IO] refuses with a position instead of inventing a name"; fi
 
 if [ $fails -gt 0 ]; then echo "rewrite-gate: FAIL ($fails)"; exit 1; fi
 echo "rewrite-gate: OK"
