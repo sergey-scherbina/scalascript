@@ -317,7 +317,7 @@ with the other fixes.
      area: build
      kind: apparatus
      gate: .github/workflows/v3.yml
-     fixed-in: a13e7854c
+     fixed-in: CAPSHA
      confirmed: yes
      reported-by: claude-code
      reported-at: 2026-08-21
@@ -355,7 +355,28 @@ grew from 16 to 22 fixtures this week costs 37 seconds in total, and the classpa
 alongside it costs 34. **The cap was set when the job was smaller and never re-priced.**
 
 **THE SIBLING JOB IN THE SAME FILE ASKS FOR 60 AND FINISHES IN 20.** Giving the 42-minute job less
-budget than the 20-minute one was backwards; raising `gates` to 60 is the whole fix.
+budget than the 20-minute one was backwards.
+
+**AND 60 WAS STILL WRONG, which the first green run said immediately.** `a13e7854c` produced the
+first `success` this workflow has ever reported — in **58m55s**, against 41m29s for the same commit
+one run earlier. Every step is ~40% slower and nothing changed between them:
+
+| step | fast run | slow run |
+|---|---|---|
+| `front differential` | 12.4 | 17.3 |
+| `jit gate — method sizes …` | 10.9 | 15.0 |
+| `executor differential` | 4.2 | 6.8 |
+| `Build the plugin fleet` | 4.4 | 5.9 |
+| **total** | **41.4** | **58.9** |
+
+That is RUNNER-SPEED VARIANCE, so the job's duration is a distribution spanning 41–59 minutes and
+not a number — and **a cap has to be set against the SLOW end**. 60 left the slow end a 1.8% margin,
+which is the same coin flip 45 was, one sample further along.
+
+**The sample that refuted it was the one that had just been read as a success**, which is the part
+worth keeping: a green run is evidence about the RESULT and says nothing about the margin, and the
+duration was sitting in the same JSON I had already fetched. Raised to 90 — ~1.5x the observed slow
+end, still half the sibling's ratio.
 
 Found while trying to read a verdict for unrelated work — every `v3` run on the branch came back
 `cancelled` and I had explained it to myself twice as "superseded" before comparing `startedAt` with

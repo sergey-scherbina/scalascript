@@ -175,8 +175,28 @@ jobs:
     # and never re-priced.
     #
     # The SIBLING job below asks for 60 and finishes in 20. Giving the 42-minute job less than the
-    # 20-minute one was backwards, and is the whole of this change.
-    timeout-minutes: 60
+    # 20-minute one was backwards.
+    #
+    # 90, NOT 60, AND THE FIRST GREEN RUN IS WHY. Raising the cap to 60 produced the first `success`
+    # this workflow has ever reported — in 58m55s. Same commit, same steps, 41.4 min the run before:
+    #
+    #     step                                    fast run   slow run
+    #     front differential                        12.4       17.3
+    #     jit gate — method sizes …                 10.9       15.0
+    #     executor differential                      4.2        6.8
+    #     Build the plugin fleet                     4.4        5.9
+    #     ── total                                  41.4       58.9
+    #
+    # Every step is ~40% slower and NOTHING CHANGED between them: that is runner-speed variance, so
+    # the job's duration is a distribution spanning 41–59 minutes and not a number. **A cap has to be
+    # set against the SLOW end.** 60 gives the slow end a 1.8% margin, which is the same coin flip
+    # 45 was, one sample further along — and the sample that would have taught us was the one that
+    # had just been read as a success.
+    #
+    # 90 is ~1.5x the observed slow end. It is not generous: the 20-minute sibling has 3x. If this
+    # job ever genuinely takes 90 minutes, the answer is `front differential` and `jit gate` — 55% of
+    # it between them — not another five minutes here.
+    timeout-minutes: 90
 
     steps:
       - name: Checkout
