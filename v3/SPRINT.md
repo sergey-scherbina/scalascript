@@ -125,10 +125,26 @@ Four optic KINDS, not one, and composition between kinds (`andThen` of a Lens an
 *Done when:* each of the six runs on BOTH lanes, and the optic library lives in `std`/`prelude` with
 the rewrite emitting calls into it — never a second implementation inside the kernel.
 
-**R5 — interpolators, the third client and the reason for the door.** `html"…"` is already decided
-as `pfx(parts, args)` and today is hardcoded to `s` in BOTH fronts. Moved here it is one client of
-one mechanism rather than a second mechanism of the same shape, and the hardcoded `s` goes with it.
-*Done when:* a user-defined interpolator works with no kernel change and `v3-an-interpolator-prefix-is-hardcoded-in-both-fronts` closes.
+**R5 — interpolators. THIS ROW WAS WRONG ON EVERY COUNT AND IS CORRECTED HERE, 2026-08-21, by
+reading the ledger entry instead of my own note about it.** It said the hardcoded `s` "goes with it"
+and that `v3-an-interpolator-prefix-is-hardcoded-in-both-fronts` would close. That entry has been
+CLOSED since 2026-08-17 (`fixed-in: f92e3c644`), and the decision recorded in it is the opposite of
+what this row planned: **`s` STAYS a node — hot, fixed in meaning, and the one the AST was built
+for.** Every other prefix is already `pfx(parts, args)`, so an interpolator is already definable in a
+library and the door has nothing to add. R5 is not a door client at all; it is library work.
+
+**AND ITS SIZE WAS MEASURED RATHER THAN ASSUMED**, by defining the three functions and reading what
+each case said NEXT. The entry's own "what remains" — *somebody writes `def html` and `def md`* — is
+right about one case of three:
+
+| case | what it actually needs |
+| --- | --- |
+| `content` | `md` alone. **[x] DONE** — the `__mdStrip__` rule copied verbatim into the prelude; PASSES on both lanes |
+| `standard-scala-multifence` | NOT `f`. With `f` defined it gets one refusal further and fails on `takeWhile` applied to a case class — unrelated work, and the interpolator was only the first blocker |
+| `std-ui-native-html-lambda` | NOT `raw` either. Defining `raw(parts, args)` turns its refusal into `call to 'raw' passes 1 argument(s)` — something already calls a one-argument `raw`, so the name COLLIDES and needs its own look |
+
+*Done when:* the remaining two are re-filed against what actually blocks them, which is not this
+row's subject. A refusal short-circuits, so "N cases need X" is always a lower bound until X exists.
 
 **R6 — measure and release.** Both lanes, against a control on the day's `origin/main`, with all
 four runs verified to report the same front before any number is read. The expected movement is +9

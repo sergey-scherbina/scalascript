@@ -318,3 +318,48 @@ case class LensOptic(getf: Any, setf: Any):
   def andThen(o: Any): Any =
     LensOptic((s: Any) => o.get(getf(s)), (s: Any, v: Any) => setf(s, o.set(getf(s), v)))
 ```
+
+## md
+
+**`md"…"` is an ordinary function, and that is the whole point of the interpolator decision** —
+`v3-an-interpolator-prefix-is-hardcoded-in-both-fronts` (fixed f92e3c644) made every prefix except
+`s` lower to `pfx(parts, args)`, so an interpolator is defined by defining a function. `md` is the
+first one this repository actually defines, and it needs no front change, no prim and no plugin.
+
+**THE STRIP RULE IS THE REFERENCE'S, VERBATIM** — `v2/src/Runtime.scala`'s `__mdStrip__`, itself
+copied from v1's `Interpreter.stripIndent`: drop blank lines at both edges, then remove the MINIMUM
+leading-space indent of the non-blank body lines, and blank interior lines become empty rather than
+keeping their spaces. Copied rather than re-derived because `tests/conformance/expected/content.txt`
+is the reference's own output, and a re-derivation is how a library comes to disagree with the
+goldens it is measured against.
+
+**Written over a `List[String]`, not with `dropRight`**, which this lane does not implement — the
+same rule with `take(n - 1)` says the same thing and runs on both.
+
+```scalascript
+def mdStrip(s: String): String =
+  val lines = s.split("\n")
+  var body = lines
+  while body.length > 0 && body(0).trim == "" do body = body.drop(1)
+  while body.length > 0 && body(body.length - 1).trim == "" do body = body.take(body.length - 1)
+  if body.length == 0 then ""
+  else
+    var minIndent = 1000000
+    body.foreach { l =>
+      if l.trim != "" then
+        var i = 0
+        while i < l.length && l.charAt(i) == ' ' do i = i + 1
+        if i < minIndent then minIndent = i
+    }
+    body.map(l => if l.trim == "" then "" else l.substring(minIndent)).mkString("\n")
+
+def md(parts: List[String], args: List[Any]): String =
+  var out = ""
+  var i = 0
+  parts.foreach { p =>
+    out = out + p
+    if i < args.length then out = out + args(i).toString
+    i = i + 1
+  }
+  mdStrip(out)
+```
