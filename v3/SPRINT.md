@@ -123,6 +123,16 @@ Four optic KINDS, not one, and composition between kinds (`andThen` of a Lens an
   The `copy` fix is written and measured and is HELD: landing it alone makes `optic-polish` stop
   refusing and start answering WRONGLY, which moved DIFF 0 → 1 in the A/B — and DIFF is a floor.
 
+**A SECOND SHARED LIBRARY CAME OUT OF THE SAME MEASUREMENT.** `std/html.ssc` — `html(parts, args)`,
+`raw(v)` and the escaper, with the escape set copied verbatim from `v2/src/Runtime.scala` — makes
+`std-ui-native-html-lambda` pass on both v3 lanes (+1). Its boundary is sharper than the optics one
+and worth reading before writing the next prefix into `std`: the escaping half RUNS on v2 and answers
+the same, while `raw` does NOT, because on v2 the prefixes are FRONT constructs (`html"…"` never
+becomes a call there and `raw` is a built-in answering `_Raw(v)`). And it cannot be bridged from a
+portable file, because matching v2's own wrapper needs `case _Raw(x)` and **v2 cannot match a
+constructor named with a leading underscore** — isolated, filed, and the reason this module's wrapper
+is `HtmlRaw`. So: a file both versions read can share the WORK and cannot share the ENTRY POINT.
+
 **THE LIBRARY IS SHARED, AND THAT WAS MEASURED RATHER THAN CLAIMED.** `std/optics.ssc` is ordinary
 ScalaScript with no host surface, and one probe prints the same sixteen lines on the v2 REFERENCE
 lane, on v3's executor and on v3's bridge. The reference implements optics as a host plugin because a
