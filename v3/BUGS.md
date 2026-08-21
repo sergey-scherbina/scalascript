@@ -1768,12 +1768,20 @@ Int vs Float`. Filed as `lanes-disagree-on-mixed-numeric-comparison` in the root
 
 ## v3-takewhile-on-a-string-is-executor-only — the bridge answers, the executor refuses
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      kind: bug
      area: runtime
+     gate: v3/rewrite-gate.sh — no; v3/extension-gate.sh derives Lower's vocabulary from Exec's table
      found-by: claude-code
-     found-at: 2026-08-21 -->
+     found-at: 2026-08-21
+     fixed-in: cd58fa4f5 -->
+
+**FIXED IN cd58fa4f5.** `takeWhile` and `dropWhile` on a String are two arms beside the other String
+methods in `v3/src/Exec.scala`; the predicate takes a `Char`, exactly as it does on a list of chars.
+All three lanes now answer `Circle` and `(3)` for `"Circle(3)"` split at `'('` — v3's executor, v3's
+bridge and the v2 reference. `v3/extension-gate.sh` derives `Lower`'s built-in vocabulary from
+`Exec`'s table, so the two stayed in step without a second edit.
 
 **`"Circle(3)".takeWhile(c => c != '(')` prints `Circle` on the bridge and is REFUSED on the
 executor:**
