@@ -107,7 +107,26 @@ TC="$(toolchain)" || exit 2
 # A source directory, not a dependency: the kernel still builds with nothing but a Scala compiler
 # and files from this repository, which is what invariant I-1 asks and what self-hosting needs.
 V3CP="$(classes_for ssc3 "" "$ROOT/v3/src" "$ROOT/alphabet/src")" || exit 2
-SSC3=(java -cp "$V3CP:$TC" ssc3.ssc3)
+# `-Xss512m` ON ALL THREE, AND IT IS THE SAME NUMBER `V2=` ASKS FOR TWENTY LINES BELOW.
+#
+# A deep handler whose arm does work after resuming — `case op(k) => k(1) + 0` — leaves one pending
+# frame per perform, and those frames live on the HOST stack. The v2 lane has asked for 512m since it
+# was written; v3's own executor asked for nothing and got the 2 MB default, so the same effect loop
+# died at 150 iterations here and ran 200 000 there. That reads as "the bridge is better at effects"
+# and it is not: two things differed between the lanes and the flag was the one that mattered.
+#
+#   before   150 -> StackOverflow      after   150, 5 000, 100 000 all answer
+#
+# MEASURED THROUGH THE PATH THAT ACTUALLY RUNS. The first probe patched only this line, saw no change
+# at all, and nearly concluded the flag was irrelevant — `SSC3` is assigned THREE times (plain,
+# plugin fleet, uniml) and the fleet is on by default, so the line being edited was not the line
+# being run. All three carry it now, which is also why they are worth keeping identical.
+#
+# What this does NOT fix, and no stack size can: N performs under an arm with work after its resume
+# leave N pending continuations, because that is what the program means. Making that O(1) needs the
+# ARM cps-converted at its `Resume`. The tail-resumptive case needs none of it — since `1adbb3274`
+# it is constant-stack at any budget.
+SSC3=(java -Xss512m -cp "$V3CP:$TC" ssc3.ssc3)
 V2=(java -Xss512m -cp "$(classes_for ssc2 "" "$ROOT/v2/src"):$TC" ssc.cli)
 
 # ── THE PLUGIN FLEET, IF IT IS BUILT ─────────────────────────────────────────────────────────────
@@ -164,7 +183,7 @@ if [ -n "$_pcp0" ]; then
   # over here. The fleet's classpath is `extra`, so it is part of the content-addressed digest and
   # a rebuilt fleet gets its own output directory rather than overwriting one.
   if V3PCP="$(classes_for ssc3p "$_pcp" "$ROOT/v3/src" "$ROOT/alphabet/src" "$ROOT/v3/plugins")"; then
-    SSC3=(java -cp "$V3PCP:$_pcp:$TC" ssc3.ssc3)
+    SSC3=(java -Xss512m -cp "$V3PCP:$_pcp:$TC" ssc3.ssc3)
     # `ssc3.plugins.v2cli`, not `ssc.cli`: the jars on the classpath are not enough, because
     # `ssc.cli` never asks the ServiceLoader for them. One `loadAll()` in that process fills the
     # registry that `Prims.resolve` already consults.
@@ -262,7 +281,7 @@ if [ "${SSC3_FRONT:-auto}" != "v3" ] && uniml_available; then
   # is still shown in full — it is only the known cause that gets replaced by its name.
   _ulog="$(mktemp)"
   if _ucp="$(uniml_classpath 2>"$_ulog")"; then
-    SSC3=(java -cp "$_ucp" ssc3.ssc3uniml)
+    SSC3=(java -Xss512m -cp "$_ucp" ssc3.ssc3uniml)
     SSC3_FRONT_SEL="uniml"
   elif ! "$ROOT/v3/uniml-classpath.sh" --check >/dev/null 2>&1; then
     echo "ssc3: the UniML classpath was built from different uniml/ sources than this tree has." >&2

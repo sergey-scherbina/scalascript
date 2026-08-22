@@ -132,11 +132,31 @@ if [ "${SSC3_FRONT:-auto}" != "v3" ] && [ -s "$ROOT/v3/.jars/uniml.cp" ]; then
   fi
 fi
 
-# Does this case hold the v2 lane to its expectation? `backends:` lists the lanes it applies to;
-# a `known-red: … v2 …` declares the lane a declared, expiring failure. Either way, a difference on
-# the bridge is not v3's to answer for.
-holds_v2() {
+# Does this case hold THE LANE BEING MEASURED to its expectation?
+#
+# THE TWO LANES BORROW DIFFERENTLY, AND THE OLD RULE ONLY KNEW ABOUT ONE OF THEM. `ssc3 run` executes
+# through the v2 bridge, so a case that does not hold `v2` is not v3's to answer for and its
+# difference is LANE-EXCLUDED — that correction is why this function exists. But `--exec` borrows
+# NOTHING: it runs v3's own executor, start to finish. Asking `backends: … v2 …` there excluded
+# cases on the strength of a lane that never ran, so a v3 regression in one of them would have been
+# counted as somebody else's.
+#
+# Measured before changing it: on `--exec`, LANE-EXCL was 1 of 371 — the rule was nearly inert and
+# quietly wrong rather than loudly wrong, which is the harder kind to notice.
+#
+# `known-red:` REMAINS THE ESCAPE HATCH on both lanes, and on the executor it is the ONLY one: a case
+# v3 is genuinely not expected to answer says so by name, with an expiry, instead of being excluded
+# by a field about a different backend. Nothing in the corpus declares `known-red: v3` today, which
+# is the honest state — no case has yet been argued to be outside v3's reach.
+#
+# THE TWO LANES THEREFORE MEASURE DIFFERENT POPULATIONS, and the report says so rather than leaving
+# two numbers looking comparable.
+holds_lane() {
   local f="$1"
+  if [ "$lane" = "exec" ]; then
+    grep -qE '^known-red:.*\bv3\b' "$f" && return 1
+    return 0
+  fi
   grep -qE '^known-red:.*\bv2\b' "$f" && return 1
   if grep -qE '^backends:' "$f"; then
     grep -qE '^backends:.*\bv2\b' "$f" || return 1
@@ -174,7 +194,7 @@ run_case() {
     else got="$("${V2RUN[@]}" run-ir "$irf" 2>/dev/null)"; fi
     if [ "$got" = "$(cat "$exp")" ]; then
       printf 'PASS\t%s\t\n' "$name"
-    elif ! holds_v2 "$f"; then
+    elif ! holds_lane "$f"; then
       # Ran, differed, but this case does not hold the v2 lane to that expectation. Still counted
       # and still listed — a silent skip would hide work — but not as a v3 defect.
       printf 'EXCL\t%s\t\n' "$name"
@@ -265,7 +285,11 @@ printf '  PASS         %4d\n' "$pass"
 printf '  DIFF         %4d   (defect)\n' "$diff"
 printf '  UNSUPPORTED  %4d   (honest)\n' "$unsup"
 printf '  CRASH        %4d   (defect, worse than DIFF)\n' "$crash"
-printf '  LANE-EXCL    %4d   (the case excludes the v2 lane — not v3'"'"'s to answer for)\n' "$excl"
+if [ "$lane" = "exec" ]; then
+  printf '  LANE-EXCL    %4d   (declared `known-red: v3` — not this lane'"'"'s to answer for)\n' "$excl"
+else
+  printf '  LANE-EXCL    %4d   (the case excludes the v2 lane — not v3'"'"'s to answer for)\n' "$excl"
+fi
 printf '  ────────────────\n'
 printf '  N = %d / %d\n' "$pass" "$total"
 
@@ -294,7 +318,13 @@ fi
 [ "$show_diff" = 1 ] && { echo; echo "DIFF:"; sed 's/^/  /' "$WORK/diff.txt"; echo "LANE-EXCLUDED:"; sed 's/^/  /' "$WORK/excl.txt"; }
 [ "$show_crash" = 1 ] && { echo; echo "CRASH:"; sed 's/^/  /' "$WORK/crash.txt"; }
 echo
-echo "N is a MEASUREMENT, not a target. It may rise in any commit and fall in none (I-5)."
+cat <<'POP'
+THE TWO LANES DO NOT MEASURE THE SAME POPULATION, so the two N values are not comparable:
+  --exec   holds v3 to every case except one declaring `known-red: v3`
+  default  holds v3 only where the case holds `v2`, because the bridge IS v2
+
+N is a MEASUREMENT, not a target. It may rise in any commit and fall in none (I-5).
+POP
 # HONEST CAVEAT, measured 2026-08-02: three consecutive runs of this report gave N = 16, 16, 17 and
 # DIFF = 5, 3, 4. The variance is entirely in the deep-recursion cases — deep-tail-recursion,
 # tail-recursion, mutual-recursion — which recurse ~100 000 deep through the bridge, where v2 has no
