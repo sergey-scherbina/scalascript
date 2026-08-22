@@ -5,7 +5,7 @@ started: 2026-08-22T20:48:11Z
 heartbeat: 2026-08-22T20:48:11Z
 status: claimed-before-planning
 items: v3-a-cross-frame-effect-loop-overflows-the-executor-at-a-few-hundred-iterations v3-corpus-report-cannot-hold-v3-to-a-case
-paths: file:v3/src/Cps.scala file:v3/src/Exec.scala file:v3/src/BridgeV2.scala file:v3/corpus-report.sh file:v3/specs/10-ssc-ir.md file:BUGS.md file:v3/tests/effects/deep-tail-resumptive-loop.ssc file:v3/tests/effects/deep-tail-resumptive-loop.expected file:v3/src/Ir.scala file:v3/tests/effects/return-clause-with-a-tail-arm.ssc file:v3/tests/effects/return-clause-with-a-tail-arm.expected
+paths: file:v3/src/Cps.scala file:v3/src/Exec.scala file:v3/src/BridgeV2.scala file:v3/corpus-report.sh file:v3/specs/10-ssc-ir.md file:BUGS.md file:v3/tests/effects/deep-tail-resumptive-loop.ssc file:v3/tests/effects/deep-tail-resumptive-loop.expected file:v3/src/Ir.scala file:v3/tests/effects/return-clause-with-a-tail-arm.ssc file:v3/tests/effects/return-clause-with-a-tail-arm.expected file:v3/tests/effects/mixed-encodings-one-handler.ssc file:v3/tests/effects/mixed-encodings-one-handler.expected
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
