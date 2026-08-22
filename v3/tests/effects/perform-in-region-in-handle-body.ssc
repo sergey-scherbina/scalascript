@@ -1,0 +1,18 @@
+```scalascript
+effect E:
+  def op(i: Int): Int
+
+def top(n: Int): Int =
+  handle {
+    var acc = 0
+    var i = 0
+    while i < n do
+      acc = acc + E.op(i)
+      i = i + 1
+    acc
+  } {
+    case op(i, k) => k(i * 10) + 1
+  }
+
+println(top(2))
+```

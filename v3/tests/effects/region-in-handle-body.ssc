@@ -1,0 +1,20 @@
+```scalascript
+effect E:
+  def op(): Int
+
+def g(): Int =
+  val a = E.op()
+  a + 1
+
+def top(n: Int): Int =
+  handle {
+    var acc = 0
+    if n > 0 then
+      acc = g() + 100
+    acc
+  } {
+    case op(k) => k(10) + k(20)
+  }
+
+println(top(1))
+```

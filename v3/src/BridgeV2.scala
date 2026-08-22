@@ -577,28 +577,44 @@ object BridgeV2:
     * so without this the copy is found, cut, and a second continuation of the same shape is made,
     * for ever. */
   private def alreadySplit(body: List[Instr], i: Int): Boolean =
-    i > 0 && (body(i - 1) match { case _: Instr.MkClos => true; case _ => false }) &&
-      i + 1 < body.length && ((body(i), body(i + 1)) match
-        case (Instr.Call(d, _, _), Instr.Ret(r))    => r == d
-        case (Instr.Perform(d, _, _), Instr.Ret(r)) => r == d
-        case _                                      => false)
+    i > 0 && (body(i - 1) match { case _: Instr.MkClos => true; case _ => false }) && {
+      val d = dstOfCut(body(i))
+      // TWO SHAPES, because a cut ends differently depending on what it is ending. In a FUNCTION the
+      // split is `mkclos ; INSTR ; ret d`. In a `handle` BODY it is `mkclos ; INSTR ; move dh,d ;
+      // br n`, because the continuation stops at the handle and a `ret` would leave the function.
+      // Knowing only the first shape is not a cosmetic gap: the walk re-finds the handle cut it just
+      // made, cuts it again, and `splitCallers` never terminates — `ssc3 build` hung rather than
+      // answering, which is how this was found.
+      d >= 0 && (body.drop(i + 1) match
+        case Instr.Ret(r) :: _                    => r == d
+        case Instr.Move(_, r) :: Instr.Br(_) :: _ => r == d
+        case _                                    => false)
+    }
 
   /** Cut a body at the first instruction `hit` accepts, at ANY depth, and rebuild what follows.
     *
     * Returns the body with that instruction replaced by `repl`, and the whole remainder of the
     * function from just after it as one list. `None` when there is nothing to cut. */
+  //
+  // `repl` IS TOLD HOW DEEP THE CUT IS, and only one caller needs it — the one cutting inside a
+  // `handle` body, where the replacement ends with `br <depth>` rather than with `ret` because the
+  // continuation stops AT the handle. Counted in BRANCH-CONSUMING regions: `Block`, `Loop`, `If`
+  // and `Switch` each add one, `Try` adds none because it hands a branch straight out on both
+  // lanes. Threading it here rather than recomputing it at the call site is what keeps the number
+  // and the nesting from disagreeing.
   private def cutAt(body: List[Instr], hit: (List[Instr], Int) => Boolean,
-                    repl: Instr => List[Instr]): Option[(List[Instr], List[Instr])] =
+                    repl: (Instr, Int) => List[Instr],
+                    depth: Int = 0): Option[(List[Instr], List[Instr])] =
     val i = body.indices.find(k => hit(body, k))
     i match
       // AT THIS LEVEL. What follows is unreachable in the cut body — `repl` ends the function — so
       // it moves wholesale into the remainder rather than being left behind in both.
-      case Some(k) => Some((body.take(k) ++ repl(body(k)), body.drop(k + 1)))
+      case Some(k) => Some((body.take(k) ++ repl(body(k), depth), body.drop(k + 1)))
       case None =>
         var out: Option[(List[Instr], List[Instr])] = None
         var k = 0
         while k < body.length && out.isEmpty do
-          cutRegion(body(k), hit, repl).foreach { (nr, pre) =>
+          cutRegion(body(k), hit, repl, depth).foreach { (nr, pre) =>
             // The enclosing suffix stays in BOTH: reachable in the cut body through the region's
             // other arm, and part of the remainder once the region finishes.
             out = Some((body.take(k) ++ (nr :: body.drop(k + 1)), pre ++ body.drop(k + 1)))
@@ -607,30 +623,59 @@ object BridgeV2:
         out
 
   private def cutRegion(i: Instr, hit: (List[Instr], Int) => Boolean,
-                        repl: Instr => List[Instr]): Option[(Instr, List[Instr])] = i match
+                        repl: (Instr, Int) => List[Instr], depth: Int): Option[(Instr, List[Instr])] = i match
     case Instr.Block(b) =>
-      cutAt(b, hit, repl).map((nb, c) => (Instr.Block(nb), List(Instr.Block(c))))
+      cutAt(b, hit, repl, depth + 1).map((nb, c) => (Instr.Block(nb), List(Instr.Block(c))))
     case Instr.If(c, t, e) =>
-      cutAt(t, hit, repl).map((nt, k) => (Instr.If(c, nt, e), List(Instr.Block(k)))) orElse
-        cutAt(e, hit, repl).map((ne, k) => (Instr.If(c, t, ne), List(Instr.Block(k))))
+      cutAt(t, hit, repl, depth + 1).map((nt, k) => (Instr.If(c, nt, e), List(Instr.Block(k)))) orElse
+        cutAt(e, hit, repl, depth + 1).map((ne, k) => (Instr.If(c, t, ne), List(Instr.Block(k))))
     case Instr.Switch(s, arms, df) =>
-      val ai = arms.indices.find(j => cutAt(arms(j).body, hit, repl).isDefined)
+      val ai = arms.indices.find(j => cutAt(arms(j).body, hit, repl, depth + 1).isDefined)
       ai match
         case Some(j) =>
-          cutAt(arms(j).body, hit, repl).map((nb, k) =>
+          cutAt(arms(j).body, hit, repl, depth + 1).map((nb, k) =>
             (Instr.Switch(s, arms.updated(j, SwitchArm(arms(j).tag, nb)), df), List(Instr.Block(k))))
         case None =>
-          cutAt(df, hit, repl).map((nd, k) => (Instr.Switch(s, arms, nd), List(Instr.Block(k))))
+          cutAt(df, hit, repl, depth + 1).map((nd, k) => (Instr.Switch(s, arms, nd), List(Instr.Block(k))))
+    // `Try` ADDS NO LEVEL. `Instr.Try` hands its body's signal straight out on both lanes, so a
+    // `br 0` inside a try body targets the region around the TRY, not the try.
     case Instr.Try(d, b, x, h) =>
-      cutAt(b, hit, repl).map((nb, k) => (Instr.Try(d, nb, x, h), List(Instr.Try(d, k, x, h)))) orElse
-        cutAt(h, hit, repl).map((nh, k) => (Instr.Try(d, b, x, nh), k))
+      cutAt(b, hit, repl, depth).map((nb, k) => (Instr.Try(d, nb, x, h), List(Instr.Try(d, k, x, h)))) orElse
+        cutAt(h, hit, repl, depth).map((nh, k) => (Instr.Try(d, b, x, nh), k))
     case Instr.Loop(b) =>
-      cutAt(b, hit, repl).map { (nb, k) =>
+      cutAt(b, hit, repl, depth + 1).map { (nb, k) =>
         (Instr.Loop(nb),
          List(Instr.Block(List(Instr.Block(shiftOut(k, 0) :+ Instr.Br(1)),
                                Instr.Loop(shiftOut(nb, 0))))))
       }
     case _ => None
+
+  /** The register a cut instruction writes — its answer, and what the continuation resumes with. */
+  private def dstOfCut(i: Instr): Int = i match
+    case Instr.Call(d, _, _)    => d
+    case Instr.Perform(d, _, _) => d
+    case other                  => -1
+
+  /** THE REPLACEMENT FOR A CUT INSIDE A `handle` BODY: build the continuation, run the instruction,
+    * put its answer where the `handle` reads its own, and LEAVE THE BODY.
+    *
+    * `br depth` targets the `Block` the caller wraps the rebuilt body in, so this ends the handle
+    * body from any nesting inside it. A `ret` cannot serve: it would leave the whole function and
+    * take the handle's answer with it, and on this lane it also sets CTL to -1, which no `endRegion`
+    * ever clears.
+    *
+    * `Move(dh, d)` before the branch is right on BOTH paths, which is the same argument the function
+    * case makes for its `ret`: if the callee performed, the arm's value goes home by the abort flag
+    * and nothing here is reached; if it did not, the emitted call site has already applied the
+    * continuation and `d` holds its answer. */
+  private def replInHandle(dh: Int, kReg: Int, contIdx: Int, caps: List[Int],
+                           depth: Int, i: Instr): List[Instr] =
+    val d = dstOfCut(i)
+    val body = i match
+      case Instr.Call(dd, f, as)     => Instr.Call(dd, f, as)
+      case Instr.Perform(dd, op, as) => Instr.Perform(dd, op, as :+ kReg)
+      case other                     => other
+    List(Instr.MkClos(kReg, contIdx, caps), body, Instr.Move(dh, d), Instr.Br(depth))
 
   private def splitCallers(m0: Module, needsRest: Set[Int]): (Module, Map[String, Int]) =
     var funcs = m0.funcs
@@ -667,7 +712,7 @@ object BridgeV2:
         case Instr.Call(_, f, _) => needsRest.contains(f) && !alreadySplit(b, k)
         case _                   => false
       var cutD = -1
-      def replCall(i: Instr): List[Instr] = i match
+      def replCall(i: Instr, depth: Int): List[Instr] = i match
         case Instr.Call(d, f, as) =>
           cutD = d
           List(Instr.MkClos(kReg, contIdx, caps), Instr.Call(d, f, as), Instr.Ret(d))
@@ -680,35 +725,49 @@ object BridgeV2:
       // to END with the handle's own destination register, because a `handle` takes its value from
       // there rather than from a `ret`, and the split part must MOVE the answer into it, which is
       // right on both paths — a normal return and an arm's value arrive in the same register.
-      val hAt = cur.body.indexWhere {
-        case Instr.Handle(_, hb, _) => hb.exists {
-          case Instr.Call(_, f, _) => needsRest.contains(f)
-          case _                   => false
-        }
+      // ONE CASE FOR THE WHOLE HANDLE BODY, at any depth in it — the top level and a region inside
+      // it are the same cut with a different `br`.
+      //
+      // THE BODY IS WRAPPED IN A `Block` AND THE SPLIT LEAVES BY BRANCHING OUT OF IT. That is the
+      // whole trick, and it is what a `ret` cannot do: a handle body's remainder ends AT the handle,
+      // with the handle's own destination register, while `ret` leaves the FUNCTION and takes the
+      // handle's answer with it. Branching to the wrapping block ends the body exactly where the
+      // `Handle` reads `dh`.
+      //
+      // IT ALSO SKIPS THE ENCLOSING SUFFIXES, which is required and not a side effect. `cutAt`
+      // leaves them in place because a region's OTHER arm still reaches them; on the path through
+      // the cut they belong to the continuation, and the branch is what stops them running twice.
+      // Right on both paths for the same reason `ret` is in a function: when the callee performs,
+      // the arm's value travels home and nothing here runs; when it does not, the split call site
+      // has already applied the continuation and `dh` holds its answer.
+      val hIdx = if at >= 0 then -1 else cur.body.indices.find { j => cur.body(j) match
+        case Instr.Handle(dh, hb, _) =>
+          cutAt(hb, hitCall, (i, dep) => replInHandle(dh, kReg, contIdx, caps, dep, i)).isDefined
         case _ => false
-      }
-      if at < 0 && hAt >= 0 then
-        val Instr.Handle(dh, hbody, harms) = cur.body(hAt): @unchecked
-        val hi = hbody.indexWhere {
-          case Instr.Call(_, f, _) => needsRest.contains(f)
-          case _                   => false
+      }.getOrElse(-1)
+      if hIdx >= 0 then
+        val Instr.Handle(dh, hbody, harms) = cur.body(hIdx): @unchecked
+        var hd = -1
+        def replH(i: Instr, dep: Int): List[Instr] =
+          hd = dstOfCut(i)
+          replInHandle(dh, kReg, contIdx, caps, dep, i)
+        cutAt(hbody, hitCall, replH).foreach { (nhb, hrest) =>
+          if hrest.nonEmpty then
+            // THE CONTINUATION WRAPS THE REMAINDER IN A `Block` TOO, and it is the same block the
+            // cut branches to — one on each side of the split. The rebuilt body keeps a copy of the
+            // split instruction (the loop rebuild puts one back), and its `br` has to land
+            // somewhere in the CONTINUATION as well: without this wrapper it targeted a block that
+            // exists only in the function the cut came from, and `perform` inside a `while` inside
+            // a handle body answered 1 where the executor said 12 — a wrong answer, not a refusal.
+            val cont = Func(cur.name + "$h" + contIdx, nregs + 1, nregs + 1,
+                            List(Instr.Move(hd, nregs), Instr.Block(hrest), Instr.Ret(dh)))
+            val newHandle = Instr.Handle(dh, List(Instr.Block(nhb)), harms)
+            val split = cur.copy(nregs = nregs + 1,
+                                 body  = cur.body.updated(hIdx, newHandle))
+            funcs = funcs.updated(idx, split) :+ cont
+            kOf = kOf + (cur.name -> kReg)
+            queue = queue :+ contIdx :+ idx
         }
-        val (hbefore, hrest) = hbody.splitAt(hi)
-        val Instr.Call(hd, hf, hargs) = hrest.head: @unchecked
-        val hafter = hrest.tail
-        if hafter.nonEmpty then
-          val cont = Func(cur.name + "$h" + hAt, nregs + 1, nregs + 1,
-                          (Instr.Move(hd, nregs) :: hafter) :+ Instr.Ret(dh))
-          val newHandle = Instr.Handle(dh,
-            hbefore ++ List(Instr.MkClos(kReg, contIdx, caps),
-                            Instr.Call(hd, hf, hargs),
-                            Instr.Move(dh, hd)),
-            harms)
-          val split = cur.copy(nregs = nregs + 1,
-                               body  = cur.body.updated(hAt, newHandle))
-          funcs = funcs.updated(idx, split) :+ cont
-          kOf = kOf + (cur.name -> kReg)
-          queue = queue :+ contIdx
       // AT ANY DEPTH, not only at the top level. The refusal that used to stand here for a call
       // inside a region is gone; what is left of it is named in `crossFrameRefusal`.
       cut.foreach { (nb, rest) =>
@@ -791,34 +850,38 @@ object BridgeV2:
         case Instr.Perform(_, op, as) => wants(op, as.length) && !alreadySplit(b, k)
         case _                        => false
       var cutD = -1
-      def replP(i: Instr): List[Instr] = i match
+      def replP(i: Instr, depth: Int): List[Instr] = i match
         case Instr.Perform(d, op, as) =>
           cutD = d
           List(Instr.MkClos(kReg, contIdx, caps), Instr.Perform(d, op, as :+ kReg), Instr.Ret(d))
         case other => List(other)
-      // THE HANDLE BODY, first and separately, for the reason `splitCallers` gives at its own
-      // version: the continuation of a point inside a `handle` body ends AT the handle, with the
-      // handle's own destination register, not with a `ret` that would leave the whole function.
-      // `cutAt` deliberately does not enter a `Handle`, so this is where that shape is answered.
-      val hAt = cur.body.indexWhere {
-        case Instr.Handle(_, hb, _) => hb.indices.exists(k => hitP(hb, k))
-        case _                      => false
-      }
-      if hAt >= 0 then
-        val Instr.Handle(dh, hbody, harms) = cur.body(hAt): @unchecked
-        val hi = hbody.indices.find(k => hitP(hbody, k)).get
-        val (hbefore, hrest) = hbody.splitAt(hi)
-        val Instr.Perform(pd, pop, pas) = hrest.head: @unchecked
-        val cont = Func(cur.name + "$q" + contIdx, nregs + 1, nregs + 1,
-                        (Instr.Move(pd, nregs) :: hrest.tail) :+ Instr.Ret(dh))
-        val newHandle = Instr.Handle(dh,
-          hbefore ++ List(Instr.MkClos(kReg, contIdx, caps),
-                          Instr.Perform(pd, pop, pas :+ kReg),
-                          Instr.Move(dh, pd)),
-          harms)
-        funcs = funcs.updated(idx, cur.copy(nregs = nregs + 1,
-                                            body  = cur.body.updated(hAt, newHandle))) :+ cont
-        queue = queue :+ contIdx :+ idx
+      // THE HANDLE BODY, first and separately, and now at ANY depth in it — same shape and same
+      // `Block`-and-`br` trick `splitCallers` documents at its own version. The continuation of a
+      // point inside a `handle` body ends AT the handle, with the handle's own destination
+      // register, not with a `ret` that would leave the whole function.
+      var hpd   = -1
+      var hdhOf = -1
+      def replPH(i: Instr, dep: Int): List[Instr] =
+        hpd = dstOfCut(i)
+        replInHandle(hdhOf, kReg, contIdx, caps, dep, i)
+      val hIdx = cur.body.indices.find { j => cur.body(j) match
+        case Instr.Handle(dh, hb, _) =>
+          cutAt(hb, hitP, (i, dep) => replInHandle(dh, kReg, contIdx, caps, dep, i)).isDefined
+        case _ => false
+      }.getOrElse(-1)
+      if hIdx >= 0 then
+        val Instr.Handle(dh, hbody, harms) = cur.body(hIdx): @unchecked
+        hdhOf = dh
+        cutAt(hbody, hitP, replPH).foreach { (nhb, hrest) =>
+          // Wrapped for the reason `splitCallers` gives at its own version: the `br` the cut leaves
+          // behind needs the same target on both sides of the split.
+          val cont = Func(cur.name + "$q" + contIdx, nregs + 1, nregs + 1,
+                          List(Instr.Move(hpd, nregs), Instr.Block(hrest), Instr.Ret(dh)))
+          val newHandle = Instr.Handle(dh, List(Instr.Block(nhb)), harms)
+          funcs = funcs.updated(idx, cur.copy(nregs = nregs + 1,
+                                              body  = cur.body.updated(hIdx, newHandle))) :+ cont
+          queue = queue :+ contIdx :+ idx
+        }
       else
         cutAt(cur.body, hitP, replP).foreach { (nb, rest) =>
           // AN EMPTY REMAINDER STILL HAS A VALUE. A perform that is the last thing a function does
@@ -892,37 +955,41 @@ object BridgeV2:
     def refuse(callee: Int): Nothing =
       throw Unsupported(
         "`" + m.funcs(callee).name + "` performs an effect and is called inside an `if`, `loop` or " +
-        "`try` that is itself inside a `handle` — the rebuild that gives a region its continuation " +
-        "stops at a `handle`, because a handle body's remainder ends at the handle rather than at " +
-        "the function and is a different contract; the executor runs it (`ssc3 exec`)")
-    // TWO FLAGS, AND BOTH ARE NEEDED. A region alone is fine now — `splitCallers` rebuilds through
-    // it. A `handle` alone is fine — its body's top level is that splitter's own case. It is the
-    // COMBINATION the rebuild does not reach, and saying so is the whole of this refusal.
-    def walk(b: List[Instr], inHandle: Boolean, inRegion: Boolean): Unit =
+        "`try` that is inside a handler ARM, or inside a `handle` nested in another handle's body — " +
+        "the rebuild that gives a region its continuation reaches a function's body and the body of " +
+        "a `handle` standing at its top level, and neither of those; the executor runs it " +
+        "(`ssc3 exec`)")
+    // WHAT THE FLAG MEANS, AND IT HAS BEEN WRONG TWICE, so it is spelled out rather than named.
+    // `unreached` is "the rebuild cannot cut here", and that is a property of WHERE the `handle` is,
+    // not of whether there is one:
+    //
+    //   * a `Handle` at a function body's top level — `splitCallers` cuts its BODY at any depth, so
+    //     the body is reached; its ARMS are not, because `cutAt` never enters a `Handle` and the
+    //     handle path cuts only `hbody`;
+    //   * a `Handle` anywhere else — inside a region, inside an arm, inside another handle's body —
+    //     is found by neither, so everything under it is unreached.
+    //
+    // Getting this wrong in the widening direction refused a program that works
+    // (`js-effect-multishot-long-fold`, 204 -> refusal); getting it wrong the other way would answer
+    // instead of refusing, which is worse. Both directions are measured by fixtures.
+    def walk(b: List[Instr], atFuncTop: Boolean, unreached: Boolean, inRegion: Boolean): Unit =
       b.zipWithIndex.foreach { (i, k) =>
         i match
           case Instr.Call(_, f, _) =>
-            if inHandle && inRegion && mayPerform.contains(f) && !alreadySplit(b, k) then refuse(f)
-          // `inRegion` RESETS AT A `handle`, and getting that wrong refused a program that works.
-          // The flag has to mean "inside a region the rebuild cannot reach", and the rebuild stops
-          // AT the handle — so a region OUTSIDE it is irrelevant: the handle body's own top level is
-          // `splitCallers`'s `hAt` case and is already answered. Carrying the flag in refused
-          // `js-effect-multishot-long-fold`, whose `handle(program())` sits inside a `while` and
-          // whose call is at the handle body's top level, where it had been split correctly since
-          // `bc78e963c`. Measured, not reasoned: an A/B over every conformance case that mentions an
-          // effect turned that one from `204` into a refusal, and nothing else moved.
+            if unreached && inRegion && mayPerform.contains(f) && !alreadySplit(b, k) then refuse(f)
           case Instr.Handle(_, hb, arms) =>
-            walk(hb, true, false)
-            arms.foreach(a => walk(a.body, true, false))
-          case Instr.Block(bb)   => walk(bb, inHandle, true)
-          case Instr.Loop(bb)    => walk(bb, inHandle, true)
-          case Instr.If(_, t, e) => walk(t, inHandle, true); walk(e, inHandle, true)
+            walk(hb, false, unreached || !atFuncTop, false)
+            arms.foreach(a => walk(a.body, false, true, false))
+          case Instr.Block(bb)   => walk(bb, false, unreached, true)
+          case Instr.Loop(bb)    => walk(bb, false, unreached, true)
+          case Instr.If(_, t, e) => walk(t, false, unreached, true); walk(e, false, unreached, true)
           case Instr.Switch(_, arms, df) =>
-            arms.foreach(a => walk(a.body, inHandle, true)); walk(df, inHandle, true)
-          case Instr.Try(_, bb, _, h) => walk(bb, inHandle, true); walk(h, inHandle, true)
+            arms.foreach(a => walk(a.body, false, unreached, true)); walk(df, false, unreached, true)
+          case Instr.Try(_, bb, _, h) =>
+            walk(bb, false, unreached, true); walk(h, false, unreached, true)
           case _ => ()
       }
-    m.funcs.foreach(fn => walk(fn.body, false, false))
+    m.funcs.foreach(fn => walk(fn.body, true, false, false))
 
   private def usesEffects(m: Module): Boolean =
     var found = false
