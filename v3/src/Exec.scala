@@ -412,7 +412,9 @@ object Exec:
     }
 
   private def resumeCont(m: Module, c: Value.VCont, v: Value): Value =
-    val before = c.h.performs
+    // DID THE RESUMED COMPUTATION FINISH, OR DID AN ARM ANSWER FOR IT? Same question the `Handle`
+    // site asks, and it had the same wrong proxy here.
+    var aborted = false
     // THE HANDLER IS REINSTALLED FOR THE DURATION. A deep handler's continuation may perform again —
     // two ticks of the same effect — and by then the `handle` has returned, so `handlers` no longer
     // holds the frame that must answer. Without this the second perform said "no handler for effect
@@ -544,13 +546,28 @@ object Exec:
       catch
         // A PERFORM INSIDE THE RESUMED COMPUTATION belongs HERE, not to the `handle`: `k(1)` in
         // `k(1) + k(2)` must come back with the inner arm's value so the outer arm can go on adding.
-        case a: PerformAbort if a.d eq act => a.value
+        case a: PerformAbort if a.d eq act =>
+          aborted = true
+          a.value
       finally
         handlers = handlers.tail
         actives  = actives.tail
         handleDepth = handleDepth - 1
         pending = save
-    if c.h.performs != before then raw
+    // NOT `performs != before`, FOR THE REASON THE `Handle` SITE GIVES — and this is the third site
+    // that had the same proxy, which is why the rule is now stated once and asked three times.
+    //
+    // The clause lifts a value the resumed computation produced ITSELF and must not lift one an arm
+    // already produced. `performs` reads as "the rest performed", which coincides with "an arm
+    // answered" only while every perform unwinds. It does not: a tail-resumptive perform bumps the
+    // counter and returns, and the rest carries on to its own value.
+    //
+    // Found by an A/B rather than by reading. `effect-multiarg-op` has ONE handler with both
+    // encodings — `append`'s arm conses onto its resume (not tail-resumptive, split) while `read`'s
+    // is a bare resume (tail-resumptive, no longer split) — so `read` bumped the counter, the lift
+    // was skipped, and `resume(())` handed the append arm the Int 6 where it wanted a List:
+    // `a list operation needs a List and got the Int 6`.
+    if aborted then raw
     else retArm(c.h.arms).map(r => applyRet(c.h.m, r, c.h.regs, raw)).getOrElse(raw)
 
   /** Run the return clause on one value, in a FRESH copy of the handling frame — the same rule the

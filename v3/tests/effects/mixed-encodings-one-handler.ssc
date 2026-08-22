@@ -1,0 +1,18 @@
+```scalascript
+effect J:
+  def append(scope: String, fact: Int): Unit
+  def read(scope: String): List[Int]
+
+def body(): Int =
+  J.append("a", 1)
+  J.append("b", 2)
+  val xs = J.read("a")
+  xs.foldLeft(0)((p, q) => p + q)
+
+val out = handle(body()) {
+  case J.append(scope, fact, resume) => (scope + "=" + fact) :: resume(())
+  case J.read(scope, resume)         => resume(List(1, 2, 3))
+  case Return(x)                     => List("ret=" + x)
+}
+println(out)
+```

@@ -1243,20 +1243,34 @@ object BridgeV2:
     val defResume = "(def " + effResume + " (lam 2 " +
       "(let (" + aget("(local 1)", int(1)) + ") " +                                    // rec=0 k=2 v=1
         "(let (" + aget(aget("(local 0)", int(R_PERFORMS)), int(0)) + ") " +           // before=0 rec=1 k=3 v=2
+          // TWO BINDINGS, and the second is the whole of the return-clause fix. Bindings are
+          // sequential, so `(prim cell.get …)` runs AFTER the resume has finished and sees the flag
+          // as the resume left it; the reset below then happens in the body, where it always did.
+          // Innermost-last, so: wasAborted=0, raw=1, before=2, rec=3, v=4, k=5.
           "(let (" + sq(List(
               "(prim arr.push " + stack + " (local 1))",
               "(prim __tryFinally__ (lam 0 (app " + aget("(local 3)", int(0)) + " (local 2))) " +
-                "(lam 0 (prim arr.pop " + stack + ")))")) + ") " +                     // raw=0 before=1 rec=2
+                "(lam 0 (prim arr.pop " + stack + ")))")) + " " +
+              "(prim cell.get " + glob(effAborting) + ")) " +
             sq(List(
               // A perform INSIDE the resumed computation ends here: its arm's value is this
               // resume's value, exactly as `Exec.resumeCont` catches what is aimed at its own
               // delimiter. Clearing the flag is what stops it travelling further out.
               "(prim cell.set " + glob(effAborting) + " " + lit("false") + ")",
-            ifThen(arith("!=", aget(aget("(local 2)", int(R_PERFORMS)), int(0)), "(local 1)"),
-                   "(local 0)",
-                   ifThen(aget("(local 2)", int(R_HASRET)),
-                          "(app " + aget("(local 2)", int(R_RET)) + " (local 0))",
-                          "(local 0)")))) +
+            // NOT `performs != before`, AND THIS WAS THE FOURTH SITE CARRYING THAT PROXY. The clause
+            // lifts a value the resumed computation produced ITSELF and must not lift one an arm
+            // already produced. `performs` coincides with "an arm answered" only while every perform
+            // unwinds, and the tail-resumptive encoding does not: it bumps the counter and RETURNS.
+            //
+            // Measured on `effect-multiarg-op`, whose ONE handler carries both encodings — `append`
+            // conses onto its resume, `read` is a bare resume — so `read` bumped the counter, the
+            // lift was skipped, and the append arm was handed `6` where it wanted a list:
+            // `expected a list, got 6`.
+            ifThen("(local 0)",
+                   "(local 1)",
+                   ifThen(aget("(local 3)", int(R_HASRET)),
+                          "(app " + aget("(local 3)", int(R_RET)) + " (local 1))",
+                          "(local 1)")))) +
           ")))" + "))"
     // ── crossing a call frame ────────────────────────────────────────────────
     val pend = glob(effPending)
