@@ -261,7 +261,11 @@ object Text:
       List(
         a("module"),
         Sx.L(a("consts") :: m.consts.map(litSx)),
-        Sx.L(a("types") :: m.types.map(t => Sx.L(List(a("type"), Sx.Str(t.name), n(t.fields))))),
+        // THE FIELD NAMES ARE WRITTEN WHEN THERE ARE ANY, and omitted when there are not, so a
+        // builtin constructor's entry keeps the two-item shape it has always had.
+        Sx.L(a("types") :: m.types.map(t =>
+          Sx.L(List(a("type"), Sx.Str(t.name), n(t.fields)) ++
+               (if t.fieldNames.isEmpty then Nil else List(Sx.L(t.fieldNames.map(Sx.Str.apply))))))),
         Sx.L(a("globals") :: m.globals.map(g => Sx.L(List(a("global"), Sx.Str(g.name))))),
         Sx.L(a("prims") :: m.prims.map(p => Sx.L(List(a("prim"), Sx.Str(p))))),
         Sx.L(a("funcs") :: m.funcs.map(f =>
@@ -382,7 +386,15 @@ object Text:
     Module(
       consts = items(xs(0), "consts").map(litOf),
       types = items(xs(1), "types").map { t =>
-        val ti = items(t, "type"); TypeDef(atom(ti(0)), int(ti(1)))
+        // A TYPE ENTRY IS READ WITH OR WITHOUT ITS FIELD NAMES. The hand-written fixtures under
+        // `v3/tests/bridge/` predate them and must keep parsing; the writer above always emits them
+        // when the module has them, so a round-trip through this reader is stable either way.
+        val ti = items(t, "type")
+        val tns = if ti.length > 2 then ti(2) match
+                    case Sx.L(xs) => xs.map { case Sx.Str(s) => s; case other => atom(other) }
+                    case _        => Nil
+                  else Nil
+        TypeDef(atom(ti(0)), int(ti(1)), tns)
       },
       globals = items(xs(2), "globals").map(g => GlobalDef(atom(items(g, "global").head))),
       prims = items(xs(3), "prims").map(p => atom(items(p, "prim").head)),

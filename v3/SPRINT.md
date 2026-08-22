@@ -191,6 +191,77 @@ and they are library work behind a client that already exists.
 **THE FLOORS WERE THE POINT AND THEY HELD**: DIFF stayed 0 on both lanes through eight landings, and
 CRASH never rose.
 
+## ssc3-value-show-and-copy (claim `v3-value-show-and-copy`) — a value names its own rendering
+
+The owner's decision of 2026-08-22, asked as one question with the cost of each answer measured
+first: **carry field names in the IR and let a value render by its own `_show` field, in BOTH
+lanes.** The alternative — a plugin rendering data values in v3 plus a separate rule in v2 — was
+declined; it keeps the IR still and puts one rule in two places.
+
+**WHY THIS IS THE THING THAT UNBLOCKS `copy`.** The positional/mixed `copy` fix has been written and
+measured since 2026-08-21 and is HELD, because landing it alone makes `optic-polish` stop refusing
+and start answering WRONGLY — `Optic(Lens, .x, <closure>, <closure>)` where `Lens(_.x)` is due — which
+is DIFF 0 → 1, and DIFF is a floor. The rendering is what turns that wrong answer into the right one,
+so the two land together.
+
+**AND `copy` IS BROKEN ON BOTH SIDES, WHICH THE INVESTIGATION FOUND RATHER THAN ASSUMED.** Seven
+forms, measured on the v2 reference and on v3:
+
+| form | v2 | v3 |
+| --- | --- | --- |
+| `p.copy(y = 20)` | `P(1, 20, 3)` | same |
+| `p.copy(10, 20, 30)` | `P(10, 20, 30)` | refused at run time |
+| `p.copy(10, z = 99)` | `P(10, 2, 99)` | refused at lowering |
+| `p.copy(10)` | `P(10, 2, 3)` | refused |
+| `p.copy(9, x = 8)` | **`P(9, 2)`** — `x = 8` silently DROPPED | — |
+| `p.copy(x = 8, 9)` | **`P(8, 9)`** — positional after named accepted | — |
+| `p.copy(1, 2, 3)` on two fields | refused | — |
+
+The last two are compile errors in Scala and v2 answers anyway, discarding an argument the author
+wrote. v2's model is why: the front encodes every argument as `#index` or as a name, and at
+`Runtime.scala:2171` `overrides.get("#i").orElse(overrides.get(name))` makes the INDEX win.
+
+**[x] ALL SIX LANDED, measured against a control on the same `origin/main`: exec 277 → 278, bridge
+274 → 275, DIFF 0 and CRASH unchanged, 13 gates green. The +1 is `optic-polish` — the sixth of the
+six optics cases, and the one that has been refused since the series began.**
+
+### The steps, each measurable on its own
+
+**[x] S1 — field names in the IR.** `Ir.TypeDef(name, fields: Int)` gains `fieldNames`. Four construction
+sites, one writer and one reader in `Text.scala`, and `Verify`/`BridgeV2` read only the COUNT and are
+untouched. The reader accepts a type entry with or without the names so the hand-written
+`v3/tests/bridge/*.ssir` fixtures keep parsing; the writer always writes them, so `sample.ssir` is
+regenerated once — it is a change detector, and this is the change. *Done when:* selftest and every
+gate is green and the corpus has not moved.
+
+**[x] S2 — `_show` in v3's renderer.** `Exec.showV` renders a `VData` by its `_show` field when the class
+declares one. *Done when:* a probe prints, and the corpus has not moved (nothing declares `_show`).
+
+**S3 — `_show` in v2's renderer**, from `V2PluginRegistry.lookupFieldNames`, which v2 already consults
+for `fieldAt` and for `copy`. The bridge lane renders with v2, so without this half the two lanes
+disagree the moment a value uses it. *Done when:* the same probe prints the same on the bridge.
+
+**[x] S3 NEEDED A THIRD HALF NOBODY PLANNED FOR, and it is the one worth remembering.** v2 applies
+the rule only to a class whose field names it KNOWS, and its own front tells it with the
+`__regfields__` prim — while the v3 bridge had never said a word. So after S2 and the v2 arms, the
+executor printed `Lens(_.x)` and the bridge still printed `Optic(Lens, .x, <closure>, <closure>)`:
+the rule existed in both renderers and the DATA to apply it reached only one. The bridge now emits
+`__regfields__` for each type that has names — and only for those, so a module of builtins emits
+exactly the text it emitted before and every earlier A/B stays comparable. Two renderers in v2
+(`anyStr` and `Show.show`) each got the arm, sharing one helper: the rule is stated once.
+
+**[x] S4 — the optics carry `_show`.** `Optic` gains the field, `andThen` recomputes it, `PrismOptic` gets
+`Prism[?, C]` from the rewrite. *Done when:* `println(lens)` is `Lens(_.x)` on both lanes.
+
+**[x] S5 — the held `copy` patch lands** (v3). *Done when:* `optic-polish` PASSES on both lanes, N +1,
+DIFF 0.
+
+**[x] S6 — v2 refuses the two forms it silently mishandles.** Both are detectable in the same runtime arm
+from the ordered argument list: a `#i` together with the name of field i is a field specified twice,
+and a `#i` after a name is a positional argument after a named one. *Done when:* both refuse, nothing
+in the corpus moves, and v3 and v2 agree on all seven forms — v3 refusing at lowering with a position
+and v2 at run time, which is a difference in WHEN and not in WHETHER.
+
 ## ssc3-jvm-interop (claim `v3-jvm-interop`) — a JVM package is importable, from OUTSIDE the kernel
 
 The owner approved admitting `import scalascript.typeddata.{DatasetWire, DatasetWirePartition}`

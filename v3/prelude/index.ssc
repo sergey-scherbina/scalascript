@@ -293,7 +293,7 @@ rewrite emits that pattern, so what is left for a value to hold is two closures 
 shared file would carry nothing but a constructor.
 
 ```scalascript
-case class PrismOptic(test: Any, wrap: Any):
+case class PrismOptic(test: Any, wrap: Any, _show: String):
   def getOption(s: Any): Any = test(s)
   def modify(s: Any, f: Any): Any =
     test(s) match

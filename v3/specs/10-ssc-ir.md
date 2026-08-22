@@ -19,6 +19,7 @@ because "where we are" is a position in the JVM call stack.
 Module
   consts  : Const[]         constant pool
   types   : TypeDef[]       constructor layouts — THE source of truth for field indices
+                            TypeDef = (name, fields: Int, fieldNames: String[])
   globals : GlobalDef[]     mutable module-level cells
   funcs   : Func[]          the code
   entry   : FuncId
@@ -128,6 +129,26 @@ Both regions leave their result in the same `d`, so there is one result register
 later pass would have to reconcile; `exn` is where the caught value is bound. Its own instruction
 rather than an effect: `Perform`/`Handle` are RESUMABLE and an exception is not, and conflating them
 would give one instruction two control semantics.
+
+### A type entry carries its field NAMES, and why an IR keeps a source-level fact
+
+`TypeDef` held a name and an arity until 2026-08-22. It now also holds `fieldNames`, which is EITHER
+empty or exactly `fields` long — empty means "the front did not know them", not "there are none":
+the builtin constructors the lowering registers (`Cons`, `Nil`, `Tuple2`, …) have no user-written
+field names, a `case class` declaration does.
+
+**AN IR HAS NO BUSINESS KNOWING SOURCE NAMES UNLESS SOMETHING READS THEM, and something does.** A
+value renders by its own `_show` field when its class declares one — `Lens(_.x)` instead of
+`Optic(Lens, .x, <closure>, <closure>)` — and a renderer can only find that field BY NAME. The
+alternative, asking a plugin to render data values, was weighed and declined by the owner: it keeps
+this file still and puts one rule in two places. v2 has had the same capability for HOST values
+since optics needed it, and hardcodes one tag (`_Raw`) for the same purpose; this is its general
+form, for values written in the language.
+
+**NOTHING ELSE IN THE IR CHANGES.** `Field`, `MkData` and `Switch` are indexed by POSITION and are
+untouched; `Verify` and the v2 bridge read the arity. The text format writes the names as a third
+item and omits it when there are none, so an entry for a builtin keeps the two-item shape it has
+always had and a hand-written `.ssir` fixture without them still reads.
 
 `Field` carries its type index, and that is not redundancy: **without it rule 4 below is not
 checkable at all.** The first cut of this spec wrote `Field d, a, idx`, and writing the verifier

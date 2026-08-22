@@ -1861,8 +1861,23 @@ object BridgeV2:
     val needsRest = if usesEffects(m1) then crossFrameSet(m1) else Set.empty[Int]
     val (mm, kOf) = if needsRest.isEmpty then (m1, Map.empty[String, Int]) else splitCallers(m1, needsRest)
     if usesEffects(mm) then crossFrameRefusal(mm)
+    // FIELD NAMES ARE HANDED TO v2, because on this lane v2 does the rendering and it can only apply
+    // the `_show` rule to a class whose field names it knows. Its own front tells it with
+    // `__regfields__` (`ssc1-lower` K62.28); the bridge had never said anything, so a value that
+    // named its own rendering printed `Lens(_.x)` on the executor and `Optic(Lens, .x, <closure>,
+    // <closure>)` here — the two lanes disagreeing about one program, which is what I-3 forbids.
+    //
+    // ONLY THE TYPES THAT HAVE NAMES, so a module of builtins emits exactly the text it emitted
+    // before this existed and every earlier A/B stays comparable. Emitted as a `def` whose body runs
+    // the prim, because `run-ir` executes definitions in order and there is no other preamble.
+    val regs = mm.types.filter(_.fieldNames.nonEmpty).zipWithIndex.map { (t, i) =>
+      "(def __ssc3_regfields_" + i.toString + " (prim __regfields__ " + lit("(str " + quote(t.name) + ")") + " " +
+        t.fieldNames.foldRight("(ctor Nil)")((n, acc) =>
+          "(ctor Cons " + lit("(str " + quote(n) + ")") + " " + acc + ")") + "))"
+    }.mkString(" ")
     val eff = if usesEffects(m) then effectDefs + " " else ""
-    val defs = (if cells.isEmpty then "" else cells + " ") + eff +
+    val defs = (if regs.isEmpty then "" else regs + " ") +
+               (if cells.isEmpty then "" else cells + " ") + eff +
       mm.funcs.map(f => func(mm, f, kOf.getOrElse(f.name, -1), needsRest)).mkString(" ")
     val entryName = mm.funcs(mm.entry).name
     "(program (defs " + defs + ") (entry (app (global " + entryName + "))))"

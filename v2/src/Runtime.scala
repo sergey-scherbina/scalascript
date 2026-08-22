@@ -2177,9 +2177,31 @@ object Prims:
                 case _ => false
               }
               if explicitNames then
-                val overrides = args.grouped(2).collect {
-                  case List(StrV(n), v) => n -> v
-                }.toMap
+                val pairs = args.grouped(2).collect { case List(StrV(n), v) => n -> v }.toList
+                val overrides = pairs.toMap
+                // TWO SHAPES THAT ARE COMPILE ERRORS IN SCALA AND USED TO ANSWER ANYWAY, measured
+                // 2026-08-22: `p.copy(9, x = 8)` gave `P(9, 2)` — the author's `x = 8` DISCARDED
+                // without a word — and `p.copy(x = 8, 9)` gave `P(8, 9)`. Both come from the same
+                // place: the front encodes every argument as `#index` or as a name, and the
+                // `orElse` below lets the index win. A silently dropped argument is the worst kind
+                // of wrong, so both are refused instead.
+                //
+                // POSITION IS RECOVERABLE HERE because `pairs` is in source order: once a NAME has
+                // been seen, a later `#i` is a positional argument after a named one.
+                val idxOf = (k: String) =>
+                  if k.startsWith("#") && k.drop(1).forall(_.isDigit) then k.drop(1).toInt else -1
+                val twice = pairs.exists { (k, _) =>
+                  val i = idxOf(k)
+                  i >= 0 && i < names.length && overrides.contains(names(i))
+                }
+                val posAfterNamed = pairs.dropWhile((k, _) => idxOf(k) >= 0)
+                                         .exists((k, _) => idxOf(k) >= 0)
+                if twice then
+                  throw SscThrow(StrV("`" + tag + ".copy` gives one field two values — a positional " +
+                    "argument and a named one for the same field"))
+                else if posAfterNamed then
+                  throw SscThrow(StrV("`" + tag + ".copy` has a positional argument after a named " +
+                    "one; positional arguments come first"))
                 DataV(tag, names.zipWithIndex.map { case (n, i) =>
                   overrides.get(s"#$i").orElse(overrides.get(n))
                     .getOrElse(if i < fields.length then fields(i) else UnitV)
@@ -4002,6 +4024,9 @@ object Prims:
     // verbatim (mirrors the v1 HttpIntrinsics `_Raw` → fields("html") behaviour and
     // the scalameta path), not the default `_Raw(<…>)` constructor form.
     case DataV("_Raw", fields) if fields.nonEmpty => anyStr(fields.head)
+    // A value that names its own rendering — see `showFieldOf`. Placed beside `_Raw` because it is
+    // the general form of that line.
+    case DataV(tag, fields) if Show.showFieldOf(tag, fields).isDefined => Show.showFieldOf(tag, fields).get
     case DataV(tag, fields) if tag.startsWith("Tuple") && fields.nonEmpty =>
       s"(${fields.map(anyStr).mkString(", ")})"
     case DataV(tag, fields) if fields.nonEmpty && tag != "Op" && tag != "Stub" =>
@@ -4373,6 +4398,29 @@ object IrToData:
     case Const.CBytes(b) => d1("IrBytes", BytesV(b))
 
 object Show:
+  /** THE `_show` FIELD OF A DATA VALUE, when its class declares one and it holds a string.
+    *
+    * A VALUE MAY NAME ITS OWN RENDERING — the owner's decision of 2026-08-22, and this half exists
+    * because the v3 BRIDGE lane renders with this file: without it, `println(lens)` prints
+    * `Lens(_.x)` on v3's executor and `Optic(Lens, .x, <closure>, <closure>)` here, which is two
+    * lanes disagreeing about one program. v3's half is `Exec.showV`, reading the field names its IR
+    * now carries.
+    *
+    * NOT A NEW KIND OF RULE HERE. This file already renders a HOST value by a `_show` field
+    * (`NamedMethodObj`, which is how the optics plugin prints `Lens(_.x)` today) and hardcodes one
+    * data tag, `_Raw`, for the same purpose. This is the general form of both, for a value written
+    * in the language. */
+  def showFieldOf(tag: String, fields: Seq[Value]): Option[String] =
+    V2PluginRegistry.lookupFieldNames(tag, fields.length).flatMap { names =>
+      val i = names.indexOf("_show")
+      if i < 0 || i >= fields.length then None
+      else fields(i) match
+        // QUALIFIED, because this sits above the object's own `import Value.*` and moving that
+        // import to suit one helper is a change to someone else's line.
+        case Value.StrV(str) => Some(str)
+        case _               => None
+    }
+
   /** Pluggable renderer for opaque ForeignV payloads. The v1 bridge installs a
    *  callback that renders native v1 interpreter Values (DocV, MarkupV, …) via
    *  v1's own show — the v2 kernel itself stays v1-free. Return null to decline. */
@@ -4415,6 +4463,7 @@ object Show:
         case _ => Nil
       s"List(${ul(v).map(show).mkString(", ")})"
     case DataV("_Raw", fs) if fs.nonEmpty => fs.head match { case StrV(s) => s; case v => show(v) }
+    case DataV(tag, fs) if showFieldOf(tag, fs).isDefined => showFieldOf(tag, fs).get
     // Source tuples are TupleN → `(a, b)`. "Pair" (a -> b arrows, mira's own tuples)
     // keeps its `Pair(a, b)` rendering via the generic ctor case below.
     case DataV(t, fs) if t.matches("Tuple\\d+") => s"(${fs.map(show).mkString(", ")})"

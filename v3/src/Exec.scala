@@ -663,7 +663,29 @@ object Exec:
     *
     * The shapes are the reference lane's, measured: `P(1, 2)`, `Some(3)`, `None` (no parens for a
     * nullary constructor), `List(1, 2)`. */
+  /** The `_show` string of a data value, when its class declares that field and it holds one. */
+  private def showFieldOf(m: Module, t: Int, f: IndexedSeq[Value]): Option[String] =
+    if t < 0 || t >= m.types.length then None
+    else
+      val i = m.types(t).fieldNames.indexOf("_show")
+      if i < 0 || i >= f.length then None
+      else f(i) match
+        case Value.VStr(s) => Some(s)
+        case _             => None
+
   def showV(m: Module, v: Value): String = v match
+    // A VALUE MAY NAME ITS OWN RENDERING, by declaring a field called `_show` that holds a string.
+    // The owner's decision of 2026-08-22, and it is not a new idea here: v2 has had exactly this for
+    // HOST values since optics needed it (`Runtime.scala`, a `NamedMethodObj` exposing `_show`), and
+    // v2 even hardcodes one tag (`_Raw`) for the same reason. This is that capability for a value
+    // written IN the language — `Lens(_.x)` instead of `Optic(Lens, .x, <closure>, <closure>)`.
+    //
+    // IT NEEDED THE IR TO CARRY FIELD NAMES, because this renderer can only find the field by name
+    // and `TypeDef` used to keep the arity alone. That was the cost the decision was taken against.
+    //
+    // ONLY A STRING COUNTS. A `_show` holding anything else falls through to the structural form
+    // rather than rendering something arbitrary — the field is a rendering, not a hook.
+    case Value.VData(t, f) if showFieldOf(m, t, f).isDefined => showFieldOf(m, t, f).get
     case Value.VData(t, f) =>
       if isList(m, v) then "List(" + listOut(m, v).map(x => showV(m, x)).mkString(", ") + ")"
       else if t == tagOf(m, "Nil") then "List()"

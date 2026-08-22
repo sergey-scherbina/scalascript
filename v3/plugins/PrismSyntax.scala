@@ -44,7 +44,11 @@ object PrismSyntax:
                      Expr.Call("Some", List(Expr.Name(sub, p)), p)),
             MatchArm(Pat.PWild(p), None, Expr.Name("None", p))), p), p)
         val wrap = Expr.Lambda(List(Param(idn, p)), Expr.Name(idn, p), p)
-        Right(Expr.Call("PrismOptic", List(test, wrap), p))
+        // `Prism[?, Circle]` is what the reference prints, outer type and all: it renders a prism by
+        // its VARIANT and writes `?` where the enum would go, because the variant is what a prism
+        // tests. Passed as the value's `_show` field, which is how a value names its own rendering.
+        Right(Expr.Call("PrismOptic",
+                        List(test, wrap, Expr.StrLit("Prism[?, " + variant + "]", p)), p))
       // NAMED BY ITS TYPES MEANS BOTH OF THEM. One is `Prism[Shape]` — which enum, which variant?
       // — and three is a spelling nobody has defined. Refused with a position rather than guessed,
       // because guessing here picks a variant for the author.

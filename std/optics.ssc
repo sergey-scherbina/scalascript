@@ -52,8 +52,14 @@ BOUNDS-CHECKED and answer `None` when they miss; `.at` on an absent key SETS onl
 step; a traversal's `set` is `modify` with a constant; and the kind is `Traversal` if any step is
 `.each`, `Optional` if any step may miss, `Lens` otherwise.
 
+**`_show` IS A FIELD, NOT A METHOD, and that is the language's rule rather than this file's taste:**
+a value renders by its `_show` field when it declares one, in both lanes (v3's `Exec.showV` reads the
+field names its IR carries; v2's `Show` reads them from its own registry). So `println(lens)` prints
+`Lens(_.x)` instead of the four-field structural form. It is computed once at construction and
+recomputed by `andThen`, because the kind can change when two optics compose.
+
 ```scalascript
-case class Optic(kind: String, path: String, allOf: Any, overAll: Any):
+case class Optic(kind: String, path: String, allOf: Any, overAll: Any, _show: String):
   def getAll(s: Any): Any = allOf(s)
 
   def getOption(s: Any): Any =
@@ -71,9 +77,18 @@ case class Optic(kind: String, path: String, allOf: Any, overAll: Any):
   def modify(s: Any, f: Any): Any = overAll(s, f)
 
   def andThen(o: Any): Optic =
-    Optic(opticJoinKind(kind, o.kind), path + o.path,
-          (s: Any) => allOf(s).flatMap((x: Any) => o.allOf(x)),
-          (s: Any, f: Any) => overAll(s, (x: Any) => o.overAll(x, f)))
+    opticOf(opticJoinKind(kind, o.kind), path + o.path,
+            (s: Any) => allOf(s).flatMap((x: Any) => o.allOf(x)),
+            (s: Any, f: Any) => overAll(s, (x: Any) => o.overAll(x, f)))
+```
+
+**EVERY `Optic` IS BUILT THROUGH `opticOf`,** so the printed label is derived in one place rather
+than at each of the five construction sites — five copies of `kind + "(_" + path + ")"` is five
+chances for one of them to drift.
+
+```scalascript
+def opticOf(kind: String, path: String, allOf: Any, overAll: Any): Optic =
+  Optic(kind, path, allOf, overAll, kind + "(_" + path + ")")
 ```
 
 `get` on an optic that missed is the one operation with no answer. The reference throws; this says
@@ -102,7 +117,7 @@ A FIELD is the only step that needs to be told the names, and it is told them as
 
 ```scalascript
 def opticField(name: String, g: Any, s: Any): Optic =
-  Optic("Lens", "." + name,
+  opticOf("Lens", "." + name,
         (x: Any) => List(g(x)),
         (x: Any, f: Any) => s(x, f(g(x))))
 ```
@@ -126,7 +141,7 @@ def opticSomeOver(x: Any, f: Any): Any =
     case _ => x
 
 def opticSome(): Optic =
-  Optic("Optional", ".some",
+  opticOf("Optional", ".some",
         (x: Any) => opticSomeAll(x),
         (x: Any, f: Any) => opticSomeOver(x, f))
 ```
@@ -135,7 +150,7 @@ def opticSome(): Optic =
 
 ```scalascript
 def opticEach(): Optic =
-  Optic("Traversal", ".each",
+  opticOf("Traversal", ".each",
         (x: Any) => x,
         (x: Any, f: Any) => x.map(f))
 ```
@@ -154,7 +169,7 @@ def opticIndexUpdate(xs: Any, i: Int, f: Any): Any =
   out
 
 def opticIndex(i: Int): Optic =
-  Optic("Optional", ".index(" + i.toString + ")",
+  opticOf("Optional", ".index(" + i.toString + ")",
         (x: Any) => if i >= 0 && i < x.length then List(x(i)) else List(),
         (x: Any, f: Any) => if i >= 0 && i < x.length then opticIndexUpdate(x, i, f) else x)
 ```
@@ -180,7 +195,7 @@ def opticAtOver(x: Any, k: Any, f: Any): Any =
     case _ => x
 
 def opticAt(k: Any): Optic =
-  Optic("Optional", opticAtLabel(k),
+  opticOf("Optional", opticAtLabel(k),
         (x: Any) => opticAtAll(x, k),
         (x: Any, f: Any) => opticAtOver(x, k, f))
 ```
@@ -192,5 +207,5 @@ person wrote. Kept as a function rather than a `toString` because a rendering ho
 honours for a data value is a separate question from what the string should be.
 
 ```scalascript
-def opticShow(o: Optic): String = o.kind + "(_" + o.path + ")"
+def opticShow(o: Optic): String = o._show
 ```

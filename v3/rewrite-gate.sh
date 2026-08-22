@@ -352,5 +352,51 @@ elif ! grep -qE ":[0-9]+:[0-9]+: Focus takes a path of fields and optic steps" <
   red "focus: an unreadable step refused in the wrong shape — [$(cut -c1-120 <<<"$ferr")]"
 else say ok "focus: a step that is neither a field nor an optic step refuses by name"; fi
 
+# ── 15. AN OPTIC PRINTS ITS OWN LABEL, on both lanes.
+# A value renders by its `_show` field when its class declares one (the owner's decision of
+# 2026-08-22). Three things had to be true at once for this line to pass and each was measured on
+# its own: v3's IR carries field names, both renderers apply the rule, and THE BRIDGE TELLS v2 THE
+# NAMES — without that last one the executor printed `Lens(_.x)` while the bridge printed the
+# four-field structural form, which is the two lanes disagreeing about one program.
+S="$TMP/show.ssc"
+printf 'enum Shape:\n  case Circle(r: Int)\n\ncase class Pt(x: Int)\ncase class Wrap(p: Any)\ncase class Bag(xs: Any)\nprintln(Focus[Pt](_.x))\nprintln(Focus[Wrap](_.p.some.x))\nprintln(Focus[Bag](_.xs.each.x))\nprintln(Prism[Shape, Circle])\nprintln(Pt(1))\n' > "$S"
+swant='Lens(_.x)
+Optional(_.p.some.x)
+Traversal(_.xs.each.x)
+Prism[?, Circle]
+Pt(1)'
+sgot="$(timeout 60 $SSC3 run "$S" 2>"$TMP/e15")"; src=$?
+svia="$(timeout 180 $SSC3 run --bridge "$S" 2>"$TMP/e15b")"; sbrc=$?
+if [ $src -ne 0 ] || [ "$sgot" != "$swant" ]; then
+  red "show: executor rc=$src [$(printf '%s' "$sgot" | tr '\n' '/')] — $(grep -m1 '^ssc3:' "$TMP/e15" | cut -c1-90)"
+elif [ $sbrc -ne 0 ] || [ "$svia" != "$swant" ]; then
+  red "show: bridge rc=$sbrc [$(printf '%s' "$svia" | tr '\n' '/')] — the bridge renders with v2, so this is the field-name registration"
+else say ok "an optic prints its kind and path on both lanes, and a plain class still prints structurally"; fi
+
+# ── 16. ALL SEVEN `copy` FORMS, and the three that must REFUSE are the point.
+# `p.copy(9, x = 8)` and `p.copy(x = 8, 9)` are compile errors in Scala, and v2 used to ANSWER them —
+# `P(9, 2)`, with the author's `x = 8` silently dropped. v3 refuses at lowering with a position; v2
+# now refuses at run time. A difference in WHEN, not in WHETHER.
+C="$TMP/copy.ssc"
+printf 'case class P(x: Int, y: Int, z: Int)\nval p = P(1, 2, 3)\nprintln(p.copy(y = 20))\nprintln(p.copy(10, 20, 30))\nprintln(p.copy(10, z = 99))\nprintln(p.copy(10))\n' > "$C"
+cwant='P(1, 20, 3)
+P(10, 20, 30)
+P(10, 2, 99)
+P(10, 2, 3)'
+cgot="$(timeout 60 $SSC3 run "$C" 2>"$TMP/e16")"; crc=$?
+cvia="$(timeout 180 $SSC3 run --bridge "$C" 2>/dev/null)"; cbrc=$?
+if [ $crc -ne 0 ] || [ "$cgot" != "$cwant" ]; then
+  red "copy: executor rc=$crc [$(printf '%s' "$cgot" | tr '\n' '/')] — $(grep -m1 '^ssc3:' "$TMP/e16" | cut -c1-90)"
+elif [ $cbrc -ne 0 ] || [ "$cvia" != "$cwant" ]; then
+  red "copy: bridge rc=$cbrc [$(printf '%s' "$cvia" | tr '\n' '/')]"
+else say ok "copy: named, all-positional, mixed and short — four forms, both lanes"; fi
+
+for bad in "9, x = 8" "x = 8, 9" "1, 2, 3, 4"; do
+  printf 'case class P(x: Int, y: Int, z: Int)\nval p = P(1, 2, 3)\nprintln(p.copy(%s))\n' "$bad" > "$TMP/cb.ssc"
+  berr="$(timeout 60 $SSC3 run "$TMP/cb.ssc" 2>&1 >/dev/null)"; brc2=$?
+  if [ $brc2 -eq 0 ]; then red "copy: p.copy($bad) was ACCEPTED — an argument is being dropped silently"
+  else say ok "copy: p.copy($bad) refuses"; fi
+done
+
 if [ $fails -gt 0 ]; then echo "rewrite-gate: FAIL ($fails)"; exit 1; fi
 echo "rewrite-gate: OK"

@@ -107,10 +107,18 @@ object Lower:
     def primIdx(p: String): (Int, St) =
       val i = prims.indexOf(p)
       if i >= 0 then (i, this) else (prims.length, copy(prims = prims :+ p))
-    def typeIdx(name: String, fields: Int): (Int, St) =
-      val td = TypeDef(name, fields)
-      val i = types.indexOf(td)
-      if i >= 0 then (i, this) else (types.length, copy(types = types :+ td))
+    /** MATCHED BY NAME AND ARITY, not by the whole record, and that is what the field names cost.
+      *
+      * The same class can reach here from two sites — a constructor knows its field NAMES, a
+      * `match` arm on the same tag knows only the count — and comparing whole `TypeDef`s would give
+      * one class two type indices, which every `Switch` arm and every `Field` read is indexed by.
+      * So a later registration that knows the names FILLS THEM IN rather than adding an entry. */
+    def typeIdx(name: String, fields: Int, fieldNames: List[String] = Nil): (Int, St) =
+      val i = types.indexWhere(t => t.name == name && t.fields == fields)
+      if i < 0 then (types.length, copy(types = types :+ TypeDef(name, fields, fieldNames)))
+      else if fieldNames.nonEmpty && types(i).fieldNames.isEmpty then
+        (i, copy(types = types.updated(i, types(i).copy(fieldNames = fieldNames))))
+      else (i, this)
 
   /** Names a lambda body reads from OUTSIDE itself. Those become the closure's captures, and they
     * are computed rather than guessed: capturing everything in scope would grow every closure with
@@ -583,23 +591,32 @@ object Lower:
       var acc = ri
       var st = st1
       var named: List[(String, Int)] = Nil
+      var positional: List[Int] = Nil
+      // POSITIONAL FIRST, THEN NAMED, and the two lists stay apart because a field is looked up by
+      // INDEX in one and by NAME in the other. `copyFits` has already established the order and that
+      // no field is filled twice, so nothing here has to re-check it.
       argEs.foreach { a => a match
         case Expr.NamedArg(n, v, _) =>
           val (vi, vr, stN) = lower(v, fns, classes, zeroArity, st)
           acc = acc ++ vi; named = named :+ ((n, vr)); st = stN
-        case other => throw LowerFail(p, "`copy` takes named arguments at Tier 0")
+        case other =>
+          val (vi, vr, stN) = lower(other, fns, classes, zeroArity, st)
+          acc = acc ++ vi; positional = positional :+ vr; st = stN
       }
       val (d, stD) = st.fresh
       st = stD
       var arms: List[SwitchArm] = Nil
       owners.foreach { o =>
-        val (t, sN) = st.typeIdx(o.name, o.fields.length)
+        val (t, sN) = st.typeIdx(o.name, o.fields.length, o.fields.map(_.name))
         st = sN
         var body: List[Instr] = Nil
         var regs: List[Int] = Nil
         o.fields.zipWithIndex.foreach { (f, i) =>
-          named.find((n, _) => n == f.name) match
-            case Some((_, vr)) => regs = regs :+ vr
+          // A field is filled by POSITION if the call gave one there, else by NAME, else read back
+          // off the receiver — which is what makes `copy` a copy.
+          val fromPos = if i < positional.length then Some(positional(i)) else None
+          fromPos.orElse(named.find((n, _) => n == f.name).map((_, vr) => vr)) match
+            case Some(vr) => regs = regs :+ vr
             case None =>
               val (fr, s2) = st.fresh
               st = s2
@@ -672,7 +689,7 @@ object Lower:
       st = stD
       var arms: List[SwitchArm] = Nil
       owners.foreach { o =>
-        val (t, sN) = st.typeIdx(o.name, o.fields.length)
+        val (t, sN) = st.typeIdx(o.name, o.fields.length, o.fields.map(_.name))
         st = sN
         val fi = fns.indexOf(o.name + "." + nm)
         if fi < 0 then throw LowerFail(p, "method '" + nm + "' of " + o.name + " was not lifted")
@@ -690,7 +707,7 @@ object Lower:
       if argEs.isEmpty then
         classes.filter(c => c.fields.exists(f => f.name == nm) && !owners.exists(o => o.name == c.name))
           .foreach { o =>
-            val (t, sN) = st.typeIdx(o.name, o.fields.length)
+            val (t, sN) = st.typeIdx(o.name, o.fields.length, o.fields.map(_.name))
             val (fr, sN2) = sN.fresh
             st = sN2
             arms = arms :+ SwitchArm(t, List(Instr.Field(fr, rr, t, o.fields.indexWhere(f => f.name == nm)),
@@ -719,7 +736,7 @@ object Lower:
       var st = st2
       var arms: List[SwitchArm] = Nil
       owners.foreach { o =>
-        val (t, sN) = st.typeIdx(o.name, o.fields.length)
+        val (t, sN) = st.typeIdx(o.name, o.fields.length, o.fields.map(_.name))
         val (fr, sN2) = sN.fresh
         val idx = o.fields.indexWhere(f => f.name == nm)
         arms = arms :+ SwitchArm(t, List(Instr.Field(fr, rr, t, idx), Instr.Move(d, fr)))
@@ -1011,7 +1028,7 @@ object Lower:
         val c = declared.get
         if args.length != c.fields.length then
           throw LowerFail(p, fn + " takes " + c.fields.length + " field(s), given " + args.length)
-        val (t, st1) = st.typeIdx(fn, c.fields.length)
+        val (t, st1) = st.typeIdx(fn, c.fields.length, c.fields.map(_.name))
         val (d, st2) = st1.fresh
         (acc :+ Instr.MkData(d, t, args), d, st2)
       else if ctors.exists((n, _) => n == fn) then
@@ -2729,10 +2746,33 @@ object Lower:
       case other =>
         throw LowerFail(Pat.posOf(other), "an alternative pattern may not bind a name at Tier 0")
 
+  /** Does this `copy` call fit this class — POSITIONAL ARGUMENTS FIRST, then named ones.
+    *
+    * `copy` took named arguments only until 2026-08-22, and the two other spellings failed in two
+    * different places: `p.copy(10, 20, 30)` fell through this guard to a runtime method dispatch and
+    * came back "method 'copy' … is not implemented by v3's executor", while `p.copy(10, z = 99)`
+    * was refused at LOWERING with "a named argument in a call whose signature is not known". Both
+    * are ordinary Scala, the v2 reference answers both, and `tests/conformance/optic-polish.ssc`
+    * uses both.
+    *
+    * THE ORDER RULE IS SCALA'S AND IS ENFORCED HERE rather than assumed: a positional argument after
+    * a named one does not fit, and a named argument naming a field a positional argument already
+    * filled does not fit either — two values for one field is a question this has no business
+    * guessing at. v2 guesses: it encodes every argument as `#index` or as a name and lets the INDEX
+    * win, so `p.copy(9, x = 8)` answers `P(9, 2)` there with the author's `x = 8` silently dropped
+    * (`v2-copy-silently-drops-an-argument`). Not fitting here means the call falls through to the
+    * same dispatch it fell through to before, so a shape this cannot lower is refused as it was. */
   private def copyFits(c: ClassDef, args: List[Expr]): Boolean =
-    args.forall { a => a match
-      case Expr.NamedArg(n, _, _) => c.fields.exists(f => f.name == n)
-      case _                      => false
+    val positional = args.takeWhile { a => a match
+      case Expr.NamedArg(_, _, _) => false
+      case _                      => true
+    }
+    val rest = args.drop(positional.length)
+    positional.length <= c.fields.length &&
+    rest.forall { a => a match
+      case Expr.NamedArg(n, _, _) =>
+        c.fields.indexWhere(f => f.name == n) >= positional.length
+      case _ => false
     }
 
   /** Local `def`s become TOP-LEVEL functions, with whatever they capture as LEADING parameters.

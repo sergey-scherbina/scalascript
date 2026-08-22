@@ -47,7 +47,22 @@ enum BinOp:
   * the verifier alike. The alternative — a compile-time name→index map that can disagree with the
   * runtime record layout — is a whole bug family in this repository, and every disagreement is a
   * silent wrong-field read. */
-final case class TypeDef(name: String, fields: Int)
+/** A constructor: its name, how many fields it has, and — when the front knew them — what those
+  * fields are CALLED.
+  *
+  * `fieldNames` is EITHER empty or exactly `fields` long, and empty means "not known here" rather
+  * than "none". The builtin constructors this file's lowering registers (`Cons`, `Nil`, `Tuple2`, …)
+  * have no user-written field names and pass none; a `case class` declaration has them and does.
+  *
+  * WHY THE IR CARRIES THEM AT ALL, decided by the owner on 2026-08-22 against the alternative of
+  * asking a plugin: a value has to be able to say how it PRINTS. `Exec.showV` renders a data value
+  * by its `_show` field when the class declares one, and it can only find that field by NAME. v2 has
+  * had the same rule for HOST values since optics needed it (`Runtime.scala`, `NamedMethodObj`'s
+  * `_show`); this is the same capability for values written in the language, and the bridge lane
+  * renders with v2, so both halves exist or the two lanes disagree.
+  *
+  * READERS THAT WANT THE COUNT ARE UNTOUCHED — `Verify` and `BridgeV2` read `fields`. */
+final case class TypeDef(name: String, fields: Int, fieldNames: List[String] = Nil)
 
 final case class GlobalDef(name: String)
 
