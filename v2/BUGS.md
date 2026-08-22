@@ -14063,3 +14063,32 @@ measurement above is, and it is what a fix has to move.
 
 **WORKAROUND, already taken in `std/html.ssc`:** do not name a constructor with a leading underscore
 in portable code. That is a rule about a defect, not a design, and it goes when this does.
+
+## v2-copy-silently-drops-an-argument — two shapes that are compile errors in Scala answered anyway
+
+<!-- status: fixed
+     lane: v2-jvm
+     kind: bug
+     area: runtime
+     gate: v3/rewrite-gate.sh (all seven copy forms, both lanes)
+     found-by: claude-code
+     found-at: 2026-08-22
+     fixed-in: c8ab12722 -->
+
+**MEASURED, THEN FIXED.** On a `case class P(x, y, z)`:
+
+    p.copy(9, x = 8)   →  P(9, 2, 3)   the author's `x = 8` DISCARDED, no word said
+    p.copy(x = 8, 9)   →  P(8, 9, 3)   a positional argument after a named one, accepted
+
+Both are compile errors in Scala. The cause is one line: the front encodes every argument as
+`#index` or as a name, and `Runtime.scala`'s copy arm resolves each field with
+`overrides.get("#i").orElse(overrides.get(name))` — so when a call gives both, the INDEX wins and the
+named value is dropped on the floor.
+
+**NOW BOTH REFUSE**, in the same arm, from the ordered argument list: a `#i` together with the name
+of field i is one field given two values, and a `#i` after a name is a positional argument after a
+named one. The four legal forms are untouched and answer exactly what they answered.
+
+**FOUND WHILE FIXING THE SAME METHOD IN v3**, which knew only the all-named form. The two now agree
+on all seven shapes — v3 refusing at LOWERING with a position and v2 at run time with a sentence, a
+difference in WHEN and not in WHETHER.

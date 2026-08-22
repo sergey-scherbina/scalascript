@@ -1863,14 +1863,27 @@ library encoding is what made `md` a twelve-line function this week. It is an ar
 where an interpolator's name lives — an owner decision, recorded before anyone writes `def html`,
 because writing it is what makes the collision permanent.
 
-## v3-an-optic-cannot-print-itself-because-no-lane-renders-a-value-by-its-own-rule
+## v3-an-optic-cannot-print-itself-because-no-lane-renders-a-value-by-its-own-rule — it can now
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      kind: feature
      area: runtime
+     gate: v3/rewrite-gate.sh (the optic labels, both lanes)
      found-by: claude-code
-     found-at: 2026-08-21 -->
+     found-at: 2026-08-21
+     fixed-in: c8ab12722 -->
+
+**FIXED IN c8ab12722. A VALUE NAMES ITS OWN RENDERING BY DECLARING A `_show` FIELD** — the owner's
+decision of 2026-08-22, taken against the alternative of asking a plugin, which would have kept the
+IR still and put one rule in two places. `Ir.TypeDef` carries field names, `Exec.showV` reads them,
+and v2's two renderers do the same from their own registry through one shared helper.
+
+**IT TOOK A THIRD HALF NOBODY PLANNED FOR.** v2 applies the rule only to a class whose field names it
+KNOWS, and the bridge had never told it — so with both renderers taught, the executor printed
+`Lens(_.x)` and the bridge still printed `Optic(Lens, .x, <closure>, <closure>)`: the rule was in
+both places and the DATA to apply it reached only one. The bridge now emits the same `__regfields__`
+prim v2's own front uses, for the types that have names and no others.
 
 **`tests/conformance/optic-polish.ssc` expects `println(xLens)` to print `Lens(_.x)`**, and the
 optic knows both halves — its kind and its path are ordinary fields. What is missing is a way for a
@@ -1904,14 +1917,22 @@ so `showV` cannot look for a field called `_show`. The candidates are therefore
 option 3 puts one rule in two places. Recorded with the measurement so the decision starts from
 facts rather than from a guess.
 
-## v3-copy-with-positional-or-mixed-arguments — the fix is written and HELD
+## v3-copy-with-positional-or-mixed-arguments — landed, with what was holding it
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      kind: bug
      area: codegen
+     gate: v3/rewrite-gate.sh (all seven copy forms, both lanes)
      found-by: claude-code
-     found-at: 2026-08-21 -->
+     found-at: 2026-08-21
+     fixed-in: c8ab12722 -->
+
+**FIXED IN c8ab12722, AND THE HOLD IS WHAT THIS ENTRY WAS FOR.** The patch was written and measured
+on 2026-08-21 and deliberately not landed: alone it turned `optic-polish` from an honest refusal into
+a wrong answer, DIFF 0 → 1, and DIFF is a floor. The rendering rule landed with it and the case now
+passes on both lanes. All four legal forms answer the same on v3's two lanes and on the v2
+reference, and the three illegal ones are refused everywhere.
 
 **`copy` took named arguments only, and the two other spellings failed in two different places:**
 
