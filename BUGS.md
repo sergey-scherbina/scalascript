@@ -481,6 +481,106 @@ written down rather than tidied away:
 blocked the whole `v3` job for everyone. Diagnosed and offered in the coordination room first; taken
 when the diagnosis turned out to be one line of workflow and a measurable control.
 
+## v3-bridge-refuses-a-region-inside-a-handle-body — the lanes diverged, and it moved rather than closed
+
+<!-- status: fixed
+     lane: v3
+     area: codegen
+     kind: bug
+     gate: v3/effects-gate.sh
+     fixed-in: 284c23dea
+     confirmed: yes
+     reported-by: claude-code
+     reported-at: 2026-08-22
+     repro: v3/tests/effects/region-in-handle-body.ssc, perform-in-region-in-handle-body.ssc
+     impact: workaround -->
+
+The last position `f0a6e4840` left named, and unlike the three it closed this one was a **lane
+divergence**: the executor answered and the bridge refused.
+
+```scalascript
+handle {
+  var acc = 0
+  if n > 0 then acc = g() + 100      // g() performs
+  acc
+} { case op(k) => k(10) + k(20) }     // 232
+```
+
+**WHY `ret` CANNOT SERVE, which is the whole design.** A handle body's remainder ends AT the handle,
+with the handle's own destination register. `ret` leaves the FUNCTION and takes the answer with it,
+and on this lane it also sets CTL to -1, which no `endRegion` ever clears. So the rebuilt body is
+wrapped in a `Block` and the cut leaves by BRANCHING out of it — `mkclos ; INSTR ; move dh,d ;
+br <depth>` — ending the body exactly where `Handle` reads `dh`.
+
+The branch also SKIPS the enclosing suffixes, which is required rather than incidental: `cutAt`
+leaves them in place because a region's other arm still reaches them, and on the path through the
+cut they belong to the continuation.
+
+**TWO DEFECTS ON THE WAY, both found by running rather than reading:**
+
+* `ssc3 build` **HUNG**. `alreadySplit` knew one shape — `mkclos ; INSTR ; ret d` — and a handle-body
+  cut leaves another, so the walk re-found the cut it had just made and split it for ever.
+* `perform` inside a `while` inside a handle body answered **1** where the executor said **12** — a
+  wrong answer, not a refusal. The loop rebuild puts a copy of the split instruction back and its
+  `br` needs a target in the CONTINUATION too; without a `Block` around the continuation's remainder
+  it aimed at a block that exists only in the function the cut came from.
+
+**THE BOUNDARY MOVED, IT DID NOT CLOSE.** What the rebuild still cannot reach is a handler **ARM**:
+a call or perform inside a region inside an arm body, or inside a `handle` nested in another
+handle's body. Measured rather than assumed — an arm performing an OUTER effect with a
+non-tail-resumptive handler for it answers 13 on the executor and refuses on the bridge. The refusal
+was narrowed and its message corrected instead of deleted, and its flag now means "the rebuild
+cannot cut here", which is a property of where the `handle` stands rather than of whether there is
+one.
+
+Control: reverting `v3/src` turns exactly the two new fixtures red, the other 22 stay green. A/B over
+every conformance case that mentions an effect — 27 cases, both lanes, 54 cells — moved **none**.
+
+## v3-a-cross-frame-effect-loop-overflows-the-executor-at-a-few-hundred-iterations
+
+<!-- status: open
+     lane: v3
+     area: runtime
+     kind: bug
+     gate: -
+     fixed-in: -
+     reported-by: claude-code
+     reported-at: 2026-08-22
+     repro: a `while` loop calling a performing function, handled outside; vary the iteration count
+     impact: workaround -->
+
+**THE LANE THAT PROMISES CONSTANT STACK DIES FIRST, BY THREE ORDERS OF MAGNITUDE.** A loop that calls
+a performing function, handled outside the loop:
+
+| arm | executor | v2 bridge |
+|---|---|---|
+| `k(1) + 0` (not tail-resumptive) | **StackOverflow between 120 and 150 iterations** | 1000 ✓ |
+| `k(1)` (tail-resumptive) | **StackOverflow at 1000** | **200 000 ✓** |
+
+120 iterations answer 240; 150 overflow. The bridge — which has no TCO at all, and whose own
+documentation says so — reaches 200 000.
+
+**THE DEPTH COMES FROM THE RESUME CHAIN, NOT FROM THE LOOP.** Each iteration's resume runs inside the
+previous arm's activation, on the HOST stack: `Perform` runs the arm, the arm calls `k`,
+`resumeCont` runs the continuation, which performs again. `TailCall` cannot help, because none of
+those is a tail call.
+
+**THIS IS WHY §3's PRESCRIBED ROUTE WOULD NOT FIX IT**, and the entry exists mainly to say so before
+anyone spends the work. That paragraph reads:
+
+> a `Loop` containing a `Perform` becomes a recursive function, since a loop's remainder cannot be a
+> closure without one. v3 has `TailCall`, so those recursions are constant-stack rather than a new
+> leak.
+
+The reasoning is about the LOOP's recursion. The recursion that overflows is the resume chain, which
+that rewrite leaves exactly as it is. So "one mechanism instead of two" and "deep effect loops work"
+are DIFFERENT goals, and the route delivers only the first — worth knowing, because the sentence
+above reads as though it delivered both.
+
+**Not attributed to a change.** Both lanes' numbers are from today; the shape has only been runnable
+on the bridge since `f0a6e4840`, and on the executor it predates that. Whether the executor's limit
+moved is unmeasured and would need a build from before the region work.
+
 ## scaffolded-project-cannot-resolve-its-sbt-plugin — `ssc new` then `sbt compile` fails for everyone who is not a contributor
 
 <!-- status: fixed

@@ -323,6 +323,7 @@ the shape that survives by never meeting an unusual input:
 
 | clause | what pins it |
 |---|---|
+| 2 — a region inside a `handle` BODY | `region-in-handle-body`, `perform-in-region-in-handle-body` |
 | 1 — the performing function's rest | `v3/tests/effects/two-performs`, `multi-shot`, `zero-shot` |
 | 1 + the handler frame the continuation belongs to | `escaped-continuation` — an arm returns a closure resumed after its `handle` has finished |
 | 2 — a caller's remainder | `cross-frame-statement`, `cross-frame-in-handle-body` |
@@ -378,11 +379,20 @@ doing it, and a good one, since it would leave ONE statement instead of this sub
 **WHAT IS LEFT, named so it is not rediscovered.** A `Perform` standing directly inside a region is
 not split by `Cps` — that pass still only cuts at the top level of a function body, and its header
 still says so. Both lanes answer it by their own realisation instead (`Exec.performRest`,
-`BridgeV2.splitRegionPerforms`), which is this subsection's whole shape applied once more. The one
-position neither reaches is a call or a perform inside a region that is itself inside a `handle`
-BODY: the rebuild stops at a `handle` because a handle body's remainder ends AT the handle, with the
-handle's own destination register rather than with a `ret`, and that is a different contract. The
-bridge refuses it by name and says which combination it is.
+`BridgeV2.splitRegionPerforms`), which is this subsection's whole shape applied once more.
+
+A `handle` BODY is reached too, at any depth in it (`284c23dea`), and the mechanism is worth one
+line because it is not the function's: a handle body's remainder ends AT the handle, with the
+handle's own destination register, so a `ret` cannot end it — it would leave the whole function. The
+rebuilt body is wrapped in a `Block` and the cut leaves by BRANCHING out of it, which ends the body
+exactly where `Handle` reads its answer, and skips the enclosing suffixes the continuation has taken
+over.
+
+**The position neither lane's rebuild reaches is a handler ARM**: a call or perform inside a region
+inside an arm body, or inside a `handle` nested in another handle's body. `cutAt` never enters a
+`Handle`, and the handle path cuts only the body of a `handle` standing at a function's top level.
+The bridge refuses that by name; the executor runs it, so the two lanes DIVERGE there and the
+divergence is deliberate rather than unnoticed.
 
 
 ## 4 · Validation is mandatory, not a debug mode
