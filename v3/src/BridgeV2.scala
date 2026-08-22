@@ -835,7 +835,7 @@ object BridgeV2:
     }
     def wants(op: Int, n: Int): Boolean =
       armOf.get(op).exists(a =>
-        n == a.params.length && (!isTailResumptive(a) || cpsAlready.contains(op)))
+        n == a.params.length && (!a.tailResumptive || cpsAlready.contains(op)))
     var funcs = m0.funcs
     var queue = funcs.indices.toList
     while queue.nonEmpty do
@@ -919,7 +919,7 @@ object BridgeV2:
     val arms: List[HandlerArm] = m.funcs.flatMap(fn =>
       Instr.flatten(fn.body).collect { case Instr.Handle(_, _, as) => as }.flatten).filter(_.op >= 0)
     val armParams: Map[Int, Int] = arms.map(a => a.op -> a.params.length).toMap
-    val needsRest: Set[Int] = arms.filter(a => !isTailResumptive(a)).map(_.op).toSet
+    val needsRest: Set[Int] = arms.filter(a => !a.tailResumptive).map(_.op).toSet
     def isCpsPerform(i: Instr): Boolean = i match
       case Instr.Perform(_, op, as) =>
         armParams.get(op).exists(_ + 1 == as.length) && needsRest.contains(op)
@@ -1069,15 +1069,9 @@ object BridgeV2:
     * register the arm wrote must see the same thing on both lanes. Only `ctl` is saved and restored
     * — the arm's trailing `ret` would otherwise tell the HANDLING function it had returned, which on
     * the executor is a `Signal` the `Perform` discards and here would be a store nothing undoes. */
-  private def isTailResumptive(arm: HandlerArm): Boolean =
-    def countResumes(body: List[Instr]): Int =
-      body.map { case Instr.Resume(_, _, _) => 1; case o => countResumes(Instr.children(o)) }.sum
-    val body = arm.body match
-      case init :+ Instr.Ret(_) => init
-      case other                => other
-    body.nonEmpty && (body.last match
-      case Instr.Resume(_, _, _) => countResumes(arm.body) == 1
-      case _                     => false)
+  /** `arm.tailResumptive` is defined ONCE in `Ir.scala`. This file used to carry a
+    * character-for-character copy under a second name; the copy is gone because `Cps` now decides
+    * the ENCODING on the same predicate. */
 
   private def deResume(body: List[Instr]): List[Instr] = body.map {
     case Instr.Resume(d, _, v)      => Instr.Move(d, v)
@@ -1091,7 +1085,7 @@ object BridgeV2:
   }
 
   private def tailArmClos(cx: Ctx, arm: HandlerArm, sh: Int): String =
-    if !isTailResumptive(arm) then
+    if !arm.tailResumptive then
       throw Unsupported(
         "a handler for operation " + arm.op + " that neither takes a continuation nor is " +
         "tail-resumptive — its last act must be a single `resume`. This is the same shape v3's " +
@@ -1114,6 +1108,18 @@ object BridgeV2:
     * alone cannot say. The `perform` carries the answer in its argument count, and every `perform`
     * of the operation must agree; a module mixing both for one operation is refused rather than
     * guessed at. An arm no `perform` reaches is translated as CPS and never runs. */
+  /** Is this OPERATION carried in the CPS encoding? `armIsCps` asks it of an arm; a `Perform` has
+    * only an op number, and the answer is the same for both because the encoding is a property of
+    * the operation — the bridge refuses a module where one op is performed two ways. */
+  private def opIsCps(cx: Ctx, op: Int): Boolean =
+    var out = false
+    scanAll(cx.m) {
+      case Instr.Handle(_, _, arms) =>
+        arms.find(a => a.op == op).foreach(a => out = armIsCps(cx, a))
+      case _ => ()
+    }
+    out
+
   private def armIsCps(cx: Ctx, arm: HandlerArm): Boolean =
     var counts: Set[Int] = Set.empty
     scanAll(cx.m) {
@@ -1539,20 +1545,36 @@ object BridgeV2:
       // The return clause applies to a body that finished WITHOUT performing — `ctl == 0` is that
       // "finished" (a `ret` leaves -1), and `performs == 0` is the "without performing". When either
       // fails the value is already the arm's own, lifted by the `resume` inside it.
+      // NOT `performs == 0`, AND THE FLAG THAT ANSWERS IT IS ALREADY HERE.
+      //
+      // The clause lifts the value the BODY produced and must not lift one an arm produced —
+      // `effResume` lifts that one. `performs == 0` reads as "nothing performed", which is a correct
+      // proxy only while every perform UNWINDS. The tail-resumptive encoding does not: the arm
+      // resumes, the perform returns, the body runs on and finishes with its own value, and the
+      // counter — now non-zero — suppressed the lift.
+      //
+      // `effAborting` is exactly the question: it is set by a perform whose value travels home and
+      // cleared by the `handle` that consumes it. So the lift is moved AHEAD of that clear and reads
+      // it, which needs no new binder and therefore no shift — this file has paid for a wrong shift
+      // more than once and the cheapest fix is the one that changes none.
+      //
+      // Measured before and after on `handle { E.op(); … } { case op(k) => k(10); case Return(x) =>
+      // x * 100 }`: **11** with the clause silently skipped, 1100 with it applied, and the executor
+      // says 1100.
       val lift = ret match
         case None => lit("unit")
         case Some(_) =>
           ifThen(arith("==", read(cx.ctl, sh + 1), int(0)),
-                 ifThen(arith("==", aget(aget("(local 0)", int(R_PERFORMS)), int(0)), int(0)),
+                 ifThen("(prim cell.get " + glob(effAborting) + ")",
+                        lit("unit"),
                         write(d, "(app " + aget("(local 0)", int(R_RET)) + " " + read(d, sh + 1) + ")",
-                              sh + 1),
-                        lit("unit")),
+                              sh + 1)),
                  lit("unit"))
       // The `handle` is where an abort stops: it clears the flag before the lift, so the value it
       // holds is an ordinary one again for everything outside.
       "(let (" + rec + ") " + sq(List("(prim arr.push " + glob(effStack) + " (local 0))", run,
-                                      "(prim cell.set " + glob(effAborting) + " " + lit("false") + ")",
-                                      lift)) + ")"
+                                      lift,
+                                      "(prim cell.set " + glob(effAborting) + " " + lit("false") + ")")) + ")"
 
     case Instr.Perform(d, op, as) =>
       performIsAnswerable(cx, op)
@@ -1560,12 +1582,22 @@ object BridgeV2:
       // there stand the callers `splitCallers` cut: each one has to hand it on rather than run its
       // own remainder, which now belongs to the continuation. Cleared by whoever consumes it — the
       // `handle`, or the `resume` that re-entered.
+      // THE FLAG GOES UP ONLY FOR THE CPS ENCODING, and setting it for the other one was a second
+      // meaning smuggled into one cell. `effAborting` says "this value is travelling home from an
+      // ARM"; the tail-resumptive encoding has no such journey — the arm resumes, the perform
+      // RETURNS, and the body carries on with an ordinary value. Raising it there made every reader
+      // of the flag believe an abort was in flight: the `handle`'s return clause was skipped
+      // (`handle { E.op(); … } { case op(k) => k(10); case Return(x) => x*100 }` answered 11 where
+      // the executor says 1100), and a split caller would have handed the marker on instead of
+      // applying its own continuation.
+      val cps = opIsCps(cx, op)
       write(d, "(let ((app " + glob(effPerform) + " " + int(op) + " " +
                  // The BINDING expression is evaluated in the outer environment — the `let` has not
                  // bound anything yet — so the operands stay at `sh`. Reading them one deeper is the
                  // shift mistake this file's `Resume` comment records paying for once already.
                  mkarr(as.map(r => read(r, sh))) + ")) " +
-                 sq(List("(prim cell.set " + glob(effAborting) + " " + lit("true") + ")",
+                 sq(List(if cps then "(prim cell.set " + glob(effAborting) + " " + lit("true") + ")"
+                         else lit("unit"),
                          "(local 0)")) + ")", sh)
 
     // Resuming IS calling: after `Cps.split` the continuation is an ordinary closure, so this is an

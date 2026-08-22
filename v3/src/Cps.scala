@@ -67,6 +67,32 @@ object Cps:
 
   /** Split every top-level `Perform` in every function. Returns the module unchanged when there is
     * nothing to split, so applying it to a program without effects is free and provably a no-op. */
+  /** THE OPERATIONS THAT NEED NO CONTINUATION, and therefore must NOT be split.
+    *
+    * An arm whose last act is a single `resume` folds "run the arm and take its value" and "capture
+    * the rest, hand it over, resume it" into the same computation. Splitting anyway is not a wasted
+    * closure — it is WRONG TWICE, and both were measured before this was written:
+    *
+    *   * IT COSTS THE CONSTANT STACK. A split perform takes the CPS path, where every resume runs
+    *     inside the previous arm's activation on the HOST stack. The same loop, 200 000 iterations:
+    *     unsplit answers, split dies with a StackOverflow at 1000. The executor's whole claim is
+    *     constant stack, and this is where it lost it.
+    *   * IT CAN ANSWER WRONGLY. The split makes the performing function return the ARM's value, and
+    *     `BridgeV2` — correctly, because a tail-resumptive arm needs no caller remainder — then
+    *     declines to carry the caller's. The two decisions disagree and the rest of the program runs
+    *     on a value the split had already finished with: `1001` where the answer is `1100`.
+    *
+    * CONSERVATIVE IN THE ONLY DIRECTION THAT IS SAFE. Every arm for the operation, in the whole
+    * module, must be tail-resumptive; one that is not, or a return clause the tail path would then
+    * have to lift, and the split stands. An operation with no arm at all is not reachable — lowering
+    * refuses a `perform` no `handle` answers — so the empty case cannot arise here.
+    */
+  private def needsNoContinuation(m: Module): Set[Int] =
+    val arms: List[HandlerArm] = m.funcs.flatMap(fn =>
+      Instr.flatten(fn.body).collect { case Instr.Handle(_, _, as) => as }.flatten)
+    val ops: Set[Int] = arms.filter(_.op >= 0).map(_.op).toSet
+    ops.filter(op => arms.filter(_.op == op).forall(_.tailResumptive))
+
   def apply(m: Module): Module =
     if !m.funcs.exists(f => topLevelPerform(f.body).isDefined) then m
     else
@@ -80,11 +106,12 @@ object Cps:
       //
       // Terminates because the continuation's body is strictly shorter than the body it came from,
       // and nothing else is ever added to the queue.
+      val skip = needsNoContinuation(m)
       var queue = funcs.indices.toList
       while queue.nonEmpty do
         val idx = queue.head
         queue = queue.tail
-        topLevelPerform(funcs(idx).body).foreach { i =>
+        topLevelPerform(funcs(idx).body, skip).foreach { i =>
           val cur = funcs(idx)
           val (before, rest) = cur.body.splitAt(i)
           val Instr.Perform(d, op, args) = rest.head: @unchecked
@@ -112,9 +139,9 @@ object Cps:
   /** The index of the first `Perform` at the TOP LEVEL of this body, if any. Deliberately not
     * recursive: a perform nested inside a region is step 3's problem, and finding it here would
     * produce a split that cannot be expressed. */
-  private def topLevelPerform(body: List[Instr]): Option[Int] =
+  private def topLevelPerform(body: List[Instr], skip: Set[Int] = Set.empty): Option[Int] =
     val i = body.indexWhere {
-      case Instr.Perform(_, _, _) => true
-      case _                      => false
+      case Instr.Perform(_, op, _) => !skip.contains(op)
+      case _                       => false
     }
     if i < 0 then None else Some(i)

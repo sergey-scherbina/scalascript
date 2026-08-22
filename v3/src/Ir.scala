@@ -79,6 +79,41 @@ final case class SwitchArm(tag: Int, body: List[Instr])
   * with its own numbering would be an invariant this IR states in prose and cannot check. */
 final case class HandlerArm(op: Int, params: List[Int], k: Int, body: List[Instr])
 
+/** IS THIS ARM THE SHAPE THAT NEEDS NO CONTINUATION — a single `resume` as its LAST act?
+  *
+  * IT LIVES HERE BECAUSE THREE PLACES DECIDE ON IT and two of them already had a private copy each
+  * (`Exec.tailResumptive`, `BridgeV2.isTailResumptive`, character-for-character the same rule under
+  * two names). The third is `Cps`, which uses it to decide whether to SPLIT at all — and a pass and
+  * a runtime disagreeing about this predicate is not a style problem: the split makes the performing
+  * function return the ARM's value, and a lane that then declines to carry the caller's remainder
+  * runs the rest of the program on a value the split already finished with. Measured as `1001` where
+  * the answer is `1100`.
+  *
+  * "Last act" and "exactly once" are both required. Once, because two resumes are a multi-shot
+  * continuation and there is nothing to fold away; last, because an arm with work after the resume
+  * has a remainder of its own that only a real continuation can carry.
+  *
+  * CHECKED STRUCTURALLY, never by watching what the arm does. A dynamic check cannot tell an arm
+  * that resumed and stopped from one that resumed and then did work whose effect is already gone,
+  * and the answer has to arrive before anything is observable.
+  *
+  * A TRAILING `Ret` IS SKIPPED. The lowering appends one to every arm so its value has a single
+  * place to come from; that makes the last instruction a `Ret` and this check — which wants "the
+  * last ACT is a resume" — would otherwise refuse every handler it exists to accept. */
+extension (arm: HandlerArm)
+  def tailResumptive: Boolean =
+    def countResumes(body: List[Instr]): Int =
+      body.map {
+        case Instr.Resume(_, _, _) => 1
+        case other                 => countResumes(Instr.children(other))
+      }.sum
+    val body = arm.body match
+      case init :+ Instr.Ret(_) => init
+      case other                => other
+    body.nonEmpty && (body.last match
+      case Instr.Resume(_, _, _) => countResumes(arm.body) == 1
+      case _                     => false)
+
 /** `d`/`a`/`b`/`c` are register indices; `k` indexes the constant pool, `g` the globals, `t` the
   * types, `f` the functions. */
 enum Instr:

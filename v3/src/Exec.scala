@@ -372,29 +372,9 @@ object Exec:
     * only ever travels one frame. */
   private var resumedWith: Option[Value] = None
 
-  /** Is this arm the one class the executor can run — a single `resume` as its LAST act?
-    *
-    * Checked STRUCTURALLY and before the arm runs, not by watching what it does. A dynamic check
-    * ("did it resume exactly once?") cannot see the difference between an arm that resumed and
-    * stopped and one that resumed and then did work whose effect is already gone. The refusal has
-    * to arrive before anything is observable.
-    */
-  private def tailResumptive(arm: HandlerArm): Boolean =
-    def countResumes(body: List[Instr]): Int =
-      body.map {
-        case Instr.Resume(_, _, _) => 1
-        case other                 => countResumes(Instr.children(other))
-      }.sum
-    // A TRAILING `Ret` IS SKIPPED. The lowering appends one to every arm so the arm's value has a
-    // single place to come from; that made the last instruction a `Ret` and this check — which
-    // wants "the last ACT is a resume" — started refusing every handler it used to accept. The
-    // shape it is really asking about is unchanged.
-    val body = arm.body match
-      case init :+ Instr.Ret(_) => init
-      case other                => other
-    body.nonEmpty && (body.last match
-      case Instr.Resume(_, _, _) => countResumes(arm.body) == 1
-      case _                     => false)
+  /** The one class the executor can run without a continuation is `arm.tailResumptive`, defined
+    * ONCE in `Ir.scala` — `Cps` decides whether to SPLIT on the same predicate, and a pass and a
+    * runtime disagreeing about it produces a wrong answer rather than a refusal. */
 
 
   /** The `case x => …` arm of a handler, if it wrote one. Marked by `op = -1`, which no real
@@ -1226,6 +1206,9 @@ object Exec:
       handlers = hf :: handlers
       actives  = act :: actives
       handleDepth = handleDepth + 1
+      // DID THE VALUE COME FROM AN ARM, OR FROM THE BODY? That is the question the return clause
+      // below has to answer, and `performs` was a PROXY for it that is wrong on one path.
+      var aborted = false
       val sig =
         try exec(m, body, regs, d)
         catch
@@ -1233,6 +1216,7 @@ object Exec:
           // arm value must not be caught by an outer one.
           case a: PerformAbort if a.d eq act =>
             regs(d) = a.value
+            aborted = true
             Signal.Done
         finally
           handlers = handlers.tail
@@ -1246,7 +1230,23 @@ object Exec:
       //
       // `op = -1` marks it: an operation index is an index into the effect's declared operations
       // and is never negative, so no arm can collide with it.
-      if sig == Signal.Done && hf.performs == 0L then
+      // NOT `performs == 0`, WHICH IS WHAT IT SAID AND IS WRONG FOR THE TAIL-RESUMPTIVE PATH.
+      //
+      // The clause must lift the value the BODY produced and must not lift one an arm already
+      // produced — `resumeCont` lifts that one. `performs == 0` reads as "nothing performed", and it
+      // is a correct proxy only while every perform unwinds. The tail-resumptive fast path does not
+      // unwind: the arm resumes, the perform RETURNS, the body runs on and finishes normally with
+      // its own value — and the counter, now non-zero, suppressed the lift.
+      //
+      // Measured: `handle(f()) { case op(k) => k(10); case Return(x) => x * 100 }` over a body
+      // returning 11 answered **11** with the clause silently skipped, where the same program with
+      // the perform placed so `Cps` splits it answered 1100. Two spellings of one program, two
+      // answers, and the difference was invisible because both are green-looking numbers.
+      //
+      // The real question is whether the value arrived through the unwind, and the `catch` above is
+      // the only place that knows. `op = -1` marks the clause: an operation index is an index into
+      // the effect's declared operations and is never negative, so no arm can collide with it.
+      if sig == Signal.Done && !aborted then
         retArm(arms).foreach(r => regs(d) = applyRet(m, r, regs, regs(d)))
       sig
 
@@ -1282,7 +1282,7 @@ object Exec:
           val cpsEncoded = args.length == arm.params.length + 1
           val ownRest    = performRest
           val fromChain  = !cpsEncoded && args.length == arm.params.length &&
-                           !tailResumptive(arm) && ownRest != null
+                           !arm.tailResumptive && ownRest != null
           if cpsEncoded || fromChain then
             // A FRESH COPY OF THE HANDLER'S FRAME PER ACTIVATION.
             //
@@ -1348,7 +1348,7 @@ object Exec:
               throw ExecError(
                 "effect operation " + op + " was performed with " + args.length +
                 " argument(s) and its handler binds " + arm.params.length)
-            if !tailResumptive(arm) then
+            if !arm.tailResumptive then
               // ONLY ONE WAY TO GET HERE NOW, and naming it is the point: the perform was not
               // reached through the framed walker, so there is no `performRest` to build the
               // continuation from. That is `Compile`'s specialized lane, which calls `stepOne`

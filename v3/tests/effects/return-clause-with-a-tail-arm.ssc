@@ -1,0 +1,16 @@
+```scalascript
+effect E:
+  def op(): Int
+
+def g(): Int = E.op()
+
+def f(): Int =
+  val a = g()
+  a + 1
+
+val out = handle(f()) {
+  case op(k)     => k(10)
+  case Return(x) => x * 100
+}
+println(out)
+```
