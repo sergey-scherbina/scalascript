@@ -538,12 +538,13 @@ every conformance case that mentions an effect — 27 cases, both lanes, 54 cell
 
 ## v3-a-cross-frame-effect-loop-overflows-the-executor-at-a-few-hundred-iterations
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      area: runtime
      kind: bug
-     gate: -
-     fixed-in: -
+     gate: v3/effects-gate.sh
+     fixed-in: ad741e91b
+     confirmed: yes
      reported-by: claude-code
      reported-at: 2026-08-22
      repro: a `while` loop calling a performing function, handled outside; vary the iteration count
@@ -580,6 +581,169 @@ above reads as though it delivered both.
 **Not attributed to a change.** Both lanes' numbers are from today; the shape has only been runnable
 on the bridge since `f0a6e4840`, and on the executor it predates that. Whether the executor's limit
 moved is unmeasured and would need a build from before the region work.
+
+**CORRECTED 2026-08-23, AND THE CORRECTION IS TO THE COMPARISON RATHER THAN THE MECHANISM.** The
+depth IS the resume chain and `TailCall` does not touch it — that half stands. But the bridge was not
+three orders of magnitude better at this: `v3/ssc3` launches the v2 lane with `-Xss512m` and launched
+v3's own executor with nothing, so the two columns above differ by a JVM flag as much as by any
+design. With the budgets equal the executor answers at 100 000 (`ad741e91b`). **Two things differed
+between the lanes and this entry credited the wrong one** — the shape
+[[a-benchmark-variant-that-changes-two-things-credits-the-wrong-one]] describes, committed by the
+entry that was supposed to be the careful measurement.
+
+The tail-resumptive column is superseded too: since `1adbb3274` that encoding is not split at all,
+so it is constant-stack at any budget rather than dying at 1000. What remains true and unfixed by
+either commit is the last paragraph — N performs under an arm with work after its resume leave N
+pending continuations, and only cps-converting the ARM makes that O(1).
+
+## v3-the-return-clause-was-guarded-on-a-proxy-at-four-sites — `performs` is not "an arm answered"
+
+<!-- status: fixed
+     lane: v3
+     area: runtime
+     kind: bug
+     gate: v3/effects-gate.sh
+     fixed-in: ae5e96d03
+     confirmed: yes
+     reported-by: claude-code
+     reported-at: 2026-08-23
+     repro: v3/tests/effects/return-clause-with-a-tail-arm.ssc, mixed-encodings-one-handler.ssc
+     impact: wrong-answer -->
+
+A `handle`'s return clause must lift the value the BODY produced and must not lift one an ARM already
+produced. Every site that decides this asked `performs` — a counter of how many times the operation
+was performed — as a stand-in for "did an arm answer". **The two coincide only while every perform
+UNWINDS.**
+
+    Exec.Handle          if sig == Done && hf.performs == 0L
+    BridgeV2.Handle      if ctl == 0 && rec.performs[0] == 0
+    Exec.resumeCont      if c.h.performs != before then raw else lift
+    BridgeV2.effResume   if rec.performs[0] != before then raw else lift
+
+Four sites, one substitution, and it was invisible for as long as the substitution held.
+
+**IT STOPPED HOLDING WHEN THE TAIL-RESUMPTIVE ENCODING BECAME REACHABLE.** That encoding does not
+unwind — the arm resumes, the perform RETURNS, the body carries on to its own value — so the counter
+was non-zero while nothing had answered, and the lift was skipped. Measured on one program written
+three ways, all of which should answer 1100:
+
+| where the `perform` stands | executor | bridge |
+|---|---|---|
+| top of the performing function | 1100 | **1001** |
+| inside an `if` | **11** | **11** |
+| in the `handle` body | 1100 | **11** |
+
+**THE FIRST TWO SITES WERE FOUND BY A PROBE, THE OTHER TWO BY AN A/B**, and the difference is worth
+recording. The probe was written to check a PRECONDITION for an unrelated change and found the
+`Handle` pair immediately. The `resumeCont` pair needed a shape no fixture had: ONE handler carrying
+BOTH encodings —
+
+```scalascript
+case J.append(scope, fact, resume) => (scope + "=" + fact) :: resume(())   // work after — split
+case J.read(scope, resume)         => resume(List(1, 2, 3))                // bare resume — not
+```
+
+— which **could not exist** until `1adbb3274` made the encoding depend on the arm. So the class of
+programs that exposes the remaining two sites was created by the change that exposed the first two,
+and only a sweep of every conformance case mentioning an effect saw it: `read` bumped the counter
+without unwinding, the lift was skipped, and the `append` arm was handed the Int 6 where it wanted a
+list.
+
+**THE QUESTION EACH SITE CAN ACTUALLY ANSWER** is whether the value arrived through the unwind.
+`Exec` sets a flag in the `catch` that already exists for exactly that value; the bridge reads
+`effAborting`, which since `1adbb3274` means precisely "travelling home from an arm" — bound before
+the reset rather than after, because bindings there are sequential.
+
+Two fixtures pin it: `return-clause-with-a-tail-arm` and `mixed-encodings-one-handler`.
+
+## v3-the-executor-runs-on-the-default-jvm-stack-while-its-sibling-asks-for-512m
+
+<!-- status: fixed
+     lane: v3
+     area: build
+     kind: bug
+     gate: v3/effects-gate.sh
+     fixed-in: ad741e91b
+     confirmed: yes
+     reported-by: claude-code
+     reported-at: 2026-08-23
+     repro: a `while` loop calling a performing function under a non-tail-resumptive arm
+     impact: workaround -->
+
+`v3/ssc3` launches the v2 lane as `java -Xss512m …` and v3's own executor as `java …`. Same file,
+twenty lines apart, one of them with a 256x smaller stack budget than the other. A deep handler whose
+arm does work after resuming — `case op(k) => k(1) + 0` — keeps one pending frame per perform, and
+those frames live on the host stack, so the budget is what decides how deep an effect loop may go:
+
+| iterations | before | after |
+|---|---|---|
+| 150 | **StackOverflow** | 150 |
+| 5 000 | StackOverflow | 5 000 |
+| 100 000 | StackOverflow | 100 000 |
+
+**AND IT CORRECTS A CLAIM I FILED THE DAY BEFORE.**
+`v3-a-cross-frame-effect-loop-overflows-the-executor-at-a-few-hundred-iterations` reported the
+executor dying three orders of magnitude earlier than the v2 bridge and reasoned about the resume
+chain against `TailCall`. The mechanism half is right — the depth IS the resume chain, and `TailCall`
+does not touch it. **The comparison was not**: the bridge was not doing better, it was being handed
+`-Xss512m`. Two things differed between the lanes and I credited the wrong one.
+
+**THE PROBE THAT NEARLY MISSED IT.** The first attempt patched `SSC3=(java -cp …` and measured NO
+change, which read as "the flag is irrelevant, so it really is the machinery". `v3/ssc3` assigns
+`SSC3` THREE times — plain, plugin fleet, uniml — and the fleet is on by default, so the line I
+edited is not the line that runs. A probe that edits the wrong one of three identical-looking
+assignments produces a confident null result.
+
+**WHAT IS NOT FIXED, and it is a design boundary rather than a defect.** N performs under an arm with
+work after its resume leave N pending continuations; that is what the program means, and no stack
+size makes it O(1). Moving them off the host stack requires CPS-converting the ARM at its `Resume` —
+which `Cps` already knows how to do for a performing function — and that is a different change with
+its own risks. The tail-resumptive case needs none of it: since `1adbb3274` it is constant-stack and
+runs 200 000 iterations at any budget.
+
+512m rather than a number of my own: it is what the sibling lane in the same file already asks for,
+so the two are comparable by construction and there is one value to change if it is ever wrong.
+
+## v3-corpus-report-excluded-exec-lane-cases-on-a-field-about-another-backend
+
+<!-- status: fixed
+     lane: v3
+     area: conformance
+     kind: apparatus
+     gate: v3/corpus-report.sh
+     fixed-in: ad741e91b
+     confirmed: yes
+     reported-by: claude-code
+     reported-at: 2026-08-23
+     repro: v3/corpus-report.sh --exec --list-diff, before and after
+     impact: none -->
+
+`holds_v2` asked `backends: … v2 …` on BOTH lanes. That is the right question for the DEFAULT lane,
+which executes through the v2 bridge and therefore inherits v2's differences — the correction that
+paragraph was written for. **`--exec` inherits nothing**: it runs v3's own executor start to finish,
+so excluding a case there on the strength of a lane that never ran counted a v3 difference as
+somebody else's.
+
+    exec lane, before -> after      DIFF 0 -> 1     LANE-EXCL 1 -> 0     N 279 unchanged
+
+One cell, and `N` did not move: this is not a number being adjusted, it is one verdict moving from
+"not ours" to "ours". The case is `js-int-division-by-zero`, which the report's own header cites as
+the REASON the LANE-EXCLUDED bucket exists — v3 prints `inf` where the case expects `Infinity`. On
+the bridge that is v2's formatting and genuinely not v3's to answer for; on the executor it is v3's
+own output and nothing else's.
+
+**NOT "REQUIRE `v3` IN `backends:`"**, which is the obvious shape and the wrong one: no case in the
+corpus lists `v3` today, so requiring it would have excluded EVERYTHING and read as a healthy report.
+`known-red:` stays the only escape hatch on that lane — named, with a reason, and expiring. Nothing
+declares `known-red: v3` today, which is the honest state.
+
+The report now says the two lanes measure different populations instead of printing two numbers that
+look comparable.
+
+**One self-inflicted defect on the way, caught by its own gate.** The population note was written
+with backticks inside a double-quoted `echo`, so bash ran `known-red:` as a command and printed
+`known-red:: command not found` into the report. `no-live-backticks-in-heredocs` names exactly this
+and the project has it written down; it still happened, in the same commit that added the note.
 
 ## scaffolded-project-cannot-resolve-its-sbt-plugin — `ssc new` then `sbt compile` fails for everyone who is not a contributor
 
