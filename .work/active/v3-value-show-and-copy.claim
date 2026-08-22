@@ -1,0 +1,11 @@
+slug: v3-value-show-and-copy
+branch: feature/v3-value-show-and-copy
+agent: claude-code
+started: 2026-08-22T17:26:48Z
+heartbeat: 2026-08-22T17:26:48Z
+status: claimed-before-planning
+items: v3-an-optic-cannot-print-itself-because-no-lane-renders-a-value-by-its-own-rule v3-copy-with-positional-or-mixed-arguments v2-copy-silently-drops-an-argument
+paths: file:v3/src/Ir.scala file:v3/src/Text.scala file:v3/src/Lower.scala file:v3/src/Exec.scala file:v3/src/Main.scala file:v3/src/Verify.scala file:v3/specs/10-ssc-ir.md file:v3/tests/sample.ssir file:v3/SPRINT.md file:v3/BUGS.md file:v2/BUGS.md file:v2/src/Runtime.scala file:std/optics.ssc file:v3/prelude/index.ssc file:v3/plugins/PrismSyntax.scala file:v3/rewrite-gate.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
