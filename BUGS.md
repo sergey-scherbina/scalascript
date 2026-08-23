@@ -109,7 +109,7 @@ file. Filed rather than half-landed.
      area: runtime
      kind: bug
      gate: v3/effects-gate.sh
-     fixed-in: PENDING
+     fixed-in: 599e16020
      confirmed: yes
      reported-by: claude-code
      reported-at: 2026-08-23
