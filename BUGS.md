@@ -6073,6 +6073,21 @@ The NAMED form — `given intCombiner: Combiner[Int] with` — works on the inte
 So the gap is the anonymous spelling, which is the idiomatic one in Scala 3 and the one every
 typeclass module in `std/` uses.
 
+**AN ATTEMPT WAS MADE AND RELEASED WITHOUT LANDING, 2026-08-19 to 2026-08-23, and what it learned is
+worth more than what it wrote.** The approach was right: synthesise Scala's own name for the
+anonymous form — `given Show[Int]` → `given_Show_Int` — so everything downstream, which is keyed by
+name, reuses the NAMED path untouched instead of growing a parallel one. 122 lines of mangling and
+trailing-underscore strip were written.
+
+⚠️ **THEY WENT INTO `v2/lib/ssc1-front.ssc0`, AND THIS FILE IS COMPILED BY F.** Measured from that
+worktree, built: the six-line reproducer above still answers `unbound global: c` on both the default
+and `--native` lanes. The fix has to go into `specs/v2.2-p6.5-fsub.ssc`.
+
+**THE SAME MISTAKE HAPPENED TWICE IN FOUR DAYS**, by two different agents on two different defects.
+`ssc info --front-report <file>` answers `F` in one second and is the first thing to run before
+editing any front. The attempt's patch is kept in the session salvage rather than in the tree; the
+approach above is the part worth reusing.
+
 **Found because the Rust lane now does this correctly and I needed an oracle.** The MCP-era rule
 here is to compare lanes; when the reference lane is the one that is wrong, the honest move is to
 say so rather than to weaken the case or match the gap. The Rust gate therefore asserts its own

@@ -14024,14 +14024,33 @@ and a front fix that is live on one lane and absent on the other, on a lexer the
 fixed, is a build question before it is a code question. **A row where the two fronts DISAGREE and
 the checkout says they should not is a staleness signal, not a defect signal.**
 
-## v2-a-constructor-pattern-named-with-a-leading-underscore-never-matches
+## v2-a-constructor-pattern-named-with-a-leading-underscore-never-matches — it matches now
 
-<!-- status: open
+<!-- status: fixed
      lane: v2-jvm
      kind: bug
      area: front
+     gate: tests/e2e/underscore-ctor-pattern-gate.sh (in scripts/smoke-ci)
      found-by: claude-code
-     found-at: 2026-08-21 -->
+     found-at: 2026-08-21
+     fixed-in: 17e539a58 -->
+
+**FIXED IN 17e539a58, IN F AND NOT WHERE THIS ENTRY FIRST LOOKED.** The fix is a predicate applied at
+F's THREE constructor-decision sites — `parseArm`, `parseGenArm` and `parsePatId`, the file's own
+"three mouths" — reading Scala's rule: a pattern identifier is a binder when it begins with a
+lowercase letter, and `_` is not one. Leading underscores are skipped and the first alphabetic
+character decides, so `_Bar` is a constructor while `_bar` and `_1` still bind.
+
+⚠️ **THE ENTRY'S OWN GUESS AT THE SITE WAS WRONG, and it cost two agents a rebuild each.** It said
+"the likely site is the pattern parser reading a leading `_` as the wildcard" — the real cause is the
+LEXER kinding `_Bar` as `id` while only `uid` reaches the constructor route, and the fix belongs in
+the parser's routing, not the wildcard test. More usefully: I first fixed `v2/lib/ssc1-front.ssc0`,
+rebuilt, measured no change, and only then ran `ssc info --front-report`, which answers `F` in a
+second. A sibling agent had made the identical mistake on a different defect four days earlier. ASK
+THE TOOL WHICH FRONT COMPILES THE FILE BEFORE EDITING A FRONT.
+
+Both lanes answer correctly from the one change, so `ssc1-front.ssc0` — same shape, no measured route
+for a user program — was left alone rather than fixed blind.
 
 **A `case class` whose name begins with `_` can be CONSTRUCTED and cannot be MATCHED.** Isolated to
 the underscore — the same file, two classes, one pattern each:
