@@ -1,0 +1,59 @@
+---
+name: curried-def-partial-application
+description: "a curried def applied one clause at a time yields a value that takes the rest; a plain def under-applied is still an arity error"
+backends: [int, jvm, js, v2]
+---
+
+# `two(1)` — a clause at a time
+
+`BUGS.md` `v2-curried-def-partial-application-unsupported`. A curried def lowers at its TOTAL arity
+and its call site flattens — `curried-def-clauses` pins exactly that — so `two(1)` arrived as an
+under-applied call and died with `arity: 2 expected, 1 given`.
+
+**THE FIX CANNOT LIVE IN THE RUNTIME, and that is the whole shape of this case.** `ClosV` carries a
+total arity and nothing else, so
+
+```text
+def two(a: Int)(b: Int)   called `two(1)`   — legal, wants a closure
+def plain(a: Int, b: Int) called `plain(1)` — NOT legal, wants an arity error
+```
+
+arrive there identically: an arity-2 closure with one argument. A wrapper synthesised in the runtime
+would turn every arity error in the language into a silently returned closure. Curried-ness is known
+only in the FRONT, so the wrapper is built there — and the two rows below that must stay red are the
+reason the distinction is worth the machinery.
+
+```scalascript
+def two(a: Int)(b: Int): Int = a + b
+def three(a: Int)(b: Int)(c: Int): Int = a + b + c
+def mix(a: Int, b: Int)(c: Int): Int = a + b + c
+
+// one clause at a time, and the remainder is applied a clause at a time too — a flat `(lam 2 …)`
+// wrapper would answer the first `(2)` with `arity: 2 expected, 1 given`.
+val g = two(1)
+println(g(2))
+val h = three(1)
+println(h(2)(3))
+val h2 = three(1)(2)
+println(h2(3))
+
+// a clause of two params is a boundary; one argument into it is NOT, and stays an arity error.
+val m = mix(1, 2)
+println(m(3))
+
+// THE DISCRIMINATOR, same one `curried-def-clauses` uses: `mk` is not curried, it RETURNS a
+// function. Under-applying it is impossible — `mk(10)` is FULL — so no wrapper may appear.
+def mk(n: Int): Int => Int = (x) => x + n
+println(mk(10)(5))
+
+// the supplied argument may be a LOCAL. The wrapper binds it outside itself, so nothing shifts.
+def viaLocal(x: Int): Int =
+  val k = two(x)
+  k(2)
+println(viaLocal(10))
+
+// full application is untouched: it never reaches the partial path, because the guard is strict.
+println(two(1)(2))
+def apT(n: Int)(f: Int => Int): Int = f(n)
+println(apT(3) { (i) => i * 2 })
+```

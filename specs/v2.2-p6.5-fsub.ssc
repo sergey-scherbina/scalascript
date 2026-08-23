@@ -1450,7 +1450,8 @@ def vaGoR(pd, slices) = if vaIdxOf(pd) < 0 then false else vaGoN(pd, slices)
 def vaGoN(pd, slices) = if anyNamedSlice(slices) then false else dlen(slices) == dlen(pd)
 def vaCall(nm, slices, env, cx) = emitApp(calleeOf(nm, env, cx), vaArgs(slices, env, cx))
 def vaArgs(sl, env, cx) = sl match { case Nil => "" case h :: t => " " ++ erase(fst(parseArgExpr(h, env, cx)), cx) ++ vaArgs(t, env, cx) }
-def parseCallN(nm, slices, ts, rest, env, cx) = if nargGo(nm, slices, env, cx) then (nargCall(nm, slices, env, cx), rest) else parseCallPlain(nm, ts, env, cx)
+def parseCallN(nm, slices, ts, rest, env, cx) = if nargGo(nm, slices, env, cx) then (nargCall(nm, slices, env, cx), rest) else parseCallP(nm, slices, ts, rest, env, cx)
+def parseCallP(nm, slices, ts, rest, env, cx) = if partialGo(nm, slices, rest, cx) then (partialCall(nm, slices, env, cx), rest) else parseCallPlain(nm, ts, env, cx)
 // A class method's global takes the receiver as its FIRST parameter (ccMParams seeds the body
 // env with `Cons("__self", Nil)`), while an object method has no such slot. `calleeOf` returns
 // only the callee and the caller appends the source arguments, so the self slot has to be
@@ -1541,6 +1542,45 @@ def synthWrap(nm, params, dflts, args, env, cx, full) = params match { case Nil 
 def synthW1(nm, p, prest, d, drest, args, env, cx, full) = args match { case a :: arest => synthWA(nm, isEmpty(a), a, p, prest, d, drest, arest, env, cx, full) case Nil => synthWE(nm, erase(fst(parseExpr(d, 0, env, cx)), cx), p, prest, drest, Nil, env, cx, full) }
 def synthWA(nm, skipped, a, p, prest, d, drest, arest, env, cx, full) = if skipped then synthWE(nm, erase(fst(parseExpr(d, 0, env, cx)), cx), p, prest, drest, arest, env, cx, full) else synthWE(nm, erase(fst(parseArgExpr(a, env, cx)), cx), p, prest, drest, arest, env, cx, full)
 def synthWE(nm, vx, p, prest, drest, args, env, cx, full) = "(app (lam 1 " ++ synthWrap(nm, prest, drest, args, p :: env, cx, full) ++ ") " ++ vx ++ ")"
+// ── partial application of a curried def ──
+// BUGS `v2-curried-def-partial-application-unsupported`. `def two(a: Int)(b: Int)` called `two(1)`
+// hands one argument to a def lowered at arity 2. THE RUNTIME CANNOT FIX THIS: `ClosV` carries a
+// total arity and nothing else, so `two(1)` and a genuine `add(1)` on `def add(a, b)` arrive there
+// identically, and a wrapper synthesised in the runtime would turn every arity error in the
+// language into a silently returned closure. Curried-ness is still known HERE, which is the whole
+// reason the fix lives in the front.
+// It reuses `synthWrap` unchanged, and that is what keeps it free of local-index arithmetic: each
+// supplied argument is bound OUTSIDE by a `(app (lam 1 …) v)` level and parsed in that level's own
+// env, so nothing needs shifting when the wrapper adds binders underneath. The wrapper's params are
+// the innermost ones, so `fullCallStr` at the TOTAL arity names every slot in order —
+// `(local m+k-1) … (local 0)` — with no special case for where the clause split fell.
+// `curried-def-clauses.ssc` stays untouched by construction: a FULL application never reaches here,
+// because `dlen(slices)` equals the arity and the guard is strict.
+def partialGo(nm, slices, rest, cx) = if trailingArg(rest) then false else partialGo1(nm, slices, curArity(nm, cx), cx)
+def partialGo1(nm, slices, n, cx) = if n <= 0 then false else (if dlen(slices) >= n then false else partialGo2(nm, slices, cx))
+// THE ARGUMENT COUNT MUST LAND ON A CLAUSE BOUNDARY. `def f(a, b)(c)` called `f(1)` is an arity
+// error in Scala too — one argument of a two-param clause is not a partial application — so the
+// boundary walk is a correctness guard, not an optimisation: without it that call would silently
+// become a closure instead of the error it is.
+def partialGo2(nm, slices, cx) = if clsBoundary(nm, dlen(slices), cx) > 0 then noEmptySlice(slices) else false
+def clsSize(nm, i, cx) = dlen(dfltEntryPd(nm ++ " *k" ++ i, cx)) - 1
+def clsBoundary(nm, m, cx) = clsB1(nm, m, 1, 0, cx)
+def clsB1(nm, m, i, acc, cx) = clsB2(nm, m, i, acc, clsSize(nm, i, cx), cx)
+def clsB2(nm, m, i, acc, sz, cx) = if sz < 0 then 0 else (if acc + sz == m then i else (if acc + sz > m then 0 else clsB1(nm, m, i + 1, acc + sz, cx)))
+def curArity(nm, cx) = dlen(dfltEntryPd(nm ++ " *all", cx))
+// A TRAILING clause — `f(a) { … }` or `f(a): p => …` — is a second clause the scan above does not
+// collect, so the call is not under-applied at all; `blockArgApp` flattens it a moment later.
+// Without this guard `apT(3) { … }` would build a wrapper and then apply it, which happens to give
+// the right answer and the wrong IR — and would quietly stop testing what `blockArgApp` does.
+def trailingArg(rest) = if isTok(hd(rest), 2, 28) then true else isColonLamArg(rest)
+// An EMPTY slice means "evaluate this param's default" (padC1 makes them when clause one is
+// under-supplied). Those belong to the default-synthesis path, which has the token list to evaluate;
+// partial application does not, so `two()` keeps its arity error rather than getting a wrapper whose
+// first argument is parsed from nothing.
+def noEmptySlice(sl) = sl match { case Nil => true case h :: t => if isEmpty(h) then false else noEmptySlice(t) }
+def partialCall(nm, slices, env, cx) = partialW(nm, dfltEntryPd(nm ++ " *all", cx), slices, env, cx)
+def partialW(nm, pd, slices, env, cx) = synthWrap(nm, takeL(dlen(slices), pdParams(pd)), takeL(dlen(slices), pdDflts(pd)), slices, env, cx, partialBody(nm, clsBoundary(nm, dlen(slices), cx) + 1, dlen(pd), cx))
+def partialBody(nm, i, n, cx) = if clsSize(nm, i, cx) < 0 then fullCallStr(nm, n) else "(lam " ++ clsSize(nm, i, cx) ++ " " ++ partialBody(nm, i + 1, n, cx) ++ ")"
 // A bare `println()` (no args) special-cases to `(prim io.println (lit (str "")))` (ssc1-lower :2659-2662),
 // NOT `(app (global println))`. Any-arg println and every other nullary call keep the plain app form.
 def emitCallR(nm, callee, args, cx) = if args == "" then emitNullaryC(nm, callee, cx) else emitApp(callee, args)
@@ -3184,8 +3224,30 @@ def defDfltEntry(ts) = defDfltE1(snd(hd(tl(ts))), skipGen(tl(tl(ts))))
 // A `(using ..)` clause is EXCLUDED, matching curried1: those params are injected at the call site by
 // injectGivens, never written by the caller, so folding them into pd would misalign every slot.
 def defDfltE1(nm, afterName) = if isTok(hd(afterName), 2, 21) then defDfltE2(nm, collectPD(tl(afterName), Nil)) else Nil
-def defDfltE2(nm, pr1) = pr1 match { case (pd1, r1) => defDfltE3(nm, pd1, pdAllClauses((pd1, r1))) }
-def defDfltE3(nm, pd1, prAll) = prAll match { case (pd, r) => appEnv(dfltReg(nm, (pd, r)), c1Reg(nm, pd1, pd)) }
+def defDfltE2(nm, pr1) = pr1 match { case (pd1, r1) => defDfltE4(nm, pd1, pdAllClauses((pd1, r1)), pdClauseList((pd1, r1))) }
+def defDfltE4(nm, pd1, prAll, cls) = prAll match { case (pd, r) => appEnv(defDfltE3(nm, pd1, prAll), clsReg(nm, pd1, pd, cls)) }
+def defDfltE3(nm, pd1, prAll) = prAll match { case (pd, r) => appEnv(dfltReg(nm, (pd, r)), appEnv(c1Reg(nm, pd1, pd), allReg(nm, pd1, pd))) }
+// The TOTAL param list of a curried def, under its own `<name> *all` key for the same reason `*c1`
+// has one: a space is not an identifier char, so no def can collide, and no existing lookup reads
+// it. Widening the SHARED entry instead would have been shorter and is not safe — `dfltReg` skips a
+// def with neither a default nor a vararg on purpose, and registering those would put every curried
+// def in front of `nargGo`, which fires on an EMPTY slice and would then fill from defaults that do
+// not exist. Partial application needs the arity and nothing else, so it gets a key of its own.
+def allReg(nm, pd1, pd) = if dlen(pd1) == dlen(pd) then Nil else Cons((nm ++ " *all", pd), Nil)
+// EVERY clause boundary, one entry per clause under `<name> *k<i>`. The total arity alone is not
+// enough and the matrix said so: `def three(a)(b)(c)` partially applied to `three(1)` must answer a
+// value that takes `(2)(3)` — one argument at a time — so the wrapper has to be curried by CLAUSE,
+// not one flat `(lam 2 …)`. A flat wrapper type-checks nothing and dies at the second call with the
+// very `arity: 2 expected, 1 given` this entry is about.
+// `*c1` is left exactly as it was: `padC1` reads it and expects the raw clause-one params.
+// The SENTINEL element is what makes an empty clause representable — `def v()(c)` has a real clause
+// of size zero, and without it "size 0" and "no such clause" are the same list. Size is `dlen - 1`,
+// so an absent clause reads -1 and the walk terminates on a value no real clause can have.
+def clsReg(nm, pd1, pd, cls) = if dlen(pd1) == dlen(pd) then Nil else clsReg1(nm, cls, 1)
+def clsReg1(nm, cls, i) = cls match { case Nil => Nil case h :: t => Cons((nm ++ " *k" ++ i, Cons(("*end", Nil), h)), clsReg1(nm, t, i + 1)) }
+def pdClauseList(pr) = pr match { case (pd, r) => Cons(pd, pdClauseRest(r)) }
+def pdClauseRest(r) = if isUsingClause(r) then Nil else (if isTok(hd(r), 2, 21) then pdClauseNext(collectPD(tl(r), Nil)) else Nil)
+def pdClauseNext(pr2) = pr2 match { case (pd2, r2) => Cons(pd2, pdClauseRest(r2)) }
 // Records the FIRST clause's params under a key that cannot be a def name, so padC1 can tell how many
 // slots clause one owns. Registered only when the def is actually curried (the full list is longer).
 def c1Reg(nm, pd1, pd) = if dlen(pd1) == dlen(pd) then Nil else Cons((nm ++ " *c1", pd1), Nil)
