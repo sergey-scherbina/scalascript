@@ -11351,12 +11351,33 @@ object members are emitted during the ordinary top-level walk — the code comme
 `ccMDefsCls` says it does this "the same way `objectItem2` does for an object", and that is the one
 place the two demonstrably differ.
 
+**THE MESSAGE COMES FROM THE REFERENCE LOWERER, NOT FROM F.** Both fronts have a check with this
+wording; the quoted form (`"unknown constructor 'P' in a pattern"`) is `#__throw__` from
+`v2/lib/ssc1-lower.ssc0` `ckCtorTag`, while F's `ckCtorF` throws unquoted. `ckCtorTag` accepts a name
+that is in `caseFieldOrderCell` or `caseObjNamesCell`, both filled from `stmts` at the lowering reset
+(`collectCaseClassOrder`, `collectCaseObjNames`).
+
+**BOTH REGISTRIES LOSE IT, so this is not one table.** A `case object` matched in a class method
+fails exactly like a `case class`:
+
+```scalascript
+sealed trait K
+case object Alpha extends K
+class Holder(h: Int):
+  def read(v: K): Int = v match { case Alpha => 1 + h }
+// ssc: "unknown constructor 'Alpha' in a pattern"
+```
+
+So the statement list those registries are built from is missing the module's own type declarations
+by the time a class-method body is lowered — under `package:` and not otherwise.
+
 `package:` is not a front feature: `ssc1-run-fsub.ssc0` synthesises a namespace CHAIN of flat objects
-plus `__pkgref_…` aliases and APPENDS the parsed defs after the module's own
-(`sscPkgNsSource`, spliced at `sscApp(defs, nsDefs)`). Hand-writing what that generation appears to
-emit does NOT reproduce the failure, so the trigger is in what it actually emits rather than in the
-shape sketched by its comments — reading the generated source is the next step, and it is why this
-is filed rather than fixed.
+plus `__pkgref_…` aliases, appending them to the SOURCE for F (`sscConcatSources`) and to the parsed
+DEFS for the reference lane (`sscApp(defs, nsDefs)`). **Hand-writing that generated text does not
+reproduce the failure** — with the frontmatter and the fence, with and without them — so the trigger
+is not the generated text itself but what declaring a package does to the statement list handed to
+the lowering reset. That is the next thing to read, and it is why this is filed rather than fixed:
+everything above is measured, and a fix guessed from here would be a fix to the wrong site.
 
 **THIS IS SEVEN OF THE TWELVE CORPUS REDS** (`corpus-contract-is-red-on-twelve-rows-and-the-freeze-is-global`):
 every `scljet-*` module declares `package: scljet`, and `std/scljet/jvm-vfs.ssc` pattern-matches its
