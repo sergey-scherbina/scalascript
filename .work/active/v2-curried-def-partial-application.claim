@@ -5,7 +5,7 @@ started: 2026-08-23T16:20:09Z
 heartbeat: 2026-08-23T16:20:09Z
 status: claimed-before-planning
 items: v2-curried-def-partial-application-unsupported
-paths: file:BUGS.md file:specs/v2.2-p6.5-fsub.ssc file:tests/conformance/curried-def-partial-application.ssc file:tests/conformance/expected/curried-def-partial-application.txt
+paths: file:BUGS.md file:specs/v2.2-p6.5-fsub.ssc file:tests/conformance/curried-def-partial-application.ssc file:tests/conformance/expected/curried-def-partial-application.txt file:tests/conformance/contract-roster.tsv file:tests/conformance/corpus-baseline.tsv
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
