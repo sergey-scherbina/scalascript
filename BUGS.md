@@ -102,6 +102,84 @@ entry's subject and are NOT closed by this one.
 (`f-triple-quoted-interpolation`) for the whole of this measurement, and half of this fix is that
 file. Filed rather than half-landed.
 
+## v3-an-arm-performing-its-own-operation-is-answered-by-itself — the handler was never hidden
+
+<!-- status: fixed
+     lane: v3
+     area: runtime
+     kind: bug
+     gate: v3/effects-gate.sh
+     fixed-in: PENDING
+     confirmed: yes
+     reported-by: claude-code
+     reported-at: 2026-08-23
+     repro: v3/tests/effects/arm-forwards-to-an-outer-handler.ssc, arm-performs-its-own-op-unhandled.ssc
+     impact: wrong-answer -->
+
+A handler arm that performs an operation was answered by ITS OWN handler, on both lanes:
+
+```scalascript
+val r = handle(
+  handle(f()) { case op(n, k) => E.op(n + 1) + 1000 }   // meant for the OUTER handler
+) { case op(n, k2) => k2(n * 7) }
+```
+
+The inner arm re-entered itself, and the outer handler — the only one that resumes — never ran. It
+diverged rather than answering: `OutOfMemoryError` on the executor, `StackOverflowError` on the
+bridge. An arm performing its own op with NO outer handler was worse than a crash — it printed
+`1300`, a number assembled from a handler answering its own question. That 32 fixtures and three
+gates were green about both is the part worth keeping:
+**the executor and the bridge implement one specification, so a defect in the SPECIFICATION is
+invisible to a differential.** The two lanes agreeing is evidence about the lanes, never about the
+rule they share.
+
+**A HANDLER IS NOW HIDDEN WHILE ITS OWN ARM RUNS, AND VISIBLE AGAIN FOR THE CONTINUATION.** This is
+what OCaml 5, Koka, Effekt and Eff all do, and the reason is not taste: an arm is the code that runs
+INSTEAD of the perform, so an arm that performs the same operation is asking its own handler to
+answer a question it is in the middle of answering. The continuation belongs to the `handle` BODY,
+not to the arm, so `k(…)` restores visibility.
+
+| lane | how |
+|---|---|
+| executor | one field, `armHidden`, set around an arm's execution and cleared for `runCont`; the search is `handlers.find(h => !(h eq hidden) && …)` |
+| v2 bridge | `__ssc3_eff_arm_at__`, an array used as a stack of hidden indices, pushed in `effFind` next to `effPushAll` and popped in the same `__tryFinally__`; `effResume` pushes `-1` |
+
+**SKIPPED, NOT TRUNCATED — and the first implementation got this wrong on both lanes.** Hiding by
+starting the search BELOW the arm's own handler reads as equivalent and is not: an arm may install a
+handler of its own, `case a(k) => handle(inner()) { … }`, whose record sits ABOVE it, and a search
+that begins underneath can never reach it. It cost a probe that had answered 14 for a week
+(`p12-handle-in-arm`) and the bridge answered nothing at all. The fix is a one-record skip.
+
+**THE RULE CREATED A NEW FAILURE MODE, SO IT CARRIES A POSITION.** `case op(n, k) => E.op(n + 1)`
+with no outer handler is now a program with no answer. Left alone it would fail through the
+executor's positionless `no handler for effect operation 0`, which `corpus-report.sh` classifies
+CRASH rather than a refusal. `Lower.scala` refuses it where both the perform and the handles still
+exist:
+
+```
+p11.ssc:8:19: no handler for the effect operation 'E.op' — a handler is hidden while its own arm
+runs, and no other `handle` in this program handles it
+```
+
+It is narrow in two directions on purpose, because each is a way the perform could still reach a
+handler at run time: only when the op has exactly ONE `handle` in the module, and not inside a
+`Lambda`, which the arm may store for the handle body to call later — where the handler is visible
+again. A perform in a function the arm CALLS stays a run-time failure, exactly as the older
+whole-program check leaves the not-on-this-path case alone.
+
+**A THIRD GUARD WAS WRITTEN AND REMOVED**, and it is recorded because it read as live: excluding a
+perform inside a nested `handle` of the same op cannot ever fire, since that nested `handle` is
+itself a second handle of the op and the count above already skips the check. Both the code comment
+and this entry claimed three working conditions before the arithmetic was checked against itself.
+
+Control, and it is a REAL one because the baseline arm was rebuilt in the same worktree with the
+same per-checkout registrations: `arm-forwards-to-an-outer-handler` answers 1014 on both lanes (14
+from the outer resume, +1000 from the inner arm) and the rebuilt baseline OOMs on the executor and
+overflows on the bridge; `arm-performs-its-own-op-unhandled` is refused with a position where the
+baseline printed 1300. The 54-cell A/B over every conformance case that mentions an effect moved
+NOTHING — which here means no regression, not confirmation: none of those 27 cases has an arm that
+performs, which is the same blindness that let this defect live.
+
 ## v3-effects-refuse-a-perform-inside-a-region — the `if` was the boundary, on both lanes
 
 <!-- status: fixed

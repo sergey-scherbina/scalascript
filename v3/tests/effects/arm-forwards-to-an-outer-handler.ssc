@@ -1,0 +1,9 @@
+effect E:
+  def op(n: Int): Int
+def f(): Int =
+  val x = E.op(1)
+  x + 1
+val r = handle(
+  handle(f()) { case op(n, k) => E.op(n + 1) + 1000 }
+) { case op(n, k2) => k2(n * 7) }
+println(r)

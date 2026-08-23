@@ -3618,6 +3618,21 @@ object Lower:
         })
         found
       }.toSet
+    // HOW MANY `handle` EXPRESSIONS NAME EACH OP. `handledOps` above answers "does anyone handle
+    // this at all"; option A needs the sharper count, because a handler is HIDDEN while its own arm
+    // runs. If the only `handle` for an op in the whole program is the one whose arm the `perform`
+    // sits in, the search that starts when it runs cannot succeed — there is nothing else to find.
+    val handlesOfOp: Map[Int, Int] =
+      allDefsR.flatMap { d =>
+        var found: List[Int] = Nil
+        mapDeep(d.body, x => {
+          x match
+            case Expr.Handle(_, arms, _) => found = arms.map(_.op) ++ found
+            case _                       => ()
+          x
+        })
+        found
+      }.groupBy(identity).map((k, v) => (k, v.size))
     // `effectOps` is name -> id; this is the inverse, and it is what turns `0` into `Bump.tick`.
     val opNameOf: Map[Int, String] = effectOps.map((k, v) => (v, k))
     val allDefsH = allDefsR
@@ -3644,6 +3659,62 @@ object Lower:
           val nm = opNameOf.getOrElse(op, "#" + op.toString)
           throw LowerFail(pp, "no handler for the effect operation '" + nm +
             "' — nothing in this program handles it").at(p.origin.get(d.name))
+        }
+        // THE HIDDEN-HANDLER REFUSAL, and it exists because option A CREATED this failure mode.
+        // Before it, `case tick(k) => E.tick(1)` silently re-entered its own handler and looped or
+        // answered nonsense; now it correctly finds no handler — and would say so through the
+        // executor's positionless `no handler for effect operation 0`, which `corpus-report.sh`
+        // classifies CRASH. A rule worth having is worth a position, so it is refused here.
+        //
+        // NARROW ON PURPOSE, in two directions, because each is a way the perform could still
+        // reach a handler at run time and a refusal would be WRONG:
+        //   - only when `handlesOfOp(op) == 1`: a second `handle` anywhere may be on the path;
+        //   - not inside a `Lambda`: the arm may store it and the HANDLE BODY may call it later,
+        //     where the handler is visible again. Lexical position stops predicting when it runs.
+        // Anything outside those three — a perform in a function the arm CALLS — stays a run-time
+        // failure, exactly as the whole-program check above leaves the not-on-this-path case alone.
+        //
+        // A THIRD GUARD WAS WRITTEN HERE AND REMOVED, because it could never fire: a nested `handle`
+        // of the same op inside the arm is itself a second `handle` of that op, so it raises the
+        // count above and the check never runs. It read as a live condition for as long as it was
+        // here, which is the reason it is named rather than silently dropped.
+        var hidden: Option[(Int, Pos)] = None
+        mapDeep(d.body, x => {
+          x match
+            case Expr.Handle(_, arms, _) =>
+              arms.foreach { a =>
+                if hidden.isEmpty && handlesOfOp.getOrElse(a.op, 0) == 1 then
+                  var excluded: Set[Pos] = Set.empty
+                  def collect(e: Expr): Unit =
+                    mapDeep(e, z => {
+                      z match
+                        case Expr.Perform(o, _, pp) if o == a.op => excluded = excluded + pp
+                        case _                                   => ()
+                      z
+                    })
+                  mapDeep(a.body, y => {
+                    y match
+                      case Expr.Lambda(_, _, _) => collect(y)
+                      case _                    => ()
+                    y
+                  })
+                  mapDeep(a.body, y => {
+                    y match
+                      case Expr.Perform(o, _, pp)
+                        if o == a.op && hidden.isEmpty && !excluded.contains(pp) =>
+                        hidden = Some((a.op, pp))
+                      case _ => ()
+                    y
+                  })
+              }
+            case _ => ()
+          x
+        })
+        hidden.foreach { (op, pp) =>
+          val nm = opNameOf.getOrElse(op, "#" + op.toString)
+          throw LowerFail(pp, "no handler for the effect operation '" + nm +
+            "' — a handler is hidden while its own arm runs, and no other `handle` in this program " +
+            "handles it").at(p.origin.get(d.name))
         }
         val e0 =
           try checkArity(fillDefaults(flattenCurried(expandPlaceholders(d.body), sigs), sigs), sigs, d.params.map(_.name).toSet)
