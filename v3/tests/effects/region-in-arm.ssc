@@ -1,0 +1,37 @@
+# A region inside a handler ARM, and the arm performs an OUTER effect from inside it
+
+The last position either lane's rebuild could not reach. `cutAt` stopped at a `handle`; a handler
+arm is a body like a function's — the lowering closes every arm with a `ret` — so a cut in one ends
+with `ret d` exactly as it does in a function. What is different is only where the remainder STOPS:
+at the arm, because what follows the `handle` belongs to whoever the handle answers.
+
+```scalascript
+effect A:
+  def a(): Int
+effect B:
+  def b(): Int
+
+def inner(): Int =
+  val x = A.a()
+  x + 1
+
+def h(): Int =
+  val x = B.b()
+  x * 2
+
+def outer(n: Int): Int =
+  handle(inner()) {
+    case a(k) =>
+      var y = 0
+      if n > 0 then
+        y = h() + 5
+      k(y)
+  }
+
+def top(): Int =
+  handle(outer(1)) {
+    case b(k2) => k2(3) + 1
+  }
+
+println(top())
+```

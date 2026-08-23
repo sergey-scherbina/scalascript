@@ -1,0 +1,33 @@
+# A `handle` nested in another handle's body, whose arm performs the OUTER effect
+
+The shape that says WHICH CONTRACT a cut ended under, rather than which one the walk started in. The
+outer handle's body is cut with `move dh,d ; br n`; the inner handler's ARM ends with the arm's own
+`ret`. Handing the arm the outer contract emitted a `move` to register -1, and before that, wrapping
+the body when the cut had not used the `br` form answered 0 where the answer is 13.
+
+```scalascript
+effect A:
+  def a(): Int
+effect B:
+  def b(): Int
+
+def h(): Int =
+  val x = B.b()
+  x * 2
+
+def inner(): Int =
+  val y = A.a()
+  y + 1
+
+def mid(n: Int): Int =
+  handle {
+    var acc = 0
+    if n > 0 then
+      acc = handle(inner()) { case a(k) => k(h() + 5) }
+    acc
+  } {
+    case b(k2) => k2(3) + 1
+  }
+
+println(mid(1))
+```
