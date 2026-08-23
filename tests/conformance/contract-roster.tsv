@@ -1,4 +1,4 @@
-# corpus-contract-roster-v1	baseline-sha256=b9408d8f1ad3dbbfad634a51be32e3ecd332c90d9e00c23d296619c0cb79a730	roster-sha256=ecb50c8e586560d3d41a316814ee19378f912853260b7202d843adabccf8b821
+# corpus-contract-roster-v1	baseline-sha256=b9408d8f1ad3dbbfad634a51be32e3ecd332c90d9e00c23d296619c0cb79a730	roster-sha256=02ff322dd8c695fdd08b96296c4f050134b91ff88f9767a937debd375de0651a
 _bug1_httpclient
 _bug1b
 _bug1c
@@ -75,6 +75,7 @@ crypto-demo
 crypto-encrypt-demo
 crypto-verify-demo
 curried-def-clauses
+curried-def-partial-application
 curried-def-three-clauses
 curried-extern-import
 custom-derives-mirror

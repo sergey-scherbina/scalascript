@@ -1451,7 +1451,7 @@ def vaGoN(pd, slices) = if anyNamedSlice(slices) then false else dlen(slices) ==
 def vaCall(nm, slices, env, cx) = emitApp(calleeOf(nm, env, cx), vaArgs(slices, env, cx))
 def vaArgs(sl, env, cx) = sl match { case Nil => "" case h :: t => " " ++ erase(fst(parseArgExpr(h, env, cx)), cx) ++ vaArgs(t, env, cx) }
 def parseCallN(nm, slices, ts, rest, env, cx) = if nargGo(nm, slices, env, cx) then (nargCall(nm, slices, env, cx), rest) else parseCallP(nm, slices, ts, rest, env, cx)
-def parseCallP(nm, slices, ts, rest, env, cx) = if partialGo(nm, slices, rest, cx) then (partialCall(nm, slices, env, cx), rest) else parseCallPlain(nm, ts, env, cx)
+def parseCallP(nm, slices, ts, rest, env, cx) = if partialGo(nm, slices, rest, env, cx) then (partialCall(nm, slices, env, cx), rest) else parseCallPlain(nm, ts, env, cx)
 // A class method's global takes the receiver as its FIRST parameter (ccMParams seeds the body
 // env with `Cons("__self", Nil)`), while an object method has no such slot. `calleeOf` returns
 // only the callee and the caller appends the source arguments, so the self slot has to be
@@ -1556,7 +1556,18 @@ def synthWE(nm, vx, p, prest, drest, args, env, cx, full) = "(app (lam 1 " ++ sy
 // `(local m+k-1) … (local 0)` — with no special case for where the clause split fell.
 // `curried-def-clauses.ssc` stays untouched by construction: a FULL application never reaches here,
 // because `dlen(slices)` equals the arity and the guard is strict.
-def partialGo(nm, slices, rest, cx) = if trailingArg(rest) then false else partialGo1(nm, slices, curArity(nm, cx), cx)
+def partialGo(nm, slices, rest, env, cx) = if trailingArg(rest) then false else (if partialSimple(nm, env, cx) then partialGo1(nm, slices, curArity(nm, cx), cx) else false)
+// THE WRAPPER HARDCODES `(app (global nm) …)` because `fullCallStr` does, so it may only fire where
+// that string is what the call would actually have been. Rather than enumerate the ways it is not —
+// a class method carries a receiver, an object method is mangled, a cell reads through a prim, a
+// LOCAL of the same name shadows the global entirely — this asks `calleeOf` and compares. Comparing
+// against the exact string the wrapper will emit is the only form of this check that cannot drift
+// when `calleeOf` grows another case.
+// `hasUsingSig` is separate and not covered by it: there the callee IS `(global nm)`, but the call
+// needs its givens injected by parseCallU, and a wrapper built here would skip the injection and
+// under-apply the real def. An under-applied curried def with a `using` clause keeps its arity
+// error, which is what it did before — a missing feature, not a silently wrong program.
+def partialSimple(nm, env, cx) = if hasUsingSig(nm, cx) then false else calleeOf(nm, env, cx) == "(global " ++ nm ++ ")"
 def partialGo1(nm, slices, n, cx) = if n <= 0 then false else (if dlen(slices) >= n then false else partialGo2(nm, slices, cx))
 // THE ARGUMENT COUNT MUST LAND ON A CLAUSE BOUNDARY. `def f(a, b)(c)` called `f(1)` is an arity
 // error in Scala too — one argument of a two-param clause is not a partial application — so the

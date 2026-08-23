@@ -11306,13 +11306,136 @@ shared toolchain as well, so it predates everything here. Curried defs lower at 
 (`curried-def-clauses.ssc` says so in as many words), so partial application is unsupported at any
 clause count. Filed separately as `v2-curried-def-partial-application-unsupported`.
 
+## v2-curried-def-with-a-using-clause-cannot-be-called — the given is never injected
+
+<!-- status: open
+     kind: bug
+     lane: native
+     area: front
+     gate: tests/conformance/run.sh -->
+
+```scalascript
+def tag(a: Int)(b: Int)(using s: Show[Int]): String = s.show(a + b)
+println(tag(1)(2))       // ssc: arity: 3 expected, 2 given
+```
+
+A FULL application fails. The def lowers at arity 3 — two written params plus the injected given —
+and the call supplies the two the caller writes, because the injection never happens.
+
+**Two mechanisms that each work alone do not compose.** Given injection lives in `parseCallU`, which
+`parseCallPlain` reaches via `hasUsingSig`; clause flattening happens EARLIER, in `scanArgsCur` /
+`argClausesAll`, and a curried callee with a trailing `using` clause takes a path where the two never
+meet. `curried1` deliberately excludes a second clause that IS a using clause (`def f(a)(using ev)`
+is not curried, and that case works), so only the three-clause shape — written, written, using — is
+uncovered.
+
+**Measured 2026-08-23 on unmodified main**, while adding partial application for top-level curried
+defs (`v2-curried-def-partial-application-unsupported`, fixed): the same probe fails identically in
+the shared checkout, so it predates that work. The partial-application path refuses to fire on a
+`hasUsingSig` callee for exactly this reason — its wrapper would call the global without the given
+and under-apply it, turning a named arity error into a silently wrong program.
+
+**Why nobody hit it:** no conformance case pairs a curried def with a using clause. `curried-*`
+cases have no givens and the `using`/`summon` cases have one parameter clause, so each suite is
+blind precisely where the other one looks.
+
+**Done when** `tag(1)(2)` prints its value with a case covering the written-written-using shape, and
+`curried-def-clauses` plus the existing using/summon cases still pass. Partial application of such a
+def (`tag(1)`) should then be reconsidered together with it — the guard that refuses it today is
+keyed on `hasUsingSig` and would lift with the same fix.
+
+## v2-curried-method-call-does-not-flatten-its-clauses — the declaration is accepted, the call is not
+
+<!-- status: open
+     kind: bug
+     lane: native
+     area: front
+     gate: tests/conformance/run.sh -->
+
+```scalascript
+class Box(n: Int):
+  def add(a: Int)(b: Int): Int = n + a + b
+
+val b = Box(100)
+println(b.add(1)(2))     // ssc: Box.add: expected 2 argument(s), got 1
+```
+
+The DECLARATION is accepted — the checker knows `add` takes two arguments — and the CALL cannot be
+written. `b.add(1)(2)` is parsed as `b.add(1)` followed by `(2)`, and nothing flattens it.
+
+**The clause flattening is keyed on the emitted callee STRING.** `isCurriedApp` fires only when the
+call reads `(app (global NAME)` and `NAME` is in the curried table; a method call emits a receiver
+form instead (`calleeOf` returns `(global Box_add)` for an object method, and a class method's
+receiver is prepended by `selfArgFor`), so the test reads false and the second clause nests against a
+callee that was lowered at the total arity.
+
+**Measured 2026-08-23 on unmodified main**, while adding partial application for top-level curried
+defs (`v2-curried-def-partial-application-unsupported`, fixed): the same probe fails identically in
+the shared checkout, so it predates that work and is not a consequence of it. The partial-application
+path refuses to fire here on purpose — its guard compares `calleeOf` against the exact `(global nm)`
+string its wrapper would emit — so this stays the arity error it already was rather than becoming a
+silently wrong program.
+
+**Why nobody hit it:** no conformance case declares a curried method inside a `class` or `object`.
+Every curried case in the corpus is a top-level `def`, which is the one shape both the flattening and
+its gate were written in.
+
+**Done when** `b.add(1)(2)` prints 103 for a class method AND an object method, with a case covering
+both — and the top-level rows of `curried-def-clauses` still pass. Note that a fix keyed on the
+callee string would have to change what `isCurriedApp` reads, which is the same decision site
+`v2-front-curried-def-second-clause` half 2 established; the alternative is to carry curried-ness
+through the method-call path rather than re-deriving it from the emitted text.
+
 ## v2-curried-def-partial-application-unsupported — a curried def cannot be applied one clause at a time
 
 <!-- status: open
      kind: feature
      lane: native
      area: front
-     gate: tests/conformance/run.sh -->
+     confirmed: yes
+     gate: tests/conformance/run.sh
+     repro: tests/conformance/curried-def-partial-application.ssc -->
+
+> Closed in the commit that follows this one on `main`: the two-step protocol wants a `fixed-in:`
+> that is already an ancestor, so the sha cannot exist while the fix is being pushed.
+
+**FIXED 2026-08-23 by the second option — the front wrapper — and the entry had already ruled out
+the first.** `def two(a: Int)(b: Int)` called `two(1)` now answers a value that takes `(2)`, and
+`curried-def-clauses.ssc` is byte-identical: a FULL application never reaches the new path, because
+the guard is `dlen(slices) < arity` and a full call is equal, not less.
+
+It reuses `synthWrap` unchanged, which is what keeps it free of local-index arithmetic — each
+supplied argument is bound OUTSIDE by an `(app (lam 1 …) v)` level and parsed in that level's own
+env, so nothing needs shifting when the wrapper adds binders underneath.
+
+**THE WRAPPER HAD TO BE CURRIED BY CLAUSE, AND A FLAT ONE LOOKED RIGHT UNTIL IT WAS RUN.** The first
+version emitted a single `(lam k …)` for the missing arguments. `def two(a)(b)` cannot tell the
+difference — one clause, one param — so both probes and the two-clause conformance case passed. The
+matrix row `three(1)` then `h(2)(3)` did not: the value is applied ONE argument at a time, and a flat
+`(lam 2 …)` dies at the first with the very `arity: 2 expected, 1 given` this entry is about. **The
+two-clause case is the one shape that cannot see the difference, and it is the shape the entry, the
+probes and the existing gate were all written in.**
+
+That needed clause boundaries, which this front deliberately did not record — the note at
+`argClausesAll` says inventing an n-clause registry would be "design ahead of a measured need". The
+need is now measured, so each clause is registered under `<name> *k<i>`, with a SENTINEL element so
+a zero-param clause (`def v()(c)`) is distinguishable from an absent one. `*c1` is untouched;
+`padC1` reads it and expects the raw clause-one params.
+
+**Two refusals are load-bearing, and the first is the anti-case this entry called the whole
+difficulty.** An argument count that does not land on a clause boundary — `mix(1)` on
+`def mix(a, b)(c)` — stays an arity error, as it is in Scala; without that walk it would have
+silently become a closure. And a trailing `f(a) { … }` or `f(a): p => …` is a second clause the scan
+does not collect, so the call is not under-applied at all and `blockArgApp` keeps flattening it.
+
+Evidence: the new case passes on all four backends and `ssc info --front-report` says **F**, so it
+measures the front that was edited rather than the fallback — the trap `curried-def-clauses` itself
+documents. `curried-def-clauses`, `curried-def-three-clauses`, `curried-extern-import` and
+`fewer-braces-colon` pass unchanged. The pre-fix tree gives `arity: 2 expected, 1 given` on the
+case's first row, measured before any edit.
+
+The original entry follows, unchanged.
+
 
 ```scalascript
 def two(a: Int)(b: Int): Int = a + b
