@@ -397,6 +397,31 @@ than two implementations describing themselves: it reads as an answer. Anyone ta
 know it competes with two working mechanisms and would replace both — which is the only argument for
 doing it, and a good one, since it would leave ONE statement instead of this subsection.
 
+**WHERE THE PENDING ARMS LIVE — a measurement, not a fixture, for the reason the empty cell above
+records.** A handler arm that does work AFTER resuming is live across the whole resumed computation,
+so N performs under it leave N pending continuations. That is what the program means; the choice is
+only whether they sit on the HOST stack or on the heap.
+
+They were host frames — 17 per perform, in a cycle of
+`resumeCont → exec ×5 → callFunc + exec ×5 → exec ×5` — so 150 iterations exhausted the 2 MB
+default. `c29bb6c52` moved them: `Perform` THROWS the arm to a loop at the `handle` instead of
+running it, and an arm asking to resume throws its own remainder there too, so the host frames of
+everything in between are gone by the time the loop catches it.
+
+| shape | executor | v2 bridge |
+|---|---|---|
+| arm resumes in its own body, 1 MB stack | **200 000** | overflows between 5 000 and 10 000 |
+| arm resumes inside a function it calls | recursive, O(N) | recursive, O(N) |
+
+The second row is a boundary rather than an omission: `opts.flatMap(opt => resume(opt))` resumes in
+the middle of someone else's iteration, where the rest of the arm is not a suffix of an instruction
+list and there is nothing for the machine to walk. The first row is the shape a loop that performs is
+written in.
+
+**Why this is prose and not a table row above:** `effects-gate.sh` wants three-way agreement, so a
+fixture can only be as deep as the SHALLOWER lane. `deep-non-tail-arm` therefore pins the answer at
+5 000 — the bridge's limit — and the depth is recorded here, exactly as the back-edge cell once was.
+
 **WHAT IS LEFT, named so it is not rediscovered.** A `Perform` standing directly inside a region is
 not split by `Cps` — that pass still only cuts at the top level of a function body, and its header
 still says so. Both lanes answer it by their own realisation instead (`Exec.performRest`,

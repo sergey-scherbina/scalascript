@@ -745,6 +745,66 @@ with backticks inside a double-quoted `echo`, so bash ran `known-red:` as a comm
 `known-red:: command not found` into the report. `no-live-backticks-in-heredocs` names exactly this
 and the project has it written down; it still happened, in the same commit that added the note.
 
+## v3-a-non-tail-resumptive-arm-held-one-host-frame-per-perform — 17, in fact
+
+<!-- status: fixed
+     lane: v3
+     area: runtime
+     kind: bug
+     gate: v3/effects-gate.sh
+     fixed-in: c29bb6c52
+     confirmed: yes
+     reported-by: claude-code
+     reported-at: 2026-08-23
+     repro: v3/tests/effects/deep-non-tail-arm.ssc, and the same shape at 200 000 on a 1 MB stack
+     impact: workaround -->
+
+A handler arm that does work AFTER resuming — `case op(k) => k(1) + 0`, `x :: resume(())`,
+`k(1) + k(2)` — is live across the whole resumed computation. Calling `resumeCont` from inside it
+left the arm's frames on the HOST stack while the rest of the program ran; the rest performed again,
+its arm called again, and the depth grew with the number of performs.
+
+**MEASURED, NOT ESTIMATED: 17 host frames per perform**, from the overflow trace, in a repeating
+cycle of
+
+    resumeCont -> exec x5 -> callFunc + exec x5 -> exec x5 -> resumeCont
+
+so 150 iterations exhausted the 2 MB default. On a deliberately small 1 MB stack the same shape now
+answers at **200 000**.
+
+**ONE PENDING ARM IS REAL AND WAS NOT THE PROBLEM.** N performs under such an arm leave N pending
+continuations, because that is what the program means. The choice is only where they live, and they
+are on a heap list now — the same trade `Cps` already makes for the performing function.
+
+**THE DRIVER HAD TO BE AT THE `handle`, and that is forced.** An exception unwinds to wherever it is
+caught, so only a loop there releases the frames of everything between. A loop inside `Perform`
+would still sit under the continuation that reaches the NEXT perform: fewer frames per step, same
+growth. So `Perform` throws the arm instead of running it — which replaces `PerformAbort`, that
+carried the arm's VALUE home and there is no value yet.
+
+**THREE THINGS THE FIXTURES FOUND AND READING DID NOT:**
+
+* **the rest of an arm is still the arm.** `k(1) + k(2)` has its second resume in the parked
+  remainder, and without the arm's own delimiter there it resumed in place.
+* **a called function is NOT the arm.** `opts.flatMap(opt => resume(opt))` resumes inside a lambda
+  `flatMap` is iterating; a request there unwinds out of `flatMap` and abandons the rest of the
+  iteration. `handle-return` answered `List(11)` where the cross product is `List(11, 21, 12, 22)`.
+* **and that rule has TWO DOORS.** Clearing the flag in `callFunc` was not enough: `fastApply` sends
+  a closure through `callClos1` instead, and the same row stayed red until both were closed. One
+  rule, two entry points, and the first fix looked complete.
+
+**THE BOUNDARY THIS LEAVES** follows from the second of those and is a boundary rather than an
+omission: an arm resuming inside a function it CALLS keeps the recursive path — correct, as before,
+but O(N) — because there the rest of the arm is not a suffix of an instruction list but the middle
+of someone else's iteration, and there is nothing for the machine to walk. Loops that perform are
+written the other way.
+
+**THE FIXTURE IS 5 000 AND THE NUMBER IS THE BRIDGE'S.** `effects-gate.sh` wants three-way
+agreement, so a row can only be as deep as the shallower lane, and the v2 VM recurses per resume and
+overflows between 5 000 and 10 000. The row pins the ANSWER on both lanes; the depth is one lane's
+property and is recorded as a measurement in `v3/specs/10-ssc-ir.md` §3, the way that section
+already records a clause no fixture can hold.
+
 ## scaffolded-project-cannot-resolve-its-sbt-plugin — `ssc new` then `sbt compile` fails for everyone who is not a contributor
 
 <!-- status: fixed
