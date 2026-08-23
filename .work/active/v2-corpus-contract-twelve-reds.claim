@@ -1,0 +1,11 @@
+slug: v2-corpus-contract-twelve-reds
+branch: feature/v2-corpus-contract-twelve-reds
+agent: claude-code
+started: 2026-08-23T20:30:24Z
+heartbeat: 2026-08-23T20:30:24Z
+status: claimed-before-planning
+items: corpus-contract-is-red-on-twelve-rows-and-the-freeze-is-global
+paths: file:BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
