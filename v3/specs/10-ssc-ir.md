@@ -425,8 +425,19 @@ everything in between are gone by the time the loop catches it.
 
 | shape | executor | v2 bridge |
 |---|---|---|
-| arm resumes in its own body, 1 MB stack | **200 000** | overflows between 5 000 and 10 000 |
-| arm resumes inside a function it calls | recursive, O(N) | recursive, O(N) |
+| arm resumes in its own body, 1 MB stack | **200 000** | 5 000–8 000 |
+| arm resumes inside a function it calls | 300 000+ | below 20 000 |
+| tail-resumptive arm | unbounded | 200 000 |
+
+**The bridge's number is a priced decision, not a gap.** A resume costs ~101 v2 frames there, and it
+is the emitted RUNTIME rather than the program: two programs of entirely different shape measured 101
+and 103. Flattening the runtime buys about 10% — 80 of those frames are generic evaluation frames
+spread across the nested chain, not the recursive helpers one would reach for first. A driver loop
+like the executor's would make it unbounded, and was rejected because THE BRIDGE IS THE ORACLE: every
+wrong answer found in this machinery was caught by the bridge answering independently, and building
+the executor's machine into it makes the two witnesses resemble each other. Nothing in either corpus
+comes near the limit — the deepest non-tail-resumptive arm is 100 iterations.
+`v3-bridge-resume-nests-one-hundred-v2-frames-per-resume` records what would reopen it.
 
 The second row is a boundary rather than an omission: `opts.flatMap(opt => resume(opt))` resumes in
 the middle of someone else's iteration, where the rest of the arm is not a suffix of an instruction

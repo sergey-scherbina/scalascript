@@ -907,6 +907,60 @@ remainder, so by then the value is there.
 
 Found by building a probe for the position the refusal claimed was unreachable — not by any gate.
 
+## v3-bridge-resume-nests-one-hundred-v2-frames-per-resume — measured, and deliberately not fixed
+
+<!-- status: wontfix
+     lane: v3
+     area: codegen
+     kind: perf
+     gate: v3/effects-gate.sh
+     fixed-in: -
+     reported-by: claude-code
+     reported-at: 2026-08-23
+     repro: a `while` loop performing under `case op(k) => k(1) + 0`, run with `--bridge`
+     impact: none -->
+
+**THE NUMBER FIRST.** A resume on the v2 bridge costs **~101 v2 interpreter frames**, so a
+non-tail-resumptive arm over a deep loop overflows between 5 000 and 8 000 iterations. The executor,
+since `c29bb6c52`, has no such limit — 200 000 on a deliberately small 1 MB stack.
+
+| shape | executor | v2 bridge |
+|---|---|---|
+| `case op(k) => k(1) + 0` over a loop | unbounded | **5 000–8 000** |
+| `opts.flatMap(opt => resume(opt))` | 300 000+ | below 20 000 |
+| `case op(k) => k(1)` (tail-resumptive) | unbounded | 200 000 |
+
+**IT IS THE EMITTED RUNTIME, NOT THE PROGRAM.** Two programs of completely different shape — a
+`while` loop with a split caller, and a recursion with none — cost **101 and 103** frames per resume.
+So the cost is fixed and lives in the resume path itself: the arm closure, `effResume`'s three nested
+`let`s, the composed lambda, `effRun`, and the continuation's own body, each contributing evaluation
+frames that stay while the continuation runs.
+
+**BOTH REPAIRS WERE PRICED AND BOTH WERE REJECTED, which is why this is `wontfix` rather than open.**
+
+*Flattening the runtime* was the cheap one and it is not cheap enough. The frame histogram over one
+cycle is 29 `Runtime.run`, 19 `go$1`, 19 `compile$$anonfun$22`, 13 `anonfun$6` — 80 of 103 are
+GENERIC evaluation frames spread across the nested chain. The recursive helpers everyone would reach
+for first (`effChain`, `effPushAll`, `effPopAll`) are single frames each. Rewriting them as loops
+buys about 10%, not the 2x that was estimated before the histogram was read.
+
+*The driver loop* — the mirror of what `c29bb6c52` did in the executor — would make it unbounded, and
+the bridge has the piece that makes it easier than it sounds: its abort is a FLAG, not an exception,
+so frames already return rather than unwind. It was rejected on a different ground: **the bridge is
+the oracle.** Every wrong answer found in v3's effects over the last two days was caught by the
+bridge answering independently and correctly — `1001`, `11`, `12`, `1`, `0`. Building the executor's
+machine into it would make the two witnesses resemble each other, and the differential is worth more
+than the depth.
+
+**AND NOTHING REAL IS NEAR THE LIMIT**, which is the fact that decides it. Across both corpora the
+deepest program using a non-tail-resumptive arm is `bench/corpus/effect-multishot` at **100**
+iterations — fifty times under. `effect-stream` runs 10 000, and does not count: `runStream` is an
+`extern def` answered by a plugin, so it never enters this machinery at all.
+
+**WHAT WOULD REOPEN IT**, stated so the decision is re-decidable rather than permanent: a program that
+performs more than a few thousand times under an arm with work after its resume, on the bridge lane.
+Then the driver loop is the design, and the cost — a less independent oracle — is paid knowingly.
+
 ## scaffolded-project-cannot-resolve-its-sbt-plugin — `ssc new` then `sbt compile` fails for everyone who is not a contributor
 
 <!-- status: fixed
