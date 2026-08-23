@@ -11381,16 +11381,15 @@ pass on it — so this is specifically the trailing `using` clause.
 
 ## v2-curried-def-with-a-using-clause-cannot-be-called — the given is never injected
 
-<!-- status: open
+<!-- status: fixed
      kind: bug
      lane: native
      area: front
+     fixed-in: 6fbafea93
      confirmed: yes
      gate: tests/conformance/run.sh
      repro: tests/conformance/curried-def-using-clause.ssc -->
 
-> Closed in the commit that follows this one on `main`: the two-step protocol wants a `fixed-in:`
-> that is already an ancestor, so the sha cannot exist while the fix is being pushed.
 
 **FIXED 2026-08-23.** `collectUS2` parsed exactly ONE parameter clause and then asked whether the
 next was `using`. For `def tag(a: Int)(b: Int)(using s: Show[Int])` the next is `(b)`, so the def
@@ -11508,16 +11507,15 @@ receiver, with a case covering one and two clauses.
 
 ## v2-curried-method-call-does-not-flatten-its-clauses — the declaration is accepted, the call is not
 
-<!-- status: open
+<!-- status: fixed
      kind: bug
      lane: native
      area: front
+     fixed-in: 6fbafea93
      confirmed: yes
      gate: tests/conformance/run.sh
      repro: tests/conformance/curried-def-member-methods.ssc, curried-def-every-spelling.ssc -->
 
-> Closed in the commit that follows this one on `main`: the two-step protocol wants a `fixed-in:`
-> that is already an ancestor, so the sha cannot exist while the fix is being pushed.
 
 **FIXED 2026-08-23, and the entry was wrong about the scope in both directions.** It named a class
 method and reasoned about the CALL. The call was the smaller half, and the defect was not confined
