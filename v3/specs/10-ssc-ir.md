@@ -233,10 +233,25 @@ and `VClos` have been in the instruction set from the start. A continuation that
 
 **The cost, stated because it is not small.** Functions that can perform must be lowered in
 continuation-passing style, and the IR is structured: a `Loop` containing a `Perform` becomes a
-recursive function, since a loop's remainder cannot be a closure without one. v3 has `TailCall`, so
-those recursions are constant-stack rather than a new leak. The transformation applies only to
+recursive function, since a loop's remainder cannot be a closure without one. ~~v3 has `TailCall`, so
+those recursions are constant-stack rather than a new leak.~~ The transformation applies only to
 functions that TRANSITIVELY perform — a set the lowering can compute, and which in the bench corpus
 today is two programs.
+
+> **The struck sentence was the argument for this route and it is about the wrong recursion.**
+> Measured 2026-08-22: what grows with the number of performs is the RESUME CHAIN — each resume runs
+> inside the previous arm's activation — and none of those transfers is a tail call, so `TailCall`
+> does not touch them. Turning the loop into a recursive function leaves that untouched too.
+>
+> The depth was fixed by a different change (`c29bb6c52`): the arm's pending remainders were moved
+> off the host stack onto a heap list, driven by a loop at the `handle`. A non-tail-resumptive arm
+> then ran 200 000 iterations on a deliberately small 1 MB stack, where it had died at 150 on the
+> 2 MB default.
+>
+> **So this route is worth exactly one thing, and it is not the one the sentence claimed:** it would
+> replace the two per-lane mechanisms below with a single statement in the lowering. That is a real
+> argument. "It also makes deep effect loops work" was not, and reading it that way is how someone
+> spends the work twice.
 
 #### Who PRODUCES the continuation — the last argument of `Perform`
 

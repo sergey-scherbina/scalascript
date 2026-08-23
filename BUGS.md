@@ -858,6 +858,55 @@ outward, because `k(1)` lowers to a `CallV` on the arm's `k` register.
 `arm-performs-outward` is a three-way row: the bridge answers 13 on its own, so the fixture is not
 the executor grading itself.
 
+## v3-a-continuation-resuming-through-a-nested-handle-loses-it — executor 1, bridge 107
+
+<!-- status: fixed
+     lane: v3
+     area: runtime
+     kind: bug
+     gate: v3/effects-gate.sh
+     fixed-in: f8d36e0f3
+     confirmed: yes
+     reported-by: claude-code
+     reported-at: 2026-08-23
+     repro: v3/tests/effects/continuation-crosses-a-nested-handle.ssc
+     impact: wrong-answer -->
+
+**PRE-EXISTING, and checked before it was called mine.** The same program answers 1 on a build from
+before any of this week's effect work, and the v2 bridge has answered 107 throughout — so the lanes
+have disagreed here for as long as both have run it.
+
+```scalascript
+handle {                                     // outer: answers B
+  acc = handle(innerBody()) { case a(k) => k(1) }    // inner: answers A only
+  acc                                        // innerBody performs B — it passes the inner handle by
+} { case b(k2) => k2(3) + 1 }
+```
+
+| | answer |
+|---|---|
+| executor | **1** |
+| v2 bridge | 107 |
+| hand-derived | 107 |
+
+**THE ARITHMETIC NAMED IT, not the code.** `1` is `k2(3) + 1` with `k2(3) = 0` — `acc` still holding
+the zero it was initialised with. So the inner handle contributed NOTHING: when the outer handler
+resumes, the continuation runs back through the inner handle's BODY, and the inner `Handle`
+instruction is gone — abandoned by the unwind that carried the outer perform home. Nothing was left
+to turn the body's value into the handle's.
+
+**ONE HYPOTHESIS DIED ON THE WAY** and is kept because it was the more alarming one: `1` looked like
+the inner arm's `k(1)` leaking out, which would have meant two effects sharing an operation index.
+The IR says `op 0` and `op 1` — distinct — so that was out after one command.
+
+**THE FIX IS THE SHAPE EVERYTHING ELSE HERE USES.** `Handle` records a `PendingFrame` on the way in,
+exactly as a region does, and that frame carries its handler and its destination register. When the
+walk reaches it, it does what the instruction would have done next: apply the return clause to the
+value the body left in that register. The frames BEFORE it in the segment are the body's own
+remainder, so by then the value is there.
+
+Found by building a probe for the position the refusal claimed was unreachable — not by any gate.
+
 ## scaffolded-project-cannot-resolve-its-sbt-plugin — `ssc new` then `sbt compile` fails for everyone who is not a contributor
 
 <!-- status: fixed
@@ -8372,11 +8421,34 @@ and the second job green as before. The previous 48 runs had none of that.
 
 ## v3-handle-has-no-return-clause — `effect-multishot` runs and answers 0
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      area: front
      kind: feature
-     gate: tests/conformance/run.sh -->
+     gate: v3/corpus-report.sh
+     fixed-in: ad741e91b
+     confirmed: yes -->
+
+**CLOSED 2026-08-23, AND ITS `Done when` IS MET IN SUBSTANCE RATHER THAN LITERALLY — which is worth
+one paragraph, because the literal reading describes a mechanism that does not exist.**
+
+The clause itself has worked for a while: `js-effect-multishot-long-fold` answers **204 on both v3
+lanes** and `bench/corpus/effect-multishot` answers 10 290, where this entry recorded 0. What stayed
+open was the second half — "declares **v3** among its `backends:`", so that the corpus runner becomes
+the acceptance test and the divergence stops being invisible by construction.
+
+**Nothing reads `v3` in `backends:`.** `v3/corpus-report.sh` asks that field about **`v2`**, because
+the default lane executes through the v2 bridge and inherits its differences; `tests/conformance/run.sh`
+does not read the field at all. Adding the token would have looked like a fix and changed nothing —
+and requiring it would have been worse: no case in the corpus lists `v3`, so EVERYTHING would have
+become excluded and the report would have read as healthy.
+
+`ad741e91b` implements the intent instead: on `--exec` the report holds v3 to every case except one
+declaring `known-red: v3`, because that lane borrows nothing from v2. This case is therefore held
+now, and answers 204. The blind spot this entry was really about — a wrong answer counted as somebody
+else's — is closed, and the report says the two lanes measure different populations rather than
+printing two numbers that look comparable.
+
 
 **THE CENSUS IS DONE, 2026-08-12, and it licenses the refusal.** `listOut` was instrumented to
 REPORT rather than refuse and the whole corpus was run:
