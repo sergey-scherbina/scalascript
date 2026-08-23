@@ -1,0 +1,11 @@
+slug: v3-region-inside-a-handler-arm
+branch: feature/v3-region-inside-a-handler-arm
+agent: claude-code
+started: 2026-08-23T09:19:19Z
+heartbeat: 2026-08-23T09:19:19Z
+status: claimed-before-planning
+items: v3-bridge-refuses-a-region-inside-a-handler-arm v3-handle-has-no-return-clause v3-spec-loop-route-rationale
+paths: file:v3/src/BridgeV2.scala file:v3/specs/10-ssc-ir.md file:BUGS.md file:v3/tests/effects/region-in-arm.ssc file:v3/tests/effects/region-in-arm.expected file:tests/conformance/js-effect-multishot-long-fold.ssc
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
