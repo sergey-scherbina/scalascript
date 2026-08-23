@@ -446,6 +446,57 @@ final class UiNativePlugin extends NativePlugin:
         throw error
     finally currentOwnerPath = parent
 
+  /** The reactive `<select>`, rendered as the snapshot this lane renders everything else as.
+    *
+    * It builds the SAME `NativeUiElement` tree the static `SelectNode` lowering builds in
+    * `std/ui/lower.ssc` and hands it back to `render`, rather than assembling HTML here. That is
+    * the point: given the same options, the reactive select and the static one must be
+    * byte-identical, and they can only drift if this function escapes, sorts or void-checks
+    * attributes on its own. Measured against a static `select` of the same two options.
+    *
+    * No owner/scope bookkeeping, unlike `renderKeyed`: `optionFn` returns a `(value, label)` PAIR,
+    * not a View, so a row can neither declare a signal nor open a component scope. */
+  private def renderSelectFrom(
+      site: String,
+      itemsSignal: Value,
+      optionClosure: Value.ClosV,
+      selected: Value,
+      style: String,
+      placeholder: String,
+      disabled: Boolean): String =
+    val current = scalar(readSignal(selected, "NativeUiSelectFrom selected"))
+    val rows = unlist(readSignal(itemsSignal, "NativeUiSelectFrom items"), "NativeUiSelectFrom items")
+
+    def option(value: String, label: String, extra: Seq[(String, Value)]): Value =
+      val attrs = Seq("value" -> Value.StrV(value), "selected" -> Value.BoolV(value == current)) ++ extra
+      Value.DataV("NativeUiElement", Vector(
+        Value.StrV(site), Value.StrV("option"),
+        Value.MapV.from(attrs.map { case (key, entry) => Value.StrV(key) -> entry }),
+        Value.MapV.empty,
+        list(Seq(Value.DataV("NativeUiText", Vector(Value.StrV(label)))))))
+
+    val placeholderOption =
+      if placeholder.isEmpty then Nil
+      else List(option("", placeholder, Seq("disabled" -> Value.BoolV(true), "hidden" -> Value.BoolV(true))))
+
+    val optionElements = rows.map { item =>
+      Runtime.run(optionClosure.code, Runtime.extend(optionClosure.env, Array(item))) match
+        case Value.DataV(tag, Seq(value, label)) if tag == "Pair" || tag == "Tuple2" =>
+          option(scalar(value), scalar(label), Nil)
+        case other => throw new RuntimeException(
+          s"selectFromView optionFn must return a (value, label) pair, got ${Show.show(other)}")
+    }
+
+    // `style` is dropped when empty rather than emitted as style="" — matching the JS runtime's
+    // own `_SelectFrom` case, which omits the attribute on a falsy style.
+    val attrs = Seq("disabled" -> Value.BoolV(disabled), "value" -> Value.StrV(current)) ++
+      (if style.isEmpty then Nil else Seq("style" -> Value.StrV(style)))
+    render(Value.DataV("NativeUiElement", Vector(
+      Value.StrV(site), Value.StrV("select"),
+      Value.MapV.from(attrs.map { case (key, entry) => Value.StrV(key) -> entry }),
+      Value.MapV.empty,
+      list(placeholderOption ++ optionElements))))
+
   private def render(value: Value): String =
     val topLevel = renderDepth == 0
     if topLevel then siteOccurrences.clear()
@@ -481,6 +532,10 @@ final class UiNativePlugin extends NativePlugin:
       else open + unlist(children, "element children").map(render).mkString + s"</$tag>"
     case Value.DataV("NativeUiForKeyed", Seq(Value.StrV(site), items, keyClosure: Value.ClosV, renderClosure: Value.ClosV)) =>
       renderKeyed(site, nextSiteOccurrence(site), items, keyClosure, renderClosure)
+    case Value.DataV("NativeUiSelectFrom",
+                     Seq(Value.StrV(site), items, _: Value.ClosV, optionClosure: Value.ClosV,
+                         selected, Value.StrV(style), Value.StrV(placeholder), Value.BoolV(disabled))) =>
+      renderSelectFrom(site, items, optionClosure, selected, style, placeholder, disabled)
     case Value.DataV("NativeUiUnsupported", Seq(Value.StrV(feature), _, Value.StrV(detail))) =>
       throw new RuntimeException(s"unsupported native UI feature '$feature': $detail")
     case _ => throw new RuntimeException(s"native UI emit expected ABI-v1 View, got ${Show.show(value)}")
@@ -500,6 +555,7 @@ final class UiNativePlugin extends NativePlugin:
       "NativeUiFragment" -> Vector("children"),
       "NativeUiElement" -> Vector("siteId", "tag", "attrs", "events", "children"),
       "NativeUiForKeyed" -> Vector("siteId", "items", "keyClosure", "renderClosure"),
+      "NativeUiSelectFrom" -> Vector("siteId", "items", "keyClosure", "optionClosure", "selected", "style", "placeholder", "disabled"),
       "NativeUiTrustedHtml" -> Vector("siteId", "source"),
       "NativeUiDataTable" -> Vector("siteId", "source", "columns", "actions", "rowKeyPath"),
       "NativeUiUnsupported" -> Vector("feature", "sourceRef", "detail"),
@@ -681,6 +737,33 @@ final class UiNativePlugin extends NativePlugin:
       case _ => throw new RuntimeException("forKeyedView(items, key, render)")
     }
 
+    // selectFromView — the reactive sibling of the static `select()`, and the one primitive that
+    // owns its WHOLE element. `<select>`'s HTML content model only admits option/optgroup/hr, so
+    // forKeyedView's generic `<span data-ssc-key>` row wrapper would be dropped by a real browser's
+    // "in select" parsing, taking the reconcile key with it (specs/std-ui-select.md § "Why it can't
+    // be forKeyedView embedded as a <select> child").
+    //
+    // `key` IS DELIBERATELY UNREAD HERE, and this is the one place to say so before someone
+    // "fixes" it. It exists for the browser's keyed reconcile; this lane renders a SNAPSHOT of the
+    // options as they stand at render time, exactly as `renderKeyed` emits no reconcile markers and
+    // as the JVM lane's `Picker` fallback also ignores it. It is still matched as a closure, so a
+    // malformed call fails here rather than somewhere downstream.
+    siteNative(context, "selectFromView") { (site, _, args) => args match
+      case items :: (key: Value.ClosV) :: (optionFn: Value.ClosV) :: selected ::
+           Value.StrV(style) :: Value.StrV(placeholder) :: Value.BoolV(disabled) :: Nil =>
+        signalFields(items, "selectFromView items")
+        signalFields(selected, "selectFromView selected")
+        Value.DataV("NativeUiSelectFrom", Vector(
+          Value.StrV(site),
+          NativeUiPortable.canonical(items, s"NativeUiSelectFrom[$site].items"),
+          NativeUiPortable.canonical(key, s"NativeUiSelectFrom[$site].keyClosure"),
+          NativeUiPortable.canonical(optionFn, s"NativeUiSelectFrom[$site].optionClosure"),
+          NativeUiPortable.canonical(selected, s"NativeUiSelectFrom[$site].selected"),
+          Value.StrV(style), Value.StrV(placeholder), Value.BoolV(disabled)))
+      case _ => throw new RuntimeException(
+        "selectFromView(items, key, optionFn, selected, style, placeholder, disabled)")
+    }
+
     native(context, "setSignal") { case signal :: value :: Nil => signalFields(signal, "setSignal"); event("set", signal, value); case _ => throw new RuntimeException("setSignal(signal, value)") }
     native(context, "inputChange") { case signal :: Nil => signalFields(signal, "inputChange"); event("input", signal, Value.UnitV); case _ => throw new RuntimeException("inputChange(signal)") }
     native(context, "toggleSignal") { case signal :: Nil => signalFields(signal, "toggleSignal"); event("toggle", signal, Value.UnitV); case _ => throw new RuntimeException("toggleSignal(signal)") }
@@ -791,18 +874,20 @@ final class UiNativePlugin extends NativePlugin:
     native(context, "localStorageGet") { case Value.StrV(key) :: Nil => storage.get(key).fold[Value](Value.DataV("None", Vector.empty))(value => Value.DataV("Some", Vector(Value.StrV(value)))); case _ => throw new RuntimeException("localStorageGet(key)") }
     native(context, "localStorageSet") { case Value.StrV(key) :: Value.StrV(value) :: Nil => storage(key) = value; Value.UnitV; case _ => throw new RuntimeException("localStorageSet(key, value)") }
     native(context, "localStorageRemove") { case Value.StrV(key) :: Nil => storage.remove(key); Value.UnitV; case _ => throw new RuntimeException("localStorageRemove(key)") }
-    // ── declared here, not provided here: five POSITIONED REFUSALS ───────────────────────────────
+    // ── declared here, not provided here: four POSITIONED REFUSALS ───────────────────────────────
     //
-    // `std/ui/primitives.ssc` declares 53 externs; this plugin provides all but these five. They are
+    // `std/ui/primitives.ssc` declares 53 externs; this plugin provides all but these four. They are
     // registered as refusals rather than left unbound, and the distinction is the point: an unbound
     // name gives `unbound global: forJsonView`, which reads like a typo in the PROGRAM, when the
     // truth is that the primitive exists and this lane does not implement it.
     //
-    // A REFUSAL IS NOT HALF A PRIMITIVE. A previous attempt wrote two of these as descriptors —
-    // constructors that package a DataV like their twin `forKeyedView` — and did not land them,
-    // because a constructor with no renderer lets a program build a node nothing can draw, trading
-    // an honest failure at the call for a confusing one further downstream. Throwing here keeps the
-    // failure exactly where the program asked for something unavailable, and says what to do.
+    // A REFUSAL IS NOT HALF A PRIMITIVE, and `selectFromView` left this list by satisfying that
+    // rule rather than by being excused from it: it has a constructor, a RENDERER arm and a
+    // field-name registration, the same three parts `forKeyedView` has. An earlier attempt wrote it
+    // as a descriptor ALONE and rightly did not land — a constructor with no renderer lets a program
+    // build a node nothing can draw, trading an honest failure at the call for a confusing one
+    // further downstream. For the four below, throwing keeps the failure exactly where the program
+    // asked for something unavailable, and says what to do.
     //
     // Measured 2026-08-18, correcting this entry's own damage claim: the eight corpus cases it names
     // (`tkv2-button-size`, `tkv2-select`, `tkv2-keyed-for`, …) ALL RUN, on F, under SSC_FRONT_STRICT.
@@ -811,7 +896,6 @@ final class UiNativePlugin extends NativePlugin:
     // signature. So the gap is latent: it bites when the arm executes, not when the module loads.
     List(
       "forJsonView" -> "renders a list of parsed JSON rows",
-      "selectFromView" -> "renders a <select> whose options track a signal",
       "itemField" -> "reads a field off a parsed JSON row",
       "intervalTick" -> "a timer-backed signal",
       "fetchStreamSignal" -> "streaming HTTP",

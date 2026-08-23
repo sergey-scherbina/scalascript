@@ -4,9 +4,14 @@
 # and the program must be told THAT rather than "unbound global".
 #
 # `std/ui/primitives.ssc` declares 53 externs; `UiNativePlugin` implements all but `forJsonView`,
-# `selectFromView`, `itemField`, `intervalTick` and `fetchStreamSignal`. Left unbound, calling one
-# gave `ssc: unbound global: forJsonView` — which reads like a typo in the PROGRAM, when the truth is
+# `itemField`, `intervalTick` and `fetchStreamSignal`. Left unbound, calling one gave
+# `ssc: unbound global: forJsonView` — which reads like a typo in the PROGRAM, when the truth is
 # that the primitive exists and this lane does not provide it.
+#
+# `selectFromView` HAD a row here and no longer does, because its refusal was replaced by an
+# implementation (constructor + renderer arm + field names) — a guard dissolves when the thing it
+# guards against is gone, and leaving the row would have made this gate demand the gap back.
+# tests/e2e/ui-select-from-gate.sh is what covers it now.
 #
 # A REFUSAL IS NOT HALF A PRIMITIVE, and that distinction is why these are throws and not
 # constructors. A previous attempt wrote two of them as descriptors — packaging a DataV like their
@@ -54,13 +59,6 @@ refuses forJsonView-refuses '[signal, forJsonView, element](std/ui/primitives.ss
 def main(): Unit =
   val items = signal("items", "[]")
   println(forJsonView(items, "id", (row) => element("div", [], Map(), [])))'
-
-refuses selectFromView-refuses '[signal, selectFromView](std/ui/primitives.ssc)
-
-def main(): Unit =
-  val items = signal("items", "[]")
-  val sel = signal("sel", "")
-  println(selectFromView(items, (a) => "k", (a) => ("v", "l"), sel, "", "", false))'
 
 refuses itemField-refuses '[itemField](std/ui/primitives.ssc)
 

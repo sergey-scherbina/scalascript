@@ -494,6 +494,13 @@ val suite = List(
   // an over-broad fix honest: `_bar`, `_1` and `_` must still bind or wild. Measured against the
   // unfixed front, exactly the first two rows go red.
   Check("v2", "underscore-ctor-pattern", "tests/e2e/underscore-ctor-pattern-gate.sh", List(), 200000),
+  // THE REACTIVE `<select>` ON THE NATIVE LANE, and it goes in with the feature rather than after it.
+  // The implementation landed with this gate already written and PASSING and the gate wired nowhere,
+  // which is the state an unwired gate rots in: seven rows nobody runs are seven rows that stop being
+  // true without a word. Its rows are the ones a reimplementation would get wrong — the reactive
+  // select must render byte-identically to the STATIC one given the same options, so the row that
+  // compares them is the one that matters.
+  Check("v2", "ui-select-from", "tests/e2e/ui-select-from-gate.sh", List(), 300000),
   // Every anonymous std/ui signal is named `d<ordinal>:<owner>/<path>` where the ordinal is the
   // INDEX of the definition in program.defs — so a generated signal's identity depends on how many
   // definitions the front emitted before it. Three corpus files once reported the same refusal with
