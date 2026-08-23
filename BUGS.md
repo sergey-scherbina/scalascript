@@ -11433,16 +11433,14 @@ through the method-call path rather than re-deriving it from the emitted text.
 
 ## v2-curried-def-partial-application-unsupported — a curried def cannot be applied one clause at a time
 
-<!-- status: open
+<!-- status: fixed
      kind: feature
      lane: native
      area: front
+     fixed-in: 2a7e14d6e
      confirmed: yes
      gate: tests/conformance/run.sh
      repro: tests/conformance/curried-def-partial-application.ssc -->
-
-> Closed in the commit that follows this one on `main`: the two-step protocol wants a `fixed-in:`
-> that is already an ancestor, so the sha cannot exist while the fix is being pushed.
 
 **FIXED 2026-08-23 by the second option — the front wrapper — and the entry had already ruled out
 the first.** `def two(a: Int)(b: Int)` called `two(1)` now answers a value that takes `(2)`, and
