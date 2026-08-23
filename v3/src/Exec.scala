@@ -411,41 +411,18 @@ object Exec:
       f.copy(regs = c)
     }
 
-  private def resumeCont(m: Module, c: Value.VCont, v: Value): Value =
-    // DID THE RESUMED COMPUTATION FINISH, OR DID AN ARM ANSWER FOR IT? Same question the `Handle`
-    // site asks, and it had the same wrong proxy here.
-    var aborted = false
-    // THE HANDLER IS REINSTALLED FOR THE DURATION. A deep handler's continuation may perform again —
-    // two ticks of the same effect — and by then the `handle` has returned, so `handlers` no longer
-    // holds the frame that must answer. Without this the second perform said "no handler for effect
-    // operation 0", which is `v3-no-handler-error-has-no-position`'s one true shape.
-    // THE OUTSTANDING FRAMES ARE ON `pending` FOR THE WHOLE RESUME, not only while the walk below
-    // reaches them. The closure runs FIRST and may perform again — two ticks of the same effect —
-    // and that inner perform's continuation owes the frames this one has not yet run. Setting
-    // `pending` only inside the walk left the second perform capturing nothing, so its `resume`
-    // answered unit where the rest of the handled computation said `END`.
-    //
-    // `pendingDepth` is 0 for the same reason: everything on `pending` from here up belongs to a
-    // perform that happens inside this resume, the outstanding frames included.
-    val save = pending
-    pending  = c.seg
-    val act  = new Delim(c.h, 0)
-    handlers = c.h :: handlers
-    actives  = act :: actives
-    handleDepth = handleDepth + 1
-    val raw =
-      try
-        // The closure first: the rest of the PERFORMING function. Then each caller frame the
-        // continuation owes, innermost out, each on a FRESH copy of its registers so a second resume
-        // starts where the first one did. `pending` is set to the frames still outstanding, so a
-        // perform inside a resumed frame captures its own rest and not this one's.
-        //
-        // NO CLOSURE MEANS `Cps` DID NOT SPLIT the performing function — the perform stood inside a
-        // region or a `handle` body. The rest of that list is `seg`'s first frame, which places the
-        // resumed value in the perform's own destination register, so the walk below IS the whole
-        // continuation and the value goes in unchanged.
-        var acc  = if c.clos == null then v else apply1(m, c.clos.nn, v)
-        var seg  = cloneSeg(c.seg)
+  /** RUN A SEGMENT OF FRAMES, innermost out, feeding each the last answer.
+    *
+    * Extracted from `resumeCont` because it is not only a resume's business: the REST OF AN ARM is a
+    * segment too, and the machine that drives a handler has to run one without re-entering the arm
+    * it came from. One walk, so the two cannot drift about what a `ret` inside a region means or how
+    * deep a branch unwinds.
+    *
+    * `pending` is maintained as it goes: a perform inside a resumed frame owes the frames this walk
+    * has not reached yet, and nothing else can tell it which those are. */
+  private def walkSeg(m: Module, seg0: List[PendingFrame], acc0: Value): Value =
+    var acc = acc0
+    var seg = seg0
         // A `ret` INSIDE A REGION LEAVES THE FUNCTION, so the region frames of that same activation
         // are dead and must be skipped rather than run. Without this the value a returning branch
         // produced was handed to an empty region frame, which fell through to unit and `resume(())`
@@ -542,7 +519,43 @@ object Exec:
                 case other         => throw ExecError(
                   "a continuation frame ended with " + other + "; only a value or a fall-through " +
                   "can leave one")
-        acc
+    acc
+
+  private def resumeCont(m: Module, c: Value.VCont, v: Value): Value =
+    // DID THE RESUMED COMPUTATION FINISH, OR DID AN ARM ANSWER FOR IT? Same question the `Handle`
+    // site asks, and it had the same wrong proxy here.
+    var aborted = false
+    // THE HANDLER IS REINSTALLED FOR THE DURATION. A deep handler's continuation may perform again —
+    // two ticks of the same effect — and by then the `handle` has returned, so `handlers` no longer
+    // holds the frame that must answer. Without this the second perform said "no handler for effect
+    // operation 0", which is `v3-no-handler-error-has-no-position`'s one true shape.
+    // THE OUTSTANDING FRAMES ARE ON `pending` FOR THE WHOLE RESUME, not only while the walk below
+    // reaches them. The closure runs FIRST and may perform again — two ticks of the same effect —
+    // and that inner perform's continuation owes the frames this one has not yet run. Setting
+    // `pending` only inside the walk left the second perform capturing nothing, so its `resume`
+    // answered unit where the rest of the handled computation said `END`.
+    //
+    // `pendingDepth` is 0 for the same reason: everything on `pending` from here up belongs to a
+    // perform that happens inside this resume, the outstanding frames included.
+    val save = pending
+    pending  = c.seg
+    val act  = new Delim(c.h, 0)
+    handlers = c.h :: handlers
+    actives  = act :: actives
+    handleDepth = handleDepth + 1
+    val raw =
+      try
+        // The closure first: the rest of the PERFORMING function. Then each caller frame the
+        // continuation owes, innermost out, each on a FRESH copy of its registers so a second resume
+        // starts where the first one did. `pending` is set to the frames still outstanding, so a
+        // perform inside a resumed frame captures its own rest and not this one's.
+        //
+        // NO CLOSURE MEANS `Cps` DID NOT SPLIT the performing function — the perform stood inside a
+        // region or a `handle` body. The rest of that list is `seg`'s first frame, which places the
+        // resumed value in the perform's own destination register, so the walk below IS the whole
+        // continuation and the value goes in unchanged.
+        val started = if c.clos == null then v else apply1(m, c.clos.nn, v)
+        walkSeg(m, cloneSeg(c.seg), started)
       catch
         // A PERFORM INSIDE THE RESUMED COMPUTATION belongs HERE, not to the `handle`: `k(1)` in
         // `k(1) + k(2)` must come back with the inner arm's value so the outer arm can go on adding.
