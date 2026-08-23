@@ -85,9 +85,19 @@ identically.
      lane: native
      kind: bug
      area: runtime
-     gate: v3/corpus-report.sh (tkv2-button-size and seven more)
+     gate: v3/corpus-report.sh (tkv2-button-size and seven more) · tests/e2e/ui-select-from-gate.sh
      found-by: claude-code
      found-at: 2026-08-17 -->
+
+**TWO OF THE FIVE ARE DONE, AND THE ENTRY STAYS OPEN FOR THE OTHER THREE.** `selectFromView` landed
+2026-08-23 in 0568f9ab2, as a real primitive with a seven-row gate now wired into `scripts/smoke-ci`;
+`emptyHeaders` was already real. Still registered as REFUSALS — a name that resolves and throws a
+provider-gap message — are `forJsonView`, `itemField`, `intervalTick` and `fetchStreamSignal`.
+
+⚠️ **COUNT THE REFUSAL LIST, NOT THE FILE.** All six names appear in `UiNativePlugin.scala`, so
+grepping for a name says nothing: four of them are entries in one `List(name -> description)` that
+registers a thrower. My first census read "all six registered" and was wrong by four. The honest
+question is which names are in that list.
 
 **THE SIZE IS A CENSUS, NOT AN ESTIMATE.** `std/ui/primitives.ssc` declares 53 `extern def`s;
 `UiNativePlugin` registers 48. The five missing are `emptyHeaders`, `fetchStreamSignal`,
