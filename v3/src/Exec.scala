@@ -366,6 +366,51 @@ object Exec:
 
   private final class PerformAbort(val d: Delim, val value: Value)
       extends RuntimeException(null, null, false, false)
+
+  // ── the effect machine ──────────────────────────────────────────────────────
+  //
+  // WHY A MACHINE AND NOT A CALL. A handler arm that does work AFTER resuming — `case op(k) =>
+  // k(1) + 0`, `x :: resume(())`, `k(1) + k(2)` — is live across the whole resumed computation. Run
+  // it by calling `resumeCont` from inside the arm and the arm's frames stay on the HOST stack while
+  // the rest of the program runs; the rest performs again, its arm calls again, and the depth grows
+  // with the number of performs. Measured before this: 17 host frames per perform, in a cycle of
+  //
+  //     resumeCont -> exec x5 -> callFunc + exec x5 -> exec x5 -> resumeCont
+  //
+  // so a loop of 150 iterations exhausted the default 2 MB stack.
+  //
+  // ONE PENDING ARM IS REAL AND IS NOT THE PROBLEM. N performs under such an arm leave N pending
+  // continuations because that is what the program means; where they LIVE is the choice. These two
+  // exceptions move them off the host stack and onto a heap list, which is the same trade `Cps`
+  // already makes for the performing function.
+  //
+  // THE DRIVER HAS TO BE AT THE `handle`, and that is forced rather than chosen: an exception
+  // unwinds to wherever it is caught, so only a loop at the handle releases the frames of everything
+  // between. A loop inside `Perform` would still sit under the continuation that reaches the NEXT
+  // perform, and the depth would grow just as fast with fewer frames per step.
+
+  /** A dispatched perform: the handler is chosen, the arm's frame is built, and the performing
+    * computation's host frames are gone by the time this is caught. */
+  private final class ArmCall(val delim: Delim, val h: HandlerFrame, val arm: HandlerArm,
+                              val frame: Array[Value])
+      extends RuntimeException(null, null, false, false)
+
+  /** An arm asking to resume: the continuation, the value, and THE REST OF THE ARM as a segment —
+    * the frame `stepFramed` had in hand plus whatever regions the arm had entered. */
+  private final class ResumeReq(val delim: Delim, val k: Value.VCont, val v: Value,
+                                val rest: List[PendingFrame])
+      extends RuntimeException(null, null, false, false)
+
+  /** Non-null exactly while a DRIVEN arm is running, and it names the loop that will catch what the
+    * arm throws. `null` for an arm reached any other way — an escaped continuation resumed after its
+    * `handle` returned has no loop, and must resume in place. */
+  private var armDelim: Delim | Null = null
+  /** How deep `pending` was when the current driven arm started, so the frames the arm itself pushed
+    * — the regions it entered — can be told from the ones that were already there. */
+  private var armBase: Int = 0
+  /** The rest of the LIST a `Resume` stands in, handed over by `stepFramed` exactly as
+    * `performRest` is for a `Perform`. */
+  private var resumeRest: PendingFrame | Null = null
   /** Set by `Resume`, read by the `Perform` that ran the arm. A field rather than a return value
     * because an arm's body is an ordinary instruction list and `Signal` has no case for "resumed"
     * — adding one would put effects into every control-flow path in the executor for a value that
@@ -521,67 +566,149 @@ object Exec:
                   "can leave one")
     acc
 
-  private def resumeCont(m: Module, c: Value.VCont, v: Value): Value =
-    // DID THE RESUMED COMPUTATION FINISH, OR DID AN ARM ANSWER FOR IT? Same question the `Handle`
-    // site asks, and it had the same wrong proxy here.
-    var aborted = false
-    // THE HANDLER IS REINSTALLED FOR THE DURATION. A deep handler's continuation may perform again —
-    // two ticks of the same effect — and by then the `handle` has returned, so `handlers` no longer
-    // holds the frame that must answer. Without this the second perform said "no handler for effect
-    // operation 0", which is `v3-no-handler-error-has-no-position`'s one true shape.
-    // THE OUTSTANDING FRAMES ARE ON `pending` FOR THE WHOLE RESUME, not only while the walk below
-    // reaches them. The closure runs FIRST and may perform again — two ticks of the same effect —
-    // and that inner perform's continuation owes the frames this one has not yet run. Setting
-    // `pending` only inside the walk left the second perform capturing nothing, so its `resume`
-    // answered unit where the rest of the handled computation said `END`.
-    //
-    // `pendingDepth` is 0 for the same reason: everything on `pending` from here up belongs to a
-    // perform that happens inside this resume, the outstanding frames included.
-    val save = pending
+  /** THE LOOP THAT REPLACES THE RECURSION.
+    *
+    * One iteration does one of three things and then hands the next one a value: run an arm, run a
+    * continuation, or run a segment of frames some arm is still waiting on. The arms that are
+    * waiting live in `arms`, innermost first, ON THE HEAP — that list is the whole of what used to
+    * be host frames.
+    *
+    * `seed` is what starts it: the `handle` body, or the continuation an escaped `k` was resumed
+    * with. Everything after that arrives as an exception aimed at THIS delimiter, which is what lets
+    * the frames of everything in between be gone by the time it is caught. */
+  private def drive(m: Module, act: Delim, seed: () => Value): Value =
+    var arms: List[List[PendingFrame]] = Nil
+    var task: () => Value = seed
+    var out: Value = Value.VUnit
+    var running = true
+    while running do
+      var v: Value = Value.VUnit
+      var got = false
+      try
+        v = task()
+        got = true
+      catch
+        // A PERFORM. The performing computation is already unwound; its continuation is in the arm's
+        // `k` register, built before the throw.
+        case a: ArmCall if a.delim eq act =>
+          armRan = true
+          task = () => runArm(m, act, a)
+        // AN ARM RESUMING. What the arm has left to do is a segment like any other, so it is parked
+        // and the continuation becomes the next task. Innermost first: `k(1) + k(2)` parks the rest
+        // of the arm before `k(1)` runs, and the SECOND resume is inside that rest.
+        case r: ResumeReq if r.delim eq act =>
+          arms = r.rest :: arms
+          task = () => runCont(m, r.k, r.v)
+      if got then
+        if arms.isEmpty then
+          out = v
+          running = false
+        else
+          val seg = arms.head
+          arms = arms.tail
+          val vv = v
+          // THE REST OF AN ARM IS STILL THE ARM, so it runs with the same delimiter. `k(1) + k(2)`
+          // has its SECOND resume in here, and without this it would not recognise the loop it
+          // belongs to and would resume in place — the answer came out `List(11)` where the cross
+          // product is `List(11, 21, 12, 22)`.
+          task = () => runArmRest(m, act, seg, vv)
+    out
+
+  /** Did any arm run under the current `handle`? The return clause lifts the value the BODY produced
+    * and must not lift one an arm produced — `runCont` lifts that one. A module-level flag rather
+    * than a parameter because the `Handle` that reads it and the `drive` that sets it are one
+    * activation apart and nothing else runs in between. */
+  private var armRan: Boolean = false
+
+  /** Run one arm to its value, or to the point where it asks to resume.
+    *
+    * `armDelim` names the loop that will catch that request, and is cleared for anything the arm
+    * CALLS — a resume inside a function the arm invokes belongs to that function, not to the arm.
+    * `armBase` records how deep `pending` was, so the regions the arm itself entered can be told
+    * from the ones that were already there and travel with the request. */
+  private def runArm(m: Module, act: Delim, a: ArmCall): Value =
+    val saveD = armDelim
+    val saveB = armBase
+    val saveP = pending
+    armDelim = act
+    armBase = pending.length
+    try
+      exec(a.h.m, a.arm.body, a.frame, FuncLevel) match
+        case Signal.Ret(v) => v
+        case _ =>
+          throw ExecError(
+            "the handler for operation " + a.arm.op + " ended without a value; a handler arm must " +
+            "produce one, and the lowering appends the `ret` that does it")
+    finally
+      armDelim = saveD
+      armBase = saveB
+      pending = saveP
+
+  /** The rest of an arm, run with the arm's own delimiter so a further resume in it reaches the
+    * same loop. Everything `runArm` does about `armDelim`/`armBase`, for a segment instead of a
+    * body. */
+  private def runArmRest(m: Module, act: Delim, seg: List[PendingFrame], v: Value): Value =
+    val saveD = armDelim
+    val saveB = armBase
+    val saveP = pending
+    armDelim = act
+    armBase = pending.length
+    try walkSeg(m, seg, v)
+    finally
+      armDelim = saveD
+      armBase = saveB
+      pending = saveP
+
+  /** Run a continuation to its value: the closure `Cps` built, then the frames it owes, then the
+    * return clause if the computation finished on its own rather than being answered by an arm.
+    *
+    * This is `resumeCont`'s old body without the delimiter it used to install. The delimiter is now
+    * the driver's, one level out, so a perform in here reaches the loop instead of starting a new
+    * one — which is the whole of the change. */
+  private def runCont(m: Module, c: Value.VCont, v: Value): Value =
+    val saveP = pending
+    val saveA = armDelim
+    val saveR = armRan
     pending  = c.seg
-    val act  = new Delim(c.h, 0)
+    armDelim = null
+    armRan   = false
+    // THE HANDLER THE CONTINUATION BELONGS TO IS INSTALLED FOR THE DURATION. A deep handler's
+    // continuation may perform the same effect again, and by then the `handle` may have returned —
+    // the frame travels with the continuation for exactly that reason. Pushing one already on top
+    // costs a cons and keeps this the same on both entry paths.
+    handlers = c.h :: handlers
+    val raw =
+      try
+        val started = if c.clos == null then v else apply1(m, c.clos.nn, v)
+        walkSeg(m, cloneSeg(c.seg), started)
+      finally
+        handlers = handlers.tail
+        pending  = saveP
+        armDelim = saveA
+    val lifted =
+      if armRan then raw
+      else retArm(c.h.arms).map(r => applyRet(c.h.m, r, c.h.regs, raw)).getOrElse(raw)
+    armRan = saveR
+    lifted
+
+  /** RESUME A CONTINUATION THAT HAS NO DRIVER — an escaped `k`, called after its `handle` has
+    * already returned, from a closure an arm handed out.
+    *
+    * It installs the handler frame the continuation carries and starts a driver of its own, so a
+    * perform inside the resumed computation has a loop to reach. Inside a live `handle` this is not
+    * the path taken: there the arm throws `ResumeReq` and the handle's own loop answers it, which is
+    * what keeps the host stack flat. Both end up in `runCont`, so the two cannot disagree about the
+    * return clause or about the order the frames run in. */
+  private def resumeCont(m: Module, c: Value.VCont, v: Value): Value =
+    val act = new Delim(c.h, 0)
     handlers = c.h :: handlers
     actives  = act :: actives
     handleDepth = handleDepth + 1
-    val raw =
-      try
-        // The closure first: the rest of the PERFORMING function. Then each caller frame the
-        // continuation owes, innermost out, each on a FRESH copy of its registers so a second resume
-        // starts where the first one did. `pending` is set to the frames still outstanding, so a
-        // perform inside a resumed frame captures its own rest and not this one's.
-        //
-        // NO CLOSURE MEANS `Cps` DID NOT SPLIT the performing function — the perform stood inside a
-        // region or a `handle` body. The rest of that list is `seg`'s first frame, which places the
-        // resumed value in the perform's own destination register, so the walk below IS the whole
-        // continuation and the value goes in unchanged.
-        val started = if c.clos == null then v else apply1(m, c.clos.nn, v)
-        walkSeg(m, cloneSeg(c.seg), started)
-      catch
-        // A PERFORM INSIDE THE RESUMED COMPUTATION belongs HERE, not to the `handle`: `k(1)` in
-        // `k(1) + k(2)` must come back with the inner arm's value so the outer arm can go on adding.
-        case a: PerformAbort if a.d eq act =>
-          aborted = true
-          a.value
-      finally
-        handlers = handlers.tail
-        actives  = actives.tail
-        handleDepth = handleDepth - 1
-        pending = save
-    // NOT `performs != before`, FOR THE REASON THE `Handle` SITE GIVES — and this is the third site
-    // that had the same proxy, which is why the rule is now stated once and asked three times.
-    //
-    // The clause lifts a value the resumed computation produced ITSELF and must not lift one an arm
-    // already produced. `performs` reads as "the rest performed", which coincides with "an arm
-    // answered" only while every perform unwinds. It does not: a tail-resumptive perform bumps the
-    // counter and returns, and the rest carries on to its own value.
-    //
-    // Found by an A/B rather than by reading. `effect-multiarg-op` has ONE handler with both
-    // encodings — `append`'s arm conses onto its resume (not tail-resumptive, split) while `read`'s
-    // is a bare resume (tail-resumptive, no longer split) — so `read` bumped the counter, the lift
-    // was skipped, and `resume(())` handed the append arm the Int 6 where it wanted a List:
-    // `a list operation needs a List and got the Int 6`.
-    if aborted then raw
-    else retArm(c.h.arms).map(r => applyRet(c.h.m, r, c.h.regs, raw)).getOrElse(raw)
+    try drive(m, act, () => runCont(m, c, v))
+    finally
+      handlers = handlers.tail
+      actives  = actives.tail
+      handleDepth = handleDepth - 1
 
   /** Run the return clause on one value, in a FRESH copy of the handling frame — the same rule the
     * operation arms follow, and for the same reason: one array cannot serve two activations, and a
@@ -823,7 +950,23 @@ object Exec:
       while i < fn.nregs do
         regs(i) = Value.VUnit
         i = i + 1
-      val sig = if closureLane then Compile.run(compiled(fi), regs) else exec(m, fn.body, regs, FuncLevel)
+      // A CALLED FUNCTION IS NOT THE ARM, so the resume-request path is off inside it.
+      //
+      // `armDelim` says "a resume here is the rest of THIS arm, and the rest is a suffix of an
+      // instruction list the machine can walk". That is true in the arm's own body and false the
+      // moment the arm calls something: `case op(k) => opts.flatMap(opt => resume(opt))` performs
+      // its resume inside a lambda that `flatMap` is iterating, and throwing from there unwinds out
+      // of `flatMap` and abandons the rest of the iteration — `handle-return` answered `List(11)`
+      // where the cross product is `List(11, 21, 12, 22)`.
+      //
+      // So those resume in place, on the recursive path, exactly as they did before this machine
+      // existed. The flat path covers an arm that resumes in its OWN body, which is every arm whose
+      // depth grows with the number of performs in a loop.
+      val saveArm = armDelim
+      armDelim = null
+      val sig =
+        try if closureLane then Compile.run(compiled(fi), regs) else exec(m, fn.body, regs, FuncLevel)
+        finally armDelim = saveArm
       sig match
         case Signal.Ret(v)       => result = v; running = false
         case Signal.Done         => result = Value.VUnit; running = false
@@ -899,6 +1042,18 @@ object Exec:
         val save = performRest
         performRest = PendingFrame(m, rest, regs, pd, fall)
         try step(m, ins, regs) finally performRest = save
+      // A RESUME GETS ITS REMAINDER THE SAME WAY, and for the same reason one step further out: the
+      // rest of the ARM is what the machine has to keep when the arm stops running. Both spellings
+      // reach it — `resume(v)` is `Instr.Resume` and `k(v)` is a `CallV` on a continuation — so both
+      // are handed the frame here rather than each finding it for itself.
+      case Instr.Resume(rd, _, _) =>
+        val save = resumeRest
+        resumeRest = PendingFrame(m, rest, regs, rd, fall)
+        try step(m, ins, regs) finally resumeRest = save
+      case Instr.CallV(cd, cc, _) if (regs(cc).isInstanceOf[Value.VCont]) =>
+        val save = resumeRest
+        resumeRest = PendingFrame(m, rest, regs, cd, fall)
+        try step(m, ins, regs) finally resumeRest = save
       case _ =>
         if d == -1 then step(m, ins, regs)
         else
@@ -1114,6 +1269,11 @@ object Exec:
           val xs = as.map(r => regs(r))
           if xs.length != 1 then
             throw ExecError("a continuation takes exactly one value and was called with " + xs.length)
+          // `k(v)` AND `resume(v)` ARE ONE THING, so this asks the driver on the same terms.
+          val ask = armDelim
+          val rest = resumeRest
+          if ask != null && rest != null then
+            throw ResumeReq(ask.nn, cv, xs.head, rest.nn :: pending.take(pending.length - armBase))
           regs(d) = resumeCont(m, cv, xs.head); Signal.Done
         case Value.VClos(f, cap) => regs(d) = callFunc(m, f, cap ++ as.map(r => regs(r))); Signal.Done
         case Value.VPartial(recv, nm, got) =>
@@ -1238,20 +1398,22 @@ object Exec:
       handleDepth = handleDepth + 1
       // DID THE VALUE COME FROM AN ARM, OR FROM THE BODY? That is the question the return clause
       // below has to answer, and `performs` was a PROXY for it that is wrong on one path.
-      var aborted = false
+      // THE DRIVER LIVES HERE, and that placement is forced rather than chosen: an exception
+      // unwinds to wherever it is caught, so only a loop at the `handle` releases the frames of
+      // everything between it and a perform. A loop inside `Perform` would still sit underneath the
+      // continuation that reaches the NEXT perform.
+      val saveRan = armRan
+      armRan = false
       val sig =
-        try exec(m, body, regs, d)
-        catch
-          // ITS OWN UNWIND, and the identity test is what makes nesting work: an inner `handle`'s
-          // arm value must not be caught by an outer one.
-          case a: PerformAbort if a.d eq act =>
-            regs(d) = a.value
-            aborted = true
-            Signal.Done
+        try
+          regs(d) = drive(m, act, () => { exec(m, body, regs, d); regs(d) })
+          Signal.Done
         finally
           handlers = handlers.tail
           actives  = actives.tail
           handleDepth = handleDepth - 1
+      val aborted = armRan
+      armRan = saveRan
       // THE RETURN CLAUSE, applied to the body's own value. `case x => List(x)` is what makes
       // `handle` produce the HANDLED type — a `List` for the list-monad handler — and without it
       // `resume(opt)` gave back the rest of the computation's `Int`, `flatMap` saw a non-list per
@@ -1353,23 +1515,16 @@ object Exec:
             // the performing function, because the rest of the list it stands in is `seg`'s first
             // frame instead. `resumeCont` reads the null and starts the walk with the value.
             frame(arm.k) = Value.VCont(if cpsEncoded then args.last else null, h, seg)
-            // The arm RETURNS its value — the lowering ends every arm body with a `Ret`, so there
-            // is one place the answer comes from rather than a register the executor has to guess.
-            // THE ARM RUNS AT THE HANDLER'S OWN SEGMENT DEPTH. Its body is part of the handling
-            // function, not of the computation that performed, so a perform inside the arm must
-            // capture from here and not inherit frames the continuation already owns.
-            val savedPending = pending
-            pending = pending.drop(if depth > 0 then depth else 0)
-            val armSig = try exec(h.m, arm.body, frame, FuncLevel) finally pending = savedPending
-            armSig match
-              // THE VALUE IS THE `handle`'S, so the frames in between are abandoned rather than
-              // returned through. Returning normally let the caller both see a value it should not
-              // and re-run a remainder the continuation had taken over.
-              case Signal.Ret(v) => throw PerformAbort(act, v)
-              case _ =>
-                throw ExecError(
-                  "the handler for operation " + op + " ended without a value; a handler arm must " +
-                  "produce one, and the lowering appends the `ret` that does it")
+            // THE ARM IS THROWN, NOT RUN. Everything between this perform and the `handle` is host
+            // frames that the arm does not need and that the rest of the program would then run
+            // underneath: the continuation is a value now, so the stack can go. `drive` catches this
+            // at the handle and runs the arm there, where its own frames are released again the
+            // moment it asks to resume.
+            //
+            // This replaces `PerformAbort`, which carried the arm's VALUE for the same journey.
+            // There is no value yet — the arm has not run — and that is the point: the loop that
+            // will run it is the one that can also run the NEXT arm without nesting.
+            throw ArmCall(act, h, arm, frame)
           else
             // THE TAIL-RESUMPTIVE FAST PATH, unchanged. Reached when the perform carries no
             // continuation AND the arm needs none: its last act is a single `resume`, so the arm's
@@ -1417,6 +1572,14 @@ object Exec:
         // why the perform counter is read twice rather than reset — moved to `resumeCont`, which is
         // now the single place that knows it.
         case c: Value.VCont =>
+          // INSIDE A DRIVEN ARM THIS IS A REQUEST, NOT A CALL. The rest of the arm — this frame's
+          // remainder plus whatever regions the arm had entered — travels with it, and the arm's
+          // host frames go. Outside one (an escaped `k` resumed after its `handle` returned) there
+          // is no loop to ask, so it resumes in place.
+          val ask = armDelim
+          val rest = resumeRest
+          if ask != null && rest != null then
+            throw ResumeReq(ask.nn, c, regs(v), rest.nn :: pending.take(pending.length - armBase))
           regs(d) = resumeCont(m, c, regs(v))
           Signal.Done
         // The unconverted path, unchanged: `k` is `unit`, the arm is tail-resumptive, and the value
@@ -1773,7 +1936,15 @@ object Exec:
     while i < fn.nregs do
       regs(i) = Value.VUnit
       i = i + 1
-    val sig = if closureLane then Compile.run(compiled(f0), regs) else exec(m, fn.body, regs, FuncLevel)
+    // THE SAME RULE `callFunc` STATES: a called closure is not the arm, so the resume-request path
+    // is off inside it. This is the fast apply, which does not go through `callFunc`, and forgetting
+    // it here left `handle-return` answering `List(11)` — the lambda `flatMap` iterates reached the
+    // request path and threw out of the iteration.
+    val saveArm = armDelim
+    armDelim = null
+    val sig =
+      try if closureLane then Compile.run(compiled(f0), regs) else exec(m, fn.body, regs, FuncLevel)
+      finally armDelim = saveArm
     sig match
       case Signal.Ret(v)      => v
       case Signal.Done        => Value.VUnit

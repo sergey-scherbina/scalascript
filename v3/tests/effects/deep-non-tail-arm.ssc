@@ -1,0 +1,32 @@
+# A non-tail-resumptive arm across a deep loop — 5 000, not 20 000, and the number is the point
+
+The executor holds NO host frame per perform since the effect machine landed: on a deliberately
+small 1 MB stack it answers this shape at 200 000 iterations, where before it died at 150 on the
+2 MB default.
+
+**The count here is the BRIDGE's limit, not the executor's.** `effects-gate.sh` requires the two
+lanes and the expectation to agree three ways, so a fixture can only be as deep as the shallower
+lane: the v2 VM recurses per resume and overflows between 5 000 and 10 000. What this row pins is
+therefore the ANSWER, on both lanes. The depth property is one lane's and is recorded as a
+measurement in `v3/specs/10-ssc-ir.md` §3, the way that section already records a clause no fixture
+can hold.
+
+```scalascript
+effect E:
+  def op(): Int
+
+def g(): Int = E.op()
+
+def f(): Int =
+  var i = 0
+  var acc = 0
+  while i < 5000 do
+    acc = acc + g()
+    i = i + 1
+  acc
+
+def workload(): Int =
+  handle(f()) { case op(k) => k(1) + 0 }
+
+println(workload())
+```
