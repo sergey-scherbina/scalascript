@@ -106,13 +106,40 @@ object Cps:
     // 13: the outer arm's `+ 1` was lost. Before the skip existed this operation was always split
     // and the arm got a real continuation, so the shape used to work.
     //
-    // CONSERVATIVE ON PURPOSE. Anything that could reach another `handle` disqualifies the arm — a
-    // `Perform`, and any call, because a call can perform. What is left is exactly the shape the
-    // skip was for: `k(1)`, `k(i * 10)`, `resume(())` — an arm that computes a value and resumes.
+    // WHICH CALLS MATTER IS A QUESTION WORTH ANSWERING PRECISELY. "No call at all" is the easy rule
+    // and it is too blunt: `case GigSource.fetch(resume) => resume(simGigs())` calls a function that
+    // performs nothing, and rejecting it gave back a case this skip had just fixed
+    // (`head-field-effect-shadow`) — the A/B said so in the same run that confirmed the wrong answer
+    // was gone. So the reachable-perform set is computed instead: a `Perform` anywhere, then
+    // transitively through direct calls.
+    //
+    // THE RESUME'S OWN CALL IS NOT A CALL OUTWARD. `k(1)` lowers to a `CallV` on the arm's `k`
+    // register, so rejecting every `CallV` would reject the exact shape the skip exists for.
+    // Any OTHER indirect call — a `CallV` on something else, an `Invoke` — cannot be resolved here
+    // and counts as unsafe.
+    val performers: Set[Int] =
+      def has(b: List[Instr])(p: Instr => Boolean): Boolean =
+        b.exists(i => p(i) || has(Instr.children(i))(p))
+      var out = m.funcs.indices.filter(i =>
+        has(m.funcs(i).body) { case _: Instr.Perform => true; case _ => false }).toSet
+      var changed = true
+      while changed do
+        changed = false
+        m.funcs.indices.foreach { i =>
+          if !out.contains(i) &&
+             has(m.funcs(i).body) { case Instr.Call(_, f, _) => out.contains(f); case _ => false }
+          then
+            out = out + i
+            changed = true
+        }
+      out
     def cannotPerformOutward(a: HandlerArm): Boolean =
       !Instr.flatten(a.body).exists {
-        case _: Instr.Perform | _: Instr.Call | _: Instr.CallV | _: Instr.Invoke => true
-        case _                                                                   => false
+        case _: Instr.Perform     => true
+        case Instr.Call(_, f, _)  => performers.contains(f)
+        case Instr.CallV(_, c, _) => c != a.k
+        case _: Instr.Invoke      => true
+        case _                    => false
       }
     ops.filter(op => arms.filter(_.op == op).forall(a => a.tailResumptive && cannotPerformOutward(a)))
 
