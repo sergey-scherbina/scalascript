@@ -11306,6 +11306,110 @@ shared toolchain as well, so it predates everything here. Curried defs lower at 
 (`curried-def-clauses.ssc` says so in as many words), so partial application is unsupported at any
 clause count. Filed separately as `v2-curried-def-partial-application-unsupported`.
 
+## v2-package-frontmatter-hides-a-case-class-from-a-pattern-inside-a-class-method
+
+<!-- status: open
+     kind: bug
+     lane: native
+     area: front
+     confirmed: yes
+     gate: tests/conformance/run.sh -->
+
+```scalascript
+---
+name: t
+package: demo
+---
+case class P(n: Int)
+
+class Holder(h: Int):
+  def read(v: Any): Int =
+    v match
+      case P(n) => n + h
+      case _ => -1
+
+println(Holder(10).read(P(5)))
+// ssc: "unknown constructor 'P' in a pattern"
+```
+
+**DELETE THE `package: demo` LINE AND IT PRINTS 15.** That one frontmatter field is the whole
+difference; every other field (`version`, `description`, `exports`, the prose) was removed in turn
+and changed nothing.
+
+**THE SECOND HALF IS WHERE THE PATTERN SITS, AND THE ASYMMETRY IS THE LEAD:**
+
+| pattern lives in | with `package:` |
+|---|---|
+| a top-level `def` | works |
+| an `object` member | works |
+| a `class` method | **fails** |
+| a `case class` method | **fails** |
+
+A plain `class` fails as readily as a `case class`, and the pattern may be on the enclosing class
+itself. Class-method bodies are emitted by `caseMethodDefsStr(cms, cx)` out of `compile4b`, while
+object members are emitted during the ordinary top-level walk — the code comment beside
+`ccMDefsCls` says it does this "the same way `objectItem2` does for an object", and that is the one
+place the two demonstrably differ.
+
+`package:` is not a front feature: `ssc1-run-fsub.ssc0` synthesises a namespace CHAIN of flat objects
+plus `__pkgref_…` aliases and APPENDS the parsed defs after the module's own
+(`sscPkgNsSource`, spliced at `sscApp(defs, nsDefs)`). Hand-writing what that generation appears to
+emit does NOT reproduce the failure, so the trigger is in what it actually emits rather than in the
+shape sketched by its comments — reading the generated source is the next step, and it is why this
+is filed rather than fixed.
+
+**THIS IS SEVEN OF THE TWELVE CORPUS REDS** (`corpus-contract-is-red-on-twelve-rows-and-the-freeze-is-global`):
+every `scljet-*` module declares `package: scljet`, and `std/scljet/jvm-vfs.ssc` pattern-matches its
+own `JvmVfsRead` inside `JvmSqliteFile.readAt`. The whole module chain that imports it fails with it.
+
+**A REDUCTION THAT DELETED A MIDDLE RANGE MADE THE FILE ILLEGAL AND NEARLY SENT ME ELSEWHERE.**
+Cutting lines 47–145 removed the `extern def`s the surviving body calls; the cut file still said
+`unknown constructor`, but it could have said it for a different reason. The reduction that counted
+kept every reference resolvable and shrank from a legal file each time.
+
+**Done when** the ten-line case above prints 15 and a conformance case covers pattern-in-a-class-
+method under `package:`, on the lanes that support it.
+
+## js-emit-declares-an-identifier-twice-in-direct-syntax-demo — `Identifier 'serve' has already been declared`
+
+<!-- status: open
+     kind: bug
+     lane: js
+     area: codegen
+     gate: tests/conformance/run.sh -->
+
+```text
+node: SyntaxError: Identifier 'serve' has already been declared
+```
+
+`examples/direct-syntax-demo.ssc` emits JavaScript that declares `serve` twice at the same scope, so
+the module does not parse at all. Measured 2026-08-23 on a toolchain predating this session's work.
+One of the twelve rows of `corpus-contract-is-red-on-twelve-rows-and-the-freeze-is-global`.
+
+**Done when** the emitted JS parses and the case runs on `js`.
+
+## corpus-roster-lists-a-case-whose-file-no-longer-exists — `mcp-client-invoke`
+
+<!-- status: open
+     kind: apparatus
+     lane: apparatus
+     area: conformance
+     gate: tests/e2e/freeze-consistency-gate.sh -->
+
+`tests/conformance/contract-roster.tsv` line 233 names `mcp-client-invoke`. There is no
+`examples/mcp-client-invoke.ssc` and no `tests/conformance/mcp-client-invoke.ssc`; the lane run
+answers `Error: File not found: examples/mcp-client-invoke.ssc`.
+
+It was frozen as `* SKIP`, which is how a missing file reads to the runner, and the contract now
+reports it as a REGRESSION row — so a case that has been DELETED shows up as a case that broke.
+`contract.sc` computes `removedCases` and this row is what it is for; the freeze predates the
+deletion.
+
+One of the twelve rows of `corpus-contract-is-red-on-twelve-rows-and-the-freeze-is-global`.
+
+**Done when** either the example is restored or the roster row is dropped, and a deleted case is
+reported as REMOVED rather than as a regression.
+
 ## corpus-contract-is-red-on-twelve-rows-and-the-freeze-is-global — adding one case ratifies the lot
 
 <!-- status: open
@@ -11346,9 +11450,28 @@ like a routine roster refresh.** It nearly happened here; `v2-curried-def-partia
 instead appended the single roster name and left `baseline-sha256` untouched, after reproducing both
 existing digests byte-for-byte to prove the serialization matched the tool's own.
 
-**Done when** the twelve are attributed — environment or code — and either fixed or frozen
-deliberately with that reason recorded. The apparatus half is done when adding a case no longer
-requires re-freezing the corpus: a roster-only append is the operation that was actually needed, and
+**ALL TWELVE ARE NOW ATTRIBUTED, 2026-08-23**, and they are FIVE causes rather than one state:
+
+| rows | cause |
+|---|---|
+| 7 × `scljet-*` (v2) | `v2-package-frontmatter-hides-a-case-class-from-a-pattern-inside-a-class-method` — every scljet module declares `package: scljet`, and `jvm-vfs.ssc` matches its own `JvmVfsRead` inside a class method |
+| 1 × `extensions` (v2) | `v2-extension-receiver-is-typed-from-the-parameter-list` |
+| 2 × `agent-mcp-toolsource`, `mcp-client-discover` (js) | an MCP worker deadline expires — these need a server, which is why the reference host SKIPPED them and this one ran them |
+| 1 × `direct-syntax-demo` (js) | `js-emit-declares-an-identifier-twice-in-direct-syntax-demo` |
+| 1 × `mcp-client-invoke` (js) | `corpus-roster-lists-a-case-whose-file-no-longer-exists` — the file is gone; a DELETED case reads as a regression |
+
+**Only two of the twelve are environmental**, and they are exactly the ones whose baseline row is
+`* SKIP` rather than a status: a case the reference host never ran. The `* SKIP` → `FAIL` transition
+is the signature of "your host has a dependency the freeze host lacked", and it is worth reading
+before suspecting code — it was right twice here and wrong nowhere.
+
+Nine of the twelve are real defects in this tree, each filed with its own repro. Nothing about them
+justifies re-freezing: a freeze would mark nine known defects as expected.
+
+**Done when** the nine coded causes are fixed or deliberately frozen with that reason recorded, and
+the two environmental rows are either given their dependency or re-declared as SKIP by the case
+itself rather than by the host. The apparatus half is done when adding a case no longer requires
+re-freezing the corpus: a roster-only append is the operation that was actually needed, and
 `contract.sc` has no flag for it.
 
 ## v1-interp-curried-def-with-using-clause-drops-the-second-clause — `missing argument for parameter 'b'`
