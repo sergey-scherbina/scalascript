@@ -91,7 +91,30 @@ object Cps:
     val arms: List[HandlerArm] = m.funcs.flatMap(fn =>
       Instr.flatten(fn.body).collect { case Instr.Handle(_, _, as) => as }.flatten)
     val ops: Set[Int] = arms.filter(_.op >= 0).map(_.op).toSet
-    ops.filter(op => arms.filter(_.op == op).forall(_.tailResumptive))
+    // AND THE ARM MUST NOT BE ABLE TO PERFORM OUTWARD, which is the condition the first version of
+    // this missed and a program answered wrongly for.
+    //
+    // The fast path the skip selects keeps a LIVE `Perform` frame and a `resumedWith` field: the arm
+    // runs inside that frame, resumes, and the value travels back through it. An effect the arm
+    // performs itself, handled further out, UNWINDS through that frame to the outer handler — and
+    // when the outer continuation comes back there is no frame left to receive the resumed value.
+    //
+    //     handle(inner()) { case a(k) => k(h() + 5) }        -- h() performs B, handled further out
+    //     handle(outer())  { case b(k2) => k2(3) + 1 }
+    //
+    // answered 12 where both the v2 bridge and the same program with a non-tail-resumptive arm say
+    // 13: the outer arm's `+ 1` was lost. Before the skip existed this operation was always split
+    // and the arm got a real continuation, so the shape used to work.
+    //
+    // CONSERVATIVE ON PURPOSE. Anything that could reach another `handle` disqualifies the arm — a
+    // `Perform`, and any call, because a call can perform. What is left is exactly the shape the
+    // skip was for: `k(1)`, `k(i * 10)`, `resume(())` — an arm that computes a value and resumes.
+    def cannotPerformOutward(a: HandlerArm): Boolean =
+      !Instr.flatten(a.body).exists {
+        case _: Instr.Perform | _: Instr.Call | _: Instr.CallV | _: Instr.Invoke => true
+        case _                                                                   => false
+      }
+    ops.filter(op => arms.filter(_.op == op).forall(a => a.tailResumptive && cannotPerformOutward(a)))
 
   def apply(m: Module): Module =
     if !m.funcs.exists(f => topLevelPerform(f.body).isDefined) then m
