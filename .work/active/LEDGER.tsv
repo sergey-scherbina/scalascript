@@ -1,5 +1,6 @@
-# generation: 2823
+# generation: 2824
 #slug	agent	started	items	paths
 interp-anonymous-given-summon	claude-code	2026-08-19T14:57:12Z	interp-summon-over-an-anonymous-given	file:specs/v2.2-p6.5-fsub.ssc file:v2/lib/ssc1-front.ssc0 file:tests/e2e/anonymous-given-resolves-gate.sh file:scripts/smoke-ci.ssc file:BUGS.md file:v1/runtime/backend/interpreter/src/test/scala/scalascript/GivenUsingTest.scala
 f-json-view-provider	claude-code	2026-08-19T15:00:45Z	v2-ui-provider-lacks-forJsonView-and-blocks-eight-unrelated-tests	file:v2/runtime/std/ui-plugin/src/main/scala/ssc/plugin/ui/UiNativePlugin.scala file:v2/runtime/std/ui-plugin/src/test/scala/ssc/plugin/ui/UiNativePluginTest.scala file:tests/e2e/ui-select-from-gate.sh file:tests/e2e/ui-provider-gap-gate.sh file:v2/BUGS.md file:tests/BUGS.md file:scripts/smoke-ci.ssc
 f-nested-ctor-pattern	claude-code	2026-08-19T15:02:00Z	f-nested-constructor-pattern-falls-through-to-the-default	file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/f-nested-ctor-pattern-gate.sh file:v2/BUGS.md
+v3-arm-continuation	claude-code	2026-08-23T04:47:29Z	v3-a-non-tail-resumptive-arm-holds-one-host-frame-per-perform	file:v3/src/Ir.scala file:v3/src/Cps.scala file:v3/src/Exec.scala file:v3/src/BridgeV2.scala file:v3/src/Text.scala file:v3/src/Verify.scala file:v3/specs/10-ssc-ir.md file:BUGS.md file:v3/tests/effects/deep-non-tail-arm.ssc file:v3/tests/effects/deep-non-tail-arm.expected
