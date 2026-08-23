@@ -1,4 +1,3 @@
-# generation: 2850
+# generation: 2851
 #slug	agent	started	items	paths
-f-json-view-provider	claude-code	2026-08-19T15:00:45Z	v2-ui-provider-lacks-forJsonView-and-blocks-eight-unrelated-tests	file:v2/runtime/std/ui-plugin/src/main/scala/ssc/plugin/ui/UiNativePlugin.scala file:v2/runtime/std/ui-plugin/src/test/scala/ssc/plugin/ui/UiNativePluginTest.scala file:tests/e2e/ui-select-from-gate.sh file:tests/e2e/ui-provider-gap-gate.sh file:v2/BUGS.md file:tests/BUGS.md file:scripts/smoke-ci.ssc
 v2-underscore-constructor-pattern	claude-code	2026-08-23T19:57:02Z	v2-a-constructor-pattern-named-with-a-leading-underscore-never-matches	file:specs/v2.2-p6.5-fsub.ssc file:v2/lib/ssc1-front.ssc0 file:v2/BUGS.md file:BUGS.md file:tests/e2e/underscore-ctor-pattern-gate.sh file:scripts/smoke-ci.ssc
