@@ -805,6 +805,59 @@ overflows between 5 000 and 10 000. The row pins the ANSWER on both lanes; the d
 property and is recorded as a measurement in `v3/specs/10-ssc-ir.md` §3, the way that section
 already records a clause no fixture can hold.
 
+## v3-tail-resumptive-fast-path-loses-a-value-when-the-arm-performs-outward — 12 where the answer is 13
+
+<!-- status: fixed
+     lane: v3
+     area: runtime
+     kind: regression
+     gate: v3/effects-gate.sh
+     fixed-in: 1c5b49ebe
+     confirmed: yes
+     reported-by: claude-code
+     reported-at: 2026-08-23
+     repro: v3/tests/effects/arm-performs-outward.ssc
+     impact: wrong-answer -->
+
+**MY OWN REGRESSION, from `1adbb3274`, and every gate was green over it.**
+
+```scalascript
+handle(inner()) { case a(k) => k(h() + 5) }      // h() performs B, handled further out
+handle(outer()) { case b(k2) => k2(3) + 1 }
+```
+
+| | answer |
+|---|---|
+| executor | **12** |
+| v2 bridge | 13 |
+| the same program with a NON-tail-resumptive arm | 13 |
+
+Two independent witnesses say 13; the outer arm's `+ 1` was lost.
+
+**WHY.** `1adbb3274` stopped splitting an operation whose arms are all tail-resumptive, which selects
+the fast path — and the fast path keeps a LIVE `Perform` frame plus a `resumedWith` field: the arm
+runs inside that frame, resumes, and the value travels back through it. An effect the arm performs
+ITSELF, handled further out, unwinds through that frame, and when the outer continuation returns
+there is no frame left to receive the resumed value. Before the skip the operation was always split
+and the arm got a real continuation, so this used to work.
+
+**HOW IT WAS FOUND, and this is the part worth keeping.** By re-running a probe from two days earlier
+while answering "is anything left?" — and noticing the number had CHANGED. Not by a gate. The change
+that caused it shipped with 27 fixtures on both lanes, three v3 gates, and an A/B over every
+conformance case that mentions an effect: 54 cells, none moved. All of it honest and all of it blind,
+because **no case anywhere has an arm that performs an outer effect**. A differential compares what
+someone wrote down.
+
+**THE FIX TOOK TWO GOES, and the second was the A/B's doing.** Banning every call in an arm removed
+the wrong answer and also removed a case the skip had just fixed — `head-field-effect-shadow`, whose
+arm is `resume(simGigs())`, a direct call to a function that performs nothing. The condition now
+computes the reachable-perform set instead: a `Perform` anywhere, then transitively through direct
+calls. One exception the blunt rule would also have eaten — the resume's own call is not a call
+outward, because `k(1)` lowers to a `CallV` on the arm's `k` register.
+
+`arm-performs-outward` is a three-way row: the bridge answers 13 on its own, so the fixture is not
+the executor grading itself.
+
 ## scaffolded-project-cannot-resolve-its-sbt-plugin — `ssc new` then `sbt compile` fails for everyone who is not a contributor
 
 <!-- status: fixed
