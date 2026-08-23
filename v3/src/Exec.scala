@@ -413,6 +413,25 @@ object Exec:
     * arm throws. `null` for an arm reached any other way — an escaped continuation resumed after its
     * `handle` returned has no loop, and must resume in place. */
   private var armDelim: Delim | Null = null
+  /** THE HANDLER WHOSE OWN ARM IS RUNNING, HIDDEN FROM THE SEARCH while it does.
+    *
+    * A `perform` inside an arm is answered by the ENCLOSING handler, not by the one whose arm is
+    * running — the rule every language with algebraic effects uses (OCaml 5, Eff, Koka), and it is a
+    * rule about the ARM's body only. The CONTINUATION still sees this handler: a deep handler's
+    * `k(w)` is `h(rest(w))` and `two-performs-multi-shot` depends on the second perform finding the
+    * same frame. `runArm` sets this; `runCont` clears it for the duration of the resume.
+    *
+    * WHY NOT LEAVE IT VISIBLE, which is what v3 did until now: an arm could then perform its own
+    * operation and be answered by itself, and — because an arm's value is the HANDLE's value — the
+    * rest of the outer arm and the whole original computation were discarded. `E.op(n + 1) + 1000`
+    * in an arm was unreachable code that nothing reported. Measured before the change: that program
+    * answered 1300 with `+ 1000` applied once, by the INNER activation, and the original `f` never
+    * resumed.
+    *
+    * A frame rather than an activation: with multi-shot several activations of one handler can be
+    * live, and the rule is the same for each — while any of their arm bodies runs, that handler does
+    * not answer. */
+  private var armHidden: HandlerFrame | Null = null
   /** How deep `pending` was when the current driven arm started, so the frames the arm itself pushed
     * — the regions it entered — can be told from the ones that were already there. */
   private var armBase: Int = 0
@@ -651,8 +670,13 @@ object Exec:
     val saveD = armDelim
     val saveB = armBase
     val saveP = pending
+    val saveH = armHidden
     armDelim = act
     armBase = pending.length
+    // HIDDEN FOR THE ARM'S BODY, and only for it: a `perform` here belongs to whoever handles this
+    // effect FURTHER OUT. Restored by the `finally`, so the moment the arm asks to resume — which
+    // leaves this frame — the handler is answerable again.
+    armHidden = a.h
     try
       exec(a.h.m, a.arm.body, a.frame, FuncLevel) match
         case Signal.Ret(v) => v
@@ -664,6 +688,7 @@ object Exec:
       armDelim = saveD
       armBase = saveB
       pending = saveP
+      armHidden = saveH
 
   /** The rest of an arm, run with the arm's own delimiter so a further resume in it reaches the
     * same loop. Everything `runArm` does about `armDelim`/`armBase`, for a segment instead of a
@@ -672,13 +697,18 @@ object Exec:
     val saveD = armDelim
     val saveB = armBase
     val saveP = pending
+    val saveH = armHidden
     armDelim = act
     armBase = pending.length
+    // THE REST OF AN ARM IS STILL THE ARM, for hiding exactly as for the delimiter: a perform in
+    // `k(1) + E.op(2)` belongs outward just as one before the resume does.
+    armHidden = act.h
     try walkSeg(m, seg, v)
     finally
       armDelim = saveD
       armBase = saveB
       pending = saveP
+      armHidden = saveH
 
   /** Run a continuation to its value: the closure `Cps` built, then the frames it owes, then the
     * return clause if the computation finished on its own rather than being answered by an arm.
@@ -690,8 +720,13 @@ object Exec:
     val saveP = pending
     val saveA = armDelim
     val saveR = armRan
+    val saveH = armHidden
     pending  = c.seg
     armDelim = null
+    // THE CONTINUATION IS NOT THE ARM. Whatever was hidden for an arm's body is answerable again
+    // here — a deep handler's `k(w)` is `h(rest(w))`, and the second perform of
+    // `two-performs-multi-shot` has to find the same frame.
+    armHidden = null
     armRan   = false
     // THE HANDLER THE CONTINUATION BELONGS TO IS INSTALLED FOR THE DURATION. A deep handler's
     // continuation may perform the same effect again, and by then the `handle` may have returned —
@@ -706,6 +741,7 @@ object Exec:
         handlers = handlers.tail
         pending  = saveP
         armDelim = saveA
+        armHidden = saveH
     val lifted =
       if armRan then raw
       else retArm(c.h.arms).map(r => applyRet(c.h.m, r, c.h.regs, raw)).getOrElse(raw)
@@ -1472,7 +1508,8 @@ object Exec:
 
     case Instr.Perform(d, op, as) =>
       val args = as.map(r => regs(r))
-      handlers.find(h => h.arms.exists(_.op == op)) match
+      val hidden = armHidden
+      handlers.find(h => !(h eq hidden) && h.arms.exists(_.op == op)) match
         case None =>
           throw ExecError("no handler for effect operation " + op)
         case Some(h) =>

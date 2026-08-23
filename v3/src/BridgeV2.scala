@@ -413,6 +413,13 @@ object BridgeV2:
     * Set by `Perform` after the arm produces its value, cleared by the `Handle` that consumes it.
     * Handles nest properly, so an inner abort is cleared before control reaches an outer caller. */
   private val effAborting = "__ssc3_eff_aborting__"
+  /** THE INDEX OF THE HANDLER WHOSE OWN ARM IS RUNNING, or -1. A `perform` from inside an arm is
+    * answered by the ENCLOSING handler — the rule every language with algebraic effects uses — so
+    * the search starts one BELOW this one while it is set. `Exec` spells the same thing as
+    * `armHidden`, and both are lifted for the CONTINUATION: a deep handler's `k(w)` is `h(rest(w))`
+    * and the second perform of `two-performs-multi-shot` must find the same frame. */
+  private val effArmAt    = "__ssc3_eff_arm_at__"
+  private val effArmTop   = "__ssc3_eff_arm_top__"
 
   private val R_ARMS = 0
   private val R_HANDLES = 1
@@ -1241,6 +1248,14 @@ object BridgeV2:
       ifThen(arith("<", "(local 2)", int(0)),
              "(prim __throw__ " + lit("(str \"no handler for effect operation\")") + ")",
              "(let (" + aget(stack, "(local 2)") + ") " +
+               // SKIPPED, NOT TRUNCATED. Hiding by starting the search BELOW this handler is wrong
+               // the moment the arm installs a handler of its own: `case a(k) => handle(inner()){…}`
+               // pushes a record ABOVE it, and a search that began underneath could never reach it —
+               // the bridge answered nothing for a program the executor runs. Skipping the one
+               // record leaves everything else, in either direction, reachable.
+               ifThen(arith("==", "(local 3)", "(app " + glob(effArmTop) + ")"),
+                      "(app " + glob(effFind) + " " + arith("-", "(local 3)", int(1)) +
+                        " (local 2) (local 1))",
                ifThen(aget(aget("(local 0)", int(R_HANDLES)), "(local 2)"),
                       sq(List(
                         // The counter belongs to the handler that ANSWERS, which need not be the top
@@ -1285,15 +1300,25 @@ object BridgeV2:
                             aget("(local 0)", int(R_PENDING)) + " " + alen(glob(effPending)) + ")) " +
                           sq(List(
                             "(app " + glob(effPopAll) + " (local 0) " + int(0) + ")",
+                            // PUSHED WHILE THE ARM RUNS, so a `perform` in it looks further out.
+                            // Pushed rather than assigned because arms NEST: an outer arm may still
+                            // be running underneath this one, and popping restores exactly it. Both
+                            // undone in one `finally`, so an escaping throw cannot leave the search
+                            // pointing below where it belongs.
+                            "(prim arr.push " + glob(effArmAt) + " (local 4))",
                             "(prim __tryFinally__ (lam 0 (app " +
                               aget(aget("(local 1)", int(R_ARMS)), "(local 3)") + " (local 2))) " +
-                              "(lam 0 (app " + glob(effPushAll) + " (local 0) " + int(0) + ")))")) +
+                              "(lam 0 " + sq(List(
+                                 "(prim arr.pop " + glob(effArmAt) + ")",
+                                 "(app " + glob(effPushAll) + " (local 0) " + int(0) + ")")) + "))")) +
                         ")")),
                       "(app " + glob(effFind) + " " + arith("-", "(local 3)", int(1)) +
-                        " (local 2) (local 1))") + ")") + "))"
+                        " (local 2) (local 1))")) + ")") + "))"
     // NOT POPPED WHILE THE ARM RUNS. `Exec` leaves the handler on the list, so a `resume` whose
     // continuation performs the same operation again finds the same handler — which is what makes
     // `two-performs-multi-shot` produce a cross product instead of failing on the second perform.
+    // THE SEARCH STARTS BELOW THE HANDLER WHOSE ARM IS RUNNING. `effArmAt` is -1 outside an arm,
+    // so the ordinary case is `len - 1` exactly as before.
     val defPerform = "(def " + effPerform + " (lam 2 (app " + glob(effFind) + " " +
       arith("-", alen(stack), int(1)) + " (local 1) (local 0))))"
     // RESUMING, and everything it needs comes from the CONTINUATION rather than from the stack.
@@ -1321,8 +1346,13 @@ object BridgeV2:
           // Innermost-last, so: wasAborted=0, raw=1, before=2, rec=3, v=4, k=5.
           "(let (" + sq(List(
               "(prim arr.push " + stack + " (local 1))",
+              // THE CONTINUATION IS NOT THE ARM: whatever is hidden for an arm's body is answerable
+              // again here. `-1` rather than a pop, because the arm this resume came from is still
+              // underneath and must stay hidden once the resume returns to it.
+              "(prim arr.push " + glob(effArmAt) + " " + int(-1) + ")",
               "(prim __tryFinally__ (lam 0 (app " + aget("(local 3)", int(0)) + " (local 2))) " +
-                "(lam 0 (prim arr.pop " + stack + ")))")) + " " +
+                "(lam 0 " + sq(List("(prim arr.pop " + glob(effArmAt) + ")",
+                                    "(prim arr.pop " + stack + ")")) + "))")) + " " +
               "(prim cell.get " + glob(effAborting) + ")) " +
             sq(List(
               // A perform INSIDE the resumed computation ends here: its arm's value is this
@@ -1388,7 +1418,15 @@ object BridgeV2:
              "(app " + glob(effChain) + " (local 2) " + arith("+", "(local 1)", int(1)) +
                " (app " + aget("(local 2)", "(local 1)") + " (local 0)))") + "))"
     val defAborting = "(def " + effAborting + " (prim cell.new " + lit("false") + "))"
-    List(defStack, defCurRec, defTop, defPerforms, defFind, defPerform, defResume,
+    // AN ARRAY USED AS A STACK, not a cell, and the reason is mechanical: saving and restoring a
+    // cell needs a binder at every site, every binder shifts every `local` below it, and a wrong
+    // shift in this file has twice been a wrong ANSWER. `arr.push`/`arr.pop` need none.
+    val defArmAt = "(def " + effArmAt + " (prim arr.new))"
+    val defArmTop = "(def " + effArmTop + " (lam 0 " +
+      ifThen(arith(">", alen(glob(effArmAt)), int(0)),
+             aget(glob(effArmAt), arith("-", alen(glob(effArmAt)), int(1))),
+             int(-1)) + "))"
+    List(defStack, defCurRec, defTop, defPerforms, defArmAt, defArmTop, defFind, defPerform, defResume,
          defPending, defPush, defPop, defCompose, defChain, defAborting,
          defPushAll, defPopAll, defRun).mkString(" ")
 

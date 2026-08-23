@@ -169,6 +169,35 @@ nearest enclosing `Handle`. Because the frame is data (§1), what the handler re
 may store, queue, or resume later from another thread — which is the execution model as stated:
 the executor performs a command and reports the result back to a dispatcher.
 
+#### `nearest enclosing` skips the handler whose own arm is running
+
+**A HANDLER IS HIDDEN WHILE ITS OWN ARM RUNS, AND VISIBLE AGAIN FOR THE CONTINUATION.** An arm is
+the code that runs INSTEAD of the perform, so an arm performing the same operation would be asking
+its own handler to answer a question it is in the middle of answering. `k(…)` restores visibility,
+because the continuation belongs to the `handle` BODY and not to the arm. OCaml 5, Koka, Effekt and
+Eff all draw the line in the same place.
+
+```scalascript
+handle(
+  handle(f()) { case op(n, k) => E.op(n + 1) + 1000 }   // goes OUTWARD, not to itself
+) { case op(n, k2) => k2(n * 7) }                       // 14 + 1000 = 1014
+```
+
+**HIDING IS A SKIP OF ONE RECORD, NEVER A SEARCH THAT STARTS BELOW IT.** The two read as equivalent
+and differ the moment an arm installs a handler of its own — `case a(k) => handle(inner()) { … }`
+pushes a record ABOVE the hidden one, and a search beginning underneath could never reach it. Both
+lanes were written the wrong way first and both were caught by the same fixture.
+
+Consequently a `perform` reaches a handler in the same lexical place on both lanes, and the two
+implement it with the machinery each already has: the executor with one `armHidden` field, the
+bridge with a stack of hidden indices pushed and popped in the `__tryFinally__` that already
+brackets the arm.
+
+**WHEN THERE IS NO OTHER HANDLER, THIS IS A COMPILE-TIME REFUSAL WITH A POSITION**, not a run-time
+crash — `Lower.scala` checks it where the perform and every `handle` still exist, and only when the
+op has exactly one `handle` in the module and the perform is not inside a lambda the handle body
+could call later. A perform in a function the arm CALLS stays a run-time failure.
+
 #### The protocol, and why it is written here
 
 An arm is `on op, params, k, body`: the registers — **of the handling function's frame** — that
