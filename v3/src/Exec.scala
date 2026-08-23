@@ -335,8 +335,16 @@ object Exec:
     * back edge — and a frame that only knows "finish this list" cannot answer that; carrying the
     * body means the walk can go on iterating exactly as `Instr.Loop` does, and only then run the
     * remainder after the loop. */
+  /** `handleOf` is set only for the frame recorded on the way into a `Handle`, and it is what lets a
+    * continuation cross a NESTED one. The `Handle` instruction produces its value by running its
+    * body and then applying the return clause; when an OUTER handler's continuation resumes through
+    * it, that instruction's own execution is long gone — the unwind abandoned it — so the frame has
+    * to finish the job. Without it the inner handle contributed nothing and the register it should
+    * have written kept its initial value. */
   private[ssc3] final case class PendingFrame(m: Module, rest: List[Instr], regs: Array[Value],
-                                              d: Int, fall: Int, loopBody: List[Instr] = Nil)
+                                              d: Int, fall: Int, loopBody: List[Instr] = Nil,
+                                              handleOf: HandlerFrame | Null = null,
+                                              handleDst: Int = -1)
   private[ssc3] inline val FuncLevel   = -1
   private[ssc3] inline val RegionLevel = -2
   private var pending: List[PendingFrame] = Nil
@@ -506,6 +514,19 @@ object Exec:
               // frame out iterate for a branch that was already answered.
               val wantsBack = backEdge
               backEdge = false
+              // FINISH THE INNER `handle` THIS FRAME STANDS FOR, before running what follows it.
+              //
+              // The frames before this one in the segment were the inner handle's BODY, so `r` now
+              // holds the value that body produced in the handle's own destination register. The
+              // `Handle` instruction would next apply its return clause to it; that instruction is
+              // gone, abandoned by the unwind that carried the outer perform home, so the frame
+              // does it. Measured: `handle { … handle(inner()){…} … }` where the INNER body performs
+              // the OUTER effect answered 1 — the outer arm's `+ 1` over an `acc` still holding its
+              // initial 0, because the inner handle contributed nothing.
+              val hh = f.handleOf
+              if hh != null && f.handleDst >= 0 then
+                retArm(hh.nn.arms).foreach(ra =>
+                  r(f.handleDst) = applyRet(hh.nn.m, ra, hh.nn.regs, r(f.handleDst)))
               val loopSig =
                 if wantsBack && f.loopBody.nonEmpty then
                   // THE LOOP IS STILL LIVE WHILE IT ITERATES, so it goes back on `pending`.
@@ -1022,6 +1043,10 @@ object Exec:
       // is nothing to thread. `d = -2` marks a frame that places no value — a region does not
       // produce one into a register the way a call does — and `resumeCont` skips the write for it.
       case _: Instr.If | _: Instr.Loop | _: Instr.Switch | _: Instr.Block | _: Instr.Try => -2
+      // A `Handle` IS RECORDED TOO, for the same reason a region is and one step further: a
+      // continuation belonging to an OUTER handler can resume through the body of an inner one, and
+      // the inner `Handle` instruction is not there any more to turn that body's value into its own.
+      case _: Instr.Handle => -2
       case _                     => -1
     // A `Perform` GETS ITS OWN REMAINDER HANDED TO IT, and not through `pending`.
     //
@@ -1060,7 +1085,10 @@ object Exec:
           val lb = ins match
             case Instr.Loop(b) => b
             case _             => Nil
-          pending = PendingFrame(m, rest, regs, d, fall, lb) :: pending
+          val (hf, hdst) = ins match
+            case Instr.Handle(hd, _, harms) => (HandlerFrame(m, harms, regs), hd)
+            case _                          => (null, -1)
+          pending = PendingFrame(m, rest, regs, d, fall, lb, hf, hdst) :: pending
           try step(m, ins, regs) finally pending = pending.tail
 
   /** TWO WALKERS, CHOSEN ONCE PER BODY. The frame recording below is needed only inside a `handle`,

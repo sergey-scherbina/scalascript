@@ -1,0 +1,36 @@
+# A continuation resuming THROUGH a nested `handle` that did not handle the effect
+
+The inner `handle` answers `A`; the body performs `B`, which passes it by. When the OUTER handler
+resumes, the continuation runs back through the inner handle's body — and the inner `Handle`
+instruction is gone, abandoned by the unwind, so nothing turns that body's value into the handle's.
+
+Hand-derived: `k2(3)` gives `performsB` 6, `innerBody` 106, the inner handle 106, `acc` 106, and the
+outer arm adds 1. The executor answered **1** — the arm's `+ 1` over an `acc` still holding its
+initial 0 — while the v2 bridge answered 107 all along.
+
+```scalascript
+effect A:
+  def a(): Int
+effect B:
+  def b(): Int
+
+def performsB(): Int =
+  val x = B.b()
+  x * 2
+
+def innerBody(): Int =
+  val v = performsB()
+  v + 100
+
+def mid(n: Int): Int =
+  handle {
+    var acc = 0
+    if n > 0 then
+      acc = handle(innerBody()) { case a(k) => k(1) }
+    acc
+  } {
+    case b(k2) => k2(3) + 1
+  }
+
+println(mid(1))
+```
