@@ -1,0 +1,11 @@
+slug: v2-corpus-reds-easy-fixes
+branch: feature/v2-corpus-reds-easy-fixes
+agent: claude-code
+started: 2026-08-23T21:28:45Z
+heartbeat: 2026-08-23T21:28:45Z
+status: claimed-before-planning
+items: corpus-roster-lists-a-case-whose-file-no-longer-exists js-emit-declares-an-identifier-twice-in-direct-syntax-demo v2-extension-receiver-is-typed-from-the-parameter-list
+paths: file:BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
