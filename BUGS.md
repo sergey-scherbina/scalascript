@@ -11306,6 +11306,51 @@ shared toolchain as well, so it predates everything here. Curried defs lower at 
 (`curried-def-clauses.ssc` says so in as many words), so partial application is unsupported at any
 clause count. Filed separately as `v2-curried-def-partial-application-unsupported`.
 
+## corpus-contract-is-red-on-twelve-rows-and-the-freeze-is-global — adding one case ratifies the lot
+
+<!-- status: open
+     kind: apparatus
+     lane: apparatus
+     area: conformance
+     gate: tests/e2e/freeze-consistency-gate.sh -->
+
+`scala-cli tests/conformance/contract.sc` reports twelve REGRESSION rows against the frozen
+baseline, measured 2026-08-23:
+
+```text
+agent-mcp-toolsource  js  FAIL      scljet-bytes             v2  FAIL
+direct-syntax-demo    js  FAIL      scljet-crud              v2  FAIL
+extensions            v2  FAIL      scljet-full              v2  FAIL
+mcp-client-discover   js  FAIL      scljet-jdbc              v2  FAIL
+mcp-client-invoke     js  FAIL      scljet-readonly-codecs   v2  FAIL
+                                    scljet-text-projection   v2  FAIL
+                                    scljet-write-table       v2  FAIL
+```
+
+**Measured twice, on two toolchains, so it is not one checkout's accident**: a full unsharded run on
+a build of `main` plus one front change, and a `--only` run in the shared checkout on a toolchain
+built from `79a888fb3`, which predates that change. Identical twelve.
+
+**THREE OF THEM ARE A CHANGE IN KIND, NOT IN STATUS.** `agent-mcp-toolsource`, `mcp-client-discover`
+and `mcp-client-invoke` are frozen as `* SKIP` and here they RAN and failed — the reference host
+skipped them, this one did not. That smells of environment (a dependency present here, absent there)
+rather than of code, and it is the first thing to check. The other nine were PASS at the freeze and
+are FAIL now, which environment explains less comfortably.
+
+**THE PART THAT IS APPARATUS, AND THE REASON THIS IS FILED AT ALL:** the freeze is GLOBAL and its
+only writer is a full-corpus run. Adding ONE conformance case makes `freeze-consistency` fail until
+the roster gains a row — and `--update-baseline`, the sanctioned way to add it, rewrites
+`corpus-baseline.tsv` from the current run, silently recording all twelve as expected. **Anyone
+adding a corpus case on a host in this state ratifies twelve unrelated reds, and the commit looks
+like a routine roster refresh.** It nearly happened here; `v2-curried-def-partial-application`
+instead appended the single roster name and left `baseline-sha256` untouched, after reproducing both
+existing digests byte-for-byte to prove the serialization matched the tool's own.
+
+**Done when** the twelve are attributed — environment or code — and either fixed or frozen
+deliberately with that reason recorded. The apparatus half is done when adding a case no longer
+requires re-freezing the corpus: a roster-only append is the operation that was actually needed, and
+`contract.sc` has no flag for it.
+
 ## v2-curried-def-with-a-using-clause-cannot-be-called — the given is never injected
 
 <!-- status: open
