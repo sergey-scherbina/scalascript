@@ -11351,13 +11351,71 @@ deliberately with that reason recorded. The apparatus half is done when adding a
 requires re-freezing the corpus: a roster-only append is the operation that was actually needed, and
 `contract.sc` has no flag for it.
 
+## v1-interp-curried-def-with-using-clause-drops-the-second-clause — `missing argument for parameter 'b'`
+
+<!-- status: open
+     kind: bug
+     lane: int
+     area: runtime
+     gate: tests/conformance/run.sh -->
+
+```scalascript
+def tag(a: Int)(b: Int)(using s: Show[Int]): Int = s.code(a + b)
+println(tag(1)(2))
+// int: [line 45, col 9] missing argument for parameter 'b'
+//      at scalascript.interpreter.CallRuntime$.applyDefaults(CallRuntime.scala:940)
+```
+
+Runs on `v2`. The `int` lane is the v1 interpreter — a separate implementation with its own call
+runtime — and it applies `tag(1)` and then finds `b` unfilled, so it never reaches the second clause.
+
+**Measured 2026-08-23** while fixing `v2-curried-def-with-a-using-clause-cannot-be-called`: the v2
+front now registers the using signature across every written clause and injects the given, which is
+what lets this shape reach a backend at all. Not a regression — a gap the fix made visible. The
+`int` lane is excluded from `curried-def-using-clause` by measurement, with this slug named there.
+
+Note `int` DOES run every other curried member shape — object, class, extension and block-local all
+pass on it — so this is specifically the trailing `using` clause.
+
+**Done when** `tag(1)(2)` runs on `int` and `curried-def-using-clause` can add it.
+
 ## v2-curried-def-with-a-using-clause-cannot-be-called — the given is never injected
 
 <!-- status: open
      kind: bug
      lane: native
      area: front
-     gate: tests/conformance/run.sh -->
+     confirmed: yes
+     gate: tests/conformance/run.sh
+     repro: tests/conformance/curried-def-using-clause.ssc -->
+
+> Closed in the commit that follows this one on `main`: the two-step protocol wants a `fixed-in:`
+> that is already an ancestor, so the sha cannot exist while the fix is being pushed.
+
+**FIXED 2026-08-23.** `collectUS2` parsed exactly ONE parameter clause and then asked whether the
+next was `using`. For `def tag(a: Int)(b: Int)(using s: Show[Int])` the next is `(b)`, so the def
+registered nothing and no given was ever injected — the def lowered at three and the call passed the
+two written arguments. It now folds every WRITTEN clause and stops at the `using` one, through
+`paramsUntilU`; `collectUSCtx` gets the same treatment, so a context bound on a curried def works
+for the same reason.
+
+**THE FOLD HAS TO STOP AT THE `using` CLAUSE, not eat it** — the registry needs the count of
+parameters the CALLER writes AND the clause itself, to read its type classes from. That is why this
+is a second helper rather than a reuse of `paramsAllC`, which folds a `using` clause like any other
+because a DECLARATION binds it like any other.
+
+**The comment beside the code already said this was the third site with the same one-clause
+assumption**, and named the two that had been fixed before it. It was written about a clause on a
+CONTINUATION LINE; the same sentence covers a clause that is merely third, and nobody read it that
+way — including me, until a probe failed.
+
+Evidence: `curried-def-using-clause` on v2 — the `int` lane is the v1 interpreter and refuses the
+shape with `missing argument for parameter 'b'`, filed as
+`v1-interp-curried-def-with-using-clause-drops-the-second-clause`. The shapes that must NOT move —
+one written clause plus `using`, a context bound, and a multi-param clause plus `using` — are rows
+of `curried-def-every-spelling` on all four backends, and were measured unmoved before and after.
+
+
 
 ```scalascript
 def tag(a: Int)(b: Int)(using s: Show[Int]): String = s.show(a + b)
@@ -11389,13 +11447,116 @@ blind precisely where the other one looks.
 def (`tag(1)`) should then be reconsidered together with it — the guard that refuses it today is
 keyed on `hasUsingSig` and would lift with the same fix.
 
-## v2-curried-method-call-does-not-flatten-its-clauses — the declaration is accepted, the call is not
+## js-backend-cannot-call-a-curried-member-method — a single clause runs, two do not
+
+<!-- status: open
+     kind: bug
+     lane: js
+     area: codegen
+     gate: tests/conformance/run.sh -->
+
+```scalascript
+class Box(n: Int):
+  def plus(a: Int)(b: Int): Int = n + a + b
+println(Box(100).plus(1)(2))       // js: Error: Method not found: plus on Box(100)
+
+extension (s: String)
+  def rep(n: Int)(k: Int): Int = n + k + s.length
+println("xy".rep(2)(3))            // js: Error: not callable: NaN
+```
+
+Both run on `int`, `jvm` and `v2`. A SINGLE-clause extension runs on `js` correctly
+(`"x".cat("-")` → `x-`), so this is about the second clause and not about extensions.
+
+**Measured 2026-08-23** while fixing `v2-curried-method-call-does-not-flatten-its-clauses`: the
+front now folds every clause at the declaration and flattens the call, which is what makes these two
+rows reach the js backend at all — before, F declined the file and the reference front compiled it.
+So this is not a regression; it is a gap the front fix made VISIBLE, and the js lane is excluded from
+`curried-def-member-methods` by measurement with this slug named in the case.
+
+The two failures are different shapes — `Method not found` is name dispatch, `not callable: NaN` is
+an applied value that is not a function — so expect two causes rather than one.
+
+**Done when** both rows run on `js` and `curried-def-member-methods` can add `js` to its backends.
+
+## v2-extension-receiver-is-typed-from-the-parameter-list — the receiver takes the first parameter's type
 
 <!-- status: open
      kind: bug
      lane: native
      area: front
      gate: tests/conformance/run.sh -->
+
+```scalascript
+extension (s: String)
+  def widen(n: Int): String = s
+println("x".widen(2))       // ssc: TYPEERR: in def widen: cannot unify Int: Int vs String
+```
+
+ONE clause. The body reads the RECEIVER, the parameter has a different type, and the checker types
+the receiver from the parameter. `def cat(sep: String): String = s ++ sep` passes only because the
+receiver and the parameter are both `String`.
+
+**Found 2026-08-23 by reduction, and the first reading was wrong.** It surfaced as a curried
+extension failing to typecheck, and looked like part of
+`v2-curried-method-call-does-not-flatten-its-clauses`. Reducing it — one clause instead of two, then
+a body that is just `s`, then a body that is just the parameter — showed the parameter body PASSES
+and the receiver body FAILS, at one clause. Currying is not involved. Reproduced on unmodified main.
+
+**Done when** an extension method whose parameter type differs from its receiver type can read the
+receiver, with a case covering one and two clauses.
+
+## v2-curried-method-call-does-not-flatten-its-clauses — the declaration is accepted, the call is not
+
+<!-- status: open
+     kind: bug
+     lane: native
+     area: front
+     confirmed: yes
+     gate: tests/conformance/run.sh
+     repro: tests/conformance/curried-def-member-methods.ssc, curried-def-every-spelling.ssc -->
+
+> Closed in the commit that follows this one on `main`: the two-step protocol wants a `fixed-in:`
+> that is already an ancestor, so the sha cannot exist while the fix is being pushed.
+
+**FIXED 2026-08-23, and the entry was wrong about the scope in both directions.** It named a class
+method and reasoned about the CALL. The call was the smaller half, and the defect was not confined
+to methods: **F dropped every parameter clause after the first at FIVE declaration sites**, because
+only the top-level path loops clauses (inside `emitDefU`) and each member path called `parseParams`
+once and then skipped to the `=`. The second clause's parameters were never bound, so the body's
+reference to them became a free global.
+
+| where | site |
+|---|---|
+| `object` member | `objDefE1` |
+| `class` method | `ccMParams` |
+| `extension` member | `extMember`, and `extDefE1` for the `given` form |
+| `def` inside a block | `parseBlockDef1` |
+| trailing `using` | `collectUS2` — see the sibling entry |
+
+All five now fold clauses through one helper, `paramsAllC`.
+
+**THE OBJECT ROW IS WHY THIS ENTRY EXISTED AT ALL AND IT LOOKED GREEN.** `Calc.add(1)(2)` printed
+`3` on unmodified main. F declined the whole file — `GAP: unbound global: (global b)` — and the
+REFERENCE front compiled it. The program was right and the measurement was meaningless, which is
+the disguise `curried-def-clauses` documents in its own header for the top-level case. **Reading
+`--front-report` rather than the program's output is what turned "works" into "GAP".**
+
+**THE CALL HALF IS KEYED ON THE NAME, NOT ON THE EMITTED TEXT**, which is what this entry proposed
+as the alternative and is the only version that scales: `isCurriedApp` reads `(app (global f) …)`,
+a shape ONLY a top-level call emits. A class method is `(prim __method__ …)`, an extension is
+`(prim __methodOrExt__ …)`, an object member is mangled to `Obj_m`, a block-local is `(local i)`.
+Four patches to a text matcher would have left the fifth. `parseArgsCur` / `parseArgLCur` ask the
+curried TABLE while the name is still in hand, and cover every spelling with one rule.
+
+Evidence: `curried-def-every-spelling` (object at two and three clauses, block-local, and the
+using-registry neighbours) on all four backends; `curried-def-member-methods` (class and extension)
+on int, jvm and v2 — `js` is excluded by measurement and filed as
+`js-backend-cannot-call-a-curried-member-method`. `curried-def-clauses`,
+`curried-def-three-clauses`, `curried-def-partial-application`, `curried-extern-import` and
+`fewer-braces-colon` all pass unchanged, and every new row runs on **F**.
+
+
 
 ```scalascript
 class Box(n: Int):

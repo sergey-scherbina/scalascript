@@ -1,0 +1,68 @@
+---
+name: curried-def-every-spelling
+description: "a curried def keeps every parameter clause wherever it is DECLARED — object, class, extension, block-local — and however it is called, including with a trailing using clause"
+backends: [int, jvm, js, v2]
+---
+
+# `def f(a)(b)` outside the top level
+
+`BUGS.md` `v2-curried-method-call-does-not-flatten-its-clauses` and
+`v2-curried-def-with-a-using-clause-cannot-be-called`. `curried-def-clauses` pins the top-level
+`def`, and that was the ONLY shape anything pinned. Every other place a def can be declared parsed
+its parameter list ONCE and then skipped to the `=`, so the second clause's parameters were never
+bound and the body's reference to them became a free global.
+
+**THE OBJECT ROW IS THE ONE THAT LOOKED FINE.** `Calc.add(1)(2)` printed `3` before this case
+existed — because F declined the whole file (`GAP: unbound global: (global b)`) and the REFERENCE
+front compiled it. `ssc info --front-report` said GAP while the program said 3. That is the same
+disguise `curried-def-clauses` documents in its own header, one layer further out: it is not enough
+for a curried case to pass, it has to pass ON F.
+
+The class-method and extension rows live in `curried-def-member-methods`: the `js` backend answers
+`Method not found` for the first and `not callable: NaN` for the second, so keeping them here would
+cost this case a backend for two rows. Every row that CAN run on all four does.
+
+Two declaration sites here, plus the registry that must not move:
+
+| where | site that dropped the clause |
+|---|---|
+| `object` member | `objDefE1` |
+| `def` inside a block | `parseBlockDef1` |
+| trailing `using` | `collectUS2` — registered nothing, so no given was injected |
+
+The call side is keyed on the callee NAME rather than on the emitted text. `isCurriedApp` reads
+`(app (global f) …)`, which is what a top-level call emits and nothing else does: a class method is
+`(prim __method__ …)`, an extension is `(prim __methodOrExt__ …)`, an object member is mangled to
+`Obj_m`, a block-local is `(local i)`. One rule over the curried table covers all of them.
+
+```scalascript
+object Calc:
+  def tri(a: Int)(b: Int)(c: Int): Int = a + b + c
+  def add(a: Int)(b: Int): Int = a + b
+
+// Int in, Int out on purpose: `"i" ++ x` reads fine on the ssc lanes and does not typecheck when
+// the case is compiled through Scala, and a case about parameter CLAUSES must not fail on string
+// concatenation.
+trait Show[T]:
+  def code(x: T): Int
+
+given showInt: Show[Int] with
+  def code(x: Int): Int = x * 10
+
+// THE SHAPES THAT MUST NOT MOVE, because the same registry decides them: one written clause plus
+// `using`, a context bound, and a multi-param clause plus `using`.
+def one(a: Int)(using s: Show[Int]): Int = s.code(a)
+def ctxb[A: Show](a: A): Int = summon[Show[A]].code(a)
+def plainU(a: Int, b: Int)(using s: Show[Int]): Int = s.code(a + b)
+
+def outer(): Int =
+  def inner(a: Int)(b: Int): Int = a + b
+  inner(1)(2)
+
+println(Calc.add(1)(2))
+println(Calc.tri(1)(2)(3))
+println(outer())
+println(one(5))
+println(ctxb(7))
+println(plainU(1, 2))
+```

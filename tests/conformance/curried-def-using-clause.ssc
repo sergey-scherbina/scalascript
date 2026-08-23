@@ -1,0 +1,36 @@
+---
+name: curried-def-using-clause
+description: "two written parameter clauses AND a trailing using clause: the given is injected and the clauses flatten"
+backends: [v2]
+---
+
+# `def tag(a)(b)(using s)`
+
+`BUGS.md` `v2-curried-def-with-a-using-clause-cannot-be-called`. A FULL application failed:
+`arity: 3 expected, 2 given`. The def lowers at three — two written parameters plus the injected
+given — and the call supplied the two the caller writes, because the injection never happened.
+
+**TWO MECHANISMS THAT EACH WORK ALONE DID NOT COMPOSE.** `collectUS2`, the registry that decides
+given injection, parsed exactly ONE parameter clause and then asked whether the next was `using`.
+Here the next is `(b)`, so the def registered nothing at all and no given was ever appended. One
+written clause plus `using` worked, and two did not.
+
+**v2 ONLY, and the restriction is a measurement rather than a preference.** The `int` lane is the v1
+interpreter, a separate implementation, and it refuses this shape with
+`missing argument for parameter 'b'` — filed as
+`v1-interp-curried-def-with-using-clause-drops-the-second-clause`. The shapes that must not move are
+in `curried-def-every-spelling`, which runs on all four backends.
+
+```scalascript
+trait Show[T]:
+  def code(x: T): Int
+
+given showInt: Show[Int] with
+  def code(x: Int): Int = x * 10
+
+def tag(a: Int)(b: Int)(using s: Show[Int]): Int = s.code(a + b)
+def tri(a: Int)(b: Int)(c: Int)(using s: Show[Int]): Int = s.code(a + b + c)
+
+println(tag(1)(2))
+println(tri(1)(2)(3))
+```

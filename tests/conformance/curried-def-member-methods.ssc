@@ -1,0 +1,36 @@
+---
+name: curried-def-member-methods
+description: "a curried method on a class and a curried extension method keep every parameter clause and flatten at the call"
+backends: [int, jvm, v2]
+---
+
+# `class Box: def plus(a)(b)` and `extension (s: String): def rep(n)(k)`
+
+`BUGS.md` `v2-curried-method-call-does-not-flatten-its-clauses`. `ccMParams` and `extMember` each
+parsed the method's parameter list ONCE and then skipped to the `=`, so the second clause's
+parameters were never bound and the body's reference to them became a free global. The class row
+died at run time on arity; the extension row crashed with `Index -1 out of bounds for length 2`.
+
+**NOT `js`, and the exclusion is measured, not assumed.** The `js` backend answers
+`Method not found: plus on Box(100)` for the class row and `not callable: NaN` for the extension
+row, while a SINGLE-clause extension runs there correctly — filed as
+`js-backend-cannot-call-a-curried-member-method`. `int`, `jvm` and `v2` all run both rows.
+
+```scalascript
+class Box(n: Int):
+  def plus(a: Int)(b: Int): Int = n + a + b
+  def tri(a: Int)(b: Int)(c: Int): Int = n + a + b + c
+
+// Int in, Int out on purpose: an extension method whose body reads the RECEIVER while a parameter
+// has a DIFFERENT type is refused by the checker with `cannot unify Int: Int vs String`, at one
+// clause as readily as at two, on unmodified main. That is
+// `v2-extension-receiver-is-typed-from-the-parameter-list` — a different defect, filed separately,
+// and it must not be smuggled in here.
+extension (s: String)
+  def rep(n: Int)(k: Int): Int = n + k + s.length
+
+val b = Box(100)
+println(b.plus(1)(2))
+println(b.tri(1)(2)(3))
+println("xy".rep(2)(3))
+```

@@ -938,7 +938,7 @@ def objMangleName(c, nm, cx) = if isObjMember(globalNameOf(c), nm, cx) then glob
 def postMethO(c, nm, mg, ts, env, cx) = if objDfltFires(mg, ts, env, cx) then objDfltCall(mg, ts, env, cx) else postMethN(c, nm, mg, ts, env, cx)
 // A NAMED arg to an object method takes the same by-name binding as a plain def (see nargGo);
 // without it `O.m(1, c = 9)` stripped the label and emitted a 2-arg app of the 3-param `O_m`.
-def postMethN(c, nm, mg, ts, env, cx) = if objNargFires(mg, ts, env, cx) then objNargCall(mg, ts, env, cx) else parseArgL(ts, env, cx) match { case (es, r) => postMethV(c, nm, mg, es, r, env, cx) }
+def postMethN(c, nm, mg, ts, env, cx) = if objNargFires(mg, ts, env, cx) then objNargCall(mg, ts, env, cx) else parseArgLCur(nm, ts, env, cx) match { case (es, r) => postMethV(c, nm, mg, es, r, env, cx) }
 def objNargFires(mg, ts, env, cx) = if mg == "" then false else nargGo(mg, fst(scanArgs(ts)), env, cx)
 def objNargCall(mg, ts, env, cx) = scanArgs(ts) match { case (slices, rest) => (nargCall(mg, slices, env, cx), rest) }
 def objDfltFires(mg, ts, env, cx) = if mg == "" then false else dfltGo(mg, fst(scanArgs(ts)), env, cx)
@@ -1457,18 +1457,34 @@ def parseCallP(nm, slices, ts, rest, env, cx) = if partialGo(nm, slices, rest, e
 // only the callee and the caller appends the source arguments, so the self slot has to be
 // prepended HERE — there is nowhere in calleeOf to put it. `__self` being absent from env is
 // exactly what distinguishes an object body from a class body, so one test covers both.
-def parseCallPlain(nm, ts, env, cx) = if hasUsingSig(nm, cx) then parseCallU(nm, ts, env, cx) else parseArgs(ts, env, cx) match { case (args, r) => (emitCallR(nm, calleeOf(nm, env, cx), selfArgFor(nm, env, cx) ++ args, cx), r) }
+def parseCallPlain(nm, ts, env, cx) = if hasUsingSig(nm, cx) then parseCallU(nm, ts, env, cx) else parseArgsCur(nm, ts, env, cx) match { case (args, r) => (emitCallR(nm, calleeOf(nm, env, cx), selfArgFor(nm, env, cx) ++ args, cx), r) }
 def selfArgFor(nm, env, cx) = if isCurObjMethod(nm, cx) then selfArg1(lookup("__self", env)) else ""
 def selfArg1(i) = if i >= 0 then " (local " ++ i ++ ")" else ""
 // G4: a using-sig call collects args as a LIST so the count + first-arg type are recoverable. An explicit
 // `(using x)` second clause merges positionally (no injection); otherwise inject one given per using TC.
-def parseCallU(nm, ts, env, cx) = parseArgL(ts, env, cx) match { case (es, r) => callU2(nm, es, r, env, cx) }
+def parseCallU(nm, ts, env, cx) = parseArgLCur(nm, ts, env, cx) match { case (es, r) => callU2(nm, es, r, env, cx) }
 def callU2(nm, es, r, env, cx) = if isUsingClause(r) then parseArgL(tl(tl(r)), env, cx) match { case (ues, r2) => (emitApp(calleeOf(nm, env, cx), joinArgs(es) ++ joinArgs(ues)), r2) } else (emitApp(calleeOf(nm, env, cx), joinArgs(es) ++ injectUsing(nm, es, env, cx)), r)
 // `raw(x)` is the trusted-markup escape hatch of the html interpolator, and legacy lowers it
 // to DATA — `(ctor _Raw x)` — not a global call, so every native target sees the same marker
 // and __htmlEscape__ can tell it apart from a plain string (ssc1-lower htmlRawCall :2052).
 // Without this F emitted `(app (global raw) …)` and validateNoReader rejected the file with
 // `unbound global: (global raw)` — the gap sitting directly behind the html one.
+// ── trailing parameter clauses at a CALL, decided by the callee NAME ──
+// `isCurriedApp` re-derives curried-ness from the EMITTED TEXT, which works only for
+// `(app (global f) …)`. Every other spelling of the same call emits something else — a class method
+// is `(prim __method__ …)`, an extension is `(prim __methodOrExt__ …)`, an object member is mangled
+// to `Obj_m`, a def declared inside a block is `(local i)` — so the second clause nested against a
+// callee lowered at the total arity and the program died on arity. Asking the curried TABLE for the
+// name, here where the name is still in hand, covers all five spellings with one rule and cannot be
+// fooled by a callee whose emitted form nobody thought of.
+def parseArgsCur(nm, ts, env, cx) = if memL(nm, curriedOf(cx)) then argStrMore(parseArgs(ts, env, cx), env, cx) else parseArgs(ts, env, cx)
+def argStrMore(pr, env, cx) = pr match { case (a, r) => if isTok(hd(r), 2, 21) then argStrJoin(a, parseArgs(tl(r), env, cx), env, cx) else (a, r) }
+def argStrJoin(a, pr2, env, cx) = pr2 match { case (a2, r2) => argStrMore((a ++ a2, r2), env, cx) }
+// The same rule for the paths that keep arguments as a LIST — method dispatch needs the count and
+// the single-argument shape, so it cannot use the joined string.
+def parseArgLCur(nm, ts, env, cx) = if memL(nm, curriedOf(cx)) then argLstMore(parseArgL(ts, env, cx), env, cx) else parseArgL(ts, env, cx)
+def argLstMore(pr, env, cx) = pr match { case (es, r) => if isTok(hd(r), 2, 21) then argLstJoin(es, parseArgL(tl(r), env, cx), env, cx) else (es, r) }
+def argLstJoin(es, pr2, env, cx) = pr2 match { case (es2, r2) => argLstMore((appEnv(es, es2), r2), env, cx) }
 def emitApp(callee, args) = if callee == "(global raw)" then "(ctor _Raw" ++ args ++ ")" else "(app " ++ callee ++ args ++ ")"
 // ── default-synthesis decision + scanner ──
 def dfltEntryOf(nm, cx) = dfltLookupF(nm, funcDfltsOf(cx))
@@ -1768,7 +1784,7 @@ def parseBlockDef(ts, env, cx) = parseBlockDef1(snd(hd(tl(ts))), skipGen(tl(tl(t
 // way in marks the binder for BOTH the body (self-recursion) and the rest of the block without
 // changing a single signature, and `dlen` is untouched because the list length is the same.
 // The paren-full branch is deliberately left plain. (v2/BUGS.md v2-local-parameterless-def-not-invoked.)
-def parseBlockDef1(nm, ts, env, cx) = if isTok(hd(ts), 2, 21) then parseBlockDefP(nm, parseParams(tl(ts), Cons(nm, env)), env, cx) else parseBlockDefB("%" ++ nm, Cons("%" ++ nm, env), 0, skipToEq(ts), env, cx)
+def parseBlockDef1(nm, ts, env, cx) = if isTok(hd(ts), 2, 21) then parseBlockDefP(nm, paramsAllC(ts, Cons(nm, env)), env, cx) else parseBlockDefB("%" ++ nm, Cons("%" ++ nm, env), 0, skipToEq(ts), env, cx)
 def parseBlockDefP(nm, pr, env, cx) = pr match { case (penv, r) => parseBlockDefB(nm, penv, dlen(penv) - dlen(env) - 1, skipToEq(r), env, cx) }
 def parseBlockDefB(nm, penv, ar, ts, env, cx) = parseExpr(ts, 0, penv, cx) match { case (b, r) => parseBlockDefR(nm, ar, erase(b, cx), r, env, cx) }
 def parseBlockDefR(nm, ar, b, ts, env, cx) = parseBlock(ts, Cons(nm, env), cx) match { case (rest, r) => ("(letrec ((lam " ++ ar ++ " " ++ b ++ ")) " ++ rest ++ ")", r) }
@@ -2593,6 +2609,26 @@ def isUsingClause(ts) = if isTok(hd(ts), 2, 21) then isWord(hd(tl(ts)), "using")
 // LAYOUT instead — making a leading `(` a continuation — would change how every statement beginning
 // with a tuple is read, which is why the gate carries `tuple-statement-after-def`.
 def clauseSkip(r) = if isTok(hd(skipSemisF(r)), 2, 21) then skipSemisF(r) else r
+// EVERY parameter clause folded into the env, and nothing emitted. `emitDefU` below does this for a
+// top-level def and does it while emitting, so three MEMBER sites — a class method, an object member
+// and an extension method — each called `parseParams` once and then `skipToEq`, silently dropping
+// every clause after the first. The body's reference to a second-clause param became a free global
+// and F declined the whole file, which the fallback front then compiled correctly: `Calc.add(1)(2)`
+// printed the right answer while `--front-report` said GAP. That is the same disguise
+// `v2-front-curried-def-second-clause` wore for top-level defs.
+// A `using` clause is folded like any other here — it binds a real parameter — matching emitDefUsing.
+// The same fold, STOPPING at a `using` clause instead of eating it: the using-sig registry needs the
+// count of parameters the CALLER writes, and it needs the `(using …)` clause still in hand to read
+// its type classes from. `collectUS2` parsed exactly one clause and then asked whether the next was
+// `using`, so `def tag(a)(b)(using s)` registered nothing at all — the def lowered at arity 3 and
+// the call passed the two written arguments with no given injected.
+def paramsUntilU(r, env) = paramsUntilU1(clauseSkip(r), env)
+def paramsUntilU1(r, env) = if isUsingClause(r) then (env, r) else (if isTok(hd(r), 2, 21) then paramsUntilUN(r, env) else (env, r))
+def paramsUntilUN(r, env) = parseParams(tl(r), env) match { case (env2, r2) => paramsUntilU(r2, env2) }
+def paramsAllC(r, env) = paramsAllC1(clauseSkip(r), env)
+def paramsAllC1(r, env) = if isUsingClause(r) then paramsAllCU(r, env) else (if isTok(hd(r), 2, 21) then paramsAllCN(r, env) else (env, r))
+def paramsAllCU(r, env) = parseParams(tl(tl(r)), env) match { case (env2, r2) => paramsAllC(r2, env2) }
+def paramsAllCN(r, env) = parseParams(tl(r), env) match { case (env2, r2) => paramsAllC(r2, env2) }
 def emitDefU(nm, env, r, cx) = emitDefU1(nm, env, clauseSkip(r), cx)
 def emitDefU1(nm, env, r, cx) = if isUsingClause(r) then emitDefUsing(nm, env, r, cx) else (if isTok(hd(r), 2, 21) then emitDefClause(nm, env, r, cx) else emitDefBody(nm, dlen(env), env, skipToEq(r), cx))
 def emitDefUsing(nm, env, r, cx) = parseParams(tl(tl(r)), env) match { case (env2, r2) => emitDefU(nm, env2, r2, cx) }
@@ -2747,7 +2783,7 @@ def objDefsStr(name, ms, cx) = ms match { case Nil => "" case h :: t => join2(ob
 def objDef1(name, m, cx) = m match { case (kind, nt) => nt match { case (mname, toks) => objDefEmit(kind, name ++ "_" ++ mname, toks, cx) } }
 def objDefEmit(kind, pfx, toks, cx) = if kind == "def" then objDefE(pfx, toks, cx) else (if kind == "val" then "(def " ++ pfx ++ " " ++ erase(fst(bodyExpr(toks, Nil, cx)), cx) ++ ")" else "(def " ++ pfx ++ "__cell (prim cell.new " ++ erase(fst(bodyExpr(toks, Nil, cx)), cx) ++ "))")
 def objDefE(pfx, ts, cx) = objDefE1(pfx, skipGen(ts), cx)
-def objDefE1(pfx, ts, cx) = if isTok(hd(ts), 2, 21) then parseParams(tl(ts), Nil) match { case (env, r) => fst(emitDefBody(pfx, dlen(env), env, skipToEq(r), cx)) } else "(def " ++ pfx ++ " " ++ erase(fst(bodyExpr(skipToEq(ts), Nil, cx)), cx) ++ ")"
+def objDefE1(pfx, ts, cx) = if isTok(hd(ts), 2, 21) then paramsAllC(ts, Nil) match { case (env, r) => fst(emitDefBody(pfx, dlen(env), env, skipToEq(r), cx)) } else "(def " ++ pfx ++ " " ++ erase(fst(bodyExpr(skipToEq(ts), Nil, cx)), cx) ++ ")"
 // pre-pass: objReg = [Pair(objName, [memberNames])], scanned directly off the token stream (base-cx-free).
 def collectObjReg(ts) = if isEmpty(ts) then Nil else (if isObjectHead(ts) then collectOR1(ts) else (if isEffectHead(ts) then collectEffReg(ts) else (if isGivenHead(ts) then collectGivenReg(ts) else collectObjReg(tl(ts)))))
 def collectOR1(ts) = collectOR2(snd(hd(tl(ts))), objBodyToks(tl(tl(ts))))
@@ -2787,7 +2823,7 @@ def givenDef1(gname, m, cx) = m match { case (kind, nt) => if kind == "def" then
 // (renv is the receiver env; method params parse on top of it, so recv=local N-1, method args below).
 def givenExtDef1(gname, nt, cx) = nt match { case (mname, rt) => rt match { case (renv, mts) => extDefE(gname ++ "_" ++ mname, renv, mts, cx) } }
 def extDefE(pfx, renv, ts, cx) = extDefE1(pfx, renv, skipGen(ts), cx)
-def extDefE1(pfx, renv, ts, cx) = if isTok(hd(ts), 2, 21) then parseParams(tl(ts), renv) match { case (env, r) => fst(emitDefBody(pfx, dlen(env), env, skipToEq(r), cx)) } else fst(emitDefBody(pfx, dlen(renv), renv, skipToEq(ts), cx))
+def extDefE1(pfx, renv, ts, cx) = if isTok(hd(ts), 2, 21) then paramsAllC(ts, renv) match { case (env, r) => fst(emitDefBody(pfx, dlen(env), env, skipToEq(r), cx)) } else fst(emitDefBody(pfx, dlen(renv), renv, skipToEq(ts), cx))
 def givenMethodObj(gname, ms, cx) = "(def " ++ gname ++ " (prim __mk_method_obj__" ++ givenObjArgs(gname, ms, cx) ++ "))"
 def givenObjArgs(gname, ms, cx) = ms match { case Nil => "" case h :: t => givenObjArg1(gname, h, cx) ++ givenObjArgs(gname, t, cx) }
 def givenObjArg1(gname, m, cx) = m match { case (kind, nt) => if kind == "var" then "" else (nt match { case (mname, toks) => " (lit (str " ++ dqOf(cx) ++ mname ++ dqOf(cx) ++ ")) (global " ++ gname ++ "_" ++ mname ++ ")" }) }
@@ -2855,7 +2891,7 @@ def collectUsingSig(ts) = if isEmpty(ts) then Nil else (if isTok(hd(ts), 2, 1) t
 // injection — because that is what it desugars to.
 def collectUS1(ts) = collectUS1C(snd(hd(ts)), ctxBounds(tl(ts)), skipGen(tl(ts)))
 def collectUS1C(nm, cb, ts) = if isEmpty(cb) then collectUS2(nm, ts) else collectUSCtx(nm, cb, ts)
-def collectUSCtx(nm, cb, ts) = if isTok(hd(ts), 2, 21) then parseParams(tl(ts), Nil) match { case (env, r) => Cons((nm, (ctxTCs(cb), dlen(env) + dlen(cb))), collectUsingSig(r)) } else collectUsingSig(ts)
+def collectUSCtx(nm, cb, ts) = if isTok(hd(ts), 2, 21) then paramsUntilU(ts, Nil) match { case (env, r) => Cons((nm, (ctxTCs(cb), dlen(env) + dlen(cb))), collectUsingSig(r)) } else collectUsingSig(ts)
 // ctxTCs REVERSES, and that is load-bearing for two bounds. `ctxBounds` accumulates by prepending,
 // so `[A: Monoid: Pretty]` yields the env ["__tc_Pretty", "__tc_Monoid", xs] — while the call site
 // APPENDS one given per TC and the first argument takes the highest local index, so the injection
@@ -2864,7 +2900,7 @@ def collectUSCtx(nm, cb, ts) = if isTok(hd(ts), 2, 21) then parseParams(tl(ts), 
 // instance. A single bound is symmetric, which is exactly why it cannot catch this.
 def ctxTCs(cb) = ctxTCs1(cb, Nil)
 def ctxTCs1(cb, acc) = cb match { case Nil => acc case h :: t => ctxTCs1(t, Cons(h.substring(5, h.length), acc)) }
-def collectUS2(nm, ts) = if isTok(hd(ts), 2, 21) then parseParams(tl(ts), Nil) match { case (env, r) => collectUS3(nm, dlen(env), r) } else collectUsingSig(ts)
+def collectUS2(nm, ts) = if isTok(hd(ts), 2, 21) then paramsUntilU(ts, Nil) match { case (env, r) => collectUS3(nm, dlen(env), r) } else collectUsingSig(ts)
 // THE THIRD SITE with the same test, and it decides given INJECTION at the call site. A `(using …)`
 // clause on a continuation line was invisible here for the same reason it was invisible to emitDefU
 // and curried1: the layout's separator sits in front of the `(`. Without it `z(1)` injects nothing
@@ -2971,7 +3007,7 @@ def extensionItem(ts, cx) = extHeader(skipGen(tl(ts)), cx)
 def extOpenBrace(r) = if isTok(hd(r), 2, 28) then tl(r) else r
 def extHeader(ts, cx) = if isTok(hd(ts), 2, 21) then parseParams(tl(ts), Nil) match { case (renv, r) => extMembers(renv, skipSemisF(extOpenBrace(r)), cx, "") } else (("", ""), ts)
 def extMembers(renv, ts, cx, acc) = if isTok(hd(ts), 2, 29) then ((acc, ""), tl(ts)) else (if isTok(hd(ts), 2, 1) then extMember(renv, extMemberName(hd(tl(ts))), skipGen(tl(tl(ts))), cx, acc) else ((acc, ""), ts))
-def extMember(renv, mname, mts, cx, acc) = if isTok(hd(mts), 2, 21) then parseParams(tl(mts), renv) match { case (env, r) => extEmit(renv, mname, dlen(env), env, skipToEq(r), cx, acc) } else extEmit(renv, mname, dlen(renv), renv, skipToEq(mts), cx, acc)
+def extMember(renv, mname, mts, cx, acc) = if isTok(hd(mts), 2, 21) then paramsAllC(mts, renv) match { case (env, r) => extEmit(renv, mname, dlen(env), env, skipToEq(r), cx, acc) } else extEmit(renv, mname, dlen(renv), renv, skipToEq(mts), cx, acc)
 def extEmit(renv, mname, ar, env, bts, cx, acc) = emitDefBody(if memL(mname, mangleOf(cx)) then mname ++ "__ext_default" else mname, ar, env, bts, cx) match { case (d, r2) => extMembers(renv, skipSemisF(r2), cx, join2(acc, d)) }
 def collectExtMethods(ts) = if isEmpty(ts) then Nil else (if isExtensionHead(ts) then collectEM(skipGen(tl(ts))) else collectExtMethods(tl(ts)))
 def collectEM(ts) = if isTok(hd(ts), 2, 21) then parseParams(tl(ts), Nil) match { case (renv, r) => collectEMs(skipSemisF(extOpenBrace(r))) } else collectExtMethods(tl(ts))
@@ -3744,7 +3780,7 @@ def ccMethodNames(ms) = ms match { case Nil => Nil case h :: t => Cons(fst(h), c
 def ccMDefsMs(cname, flds, ms, cx) = ms match { case Nil => "" case h :: t => ccMDef(cname, flds, h, cx) ++ " " ++ ccMDefsMs(cname, flds, t, cx) }
 def ccMDef(cname, flds, m, cx) = m match { case (mname, defToks) => ccMDefP(cname, mname, flds, ccMParams(defToks), cx) }
 // params: `(p1, ..)` after the name -> parseParams (pushed onto [__self]); param-less `def m: T =` -> just __self.
-def ccMParams(defToks) = if isTok(hd(defToks), 2, 21) then parseParams(tl(defToks), Cons("__self", Nil)) else (Cons("__self", Nil), defToks)
+def ccMParams(defToks) = paramsAllC(defToks, Cons("__self", Nil))
 def ccMDefP(cname, mname, flds, pr, cx) = pr match { case (env, rest) => ccMDefBody(cname, mname, flds, env, skipToEq(rest), cx) }
 // TWO defs per method, and the second is the overload fix. `C_m` is the name every other site
 // already knows (sibling calls, the plain registration below); two same-named methods COLLIDE on it,
