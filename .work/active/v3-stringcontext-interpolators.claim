@@ -5,7 +5,7 @@ started: 2026-08-23T21:27:33Z
 heartbeat: 2026-08-23T21:27:33Z
 status: claimed-before-planning
 items: v3-an-interpolator-prefix-and-an-ordinary-function-share-one-namespace
-paths: file:v3/specs/60-compile-time-extension.md file:v3/SPRINT.md file:v3/BUGS.md file:v3/src/Parser.scala file:v3/src/Lower.scala file:v3/src/Ast.scala file:v3/src/AstText.scala file:v3/uniml/UniFront.scala file:v3/prelude/index.ssc file:std/html.ssc file:v3/rewrite-gate.sh file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/SpikeTyped.scala
+paths: file:v3/specs/60-compile-time-extension.md file:v3/SPRINT.md file:v3/BUGS.md file:v3/src/Parser.scala file:v3/src/Lower.scala file:v3/src/Ast.scala file:v3/src/AstText.scala file:v3/uniml/UniFront.scala file:v3/prelude/index.ssc file:std/html.ssc file:v3/rewrite-gate.sh file:v3/plugins/MarkerProbe.scala file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/SpikeTyped.scala
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
