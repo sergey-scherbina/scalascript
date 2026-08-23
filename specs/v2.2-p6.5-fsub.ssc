@@ -2029,7 +2029,31 @@ def parseAtBindBody(q, nm, ar, vs, ts, menv, cx) = armBodyExpr(tl(ts), appEnv(vs
 // and reuses its predicate so the two stay in step. That predicate also requires an UNGUARDED arm,
 // so `case _ :: t if g` keeps declining instead of starting to answer wrongly.
 // (v2-cons-pattern-with-a-wildcard-head-returns-a-closure.)
-def parseArm(ts, menv, cx) = if isConsArmHead(ts) then parseConsArm(ts, menv, cx) else (if isWild(hd(ts)) then parseWildArm(tl(ts), menv, cx) else (if fst(hd(ts)) == 3 then parseCtorArm(ts, menv, cx) else (if isTok(hd(ts), 2, 21) then parseTupArm(ts, menv, cx) else (if isBindArm(ts) then parseBindArm(ts, menv, cx) else (if isAtBindArm(ts) then parseAtBindArm(ts, menv, cx) else parseConsArm(ts, menv, cx))))))
+// A NAME LIKE `_Bar` IS A CONSTRUCTOR, not a binder, and F decides that in THREE places.
+//
+// The lexer gives every identifier a kind, and an underscore-led one is kind 1 (`id`) whatever
+// follows it — so `_Bar` never reached the kind-3 (`uid`) route that makes a constructor pattern.
+// Measured 2026-08-21: `case _Bar(x) =>` never matched (`_Bar(7)` fell through to the default) and a
+// bare `case _Bar =>` "matched" everything, because a binder does. Both are silent — a fall-through
+// arm answers, so the program runs and is wrong.
+//
+// THE RULE IS SCALA'S: a pattern identifier is a binder when it begins with a LOWERCASE letter and a
+// stable id otherwise. `_` is not a lowercase letter, so `_Bar` is a constructor, `_bar` is a binder
+// and `_1` is a binder. Leading underscores are skipped and the first ALPHABETIC character decides.
+//
+// APPLIED AT ALL THREE MOUTHS AND NOT IN THE LEXER. Re-kinding the token would move every other use
+// of such a name at once for no measured reason — `_Bar(7)` as an EXPRESSION already constructs
+// correctly. The three are `parseArm` (ordinary match), `parseGenArm` (the ordered resolver) and
+// `parsePatId` (the structured sub-pattern parser); the file's own comment at parseCtorArm calls them
+// the three mouths, and a fix in one is a language that disagrees with itself by surface form.
+//
+// FOUND FROM v2's OWN CODE: its runtime names the HTML raw-markup wrapper `_Raw` and matches it in
+// Scala, while a ScalaScript program could not — which is how `std/html.ssc` escaped text it was
+// asked to pass through (v2/BUGS.md v2-a-constructor-pattern-named-with-a-leading-underscore-…).
+def upperAfterUnders(nm, i) = if i >= nm.length then false else (if nm.charAt(i) == 95 then upperAfterUnders(nm, i + 1) else (if nm.charAt(i) >= 65 then nm.charAt(i) <= 90 else false))
+def isCtorHeadTok(t) = if fst(t) == 3 then true else (if fst(t) == 1 then upperAfterUnders(snd(t), 0) else false)
+
+def parseArm(ts, menv, cx) = if isConsArmHead(ts) then parseConsArm(ts, menv, cx) else (if isWild(hd(ts)) then parseWildArm(tl(ts), menv, cx) else (if isCtorHeadTok(hd(ts)) then parseCtorArm(ts, menv, cx) else (if isTok(hd(ts), 2, 21) then parseTupArm(ts, menv, cx) else (if isBindArm(ts) then parseBindArm(ts, menv, cx) else (if isAtBindArm(ts) then parseAtBindArm(ts, menv, cx) else parseConsArm(ts, menv, cx))))))
 // A single-line match-arm body can be a statement-position ASSIGNMENT (`case Left(e) => adA = adA`):
 // the front's finishAssignment (:1536) makes `id = e`/`id += e` an assign EXPRESSION, so it is the arm's
 // value. parseExpr alone stops at `=` (not a binop) and drops the RHS; armBodyExpr parses the assign when
@@ -2241,7 +2265,7 @@ def consArmUnguarded(pr) = pr match { case (p, r) => isTok(hd(r), 2, 30) }
 def isConsArmHead(ts) = if isTok(hd(tl(ts)), 2, 49) then consArmUnguarded(parsePatF(ts)) else false
 def parseGenCons(ts, menv, cx) = parseGenCons1(parsePatF(ts), menv, cx)
 def parseGenCons1(pr, menv, cx) = pr match { case (p, r) => parseNestedArm(p, r, menv, cx) }
-def parseGenArm(ts, menv, cx) = if isConsArmHead(ts) then parseGenCons(ts, menv, cx) else (if isParenConsArm(ts) then parseGenCons(ts, menv, cx) else (if isTypedArm(ts) then parseTypedArm(ts, menv, cx) else (if isWild(hd(ts)) then parseGenWild(tl(ts), menv, cx) else (if fst(hd(ts)) == 3 then parseGenCtorDisp(ts, menv, cx) else (if isUnitPatHead(ts) then parseGenUnit(tl(tl(ts)), menv, cx) else (if isTok(hd(ts), 2, 21) then parseGenTupDisp(ts, menv, cx) else (if isNumLitHead(hd(ts)) then parseGenInt(snd(hd(ts)), tl(ts), menv, cx) else (if isScalarLitHead(hd(ts)) then parseGenLit(hd(ts), tl(ts), menv, cx) else (if isAtBindArm(ts) then parseGenAtBind(ts, menv, cx) else parseGenVar(snd(hd(ts)), tl(ts), menv, cx))))))))))
+def parseGenArm(ts, menv, cx) = if isConsArmHead(ts) then parseGenCons(ts, menv, cx) else (if isParenConsArm(ts) then parseGenCons(ts, menv, cx) else (if isTypedArm(ts) then parseTypedArm(ts, menv, cx) else (if isWild(hd(ts)) then parseGenWild(tl(ts), menv, cx) else (if isCtorHeadTok(hd(ts)) then parseGenCtorDisp(ts, menv, cx) else (if isUnitPatHead(ts) then parseGenUnit(tl(tl(ts)), menv, cx) else (if isTok(hd(ts), 2, 21) then parseGenTupDisp(ts, menv, cx) else (if isNumLitHead(hd(ts)) then parseGenInt(snd(hd(ts)), tl(ts), menv, cx) else (if isScalarLitHead(hd(ts)) then parseGenLit(hd(ts), tl(ts), menv, cx) else (if isAtBindArm(ts) then parseGenAtBind(ts, menv, cx) else parseGenVar(snd(hd(ts)), tl(ts), menv, cx))))))))))
 // -- ctor-pattern arms in the ordered resolver (`case Ctor(x) [if g] => ..`) ----------------------
 // A ctor arm lowers to a ONE-arm IrMatch whose default is the ordered lowering of the REST, and (when
 // guarded) whose arm body is `(if g body <fallback>)` where the fallback is the ordered lowering of the
@@ -2364,7 +2388,7 @@ def parsePatConsF(pr) = pr match { case (h, r) => if isTok(hd(r), 2, 49) then pa
 def parsePatCons2(h, tpr) = tpr match { case (t, r) => (("cpat", ("Cons", Cons(h, Cons(t, Nil)))), r) }
 def parsePatAtomF(ts) = parsePatAtom1(hd(ts), ts)
 def parsePatAtom1(t, ts) = if fst(t) == 3 then parsePatUid(snd(t), tl(ts)) else (if fst(t) == 1 then parsePatId(snd(t), tl(ts)) else (if isTok(t, 2, 8) then (("lpat", ("bool", "true")), tl(ts)) else (if isTok(t, 2, 9) then (("lpat", ("bool", "false")), tl(ts)) else (if isTok(t, 2, 21) then (if isUnitPatHead(ts) then (("lpat", ("unit", "")), tl(tl(ts))) else parsePatTuple(tl(ts))) else (if fst(t) == 0 then (("lpat", ("int", snd(t))), tl(ts)) else (if fst(t) == 12 then (("lpat", ("int", snd(t))), tl(ts)) else (if fst(t) == 4 then (("lpat", ("str", snd(t))), tl(ts)) else (if fst(t) == 5 then (("lpat", ("float", snd(t))), tl(ts)) else (("wpat", ""), tl(ts))))))))))
-def parsePatId(v, ts) = if v == "_" then (("wpat", ""), ts) else (("vpat", v), ts)
+def parsePatId(v, ts) = if v == "_" then (("wpat", ""), ts) else (if upperAfterUnders(v, 0) then finishCtorPatF(v, ts) else (("vpat", v), ts))
 def parsePatUid(v, ts) = if isTok(hd(ts), 2, 31) then finishCtorPatF(snd(hd(tl(ts))), tl(tl(ts))) else finishCtorPatF(v, ts)
 def finishCtorPatF(tag, ts) = if isTok(hd(ts), 2, 21) then finishCtorP1(tag, tl(ts)) else (("cpat", (tag, Nil)), ts)
 def finishCtorP1(tag, ts) = if isTok(hd(ts), 2, 22) then (("cpat", (tag, Nil)), tl(ts)) else finishCtorP2(tag, goSubPatsF(ts))

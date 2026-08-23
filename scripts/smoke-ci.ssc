@@ -487,6 +487,13 @@ val suite = List(
   // ctor-first cell only the TRUE row can see the difference: both the broken and the fixed front
   // answer `no` on the false one.
   Check("v2", "f-guarded-arm", "tests/e2e/f-guarded-arm-gate.sh", List(), 400000),
+  // A CONSTRUCTOR PATTERN NAMED WITH A LEADING UNDERSCORE. `case _Bar(x) =>` never matched — the
+  // lexer kinds an underscore-led identifier as `id` and F makes a constructor only from `uid` — and
+  // both halves were SILENT: the arm fell through to the default, and a bare `case _Bar =>`
+  // "matched" everything because a binder does. Six rows, and the last three are the ones that keep
+  // an over-broad fix honest: `_bar`, `_1` and `_` must still bind or wild. Measured against the
+  // unfixed front, exactly the first two rows go red.
+  Check("v2", "underscore-ctor-pattern", "tests/e2e/underscore-ctor-pattern-gate.sh", List(), 200000),
   // Every anonymous std/ui signal is named `d<ordinal>:<owner>/<path>` where the ordinal is the
   // INDEX of the definition in program.defs — so a generated signal's identity depends on how many
   // definitions the front emitted before it. Three corpus files once reported the same refusal with
