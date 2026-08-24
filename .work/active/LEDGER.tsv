@@ -1,3 +1,4 @@
-# generation: 2860
+# generation: 2861
 #slug	agent	started	items	paths
 v2-corpus-reds-easy-fixes	claude-code	2026-08-23T21:28:45Z	corpus-roster-lists-a-case-whose-file-no-longer-exists js-emit-declares-an-identifier-twice-in-direct-syntax-demo v2-extension-receiver-is-typed-from-the-parameter-list	file:BUGS.md file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala file:v2/lib/ssc1-front.ssc0
+docs-interpolators-and-show	claude-code	2026-08-24T10:45:44Z	docs-update-stringcontext-and-show v2-user-defined-interpolator-does-not-resolve	file:SPEC.md file:docs/user-guide.md file:README.md file:v2/BUGS.md
