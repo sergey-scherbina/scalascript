@@ -790,6 +790,47 @@ ScalaScript frontend directly to the portable indent primitive. It does not
 resolve a global named `md`, load Scalameta, or call a host Markdown parser.
 Ordinary calls such as a user-defined `md(value)` remain lexical.
 
+#### Defining your own interpolator
+
+An interpolator is an extension method on `StringContext`, as in Scala. The
+literal parts arrive in `sc.parts`, the holes as the method's arguments, and
+parts are always one longer than holes:
+
+```scalascript
+extension (sc: StringContext)
+  def upper(args: Any*): String =
+    var out = ""
+    var i = 0
+    sc.parts.foreach { p =>
+      out = out + p.toUpperCase
+      if i < args.length then out = out + args(i).toString
+      i = i + 1
+    }
+    out
+
+val name = "ada"
+println(upper"hello $name, welcome")   // HELLO ada, WELCOME
+```
+
+Note which half is which: the LITERAL text is upper-cased and the interpolated
+value is not, because they arrive separately. That separation is the whole
+reason an interpolator is more than a function taking a finished string.
+
+**The prefix is not a global name.** The extension lifts to
+`StringContext.upper`, so a program may define both a `raw"…"` interpolator and
+an ordinary `raw(x)` function; they do not collide. A prefix nothing defines is
+refused by name.
+
+**A prefix a plugin claims is checked at compile time.** Where Scala reaches for
+a macro, a registered rewrite receives the parts and holes as syntax and may
+refuse with a source position — an `html"…"` can reject an unclosed tag while
+compiling rather than concatenate a broken string at run time. The mechanism is
+`v3/specs/60-compile-time-extension.md`; nothing in the kernel learns the prefix.
+
+*Implemented on the ScalaScript 3 fronts. The 2.1 reference implements the
+built-in prefixes in its own front and does not yet resolve a user-defined one
+(`v2/BUGS.md`, `v2-a-user-defined-interpolator-does-not-resolve`).*
+
 `doc(parts...)` keeps ordinary runtime values in source order; nested documents
 are flattened recursively when rendered, while empty nested documents add no
 text or separator. `render(value)` writes the resulting leaves separated by one
@@ -1263,6 +1304,29 @@ exact enum/sealed-hierarchy variant tag. Missing Optional/Prism targets return
 `None` and leave `set`/`modify` input unchanged. Arbitrary getter expressions,
 method calls, indexes, or filters are rejected explicitly; the standard
 launcher never falls back to Scala macros, reflection, or the v1 frontend.
+
+#### Printing: a value may name its own rendering
+
+A case class that declares a field named `_show` holding a `String` prints as
+that string, while staying an ordinary value in every other respect:
+
+```scalascript
+case class Money(amount: Int, _show: String)
+
+def money(a: Int): Money = Money(a, a.toString + " USD")
+
+println(money(42))          // 42 USD
+println(money(42).amount)   // 42
+```
+
+Without such a field a value prints structurally — `Money(42, 42 USD)` — as it
+always has. Only a `String` counts; a `_show` holding anything else falls back to
+the structural form rather than printing something arbitrary.
+
+Use it where a value's useful reading is not its layout. An optic prints
+`Lens(_.x)` instead of the two closures it carries for exactly this reason, and
+the `Focus`/`Prism` labels above are that rule at work rather than a special case
+in the printer.
 
 ### Enums
 

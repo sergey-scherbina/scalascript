@@ -14121,3 +14121,47 @@ named one. The four legal forms are untouched and answer exactly what they answe
 **FOUND WHILE FIXING THE SAME METHOD IN v3**, which knew only the all-named form. The two now agree
 on all seven shapes — v3 refusing at LOWERING with a position and v2 at run time with a sentence, a
 difference in WHEN and not in WHETHER.
+
+## v2-a-user-defined-interpolator-does-not-resolve — and the failure is not a refusal
+
+<!-- status: open
+     lane: v2-jvm
+     kind: bug
+     area: front
+     found-by: claude-code
+     found-at: 2026-08-24 -->
+
+**SPEC.md §5.7 says user-defined interpolators are extension methods on `StringContext`.** v3
+implements that. This lane does not, and what it does instead is worse than not implementing it:
+
+```scalascript
+extension (sc: StringContext)
+  def upper(args: Any*): String = sc.parts.mkString("").toUpperCase
+
+val name = "ada"
+println(upper"hello $name, welcome")
+```
+
+    v2   <closure>
+         0                  ← ONE println, TWO lines, neither of them the answer
+    v3   HELLO ada, WELCOME
+
+The program is accepted and produces output that has nothing to do with what it says. A refusal
+would cost the author a minute; this costs them the belief that it worked.
+
+**AND AN UNDEFINED PREFIX REFUSES BY NAMING AN INTERNAL SENTINEL:**
+
+    ssc: native frontend rejected incomplete parse in /tmp/x.ssc: structural CoreIR contains
+         parser sentinel _err
+
+against v3's `call to unknown function 'StringContext.upper'`. The second names something the author
+wrote; the first names something only the front knows about.
+
+**WHY THIS LANE DIFFERS AT ALL.** Its prefixes — `s`, `f`, `raw`, `md`, `html` — are FRONT
+constructs, built by `buildSInterp`/`buildHtmlInterp` and friends in `ssc1-front`, so an interpolation
+never becomes a call and there is nothing for a user's extension to be found by. That is also why
+`raw` is a built-in there while v3 leaves the name free.
+
+**FOUND WHILE WRITING DOCUMENTATION**, by running the example rather than proofreading it — the same
+rule that has caught shipping examples in this repository before. The docs now state which lane
+implements the rule instead of claiming it everywhere.

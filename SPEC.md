@@ -809,7 +809,69 @@ The expression inside `${...}` uses the ordinary ScalaScript expression
 grammar. Its nested parentheses, braces, and quoted strings are balanced before
 the outer interpolated string resumes.
 
-User-defined interpolators are extension methods on `StringContext`.
+User-defined interpolators are extension methods on `StringContext`. The literal
+parts arrive in `sc.parts` and the holes as the method's arguments; parts are
+always one longer than holes, so a definition can rely on the shape without
+checking it:
+
+```scalascript
+extension (sc: StringContext)
+  def upper(args: Any*): String =
+    var out = ""
+    var i = 0
+    sc.parts.foreach { p =>
+      out = out + p.toUpperCase
+      if i < args.length then out = out + args(i).toString
+      i = i + 1
+    }
+    out
+
+val name = "ada"
+println(upper"hello $name, welcome")   // HELLO ada, WELCOME
+```
+
+`s` remains built in. A prefix that is not defined is refused by name — the
+call it would have made is `StringContext.<prefix>`.
+
+**A prefix does not occupy a global name.** The extension lifts to
+`StringContext.upper`, so a program may have both `raw"…"` and an ordinary
+one-argument `raw(x)`; they are different names.
+
+**A prefix a compiler plugin claims sees its parts at COMPILE time.** Where
+Scala reaches for a macro, ScalaScript hands a registered rewrite the literal
+parts and the hole expressions as trees, so an interpolator can reject a
+malformed literal with a source position instead of building a wrong string at
+run time. See `v3/specs/60-compile-time-extension.md`.
+
+> **Implementation status.** The `StringContext` model is implemented on the
+> ScalaScript 3 fronts. The 2.1 reference implements the built-in prefixes in its
+> front and does not yet resolve a user-defined one — measured 2026-08-24 and
+> filed as `v2-a-user-defined-interpolator-does-not-resolve`.
+
+### 5.8 A value may name its own rendering
+
+A `case class` that declares a field named `_show` holding a `String` prints as
+that string. Everything else about it is unchanged — the field is readable like
+any other, and the class keeps its structural equality:
+
+```scalascript
+case class Money(amount: Int, _show: String)
+
+def money(a: Int): Money = Money(a, a.toString + " USD")
+
+println(money(42))          // 42 USD
+println(money(42).amount)   // 42
+```
+
+Without such a field a value prints structurally, as before. Only a `String`
+counts: a `_show` holding anything else falls back to the structural form rather
+than rendering something arbitrary — the field is a rendering, not a hook.
+
+**What it is for.** A value whose useful reading is not its layout: an optic
+prints `Lens(_.x)` rather than the four closures it carries, a money amount
+prints its currency, a handle prints what it points at. Before this rule the
+only values that could do so were host ones, which put every such type outside
+the language.
 
 ## 6. Module System
 

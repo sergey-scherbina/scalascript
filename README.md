@@ -307,6 +307,8 @@ separately-widthed capability, not wired up (see
 | Tuples | `val t = (1, "hello"); t._1` |
 | Bitwise operators | `a & b`, `a \| b`, `a ^ b`, `a << n`, `a >> n`, `a >>> n`, `~a` on `Int` |
 | String interpolation | `` s"Hello, $name" ``, `` s"${items.mkString(", ")}" `` (full expressions, including nested string literals), `` md"..." `` (self-hosted interpolation + indent stripping on ScalaScript 2.1 native VM/ASM/build-jvm; no Scalameta or host parser) |
+| User-defined interpolators | `extension (sc: StringContext) def upper(args: Any*)` → `` upper"…" ``; the prefix lifts to `StringContext.upper`, so it takes no global name and `` raw"…" `` can coexist with `raw(x)`. A prefix a plugin claims receives its parts as SYNTAX and can refuse at compile time — where Scala reaches for a macro |
+| Self-rendering values | a `case class` field named `_show` holding a `String` is what the value prints as — `Money(42, "42 USD")` prints `42 USD`, and an optic prints `Lens(_.x)` by the same rule |
 | Math | `math.sqrt`, `math.abs`, `math.pow`, `math.Pi`, … |
 | Extension methods | `extension (n: Int) def squared: Int = n * n`; imported symbolic operators dispatch on ADTs while primitive `Int` operators retain their built-in meaning |
 | Typeclasses | `trait Show[A]`, `given`, `summon[Show[Int]]`, context bounds |
