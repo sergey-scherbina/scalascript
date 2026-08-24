@@ -306,6 +306,31 @@ case class PrismOptic(test: Any, wrap: Any, _show: String):
   def reverseGet(x: Any): Any = wrap(x)
 ```
 
+## StringContext
+
+**AN INTERPOLATOR IS A METHOD ON A `StringContext`, exactly as in Scala** — `html"a${x}b"` is
+`StringContext(List("a", "b")).html(x)`, and an author defines one by writing
+
+```
+extension (sc: StringContext) def html(args: Any*): String = …
+```
+
+**THE CLASS IS A CARRIER AND NOTHING ELSE.** It holds the literal parts; the holes arrive as the
+method's arguments. Parts are always one longer than holes, as in Scala, so a definition can rely on
+the shape without checking it.
+
+**WHY THIS SHAPE AND NOT A GLOBAL FUNCTION**, which is what `pfx"…"` lowered to until 2026-08-23: a
+prefix was an ordinary global NAME, so a program could not have both `raw"…"` and a one-argument
+`raw(x)`, and a library defining `def html` took that name from every program. An extension on
+`StringContext` lifts to the dotted name `StringContext.html`, which no ordinary call can collide
+with. Nothing infers a type to make that work — the FRONT builds the receiver, so calling its method
+directly is knowledge rather than a guess, which is what keeps this clear of the type-dispatch
+decision `specs/ssc3-extensions.md` records (and of the revert behind it).
+
+```scalascript
+case class StringContext(parts: List[String])
+```
+
 ## HTML
 
 **`html"…"` and `raw(v)` live in [`std/html.ssc`](../../std/html.ssc)**, for the same reason the
@@ -350,7 +375,10 @@ def mdStrip(s: String): String =
     }
     body.map(l => if l.trim == "" then "" else l.substring(minIndent)).mkString("\n")
 
-def md(parts: List[String], args: List[Any]): String =
+extension (sc: StringContext)
+  def md(args: Any*): String = mdStrip(mdJoin(sc.parts, args))
+
+def mdJoin(parts: List[String], args: List[Any]): String =
   var out = ""
   var i = 0
   parts.foreach { p =>
@@ -358,5 +386,5 @@ def md(parts: List[String], args: List[Any]): String =
     if i < args.length then out = out + args(i).toString
     i = i + 1
   }
-  mdStrip(out)
+  out
 ```

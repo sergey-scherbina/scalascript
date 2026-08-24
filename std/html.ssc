@@ -5,6 +5,7 @@ description: The html"…" interpolator and its raw escape hatch, in ScalaScript
 package: std.html
 exports:
   - html
+  - htmlJoin
   - raw
   - htmlEscape
   - htmlValue
@@ -66,7 +67,10 @@ def htmlValue(v: Any): String =
     case HtmlRaw(x) => x.toString
     case other => htmlEscape(other.toString)
 
-def html(parts: List[String], args: List[Any]): String =
+extension (sc: StringContext)
+  def html(args: Any*): String = htmlJoin(sc.parts, args)
+
+def htmlJoin(parts: List[String], args: List[Any]): String =
   var out = ""
   var i = 0
   parts.foreach { p =>

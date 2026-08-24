@@ -203,6 +203,34 @@ Both lanes where the assertion is about behaviour (I-3): a rewrite that ran on o
 other is the two-front bug this pass exists to prevent. A gate that only proved the happy path would
 have caught none of the seven failures above.
 
+## Interpolators reach this door, and they are the one client Scala has an answer for
+
+`pfx"a${x}b"` is `StringContext(List("a","b")).pfx(x)` — Scala's model, taken on 2026-08-23 by the
+owner from three options. An author defines one exactly as in Scala:
+
+```scalascript
+extension (sc: StringContext) def html(args: Any*): String = …
+```
+
+**THE LIFT IS DOTTED AND THAT IS THE WHOLE FIX.** An extension on `StringContext` lifts to
+`StringContext.html`, not to a global `html`, so a prefix no longer occupies a name every program
+shares: `raw"…"` and a one-argument `raw(x)` now coexist, which they could not while a prefix was an
+ordinary global call.
+
+**AND IT COSTS NO TYPE DISPATCH, which v3 does not do.** `specs/ssc3-extensions.md` records the
+version that chose a method by the receiver's type and the revert that followed (N 188 → 130, CRASH
+0 → 131). Nothing here infers anything: when the front lowers `html"…"` it KNOWS the receiver is a
+`StringContext` because it just built it. Calling that receiver's method directly is knowledge, not a
+guess — which is why only this one receiver type gets the dotted lift and every other extension is
+untouched.
+
+**THE HALF SCALA DOES NOT HAVE.** If a rewrite is registered for the prefix, the front builds a
+`Marker` whose first argument is the list of literal parts and whose rest are the holes — as TREES,
+at compile time. A plugin can then check the parts and refuse with a position, where a runtime
+concatenation could only produce a wrong string. `v3/rewrite-gate.sh` proves the parts are readable
+rather than merely present: the probe answers how many parts a given interpolation had, which is a
+number no runtime concatenation can produce.
+
 ## Where this meets the effects machinery — and where it deliberately does not
 
 Asked by the owner on 2026-08-19, after `bridge-caller-cps` and `bridge-join-points` landed: does

@@ -249,6 +249,19 @@ declare -a KNOWN_CONF_V3_ONLY=(
 # TOP-LEVEL declaration itself is NOT one-sided: both fronts read it, which is why
 # `v3/tests/front/abstract-val-declares.ssc` needs no declaration at all.
 declare -a KNOWN_CONF_UNIML_ONLY=(
+  # ARRIVED WITH SOMEONE ELSE'S LANDING AND LEFT origin/main RED, 2026-08-23: `6fbafea93` added this
+  # case, and nothing declared it, so this gate and the ceiling `front-diff.sh` derives from it were
+  # both failing on main before this branch existed — measured from a control worktree at
+  # origin/main, not inferred. Declared here so the number means something again.
+  #
+  # THE GAP IS TWO LINES, and is v3's own parser rather than anything about currying itself:
+  #
+  #     class Box(n: Int):
+  #       def plus(a: Int)(b: Int): Int = n + a + b
+  #
+  # → `expected an expression, found class` at line 1. A curried member method makes v3's front fail
+  # at the CLASS, while the projection parses it. Filed as `v3-front-cannot-parse-a-curried-member-method`.
+  curried-def-member-methods
   curried-extern-import js-http-client-config
   actors-bounded-mailbox actors-process-info indent-block-statements
   actors-cluster-visibility

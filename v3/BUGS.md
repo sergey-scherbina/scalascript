@@ -1959,3 +1959,35 @@ mixed `copy` one line earlier.
 So this lands the day the rendering question is answered, together with it. The patch is kept with
 the claim rather than in the tree; re-deriving it is twenty lines in `Lower.copyFits` and the `copy`
 arm beside it.
+
+## v3-front-cannot-parse-a-curried-member-method — the projection parses it, v3's own front stops at the class
+
+<!-- status: open
+     lane: v3
+     kind: bug
+     area: front
+     gate: v3/front-capability-gate.sh (curried-def-member-methods is declared uniml-only)
+     found-by: claude-code
+     found-at: 2026-08-24 -->
+
+**TWO LINES:**
+
+    class Box(n: Int):
+      def plus(a: Int)(b: Int): Int = n + a + b
+
+    SSC3_FRONT=v3   ssc3: …:1:1: expected an expression, found class
+    uniml (default) parses it
+
+The refusal points at LINE 1, the `class` itself, which is what makes it read as a class problem
+rather than a currying one; the file parses the moment the member takes a single clause. A top-level
+curried `def` is fine on both fronts — it is the member position that fails.
+
+**FOUND WHILE MEASURING SOMETHING ELSE, and the way it surfaced is worth keeping.** `6fbafea93`
+(2026-08-23, a curried-def fix) added `tests/conformance/curried-def-member-methods.ssc` and declared
+nothing, so `front-capability-gate.sh` went red on `origin/main` — and with it the ceiling
+`front-diff.sh` derives from that list. I found it as a red on my own branch and could have declared
+it as mine; the control worktree at `origin/main` said otherwise. **A red inherited from main is not
+a red you caused, and the only way to tell is to run the gate on main.**
+
+The row is declared uniml-only now so the number means something again. The declaration comes OUT the
+day this parses.

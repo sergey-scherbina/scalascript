@@ -398,5 +398,43 @@ for bad in "9, x = 8" "x = 8, 9" "1, 2, 3, 4"; do
   else say ok "copy: p.copy($bad) refuses"; fi
 done
 
+# ── 17. AN INTERPOLATOR IS A `StringContext` METHOD — Scala's model, and the one thing it adds.
+# `html"a${x}b"` is `StringContext(List("a","b")).html(x)`, and an author defines one by writing
+# `extension (sc: StringContext) def html(args: Any*)`. The lift is DOTTED — `StringContext.html` —
+# which is the whole fix: a prefix no longer occupies a global name.
+I="$TMP/interp.ssc"
+printf 'extension (sc: StringContext)\n  def tag(args: Any*): String = "[" + sc.parts.mkString("|") + "]" + args.mkString(",")\n\ndef tag(v: Any): String = "plain " + v.toString\n\nprintln(tag"a${1}b")\nprintln(tag(7))\n' > "$I"
+iwant='[a|b]1
+plain 7'
+igot="$(timeout 60 $SSC3 run "$I" 2>"$TMP/e17")"; irc=$?
+ivia="$(timeout 180 $SSC3 run --bridge "$I" 2>/dev/null)"; ibrc=$?
+if [ $irc -ne 0 ] || [ "$igot" != "$iwant" ]; then
+  red "interp: executor rc=$irc [$(printf '%s' "$igot" | tr '\n' '/')] — $(grep -m1 '^ssc3:' "$TMP/e17" | cut -c1-100)"
+elif [ $ibrc -ne 0 ] || [ "$ivia" != "$iwant" ]; then
+  red "interp: bridge rc=$ibrc [$(printf '%s' "$ivia" | tr '\n' '/')]"
+else say ok "interp: a prefix and an ordinary function of the SAME NAME coexist, both lanes"; fi
+
+# THE PREFIX STILL HAS TO EXIST. An unknown one names itself rather than failing as something else.
+printf 'println(nosuch"a${1}b")\n' > "$TMP/i2.ssc"
+uerr="$(timeout 60 $SSC3 run "$TMP/i2.ssc" 2>&1 >/dev/null)"; urc=$?
+if [ $urc -eq 0 ]; then red "interp: an undefined prefix was accepted"
+elif ! grep -q "StringContext.nosuch" <<<"$uerr"; then
+  red "interp: an undefined prefix does not name itself — [$(cut -c1-110 <<<"$uerr")]"
+else say ok "interp: an undefined prefix refuses and names StringContext.nosuch"; fi
+
+# ── 18. THE PART SCALA DOES NOT HAVE: a claimed prefix reaches the compile-time door with its parts
+# as TREES. The probe's `parts` mode answers how many literal parts there were — a number no runtime
+# concatenation can produce, so a green row here is proof the plugin READ them rather than received a
+# string. Both fronts, because a marker built by only one is the divergence this door exists to avoid.
+printf 'println(probe"a${1}b${2}c")\n' > "$TMP/i3.ssc"
+pgot="$(SSC3_MARKER_PROBE=probe SSC3_MARKER_PROBE_MODE=parts timeout 60 $SSC3 run "$TMP/i3.ssc" 2>"$TMP/e18")"
+pu="$(SSC3_MARKER_PROBE=probe timeout 60 $SSC3 ast "$TMP/i3.ssc" 2>&1)"
+pv="$(SSC3_FRONT=v3 SSC3_MARKER_PROBE=probe timeout 60 $SSC3 ast "$TMP/i3.ssc" 2>&1)"
+if [ "$pgot" != "3" ]; then
+  red "interp: the compile-time parts count answered [$pgot], wanted 3 — $(grep -m1 '^ssc3:' "$TMP/e18" | cut -c1-90)"
+elif [ "$pu" != "$pv" ]; then
+  red "interp: the two fronts build different markers for one interpolation"
+else say ok "interp: a claimed prefix reaches the door with its parts as trees, one tree on both fronts"; fi
+
 if [ $fails -gt 0 ]; then echo "rewrite-gate: FAIL ($fails)"; exit 1; fi
 echo "rewrite-gate: OK"

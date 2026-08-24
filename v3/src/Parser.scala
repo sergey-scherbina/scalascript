@@ -1011,9 +1011,23 @@ object Parser:
     * on the shape without checking it. */
   def interpCallFor(pfx: String, raw: String, p: Pos): Expr =
     val (parts, exprs) = interpParts(raw, p)
-    Expr.Call(pfx, List(
-      Expr.Call("List", parts.map(s => Expr.StrLit(s, p)), p),
-      Expr.Call("List", exprs, p)), p)
+    val sc = Expr.Call("StringContext", List(Expr.Call("List", parts.map(s => Expr.StrLit(s, p)), p)), p)
+    // A REGISTERED REWRITE SEES THE PARTS AS TREES — the half of this design Scala does not have.
+    // A plugin claiming `html` is handed the literal parts and the hole expressions at COMPILE time
+    // and may refuse with a position, where a runtime concatenation could only produce a wrong
+    // string. `specs/60-compile-time-extension.md` is the door; this is one more spelling reaching
+    // it, and it is asked FIRST so a claimed prefix never becomes a call.
+    if Plugins.hasRewrite(pfx) then
+      Expr.Marker(pfx, Nil,
+                  Expr.Call("List", parts.map(s => Expr.StrLit(s, p)), p) :: exprs, p)
+    // SCALA'S MODEL, LITERALLY: `StringContext(parts).pfx(args…)`, with the holes spread so the
+    // author's signature is Scala's — `extension (sc: StringContext) def html(args: Any*)`.
+    //
+    // THE CALL IS DOTTED AND THAT IS THE POINT. `StringContext.html` is the name an extension on
+    // `StringContext` lifts to (see `parseExtension`), so a prefix never occupies a global name and
+    // `raw"…"` can coexist with a one-argument `raw(x)` — which is the defect this replaces. It also
+    // costs no type dispatch: the receiver is one this function just built.
+    else Expr.Call("StringContext." + pfx, sc :: exprs, p)
 
   private def interp(raw: String, p: Pos): Expr =
     val (parts, exprs) = interpParts(raw, p)
@@ -1888,10 +1902,23 @@ object Parser:
     var ts = skipBrackets(ts0)
     ts = expectPunct(ts, "(")
     val (rname, _, t1) = expectName(ts)
+    // THE RECEIVER TYPE, WHICH THIS USED TO THROW AWAY. It is read for exactly one purpose: an
+    // extension on `StringContext` is what an INTERPOLATOR is, and its lift is named
+    // `StringContext.m` rather than a bare `m` so the prefix never occupies a global name. That is
+    // the whole fix for `raw"…"` and `raw(x)` being unable to coexist.
+    //
+    // ONLY THAT TYPE. Every other extension lifts to the plain name exactly as before, because the
+    // general `v.m(args)` → `m(v, args)` rule needs it there — and because v3 deliberately does not
+    // choose a method by the receiver's TYPE (`specs/ssc3-extensions.md`; the version that did was
+    // reverted at N 188 → 130). Nothing here infers a type: the interpolator's receiver is one the
+    // FRONT builds, so calling its method directly is knowledge, not a guess.
+    val rtype = if isPunct(peek(t1), ":") then typeTextOf(t1.tail, skipType(t1.tail)) else ""
     var t2 = skipTypeAnn(t1)
     t2 = expectPunct(t2, ")")
     val recv = Param(rname, p)
-    def lift(d: Def): Def = d.copy(params = recv :: d.params)
+    def lift(d: Def): Def =
+      val named = if rtype == "StringContext" then d.copy(name = "StringContext." + d.name) else d
+      named.copy(params = recv :: named.params)
     if isId(peek(t2), "def") then
       val (d, t3) = parseDef(t2)
       (List(lift(d)), t3)

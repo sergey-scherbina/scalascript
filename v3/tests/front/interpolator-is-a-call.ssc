@@ -1,10 +1,16 @@
-// An interpolator is an ordinary CALL, so a program defines its own with no kernel change.
-// `pfx"a${x}b"` is `pfx(List("a", "b"), List(x))` — parts always one longer than args, as in Scala.
-def tag(parts: List[String], args: List[Any]): String =
-  parts.mkString("<") + "/" + args.mkString(",")
+// An interpolator is a METHOD ON A `StringContext`, exactly as in Scala, so a program defines its own
+// with no kernel change: `pfx"a${x}b"` is `StringContext(List("a", "b")).pfx(x)` and the holes arrive
+// as the method's arguments. Parts are always one longer than holes.
+//
+// THIS FIXTURE USED TO ASSERT THE OTHER SHAPE — `pfx(parts, args)`, an ordinary global call — and it
+// went red the day that shape was replaced. Migrated rather than deleted: what it tests is that an
+// interpolator is DEFINABLE IN A LIBRARY, which is as true as it was, and the spelling it pins is
+// now the one an author writes.
+extension (sc: StringContext)
+  def tag(args: Any*): String = sc.parts.mkString("<") + "/" + args.mkString(",")
 
-def twice(parts: List[String], args: List[Any]): String =
-  parts.mkString("") + parts.mkString("")
+extension (sc: StringContext)
+  def twice(args: Any*): String = sc.parts.mkString("") + sc.parts.mkString("")
 
 val x = 7
 val name = "ada"

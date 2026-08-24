@@ -262,6 +262,78 @@ and a `#i` after a name is a positional argument after a named one. *Done when:*
 in the corpus moves, and v3 and v2 agree on all seven forms — v3 refusing at lowering with a position
 and v2 at run time, which is a difference in WHEN and not in WHETHER.
 
+## ssc3-stringcontext-interpolators (claim `v3-stringcontext-interpolators`) — Scala's model, and one thing Scala does not have
+
+The owner's decision of 2026-08-23, from three options: take Scala's `StringContext` shape AND let a
+registered rewrite see the parts at COMPILE TIME.
+
+**WHAT IS WRONG TODAY.** `pfx"a${x}b"` lowers to `pfx(parts, args)` — an ordinary global call — so an
+interpolator's prefix IS a global function name. A program cannot have both `raw"…"` and a
+one-argument `raw(x)`, and a library that defines `def html` takes the name `html` from every program.
+Measured on 2026-08-21 while writing `std/html.ssc`, which spent two such names.
+
+**THE CONSTRAINT THAT SHAPES THE ANSWER, and it is a recorded decision rather than an opinion:** v3
+deliberately does NOT choose a method by the receiver's type. `specs/ssc3-extensions.md` and §51 of
+this file record the version that did and was REVERTED — `N 188 → 130, CRASH 0 → 131`, because an
+extension named `map` rewrote every `.map(…)` in the program. So the answer may not need type
+dispatch.
+
+**IT DOES NOT, AND THAT IS THE WHOLE TRICK: THE FRONT BUILDS THE RECEIVER ITSELF.** When the front
+lowers `html"…"` it knows — with no inference at all — that the receiver is a `StringContext`, because
+it just wrote it. So it can call the StringContext extension DIRECTLY, by a dotted name, and never
+put `html` in the global space:
+
+    html"a${x}b"   ──▶   StringContext.html(StringContext(List("a", "b")), x)
+
+    extension (sc: StringContext) def html(args: Any*): String = …      ← the author writes Scala
+
+Measured before planning: v3 already accepts a dotted top-level def (`def Foo.bar`, which is how
+class methods flatten), and varargs after a fixed parameter (`def show(sc: SC, args: Any*)`) with
+zero or many arguments. So the pieces exist.
+
+**[x] ALL SIX LANDED.** Corpus identical to a control on the same `origin/main` — exec 279/279,
+bridge 275/275 — and 13 gates green. The measurement cost two corrections worth keeping:
+
+- **A FIXTURE PINNED THE OLD MODEL AND HAD TO MIGRATE, NOT DIE.** `v3/tests/front/interpolator-is-a-call`
+  asserted `pfx(parts, args)` and went red the day that shape was replaced. What it tests — that an
+  interpolator is definable in a LIBRARY — is as true as it was, so it moved to the new spelling and
+  prints the same five lines byte for byte.
+- **A RED THAT LOOKED LIKE MINE WAS INHERITED FROM main.** `front-diff`'s one-sided ceiling failed,
+  and a control worktree at `origin/main` showed the gate was ALREADY failing there: `6fbafea93`
+  added a corpus case and declared nothing. Isolated to two lines — v3's own front cannot parse a
+  class with a curried member method — declared with that reason and filed as
+  `v3-front-cannot-parse-a-curried-member-method`. The only way to tell an inherited red from a
+  caused one is to run the gate on main.
+
+### The steps
+
+**[x] S1 — `StringContext` in the prelude**, a case class holding `parts`. Nothing else: it is a carrier.
+
+**[x] S2 — an extension REMEMBERS its receiver type.** `parseExtension` skips the type annotation today
+and lifts `def m` to a plain global `m`. It will capture the type, and when the receiver is a
+`StringContext` the lift is named `StringContext.m` instead. **Only that type**, so every other
+extension behaves exactly as it does now and the corpus cannot move: the general `v.m(args)` → `m(v,
+args)` rule needs the plain global name and keeps it.
+
+**[x] S3 — `interpCallFor` emits the method call**, in the shape above, with the holes SPREAD as varargs
+so the author's signature is Scala's. Both fronts get it for free: the projection calls this same
+function, which is why it exists.
+
+**[x] S4 — the two libraries move to the new spelling** — `std/html.ssc`'s `html` and the prelude's `md`
+— and `raw(v)` stops being an interpolator prefix at all, so the collision this claim is filed
+against is gone by construction. *Done when:* `content` and `std-ui-native-html-lambda` still pass on
+both lanes.
+
+**[x] S5 — THE PART SCALA DOES NOT HAVE.** If a rewrite is registered for the prefix, the front builds a
+`Marker` carrying the parts and the holes as TREES, so a plugin can check them at compile time and
+refuse with a position — `html"<p>$x"` can reject an unclosed tag where a runtime concatenation could
+only produce one. The door for this already exists (`specs/60-compile-time-extension.md`); this is one
+more spelling that reaches it.
+
+**[x] S6 — gate and measure.** A gate row per claim of this design: the Scala spelling works, a global
+`raw(x)` and a `raw"…"` interpolator coexist, an unknown prefix still refuses by name, and the
+compile-time check refuses with a position.
+
 ## ssc3-jvm-interop (claim `v3-jvm-interop`) — a JVM package is importable, from OUTSIDE the kernel
 
 The owner approved admitting `import scalascript.typeddata.{DatasetWire, DatasetWirePartition}`

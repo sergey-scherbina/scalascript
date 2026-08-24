@@ -400,8 +400,17 @@ object UniFront:
             // combinators come from. Its result type is what tells a following `.map` that the
             // receiver is still a `Parser`, so an extension chain resolves the same as its first
             // link did.
-            Def(d.name, param(r) :: d.params.toList.map(param), expr(d.body), pos(d.span),
-                d.tparams.toList, boundParams(d), retText(d.ret))))
+            // AN EXTENSION ON `StringContext` LIFTS TO A DOTTED NAME, and this is the projection's
+            // half of the rule v3's own parser applies in `parseExtension`. An interpolator IS such
+            // an extension — `html"…"` is `StringContext(parts).html(holes)` — so the lift must not
+            // occupy the global name `html`, or a prefix and an ordinary function of the same name
+            // still cannot coexist, which is the defect the whole change is for.
+            //
+            // MEASURED WHILE WRITING IT: with only v3's parser taught, `ssc3 ast` printed
+            // `def "StringContext.html"` on one front and `def "html"` on the other for the same
+            // file. One rule, two fronts, and the second is where it drifts.
+            Def(extLiftName(r, d.name), param(r) :: d.params.toList.map(param), expr(d.body),
+                pos(d.span), d.tparams.toList, boundParams(d), retText(d.ret))))
     case U.UnsupportedDecl(k, s)   => no("the declaration '" + k + "'", s)
 
   /** A 64-bit literal, or a POSITIONED refusal. `ssc` integers are 64-bit, so a literal outside
@@ -463,6 +472,17 @@ object UniFront:
   /** A declared result type as v3 keeps one: text, spaces removed, `None` when absent. */
   private def retText(rt: Option[U.TypeRef]): Option[String] =
     rt.map(_.text.replace(" ", "")).filter(_.nonEmpty)
+
+  /** The name an extension method lifts to: dotted for a `StringContext` receiver, plain otherwise.
+    *
+    * ONLY THAT TYPE, deliberately. Every other extension keeps the plain global name the general
+    * `v.m(args)` → `m(v, args)` rewrite needs, and v3 does not choose a method by the receiver's
+    * type — `specs/ssc3-extensions.md` records the version that did and the revert that followed
+    * (N 188 → 130, CRASH 0 → 131). An interpolator escapes that rule for a reason that is not a
+    * type inference at all: the FRONT builds the receiver, so it knows what it is. */
+  private def extLiftName(recv: U.Param, name: String): String =
+    if recv.tpe.map(_.text.replace(" ", "")).contains("StringContext") then "StringContext." + name
+    else name
 
   private def param(p: U.Param): Param =
     // BY-NAME, carried since 2026-08-08, and one field only because the grammar was fixed first.

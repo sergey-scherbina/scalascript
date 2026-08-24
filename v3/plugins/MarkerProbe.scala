@@ -44,6 +44,15 @@ object MarkerProbe:
       case "mint"    => Right(m.copy(name = name + "$ghost"))
       case "runaway" => Right(m)
       case "stamp"   => Right(Expr.StrLit(ctx.fresh(name), pos))
+      // THE INTERPOLATOR HALF: a claimed prefix arrives as a marker whose FIRST argument is the list
+      // of literal parts and whose rest are the holes — as TREES, at compile time. This mode answers
+      // how many parts there were, which is a number no runtime concatenation could have produced
+      // and therefore proof that the plugin READ them rather than received a string.
+      case "parts"   =>
+        m.args match
+          case Expr.Call("List", ps, _) :: _ => Right(Expr.IntLit(ps.length.toLong, pos))
+          case other => Left(Plugins.Refusal(
+            "the probe's parts mode wants an interpolation — `probe\"a${x}b\"`", pos))
       case _ =>
         val v = ctx.fresh(name)
         val arg = m.args.headOption.getOrElse(Expr.IntLit(0L, pos))
