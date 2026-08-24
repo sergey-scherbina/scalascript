@@ -11406,45 +11406,43 @@ kept every reference resolvable and shrank from a legal file each time.
 **Done when** the ten-line case above prints 15 and a conformance case covers pattern-in-a-class-
 method under `package:`, on the lanes that support it.
 
-## js-emit-declares-an-identifier-twice-in-direct-syntax-demo — `Identifier 'serve' has already been declared`
+## js-emit-declares-an-identifier-twice — an import alias collides with a top-level FUNCTION
 
 <!-- status: open
      kind: bug
      lane: js
      area: codegen
+     confirmed: yes
      gate: tests/conformance/run.sh -->
 
 ```text
-node: SyntaxError: Identifier 'serve' has already been declared
+direct-syntax-demo:  SyntaxError: Identifier 'serve' has already been declared
+mcp-client-invoke:   SyntaxError: Identifier 'mcpConnect' has already been declared
 ```
 
-`examples/direct-syntax-demo.ssc` emits JavaScript that declares `serve` twice at the same scope, so
-the module does not parse at all. Measured 2026-08-23 on a toolchain predating this session's work.
-One of the twelve rows of `corpus-contract-is-red-on-twelve-rows-and-the-freeze-is-global`.
+TWO of the twelve corpus rows, ONE defect. The emitted module contains both the imported module's
+own definition and an alias bound to the same name:
 
-**Done when** the emitted JS parses and the case runs on `js`.
+```javascript
+function serve(port, _tlsCfg) { … }     // std/http.ssc, emitted flat
+const serve = std.http.serve;           // the import alias — illegal in the same scope
+```
 
-## corpus-roster-lists-a-case-whose-file-no-longer-exists — `mcp-client-invoke`
+**THE GUARD FOR THIS ALREADY EXISTS AND COVERS ONE SPELLING.** `JsGen` suppresses the alias when the
+name is in `declaredBindings` or `topLevelConsts` — added when the very same `SyntaxError` was
+reported for `org`. `topLevelConsts` holds names bound as `const`; a collision against a top-level
+`function` is invisible to it.
 
-<!-- status: open
-     kind: apparatus
-     lane: apparatus
-     area: conformance
-     gate: tests/e2e/freeze-consistency-gate.sh -->
+**TWO CORRECTIONS TO MY OWN EARLIER ENTRY, both measurement errors rather than defects.** I first
+filed `mcp-client-invoke` as a case whose FILE NO LONGER EXISTS: the file is
+`tests/conformance/mcp-client-invoke.ssc` and I had looked only in `examples/`. The
+`SyntaxError: Unexpected identifier 'BUILD'` I cited as evidence was the words "STALE BUILD" from a
+warning on stderr, which my `2>&1 | node` fed to the parser as source. That entry is deleted; this
+one replaces it. **A pipeline that merges stderr into an interpreter turns any warning into a syntax
+error at a line number that means nothing.**
 
-`tests/conformance/contract-roster.tsv` line 233 names `mcp-client-invoke`. There is no
-`examples/mcp-client-invoke.ssc` and no `tests/conformance/mcp-client-invoke.ssc`; the lane run
-answers `Error: File not found: examples/mcp-client-invoke.ssc`.
-
-It was frozen as `* SKIP`, which is how a missing file reads to the runner, and the contract now
-reports it as a REGRESSION row — so a case that has been DELETED shows up as a case that broke.
-`contract.sc` computes `removedCases` and this row is what it is for; the freeze predates the
-deletion.
-
-One of the twelve rows of `corpus-contract-is-red-on-twelve-rows-and-the-freeze-is-global`.
-
-**Done when** either the example is restored or the roster row is dropped, and a deleted case is
-reported as REMOVED rather than as a regression.
+**Done when** both cases run on `js`, with the guard asking about every top-level name rather than
+about consts alone.
 
 ## corpus-contract-is-red-on-twelve-rows-and-the-freeze-is-global — adding one case ratifies the lot
 
@@ -11477,6 +11475,12 @@ skipped them, this one did not. That smells of environment (a dependency present
 rather than of code, and it is the first thing to check. The other nine were PASS at the freeze and
 are FAIL now, which environment explains less comfortably.
 
+> **AND THE THIRD ONE WAS NOT ENVIRONMENTAL.** `mcp-client-invoke` is frozen `* SKIP` like the other
+> two and is a real js codegen defect — the emitted module declares an identifier twice, so it never
+> parsed. `* SKIP` → `FAIL` narrowed twelve rows to three worth suspecting environment for, and then
+> two of those three were environment and one was code. It is a filter, not a verdict, and this
+> entry claimed more for it than it earns.
+
 **THE PART THAT IS APPARATUS, AND THE REASON THIS IS FILED AT ALL:** the freeze is GLOBAL and its
 only writer is a full-corpus run. Adding ONE conformance case makes `freeze-consistency` fail until
 the roster gains a row — and `--update-baseline`, the sanctioned way to add it, rewrites
@@ -11486,25 +11490,23 @@ like a routine roster refresh.** It nearly happened here; `v2-curried-def-partia
 instead appended the single roster name and left `baseline-sha256` untouched, after reproducing both
 existing digests byte-for-byte to prove the serialization matched the tool's own.
 
-**ALL TWELVE ARE NOW ATTRIBUTED, 2026-08-23**, and they are FIVE causes rather than one state:
+**ALL TWELVE ARE NOW ATTRIBUTED, 2026-08-23**, and they are FOUR causes rather than one state:
 
 | rows | cause |
 |---|---|
 | 7 × `scljet-*` (v2) | `v2-package-frontmatter-hides-a-case-class-from-a-pattern-inside-a-class-method` — every scljet module declares `package: scljet`, and `jvm-vfs.ssc` matches its own `JvmVfsRead` inside a class method |
 | 1 × `extensions` (v2) | `v2-extension-receiver-is-typed-from-the-parameter-list` |
 | 2 × `agent-mcp-toolsource`, `mcp-client-discover` (js) | an MCP worker deadline expires — these need a server, which is why the reference host SKIPPED them and this one ran them |
-| 1 × `direct-syntax-demo` (js) | `js-emit-declares-an-identifier-twice-in-direct-syntax-demo` |
-| 1 × `mcp-client-invoke` (js) | `corpus-roster-lists-a-case-whose-file-no-longer-exists` — the file is gone; a DELETED case reads as a regression |
+| 2 × `direct-syntax-demo`, `mcp-client-invoke` (js) | `js-emit-declares-an-identifier-twice` — one defect, not two: an import alias collides with a top-level FUNCTION |
 
-**Only two of the twelve are environmental**, and they are exactly the ones whose baseline row is
-`* SKIP` rather than a status: a case the reference host never ran. The `* SKIP` → `FAIL` transition
-is the signature of "your host has a dependency the freeze host lacked", and it is worth reading
-before suspecting code — it was right twice here and wrong nowhere.
+**Only two of the twelve are environmental.** Both have a `* SKIP` baseline row — a case the
+reference host never ran — but so does `mcp-client-invoke`, which is code. The `* SKIP` → `FAIL`
+transition narrows where to look and decides nothing: three candidates, two of them environment.
 
-Nine of the twelve are real defects in this tree, each filed with its own repro. Nothing about them
-justifies re-freezing: a freeze would mark nine known defects as expected.
+**Ten of the twelve are real defects in this tree**, each filed with its own repro. Nothing about
+them justifies re-freezing: a freeze would mark ten known defects as expected.
 
-**Done when** the nine coded causes are fixed or deliberately frozen with that reason recorded, and
+**Done when** the ten coded causes are fixed or deliberately frozen with that reason recorded, and
 the two environmental rows are either given their dependency or re-declared as SKIP by the case
 itself rather than by the host. The apparatus half is done when adding a case no longer requires
 re-freezing the corpus: a roster-only append is the operation that was actually needed, and

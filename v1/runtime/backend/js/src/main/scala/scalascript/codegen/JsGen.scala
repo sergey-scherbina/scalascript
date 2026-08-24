@@ -2693,9 +2693,29 @@ class JsGen(
         // `declaredBindings` only tracks bindings emitted by THIS loop, so it could not see the
         // namespace const. When the name is already the top-level namespace there is nothing to
         // bind: `org.example.ui.Card.render(…)` resolves through the object that is already there.
+        // A FOURTH GUARD, and it is the same defect one spelling further along. The `org` fix above
+        // asks `topLevelConsts`, which holds names bound as `const`; the collision that broke
+        // `direct-syntax-demo` and `mcp-client-invoke` was against a top-level FUNCTION:
+        //
+        //     function serve(port, _tlsCfg) { … }     // the runtime's own declaration
+        //     const serve = std.http.serve;           // this line
+        //     SyntaxError: Identifier 'serve' has already been declared
+        //
+        // THE RUNTIME's declarations, and ONLY those. `serve` comes from ws-server.mjs and
+        // `mcpConnect` from mcp.mjs, and the census that feeds `usedTopLevelJsNames` deliberately
+        // SKIPS runtime names so it will not rename them — which makes exactly these collisions
+        // invisible to every set the guard already asked.
+        //
+        // ASKING `usedTopLevelJsNames` TOO WAS TRIED AND IS WRONG, measured in one run: it holds
+        // names from every module WALKED, and a module can be walked without its definitions being
+        // emitted into this output, so the alias is then the only binding there is. Both cases went
+        // from `SyntaxError: Identifier 'serve' has already been declared` to
+        // `ReferenceError: jsonCoreRender is not defined` — a parse error traded for a missing
+        // binding. The runtime set has no such gap: what it names is always emitted.
         if targetJsName != localJsName && !notExported
            && !declaredBindings.contains(localJsName)
-           && !topLevelConsts.contains(localJsName) then
+           && !topLevelConsts.contains(localJsName)
+           && !JsGen.runtimeTopLevelNames.contains(localJsName) then
           declaredBindings += localJsName
           line(s"const $localJsName = $targetJsName;")
     }
