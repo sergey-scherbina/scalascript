@@ -1,4 +1,5 @@
-# generation: 2877
+# generation: 2878
 #slug	agent	started	items	paths
 rust-survey-baseline	claude-code	2026-08-25T20:17:04Z	rust-std-survey-baseline-missing-two-std-modules	file:tests/rust-std-survey-baseline.tsv file:tests/BUGS.md file:tests/SPRINT.md
 js-preamble-raw	claude-code	2026-08-25T20:23:21Z	js-preamble-collision-gate-red-on-std-html-raw	file:tests/e2e/js-preamble-collision-gate.sh file:tests/BUGS.md file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala
+install-sh-gate-stat	claude-code	2026-08-25T20:33:58Z	install-sh-reports-failure-gate-self-check-uses-a-bsd-only-stat	file:tests/e2e/install-sh-reports-failure-gate.sh file:tests/BUGS.md
