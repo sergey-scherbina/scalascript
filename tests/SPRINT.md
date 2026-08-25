@@ -3,7 +3,8 @@
 This module's queue. **Two states and no third:** `[~]` in progress, `[x]` done. Anything not being
 worked on belongs in `tests/BACKLOG.md`. Layout: [`../specs/work-tracking-layout.md`](../specs/work-tracking-layout.md).
 
-- [~] **THE SMOKE JOB CAP IS UNDER THE SUITE AGAIN** (claim `smoke-job-cap`, BUGS
+- [x] **THE SMOKE JOB CAP IS UNDER THE SUITE AGAIN** — LANDED 2026-08-25 as `a6818c2cc`; run
+      32847621107 completed in 25.6 min on a slower host (probe 279 ms), suite 113/113 in 1350.3 s. (claim `smoke-job-cap`, BUGS
       `smoke-job-cap-no-longer-looser-than-the-suite`). The 2026-08-15 fix held ten days and the
       suite grew back. Measured 2026-08-25 from run 32842423639 (`af87dfd8f`, killed at the cap):
       job cap `timeout-minutes: 30`; setup before the suite starts 11:27:47 -> 11:34:38 = **6.9

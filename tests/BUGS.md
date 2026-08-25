@@ -1717,14 +1717,22 @@ trusting the planted case.
 
 ## smoke-job-cap-no-longer-looser-than-the-suite — 17 of 100 pushes reached no verdict, every one killed at the 30-minute job cap
 
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: build
      kind: bug
      gate: .github/workflows/smoke.yml
      reported-by: claude-code
      reported-at: 2026-08-15
-     confirmed: yes -->
+     confirmed: yes
+     fixed-in: a6818c2cc -->
+
+**FIXED 2026-08-25 in `a6818c2cc`** with BOTH levers — thirteen more gates off the push path and
+`timeout-minutes` 30 → 45. Verified on a real push run, not locally: run **32847621107** on
+`a6818c2cc` COMPLETED at **25.6 min** (12:26:46 → 12:52:22) where the previous push was killed at
+30, and it did so on a SLOWER host — probe 279 ms against the 241 ms of the run that died. The suite
+inside it: **113/113 green in 1350.3 s of an 1812 s budget**, 23 optional not run. See the dated
+section at the end of this entry for the decision and the numbers behind it.
 
 **The cap has a rule written beside it, and the rule is now broken.** `.github/workflows/smoke.yml`
 sets `timeout-minutes: 30`, and the comment above that line states what it must obey:
@@ -1887,6 +1895,64 @@ when ten are, since `--list` is what a reader consults to know what a push runs.
 
 **Verified by the suite's own reader, not by grep:** `scripts/smoke-ci --list` reports 114 checks
 with exactly 10 marked optional — the nine here plus the pre-existing `stdin-ownership`.
+
+### 2026-08-25 — it grew back in ten days. DECIDED by Sergiy: BOTH levers this time
+
+The move above worked and did not last. Run **32842423639** (`af87dfd8f`) was killed at the cap:
+
+| | 2026-08-15, after the move | 2026-08-25 |
+|---|---|---|
+| suite | ~845 s | — |
+| derived budget, CI host | ~1095 s ≈ 18.2 min | **1717 s = 28.6 min** |
+| setup before the suite starts | — | **6.9 min** (11:27:47 → 11:34:38) |
+| at the kill | — | **94 of 136 checks** logged in 23.4 min, still running |
+| rule: cap > budget + build | 25.2 min under a 30 cap | **35.6 min under a 30 cap** |
+
+Successful runs sit at 25.4–28.6 min and cancelled ones at 30.3–30.4 — the distribution straddles
+the cap, which is what makes a green a coin flip rather than a verdict. `0c71bfe45` and `7c048a081`
+died the same way. **Ten days and 23 checks is the half-life of a three-minute margin.**
+
+**LEVER 1 — thirteen more gates leave the push path**, the same two families as last time, 661.1 s
+(11.0 min) on the CI host of that run:
+
+| gate | s | | gate | s |
+|---|---|---|---|---|
+| `f-plain-class` | 75.8 | | `f-for-tuple` | 45.4 |
+| `f-guarded-arm` | 72.1 | | `f-placeholder-ctor` | 45.1 |
+| `f-private-member` | 67.0 | | `ui-provider-gap` | 40.4 |
+| `ui-select-from` | 64.7 | | `f-front-cache` | 35.6 |
+| `f-context-bounds` | 63.5 | | `ui-computed-signal` | 28.8 |
+| `f-triple-interp` | 56.1 | | `nativeui-annotation` | 14.9 |
+| `f-ui-signal-counter` | 51.7 | | **total** | **661.1** |
+
+`optional` in `scripts/smoke-ci.ssc` AND a named step in `ci.yml`'s tier-2 job, because `optional`
+alone is deletion wearing a flag — `ci.yml` does not run `smoke-ci`, it carries its own gate list.
+
+**LEVER 2 — `timeout-minutes` 30 → 45**, which 2026-08-15 deliberately did not do. The reason it is
+right NOW and was not THEN is in the table above: moving work off restores the rule, and it restored
+it to a three-minute margin that nothing in `smoke-ci.ssc` protects. 45 puts ~18 min between the
+job's real duration (~27 min after lever 1) and the cap, so the next decay is visible for weeks
+before it is fatal instead of for days. The measurement that says when this number is wrong is
+unchanged: the suite's own budget, which a job killed at the cap never lives to print.
+
+**Verified by the suite's own reader:** `scripts/smoke-ci --list` reports 136 checks with exactly
+**23** marked optional — the nine from 2026-08-15, the pre-existing `stdin-ownership`, and these
+thirteen. Both workflows parse under `yq`, and the new `ci.yml` step is registered under the name
+`F-front and UI gates — moved off the push path 2026-08-25`.
+
+**Verified where it counts — a real push run, not a local one.** Run **32847621107** on
+`a6818c2cc`:
+
+| | the run that died (32842423639) | the run that fixed it (32847621107) |
+|---|---|---|
+| host probe | 241 ms | **279 ms — slower** |
+| checks run | 94 of 136 when killed | **113/113 green** |
+| suite | still running at 23.4 min | **1350.3 s = 22.5 min** of an 1812 s budget |
+| job | killed at 30 min | **completed in 25.6 min** |
+| verdict | `cancelled` — RED, no evidence in it | **success** |
+
+The slower host is the part worth keeping: the fix is not "we got a fast runner". Margin to the new
+cap is 19.4 min, against the ~3 min that 2026-08-15 bought and that decayed in ten days.
 ## f-trait-parent-list-comma — `extends A, B` left the second parent in the token stream
 
 <!-- status: fixed
