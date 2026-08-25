@@ -14253,10 +14253,12 @@ from the declaration side. Re-measured against the same build:
     def up(p: Int, xs: Any*): String = xs.length.toString
     println(up(1, 7, 8))                                    // 2 — a fixed parameter is FINE
 
-The `TYPEERR` I had attributed to the fixed parameter came from the BODY of the probe, which also
-concatenated strings. It is a real defect, but a different one, and it is filed on its own as
-`v2-a-string-concat-on-a-vararg-expression-picks-the-int-plus`. Building a diagnosis on it would have
-sent the fix to the parameter-list code, where nothing was wrong.
+The `TYPEERR` I had attributed to the fixed parameter came from the ARGUMENT COUNT of the probe's
+call, not from its parameter list. It is a real defect, but a different one, and it is filed on its
+own as `v2-a-vararg-call-with-more-args-than-parameters-is-refused-by-the-checker` (filed first under
+the wrong title, `…-string-concat-…-picks-the-int-plus`, which is what the sentence here used to
+name). Building a diagnosis on it would have sent the fix to the parameter-list code, where nothing
+was wrong — and in fact the fix landed in the CHECKER, in neither front.
 
 ⚠️ **THE FIRST PROBE SAID IT WORKED**, because its body never touched `args`:
 
@@ -14295,45 +14297,69 @@ carries a row for each face for that reason.
 reverted to its pre-fix state and the launcher rebuilt, 6 of its 9 rows fail and the 3 ordinary-vararg
 control rows stay green.
 
-## v2-a-string-concat-on-a-vararg-expression-picks-the-int-plus
+## v2-a-vararg-call-with-more-args-than-parameters-is-refused-by-the-checker
 
 <!-- status: open
-     lane: v2-jvm
+     lane: native
      kind: bug
      area: front
+     gate: tests/e2e/vararg-arity-gate.sh
      found-by: claude-code
      found-at: 2026-08-25 -->
 
-**Inside a function with a vararg parameter, a String `+` whose operand is an expression MENTIONING
-that parameter is typed as the Int `+` and refused.** Binding the same expression to a `val` first
-makes it compile.
+> Filed 2026-08-25 as `v2-a-string-concat-on-a-vararg-expression-picks-the-int-plus`; renamed the
+> same day, because that title named the first probe's shape and not the defect. The original
+> report is kept below, demoted.
+
+**A call to a trailing-vararg def with more arguments than the def has parameters is refused by the
+CHECKER, whenever the def's result type is known.** Both lanes EXECUTE the call correctly — this is
+a refusal, not a miscompile.
 
 ```scalascript
-def c(xs: Any*): String = xs.length.toString + "!"     // TYPEERR: cannot unify String: String vs (Int -> t3)
-def c(xs: Any*): String =
-  val n = xs.length.toString
-  n + "!"                                              // 2! — the same expression, bound first
+def c(xs: Any*): String = "a"
+def main(): Unit = println(c(1, 2))   // TYPEERR: cannot unify String: String vs (Int -> t3)
 ```
 
-**THE FOUR PROBES THAT LOCATE IT.** Each changes one thing from the failing line, so the surviving
-suspect is named by the table rather than guessed:
+`c(1)` passes and `c(1, 2)` does not, so **the cap is the parameter COUNT**. `def f(n: Int, xs: Any*)`
+caps at two.
 
-| probe | body | verdict |
+**THE PROBES.** Measured on a toolchain rebuilt from `050d48012` — the installed one was from
+`93711fc08`, *before* `82e48357a`, so the first matrix taken for this entry measured the old code.
+
+| `def c(xs: Any*)` body | `c(1, 2)` | why |
 |---|---|---|
-| the failure | `xs.length.toString + "!"` | TYPEERR |
-| operand order | `"n=" + xs.length.toString` | TYPEERR — not about which side |
-| numeric `+` | `xs.length + 1` (`: Int`) | `3` — only the String `+` |
-| not a vararg | `ys: List[Any]`, same body | `2!` — only under a vararg parameter |
-| bound first | `val n = …; n + "!"` | `2!` — only when the operand mentions `xs` |
+| `: String = "a"` | TYPEERR | result type known |
+| `: Int = 1 + 2` | TYPEERR `Int: Int vs (Int -> t3)` | not about String, and not about `+` |
+| `: String = if xs.length > 0 then "a" else "b"` | TYPEERR | reads `xs`, still refused |
+| `: String = xs.length.toString` | **runs** | body ends in a `sel` |
+| `: Int = xs.length + 1` | **runs** | same |
+| `: String = "a"`, called `c(1)` | **runs** | one argument, one parameter |
 
-`(Int -> t3)` in the message is the Int `+` — a method taking an Int — so the checker resolved the
-operator against `Int` and then could not unify the annotated `String` result. `.toString` on a
-vararg-derived expression is not carrying its result type to the operator.
+**ROOT CAUSE.** `ssc1-check-run.ssc0` runs `parse(src)` and then `ssc1TypeCheck(stmts)` — it checks
+the AST *before* `ssc1-lower`'s `packVarargsArgs` packs a call's trailing arguments into one list.
+`ssc1inferAppArgs` applied the arguments one at a time, so the second argument was applied to the
+def's RESULT type. `ssc1inferE` types a `sel` as `TyDyn` and TyDyn unifies with anything, so the
+surplus application was absorbed in silence for exactly the bodies that end in a selection — which is
+most real code, and is why this was invisible.
 
-**WHY IT SURVIVED THIS LONG.** It hides behind the workaround: real code binds intermediate values,
-so a vararg body written normally never trips it. `SPEC.md` §5.7's interpolator accumulates into a
-`var` and compiles for exactly that reason.
+It is the CALL side of what `ssc1-front.ssc0`'s "A TRAILING-VARARG DEF IS NOT REGISTERED" note
+(:2237) fixed on the declaration side: that change stopped a *signature* from fixing an arity and
+left the arity the inferred function type imposes, one arrow per parameter. That note's own claim
+that "a def whose ONLY parameter is a vararg was never registered and always worked" is true of the
+registry and false of the program — `def c(xs: Any*): String = "a"` never worked.
 
-**FOUND WHILE FIXING** `v2-varargs-in-an-extension-bind-to-the-last-argument`, as the leftover red in
-that entry's probe matrix once the extension defect was gone — and it is what the corrected paragraph
-in that entry had been misread as.
+**NOT AFFECTED, and each was measured rather than assumed:** extension methods (`"x".tag(1, 2)`) and
+object methods (`O.m(1, 2)`) go through the `sel` arm, which is TyDyn and never reaches this path;
+`SSC_FRONT=legacy` agrees with F on every row that runs, so neither lowerer has this defect.
+
+### Original report (superseded 2026-08-25)
+
+**It was filed as:** inside a function with a vararg parameter, a String `+` whose operand MENTIONS
+that parameter is typed as the Int `+` and refused, with `val`-binding the operand as the workaround.
+
+**Both halves were wrong.** `def c(xs: Any*): String = "a" + "b"` does not mention `xs` and is
+refused too; `def c(xs: Any*): Int = xs.length + 1` mentions it, uses `+`, and runs. The `val`
+workaround worked because binding changed the *result* type of the body to a `sel`-derived TyDyn,
+not because it moved the operand. The probe table was five rows that all varied the body and never
+varied the argument COUNT, which is the one axis that decides the verdict.
+

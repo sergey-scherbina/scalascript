@@ -367,11 +367,122 @@ def ssc1inferLam = (env, s, ps, body) =>
       }
   }
 
+-- ── Trailing-vararg call arity ────────────────────────────────────────────────
+-- A def whose LAST parameter is `T*` binds that parameter as ONE list value, but the parser hands a
+-- call's arguments over UNPACKED, so `c(1, 2)` reaches a one-parameter function as two arguments.
+-- `ssc1-lower` packs them (packVarargsArgs) and F does the same, so BOTH lanes execute these calls
+-- correctly. The checker runs on the parsed AST, BEFORE that packing, and applied the arguments one
+-- at a time — so the second argument was applied to the def's RESULT type:
+--
+--     def c(xs: Any*): String = "a"    c(1, 2)  ->  cannot unify String: String vs (Int -> t3)
+--
+-- IT ONLY FIRES WHEN THE RESULT TYPE IS KNOWN, and that is why it survived so long. A body ending in
+-- a selection (`xs.length`, `xs.head`) is typed TyDyn, TyDyn unifies with anything, and the surplus
+-- application was absorbed in silence — `def c(xs: Any*): String = xs.length.toString` passed while
+-- the literal body above did not. The defect was first filed as a String-concatenation bug for
+-- exactly that reason; `+` is not involved, and neither is the body.
+--
+-- This is the CALL side of what `ssc1-front.ssc0`'s "A TRAILING-VARARG DEF IS NOT REGISTERED" note
+-- (:2237) fixed on the declaration side. That change stopped a signature from fixing an ARITY, and
+-- left the arity that the inferred function type itself imposes — one arrow per parameter.
+--
+-- KEYED BY BARE NAME, deliberately: `isVarargDef` in ssc1-lower keys its packing the same way, and
+-- the checker has to accept exactly what the lowerer emits. Where the two could disagree — a
+-- top-level def sharing a name with an object member's vararg — they now disagree identically.
+def ssc1chkVaCell = #cell.new(Nil)
+
+def ssc1chkVaIsDef = (nm, xs) =>
+  match xs {
+    case Nil => false
+    case Cons(n, rest) => if #seq(n, nm) then true else ssc1chkVaIsDef(nm, rest)
+  }
+
+-- lead = the number of parameters BEFORE the vararg; -1 = "not a trailing-vararg def".
+def ssc1chkVaLookup = (nm, reg) =>
+  match reg {
+    case Nil => #i.neg(1)
+    case Cons(h, rest) =>
+      match h { case Pair(k, v) => if #seq(k, nm) then v else ssc1chkVaLookup(nm, rest) }
+  }
+
+def ssc1chkVaLeadOf = (f) =>
+  match f {
+    case Pair(tag, data) =>
+      if #seq(tag, "var") then ssc1chkVaLookup(data, #cell.get(ssc1chkVaCell))
+      else #i.neg(1)
+  }
+
+-- Pass 1 records `lead` for the vararg defs the PARSER flagged; the parameter list is right here, so
+-- nothing has to be added to ssc1-front to carry it. Context-dict params are filtered for the same
+-- reason ssc1chkTopStmts filters them: the caller does not write them.
+def ssc1chkVaReg = (name, rest2) =>
+  if ssc1chkVaIsDef(name, #cell.get(varargDefsCell)) then ssc1chkVaReg1(name, rest2)
+  else 0
+
+def ssc1chkVaReg1 = (name, rest2) =>
+  match rest2 {
+    case Pair(params, body) =>
+      #cell.set(ssc1chkVaCell,
+        Cons(Pair(name, #i.sub(lenL(ssc1chkFilterCtxParams(params)), 1)), #cell.get(ssc1chkVaCell)))
+  }
+
 -- Application: infer function type, apply args one at a time
 def ssc1inferApp = (env, s, f, args) =>
   match ssc1inferE(env, s, f) {
     case TcErr(m) => TcErr(m)
-    case TcOk(s1, tf) => ssc1inferAppArgs(env, s1, tf, args)
+    case TcOk(s1, tf) => ssc1inferAppDispatch(env, s1, tf, f, args)
+  }
+
+def ssc1inferAppDispatch = (env, s, tf, f, args) =>
+  let lead = ssc1chkVaLeadOf(f) in
+  if #i.lt(lead, 0) then ssc1inferAppArgs(env, s, tf, args)
+  else if #i.lt(lenL(args), lead) then ssc1inferAppArgs(env, s, tf, args)
+  else ssc1inferVaApp(env, s, tf, args, lead)
+
+-- Mirrors packVarargsArgs: the leading `lead` arguments are applied normally, everything past them
+-- is ONE slot.
+def ssc1inferVaApp = (env, s, tf, args, lead) =>
+  if #i.lt(lead, 1) then ssc1inferVaTail(env, s, tf, args)
+  else ssc1inferVaLead(env, s, tf, args, lead)
+
+def ssc1inferVaLead = (env, s, tf, args, lead) =>
+  match args {
+    case Nil => TcOk(s, tf)
+    case Cons(arg, restArgs) =>
+      match ssc1inferE(env, s, arg) {
+        case TcErr(m) => TcErr(m)
+        case TcOk(s2, ta) =>
+          let tr = TyVar(ssc1chkFresh(0)) in
+          match ssc1chkUnify(s2, ssc1chkAppTy(s2, tf), TyFun(ta, tr)) {
+            case Err(m) => TcErr(m)
+            case Ok(s3) => ssc1inferVaApp(env, s3, ssc1chkAppTy(s3, tr), restArgs, #i.sub(lead, 1))
+          }
+      }
+  }
+
+-- The packed slot is TyDyn, and that is a decision rather than a shortcut: the front records NO type
+-- for a `T*` parameter (`simpleDeclTy` wants `,` or `)` and finds `*`), so naming one here would
+-- invent it — the same reasoning as the front's TYPES-1 note. The arguments are still INFERRED, so a
+-- type error inside one of them is still reported; only the slot they land in is unconstrained.
+def ssc1inferVaTail = (env, s, tf, args) =>
+  match ssc1chkVaTypeAll(env, s, args) {
+    case TcErr(m) => TcErr(m)
+    case TcOk(s2, tignored) =>
+      let tr = TyVar(ssc1chkFresh(0)) in
+      match ssc1chkUnify(s2, ssc1chkAppTy(s2, tf), TyFun(TyDyn, tr)) {
+        case Err(m) => TcErr(m)
+        case Ok(s3) => TcOk(s3, ssc1chkAppTy(s3, tr))
+      }
+  }
+
+def ssc1chkVaTypeAll = (env, s, args) =>
+  match args {
+    case Nil => TcOk(s, TyDyn)
+    case Cons(arg, restArgs) =>
+      match ssc1inferE(env, s, arg) {
+        case TcErr(m) => TcErr(m)
+        case TcOk(s2, ta) => ssc1chkVaTypeAll(env, s2, restArgs)
+      }
   }
 
 def ssc1inferAppArgs = (env, s, tf, args) =>
@@ -782,6 +893,7 @@ def ssc1chkCollect = (stmts, acc) =>
           if #seq(tag, "def") then
             match data {
               case Pair(name, rest2) =>
+                let _va = ssc1chkVaReg(name, rest2) in
                 ssc1chkCollect(rest, Cons(Pair(name, Forall(Nil, TyDyn)), acc))
             }
           else if #seq(tag, "given") then

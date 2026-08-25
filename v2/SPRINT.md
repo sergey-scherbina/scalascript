@@ -13,6 +13,49 @@ lose the reasoning around them.
 Milestone view: [`ROADMAP.md`](ROADMAP.md). Pipeline: `ssc0 → ir → ssc(VM) → cpu`. Work each slice
 in its own worktree off `origin/main`.
 
+## [~] the checker refuses a vararg call whose result type is known (claim `v2-vararg-call-arity`)
+
+**BUGS `v2-a-vararg-call-with-more-args-than-parameters-is-refused-by-the-checker`** (filed as
+`v2-a-string-concat-on-a-vararg-expression-picks-the-int-plus`; this task renamed it) — the entry's
+own title and cause were WRONG and this task rewrote them. Measured 2026-08-25 on a toolchain rebuilt from
+`050d48012` (the installed one was from `93711fc08`, before the vararg fix, so the first matrix was
+a measurement of the old code):
+
+| body of `def c(xs: Any*)` | `c(1, 2)` |
+|---|---|
+| `: String = "a"` | TYPEERR `cannot unify String: String vs (Int -> t3)` |
+| `: Int = 1 + 2` | TYPEERR `cannot unify Int: Int vs (Int -> t3)` |
+| `: String = if xs.length > 0 then "a" else "b"` | TYPEERR |
+| `: String = xs.length.toString` | **OK** |
+| `: Int = xs.length + 1` | **OK** |
+
+`c(1)` is fine, `c(1, 2, 3)` is not — **the cap is the parameter COUNT**, and the body is irrelevant
+except for what it does to the RESULT type. The rows that pass all end in a `sel`, which
+`ssc1inferE` types as `TyDyn`, and TyDyn unifies with anything — so the surplus application is
+absorbed silently instead of being caught. Nothing here is about `+` or about String concatenation;
+that was the shape the first probe happened to have.
+
+**WHO.** `ssc1-check-run.ssc0` runs `parse(src)` and then `ssc1TypeCheck(stmts)` — the CHECKER, kept
+beside F in both modes, so the default lane refuses a program F lowers correctly. Both lanes EXECUTE
+these calls right (`SSC_FRONT=legacy` agrees with F on every passing row), because `ssc1-lower`'s
+`packVarargsArgs` packs the trailing args into one list. The checker runs on the AST BEFORE that
+packing and applies the arguments one at a time. Same defect the front's "A TRAILING-VARARG DEF IS
+NOT REGISTERED" note (`ssc1-front.ssc0` :2237) describes for the fixed parameters — that fix stopped
+the SIGNATURE from fixing an arity; this is the call side, which was left.
+
+**THE FIX (one file).** `v2/lib/ssc1-check.ssc0` already imports `ssc1-front.ssc0`, so it can read
+`varargDefsCell` (the parser fills it) without touching the front. `ssc1chkCollect` already walks the
+top-level defs with their parameter lists, so it can record `lead = paramCount - 1` for exactly those
+names. `ssc1inferApp` then mirrors `packVarargsArgs`: apply the first `lead` args normally, type every
+remaining arg (so errors inside them still surface) and pass ONE slot for the packed list.
+
+The packed slot is `TyDyn`, deliberately: the front records no type for a `T*` parameter
+(`simpleDeclTy` wants `,` or `)` and finds `*`), so constraining it here would invent one — the same
+reasoning as the front's TYPES-1 note.
+
+**GATE.** `tests/e2e/vararg-arity-gate.sh`, new, wired into `scripts/smoke-ci.ssc`. It must be RED
+before the fix on the rows above and keep the passing rows passing.
+
 ## the F front is re-lowered on EVERY run (claim `f-front-lowering-cache`)
 
 **Measured 2026-08-16.** A one-line `println(1)` costs **7.0 s** through F and **3.0 s** through the
