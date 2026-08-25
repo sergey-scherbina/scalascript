@@ -1,0 +1,11 @@
+slug: js-preamble-raw
+branch: feature/js-preamble-raw
+agent: claude-code
+started: 2026-08-25T20:23:21Z
+heartbeat: 2026-08-25T20:23:21Z
+status: claimed-before-planning
+items: js-preamble-collision-gate-red-on-std-html-raw
+paths: file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala file:v1/runtime/backend/js/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
