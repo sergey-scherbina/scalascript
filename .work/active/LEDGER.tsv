@@ -1,2 +1,3 @@
-# generation: 2870
+# generation: 2871
 #slug	agent	started	items	paths
+v2-vararg-call-arity	claude-code	2026-08-25T10:36:44Z	v2-a-string-concat-on-a-vararg-expression-picks-the-int-plus	file:v2/lib/ssc1-check.ssc0 file:v2/BUGS.md file:v2/SPRINT.md file:tests/e2e/vararg-arity-gate.sh file:scripts/smoke-ci.ssc
