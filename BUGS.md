@@ -11689,16 +11689,14 @@ an applied value that is not a function — so expect two causes rather than one
 
 ## v2-extension-receiver-is-typed-from-the-parameter-list — the receiver takes the first parameter's type
 
-<!-- status: open
+<!-- status: fixed
      kind: bug
      lane: native
      area: front
+     fixed-in: e346240e2
      confirmed: yes
      gate: tests/conformance/run.sh
      repro: examples/extensions.ssc -->
-
-> Closed in the commit that follows this one on `main`: the two-step protocol wants a `fixed-in:`
-> that is already an ancestor.
 
 **FIXED 2026-08-25, IN TWO STEPS, AND THE FIRST ONE LOOKED SUFFICIENT.** The registry that types a
 def's parameters was fed `callParams` — the written clauses — while `mkDef` binds `allParams`, which
