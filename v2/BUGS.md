@@ -14299,13 +14299,21 @@ control rows stay green.
 
 ## v2-a-vararg-call-with-more-args-than-parameters-is-refused-by-the-checker
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      kind: bug
      area: front
      gate: tests/e2e/vararg-arity-gate.sh
      found-by: claude-code
-     found-at: 2026-08-25 -->
+     found-at: 2026-08-25
+     fixed-in: 4386b4cc0 -->
+
+**FIXED 2026-08-25 in `4386b4cc0`**, in `v2/lib/ssc1-check.ssc0` alone — neither front was
+changed, because neither front was wrong. `ssc1chkCollect` records `lead = paramCount - 1` for
+the names the parser flagged in `varargDefsCell`, and `ssc1inferApp` mirrors `packVarargsArgs`:
+the leading `lead` arguments are applied normally, everything past them is ONE slot. The slot is
+`TyDyn` on purpose — the front records no type for a `T*` parameter — while the arguments in it
+are still inferred, so a type error inside one is still reported.
 
 > Filed 2026-08-25 as `v2-a-string-concat-on-a-vararg-expression-picks-the-int-plus`; renamed the
 > same day, because that title named the first probe's shape and not the defect. The original

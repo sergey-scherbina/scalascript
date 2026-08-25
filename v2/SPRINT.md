@@ -13,7 +13,12 @@ lose the reasoning around them.
 Milestone view: [`ROADMAP.md`](ROADMAP.md). Pipeline: `ssc0 → ir → ssc(VM) → cpu`. Work each slice
 in its own worktree off `origin/main`.
 
-## [~] the checker refuses a vararg call whose result type is known (claim `v2-vararg-call-arity`)
+## [x] the checker refuses a vararg call whose result type is known (claim `v2-vararg-call-arity`)
+
+**LANDED 2026-08-25 as `4386b4cc0`.** One file, `v2/lib/ssc1-check.ssc0`. Gate
+`tests/e2e/vararg-arity-gate.sh`: 8 FAIL / 10 controls green before, 18/18 after. Smoke 126/126,
+conformance 373/373, F4 classify unchanged (same single pre-existing genuine-FAIL), F4 dual-run
+45/45 EQUAL with the typed fixpoint byte-identical.
 
 **BUGS `v2-a-vararg-call-with-more-args-than-parameters-is-refused-by-the-checker`** (filed as
 `v2-a-string-concat-on-a-vararg-expression-picks-the-int-plus`; this task renamed it) — the entry's
