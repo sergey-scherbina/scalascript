@@ -7,6 +7,58 @@ grepping for status.
 
 Newest first.
 
+## f-does-not-resolve-a-multi-segment-package-namespace-chain — `org.example.ui.Card` dies on the middle segment
+
+<!-- status: open
+     lane: native
+     kind: bug
+     area: front
+     gate: tests/e2e/package-keyword-smoke.sh
+     reported-by: claude-code
+     reported-at: 2026-08-25
+     confirmed: yes -->
+
+**A module published under a dotted `package:` is unreachable through its own name on the DEFAULT
+front.** `Validate ScalaScript`'s step *"Gates without a home — the package: keyword across four
+lanes"* has been red in the nightly since 2026-08-20 on this one row.
+
+`cards.ssc`:
+
+```
+---
+name: cards
+package: org.example.ui
+---
+object Card:
+  def render(t: String): String = "ui-card-" + t
+```
+
+`consumer.ssc` importing it as `[org](./cards.ssc)` and calling
+`println(org.example.ui.Card.render("hi"))`:
+
+| lane | result |
+|---|---|
+| default (F) | `ssc: __method__: no method 'example' in method-object` |
+| `SSC_FRONT=legacy` | `ui-card-hi` |
+| INT, JS, JVM | pass (the gate's other three rows are green) |
+
+**F BUILDS THE CHAIN AND LOSES THE MIDDLE SEGMENT.** `org` resolves — it IS a method-object, which
+is what the message says — and `example` is not on it. So the failure is not "the package is
+missing" but "the chain is one level deep". `ssc1-run-fsub.ssc0` synthesises the namespace as a
+CHAIN of flat objects plus `__pkgref_…` aliases (`sscPkgNsSource`, :669) and appends it to the
+SOURCE for F (`sscConcatSources`, :1150) while the reference lane gets parsed DEFS
+(`sscApp(defs, nsDefs)`, :845). The two paths are written separately and only one of them works
+here, which is the shape `two-front-bug-pairs` describes.
+
+**NOT the `--structural` registry defect** it was found beside
+(`v2-package-frontmatter-hides-a-case-class-from-a-pattern-inside-a-class-method`, fixed 2026-08-25):
+that one refused a constructor PATTERN and hit the legacy lowerer, this one is a member LOOKUP and
+hits only F. Fixing the first did not move this row.
+
+**The gate has a second red in the same run** — `alias/root`, whose CONTROL (`org` with no `as`) is
+this same call — so one fix should clear both rows. The gate says as much itself: *"A green alias
+row would prove nothing while this is red."*
+
 ## ui-anonymous-signal-collides-when-its-helper-is-called-twice — a form with two fields dies
 
 <!-- status: fixed
