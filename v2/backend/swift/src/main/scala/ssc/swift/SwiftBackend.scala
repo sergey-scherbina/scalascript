@@ -143,6 +143,12 @@ object SwiftBackend:
     // SwiftRuntime. Its absence here is what produced `unsupported primitive '__regmethod__'`
     // the moment the lowerer started completing the Mirror surface through it.
     "__regmethod__",
+    // __mk_method_obj__ is how an `object`, an explicit companion and a `given … with {…}` reach
+    // the backend: a flat [name, closure, name, closure, …] the front builds once and every member
+    // call dispatches through. Its absence is what made `ssc emit-swift` die with
+    // `swift backend: unsupported primitive '__mk_method_obj__'` on any program with an object —
+    // which is most of them, and is why `v2-swift-cli` was red in the nightly.
+    "__mk_method_obj__",
     // __autoOutput__ is the per-block tail-expression output the front wraps every block in, so a
     // program only avoids it by having no block tail at all. Missing here was the NEXT failure after
     // __regmethod__ in the same four tests — one portability gap, two primitives deep.

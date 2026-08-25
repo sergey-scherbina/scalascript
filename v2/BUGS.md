@@ -7,6 +7,62 @@ grepping for status.
 
 Newest first.
 
+## v2-swift-backend-has-no-mk-method-obj-primitive — `emit-swift` dies on any program with an `object`
+
+<!-- status: open
+     lane: v2-rust
+     kind: bug
+     area: codegen
+     gate: tests/e2e/v2-swift-cli.sh
+     reported-by: claude-code
+     reported-at: 2026-08-25
+     confirmed: yes -->
+
+**`Validate ScalaScript`'s "v2 diagnostics and fast paths" step has been red in the nightly since
+2026-08-20**, and this is one of its two causes:
+
+```
+emit-swift: swift backend: unsupported primitive '__mk_method_obj__'
+```
+
+`__mk_method_obj__` is how an `object`, an explicit companion and a `given … with {…}` reach a
+backend: the front builds one flat `[name, closure, name, closure, …]` and every member call
+dispatches through it. The JS backend has handled it since
+`v2-js-imported-method-object-primitive` (`JsBackend.scala:472`); the Swift backend never did, so
+`emit-swift` refused **any program containing an object** — which is most of them.
+
+**FIXED by mirroring the VM, not by inventing semantics.** `v2/src/Runtime.scala:3070` is the
+reference and it has four arms, all of them load-bearing:
+
+| receiver member | args | result |
+|---|---|---|
+| closure, arity > 0 | none | the closure itself (ETA-EXPANSION) |
+| closure | some | called with the args — **the receiver is NOT prepended** |
+| non-closure | none | the value |
+| anything else | — | `__method__: no method 'X' in method-object` |
+
+The value is held as `.data("__ssc_methodobj__", …)` rather than as a new `SscValue` case, so
+nothing else in that enum moves; the tag cannot collide with a user tag, which are Scala
+identifiers and cannot carry the leading underscores this one has by construction. The lookup runs
+BEFORE the tagged-method and field-layout paths, because a method object is not a record and
+reading it through `fieldLayouts` finds nothing and falls through to a `Stub`.
+
+**TWO THINGS FOUND ON THE WAY, both recorded because they cost time:**
+
+* `SscFields` is a class, not `[SscValue]` — the first version passed the raw array and every
+  generated package failed to compile with `cannot convert value of type '[SscValue]' to expected
+  argument type 'SscFields'`. 51 of 59 tests, all one line.
+* The runtime is a Scala string constant and adding to it crossed the **64 KB JVM limit**
+  (`String constant is too long for the JVM`). Split at a top-level `func` boundary into
+  `sourcePart2` + `sourcePart2b`, no content change.
+
+**AND A STALE PATH THE RED SUITE WAS HIDING.** With the above fixed, one test still failed:
+`NoSuchFileException: runtime/std/ui/lower.ssc`. std moved to the repo root on 2026-08-09
+(`std-to-repo-root`) and `SwiftBackendTest`'s renderer inventory kept the old path, so it died
+before reporting on the renderer it exists to police. A red suite hides which of its tests is red
+about what. Fixed to `std/ui/…`; the suite is now **59 passed, 0 failed** and
+`tests/e2e/v2-swift-cli.sh` reports PASS.
+
 ## f-does-not-resolve-a-multi-segment-package-namespace-chain — `org.example.ui.Card` dies on the middle segment
 
 <!-- status: open

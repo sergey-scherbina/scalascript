@@ -139,8 +139,12 @@ final class SwiftBackendTest extends AnyFunSuite:
 
   test("SwiftUI renderer inventory covers every shipped lowerer tag and CSS property"):
     val sources = List(
-      repoRoot.resolve("runtime/std/ui/lower.ssc"),
-      repoRoot.resolve("runtime/std/ui/content.ssc"),
+      // `std/…`, not `runtime/std/…`: std moved to the repo root on 2026-08-09 (std-to-repo-root)
+      // and this inventory kept the old path, so it died with NoSuchFileException instead of
+      // reporting on the renderer it exists to police. The whole suite was red on it, which is how
+      // it survived — a red suite hides which of its tests is red about what.
+      repoRoot.resolve("std/ui/lower.ssc"),
+      repoRoot.resolve("std/ui/content.ssc"),
     ).map(Files.readString(_, StandardCharsets.UTF_8)).mkString("\n")
     val tagPattern = """element\("([^"]+)"""".r
     val cssPattern = """([a-z][a-z-]+):(?=\$|[0-9#a-z])""".r

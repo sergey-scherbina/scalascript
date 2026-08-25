@@ -1263,6 +1263,13 @@ private final class Machine {
         case "__throw__":
             recordFailure(SscThrown(value: args[0]))
             return .unit
+        case "__mk_method_obj__":
+            // (name, closure, name, closure, …) flat, exactly as the VM receives it
+            // (v2/src/Runtime.scala:1900). Held as a tagged data value rather than a new SscValue
+            // case so nothing else in this enum has to change; `__ssc_methodobj__` cannot collide
+            // with a user tag, which are Scala identifiers and cannot contain the leading
+            // underscores this one has by construction.
+            return .data("__ssc_methodobj__", SscFields(args))
         case "__regfields__":
             // Field name→index is resolved by the frontend (fieldAt is index-based), so
             // the Swift runtime has no by-name registry to populate: a no-op.
@@ -1388,6 +1395,11 @@ private final class Machine {
         catch { recordFailure(error); return nil }
     }
 
+"""
+
+  // SPLIT ONLY, no content change: a Scala string constant may not exceed 64 KB in the class
+  // file, and part 2 crossed it. The boundary is a top-level `func` so the halves stay readable.
+  private val sourcePart2b: String = """
     private func method(_ name: String, _ receiver: SscValue, _ args: [SscValue]) -> SscValue {
         do {
             if let result = try nativeUiHost?.method(name, receiver, args) { return result }
@@ -1403,6 +1415,30 @@ private final class Machine {
         // its own table (Runtime.scala:1815). The order is the point: a body method whose name
         // collides with a field must still be the one that runs, or the front cannot override
         // anything. Called with (self :: args), as the VM calls it.
+        // A METHOD OBJECT is looked up BEFORE the tagged-method and field paths, because it is not
+        // a record: its "fields" are the flat (name, closure) pairs `__mk_method_obj__` was handed,
+        // and reading them through fieldLayouts would find nothing and fall through to a Stub.
+        // The four arms mirror the VM (v2/src/Runtime.scala:3070) exactly, including the
+        // eta-expansion, and the member is called WITHOUT the receiver prepended — an object's
+        // member takes only what it declares.
+        if case let .data("__ssc_methodobj__", entries) = receiver {
+            var index = 0
+            while index + 1 < entries.count {
+                if case let .string(key) = entries[index], key == name {
+                    let member = entries[index + 1]
+                    if case let .closure(fn) = member {
+                        if args.isEmpty && fn.arity > 0 { return member }
+                        return call(fn, args)
+                    }
+                    if args.isEmpty { return member }
+                    recordFailure(SscRuntimeFailure(description: "__method__: no method '\(name)' in method-object"))
+                    return .unit
+                }
+                index += 2
+            }
+            recordFailure(SscRuntimeFailure(description: "__method__: no method '\(name)' in method-object"))
+            return .unit
+        }
         if case let .data(tag, _) = receiver, let registered = taggedMethods["\(tag)#\(name)"] {
             return call(registered, [receiver] + args)
         }
@@ -3007,4 +3043,4 @@ func sscDecodeProgram(_ sExpr: String, fieldLayouts: [String: [String]]) -> SscP
     return SscProgram(definitions: defs, entry: entry, fieldLayouts: fieldLayouts)
 }
 """
-  val source: String = sourcePart1 + sourcePart2 + sourcePart3
+  val source: String = sourcePart1 + sourcePart2 + sourcePart2b + sourcePart3
