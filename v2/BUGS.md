@@ -14165,3 +14165,50 @@ never becomes a call and there is nothing for a user's extension to be found by.
 **FOUND WHILE WRITING DOCUMENTATION**, by running the example rather than proofreading it — the same
 rule that has caught shipping examples in this repository before. The docs now state which lane
 implements the rule instead of claiming it everywhere.
+
+## v2-varargs-in-an-extension-bind-to-the-last-argument — and the first probe hid it
+
+<!-- status: open
+     lane: v2-jvm
+     kind: bug
+     area: front
+     found-by: claude-code
+     found-at: 2026-08-25 -->
+
+**A vararg parameter works in an ordinary function and does not work in an extension method.**
+
+```scalascript
+def up(args: Any*): String = args.length.toString
+println(up(7, 8))                       // 2 — correct
+
+case class SC(p: Int)
+extension (sc: SC)
+  def up(args: Any*): String = args.length.toString
+println(SC(1).up(7, 8))
+```
+
+The second prints
+
+    ssc: `8.length` was selected but never called …
+
+so inside the extension `args` is bound to the LAST ARGUMENT, `8`, rather than to the collected list.
+The receiver is prepended as the first parameter and the vararg packing then mis-associates.
+
+**RELATED AND MEASURED THE SAME DAY:** a vararg after a fixed parameter is refused outright by the
+checker — `def show(a: Int, args: Any*)` gives `TYPEERR: cannot unify String: String vs (Int -> t7)`
+— which is the same shape an extension lift produces, and is probably the same defect seen from the
+declaration side.
+
+⚠️ **THE FIRST PROBE SAID IT WORKED**, because its body never touched `args`:
+
+```scalascript
+extension (sc: SC) def up(args: Any*): String = sc.parts.mkString("|")   // "works"
+```
+
+A payload that ignores its input cannot see a defect about that input. This repository has the same
+lesson from a continuation composed twice whose remainder was `"END"`.
+
+**WHY IT MATTERS BEYOND ITSELF.** `SPEC.md` §5.7 defines a user-defined interpolator as an extension
+method on `StringContext` taking `args: Any*` — so this defect is what stops that feature on this
+lane, and why `v2-a-user-defined-interpolator-does-not-resolve` is answered today with a named
+refusal rather than an implementation.

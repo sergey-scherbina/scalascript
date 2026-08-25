@@ -1334,6 +1334,14 @@ def parseNewAtom = (toks) =>
 
 -- ── Expression parser ─────────────────────────────────────────────────────────
 -- parseAtom: handles literals, variables, parenthesized, if, prefix
+-- Is this identifier a prefix this front does NOT build, standing in front of a string literal?
+-- The five it does build are handled above; anything else reaching a string token is a user-defined
+-- interpolator, which this lane cannot resolve.
+def isUnknownInterpPfx = (v, ts) =>
+  if isEmpty(ts) then false
+  else if #seq(tokKind(peek(ts)), "str") then true
+  else false
+
 def parseAtom = (toks) =>
   let t = peek(toks) in
   let k = tokKind(t) in
@@ -1402,6 +1410,23 @@ def parseAtom = (toks) =>
         pr(Pair("prim", Pair("__tryFinally__", Cons(bodyThunk, Cons(mkLam(Nil, prV(rFin)), Nil)))), prT(rFin))
       else
         pr(prV(rBody), ts2)
+    -- AN IDENTIFIER FOLLOWED BY A STRING IS AN INTERPOLATION, and one this front does not build is
+    -- refused BY NAME rather than read as two expressions.
+    --
+    -- WHY THIS FRONT TOO, when F is the one that compiles a `.ssc`: the two form a CHAIN. A file F
+    -- refuses is handed to this one, so a refusal F alone makes is silently overridden — measured
+    -- 2026-08-25, where F's new named refusal came back as "F did not lower this file; compiled with
+    -- the default front instead" and the program ran. A construct must be handled or refused in
+    -- BOTH, or the verdict is whichever front is more permissive.
+    --
+    -- WHAT IT WAS BEFORE: `upper"hello"` parsed as the identifier `upper` and then a separate string,
+    -- so `println(upper"hello")` printed `<closure>` and then `0` — one call, two lines, neither of
+    -- them the answer. SPEC.md 5.7 defines a user-defined interpolator as an extension method on
+    -- `StringContext`; ScalaScript 3 implements it and this lane does not yet, because varargs bind
+    -- to the last argument inside an extension here (v2/BUGS.md
+    -- `v2-varargs-in-an-extension-bind-to-the-last-argument`). Named refusal until that is fixed.
+    else if isUnknownInterpPfx(v, advance(toks)) then
+      #__throw__(#sconcat(#sconcat("unknown interpolator prefix '", v), "' -- this front implements s, f, raw, md and html; a user-defined interpolator is an extension method on StringContext (SPEC 5.7) and is not available on this lane"))
     else pr(mkVar(v), advance(toks))
   else if #seq(k, "uid") then pr(mkUVar(v), advance(toks))
   else if #seq(k, "kw") then

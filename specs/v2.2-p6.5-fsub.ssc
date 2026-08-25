@@ -755,7 +755,15 @@ def interpChain2(h, t, dq) = t match { case Nil => h case _ => emitArithS("++", 
 // triple form); `raw"…"` = plain s-interp. F's own source uses none of these, so the fixpoint is unaffected.
 // A prefix NOT followed by a string token is an ordinary ident (`md("ok")` is a call — paren, not a string).
 def parseIdentOrInterp(t, rest, env, cx) = if isInterpApp(snd(t), rest) then (interpPfxNode(snd(t), hd(rest), env, cx), tl(rest)) else wrapE(parseIdent(t, rest, env, cx))
-def isInterpApp(w, rest) = if isEmpty(rest) then false else (if isInterpPfx(w) then interpTokIs(hd(rest)) else false)
+// ANY identifier followed by a string token is an INTERPOLATION, and an unknown prefix is refused
+// by name rather than parsed as two expressions. Until 2026-08-25 this asked `isInterpPfx` first, so
+// `upper"hello"` fell through to "an identifier" and "a string" — and the program RAN, printing
+// `<closure>` and `0`: one `println`, two lines, neither the answer. A refusal costs the author a
+// minute; that cost them the belief that it worked.
+//
+// The prefix set itself is unchanged — `interpPfxNode` still builds only the built-ins — so what
+// this line changes is a wrong ANSWER into a named refusal, nothing else.
+def isInterpApp(w, rest) = if isEmpty(rest) then false else interpTokIs(hd(rest))
 // `html` joins md/raw here — in the PARSER, where a prefix is an ident token followed by a
 // string token. An earlier attempt added it in the LEXER instead and thereby bypassed this
 // path: the narrow probe escaped correctly but `items.map(it => html"…")` compiled to
@@ -781,7 +789,12 @@ def interpRaw(tk, cx) = if fst(tk) == 8 then escTripleStr(snd(tk), cx) else snd(
 // SUBSTITUTION and leave literal chunks alone — so the flag has to reach the splitter, it
 // cannot be applied to the finished code. Mirrors legacy htmlPartToExpr.
 def escOfPfx(w) = if w == "html" then 1 else 0
-def interpPfxNode(w, tk, env, cx) = if w == "f" then parseFInterp(interpRaw(tk, cx), env, cx) else mkInterpPfx(w, erase(parseInterpE(interpRaw(tk, cx), env, cx, escOfPfx(w)), cx))
+def interpPfxNode(w, tk, env, cx) = if w == "f" then parseFInterp(interpRaw(tk, cx), env, cx) else (if isInterpPfx(w) then mkInterpPfx(w, erase(parseInterpE(interpRaw(tk, cx), env, cx, escOfPfx(w)), cx)) else unknownPfx(w))
+// A prefix this front does not build. SPEC.md 5.7 defines a user-defined interpolator as an
+// extension method on `StringContext`, which ScalaScript 3 implements and this front does not yet:
+// varargs bind wrongly inside an extension here (`v2-varargs-in-an-extension-bind-to-the-last-
+// argument`), and that is what a user-defined interpolator needs. Named refusal until then.
+def unknownPfx(w) = throw ("unknown interpolator prefix '" ++ w ++ "' — this front implements s, f, raw, md and html; a user-defined interpolator is an extension method on StringContext (SPEC 5.7) and is not available on this lane")
 // `f"…"` — printf-style interpolation. Legacy emits
 // (prim __fInterpolate__ lit0 spec1 arg1 lit1 spec2 arg2 lit2 …): a LEADING literal, then one
 // (spec, arg, following-literal) triple per substitution, where the spec is split off the FRONT
