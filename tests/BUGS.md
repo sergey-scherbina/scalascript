@@ -1766,6 +1766,46 @@ mostly runs on this one. An mtime is one line of digits; the Linux failure produ
 the comparison ran happily on them. `assert_mtime_shape` stops the gate with the cause named when
 the value is empty or not a bare integer, instead of silently comparing it.
 
+## no-orphan-gates-evidence-reveals-blind-gates-one-run-at-a-time
+
+<!-- status: open
+     lane: apparatus
+     area: build
+     kind: bug
+     gate: tests/e2e/no-orphan-gates.sh
+     reported-by: claude-code
+     reported-at: 2026-08-25
+     confirmed: yes -->
+
+**Two full `--evidence` runs on the same tree named DIFFERENT gates, and neither named all of them.**
+Measured 2026-08-25 while clearing the nightly:
+
+| run | gates it flagged |
+|---|---|
+| CI, 2026-08-25 nightly | `ui-provider-gap`, `ui-select-from`, `v2-extern-default-args`, `v2-unknown-member-refuses` |
+| local, after those four were declared | `single-line-extension`, `ui-computed-signal` |
+| local, after those six were declared | `nativeui-annotation` |
+
+**The obvious explanations are both refuted by the runs' own output.** Neither run printed a
+`NO VERDICT` section, so nothing was cut off at `SSC_EVIDENCE_CAP`; and neither printed a
+`(sweep said X was blind; alone it is not)` line, so the re-run-alone confirmation rejected nothing.
+The sweep simply saw a different set each time.
+
+**WHY IT MATTERS more than the count.** Declaring one gate per nightly is not convergence — it is a
+red that moves. The nightly cannot go green while each fix reveals the next name, and an agent who
+reads only the CI log gets a list that is both incomplete and different from what the same command
+produces locally.
+
+**WHAT IS KNOWN about the population.** 41 gates call the shared `ssc_usable_or_skip`; 20 are
+declared. The remaining 21 are NOT all blind — a skip-guarded gate can still go red for a reason
+that arrives before its guard — so declaring the family wholesale would plant exactly the rot this
+list's own rules forbid ("an exemption that outlives its need is the same rot as a stale known-red").
+Telling them apart needs the audit to be deterministic first, which is what this entry is for.
+
+**NOT the same thing as the six declared in `7fb52c2b4`.** Those were real, verified by the shared
+guard they all call. This entry is about the instrument that found them naming a different subset
+every time it runs.
+
 ## no-orphan-gates-evidence-audit-red-on-four-undeclared-skip-guarded-gates
 
 <!-- status: fixed

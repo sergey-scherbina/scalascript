@@ -158,6 +158,7 @@ negtc-mapreduce-gate.sh	declines	its own availability check, not ssc_usable_or_s
 ref-front-multiblock-gate.sh	skip-guarded	ssc_usable_or_skip prints SKIP and exits 0
 ref-front-string-literal-gate.sh	skip-guarded	ssc_usable_or_skip prints SKIP and exits 0
 ref-front-three-defects-gate.sh	skip-guarded	ssc_usable_or_skip prints SKIP and exits 0
+nativeui-annotation-gate.sh	skip-guarded	ssc_usable_or_skip prints SKIP and exits 0
 single-line-extension-gate.sh	skip-guarded	ssc_usable_or_skip prints SKIP and exits 0
 ui-computed-signal-gate.sh	skip-guarded	ssc_usable_or_skip prints SKIP and exits 0
 ui-provider-gap-gate.sh	skip-guarded	ssc_usable_or_skip prints SKIP and exits 0
