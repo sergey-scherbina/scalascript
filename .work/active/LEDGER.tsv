@@ -1,7 +1,8 @@
-# generation: 2880
+# generation: 2881
 #slug	agent	started	items	paths
 rust-survey-baseline	claude-code	2026-08-25T20:17:04Z	rust-std-survey-baseline-missing-two-std-modules	file:tests/rust-std-survey-baseline.tsv file:tests/BUGS.md file:tests/SPRINT.md
 js-preamble-raw	claude-code	2026-08-25T20:23:21Z	js-preamble-collision-gate-red-on-std-html-raw	file:tests/e2e/js-preamble-collision-gate.sh file:tests/BUGS.md file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala
 install-sh-gate-stat	claude-code	2026-08-25T20:33:58Z	install-sh-reports-failure-gate-self-check-uses-a-bsd-only-stat	file:tests/e2e/install-sh-reports-failure-gate.sh file:tests/BUGS.md
 orphan-gates-declare-four	claude-code	2026-08-25T20:34:02Z	no-orphan-gates-evidence-audit-red-on-four-undeclared-skip-guarded-gates	file:tests/e2e/no-orphan-gates.sh file:tests/BUGS.md
 v2-nested-lowering-ctor-registry	claude-code	2026-08-25T20:51:09Z	v2-package-frontmatter-hides-a-case-class-from-a-pattern-inside-a-class-method	file:v2/lib/ssc1-lower.ssc0 file:BUGS.md file:tests/e2e/class-method-ctor-pattern-gate.sh file:scripts/smoke-ci.ssc
+f-package-namespace-chain	claude-code	2026-08-25T21:21:51Z	f-does-not-resolve-a-multi-segment-package-namespace-chain	file:v2/BUGS.md
