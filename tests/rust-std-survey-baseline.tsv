@@ -27,7 +27,7 @@ std/dsl/walker.ssc	REFUSED	Generic(def `_` contains an unsupported expression: T
 std/dstreams.ssc	COMPILES	
 std/either.ssc	COMPILES	
 std/eq.ssc	REFUSED	Generic(def `_` calls `_`, which this crate does not define — no def, no intrinsic, no local of that name	3	2
-std/error-handling.ssc	REFUSED	Generic(def `_` extracts `_` with 1 args, expected 0	5	3
+std/error-handling.ssc	REFUSED	Generic(def `_` calls `_`, which this crate does not define — no def, no intrinsic, no local of that name	4	2
 std/foldable-traversable.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)	25	4
 std/free.ssc	REFUSED	Generic(def `_` uses type `_`; R.2 accepts primitives, enums, function types, tuple, and List/Vec	8	1
 std/fs.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane does not lower it here; it is a collection member,	1	1
@@ -36,6 +36,7 @@ std/generators.ssc	COMPILES
 std/geo.ssc	COMPILES	
 std/graphql.ssc	COMPILES	
 std/hash.ssc	REFUSED	Generic(def `_` uses type `_`; R.2 accepts primitives, enums, function types, tuple, and List/Vec	1	1
+std/html.ssc	REFUSED	Generic(def `_` contains an unsupported expression: Lit.Char ('&')	1	1
 std/http.ssc	REFUSED	Generic(`_` is declared `_` and the rust backend has no implementation for it (no `_`, no intrinsic); called f	1	1
 std/i18n.ssc	COMPILES	
 std/index.ssc	COMPILES	
@@ -64,6 +65,7 @@ std/money.ssc	REFUSED	Generic(def `_` calls `_`, which this crate does not defin
 std/nfc.ssc	REFUSED	Unsupported(NfcNdef,rust)	1	1
 std/nodes.ssc	COMPILES	
 std/openapi.ssc	COMPILES	
+std/optics.ssc	REFUSED	Generic(def `_` uses unsupported infix operator `_`	6	2
 std/order.ssc	REFUSED	Generic(def `_` calls `_`, which this crate does not define — no def, no intrinsic, no local of that name	11	2
 std/os.ssc	COMPILES	
 std/parsing/combinators.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)	20	6

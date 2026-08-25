@@ -1715,6 +1715,44 @@ fail" (it was not the one), then "trap every failure" (eight of them are deliber
 right idea at the wrong level, and both were caught by running the gate UNPLANTED rather than
 trusting the planted case.
 
+## rust-std-survey-baseline-missing-two-std-modules — two new std modules turned the nightly red for three days
+
+<!-- status: open
+     lane: apparatus
+     area: build
+     kind: bug
+     gate: tests/e2e/rust-std-survey-gate.sh
+     reported-by: claude-code
+     reported-at: 2026-08-25
+     confirmed: yes -->
+
+**`Conformance shard 1/4` has been red since 2026-08-22** on one line:
+
+```
+rust-std-survey: modules not in the baseline — classify them with --update:
+  std/html.ssc
+  std/optics.ssc
+```
+
+`std/html.ssc` (`eb0e91962`) and `std/optics.ssc` (`cd58fa4f5`) landed around 2026-08-20 and neither
+was classified in `tests/rust-std-survey-baseline.tsv`. The gate is right to refuse: an unclassified
+module has no verdict, so the BADRUST column it exists to guard cannot be compared.
+
+**IT IS NOT A REGRESSION IN THE RUST LANE, and the gate's own ordering proves it** rather than my
+reading it that way: `lost` (COMPILES → anything) and `regressions` (REFUSED → BADRUST) are checked
+BEFORE `newmods`, so reaching the `newmods` message means both were empty. Both new modules classify
+as **REFUSED**, which is the correct column — a coverage gap, not a defect:
+
+| module | class | first refusal |
+|---|---|---|
+| `std/html.ssc` | REFUSED | `contains an unsupported expression: Lit.Char ('&')` — 1 site, 1 shape |
+| `std/optics.ssc` | REFUSED | `uses unsupported infix operator` — 6 sites, 2 shapes |
+
+**THE SAME TWO MODULES BROKE A SECOND REGISTRY**, which is the part worth keeping: `std/html.ssc`
+also turned `js-preamble-collision-gate` red, because it exports `raw` and the js preamble defines a
+`function raw`. Two hand-maintained registries, one pair of new files, three days of red — filed
+separately as the js entry. Adding a `std/**` module means updating both.
+
 ## smoke-job-cap-no-longer-looser-than-the-suite — 17 of 100 pushes reached no verdict, every one killed at the 30-minute job cap
 
 <!-- status: fixed
