@@ -1,2 +1,3 @@
-# generation: 2872
+# generation: 2873
 #slug	agent	started	items	paths
+smoke-job-cap	claude-code	2026-08-25T12:05:10Z	smoke-job-cap-no-longer-looser-than-the-suite	file:.github/workflows/smoke.yml file:.github/workflows/ci.yml file:scripts/smoke-ci.ssc file:tests/BUGS.md file:tests/SPRINT.md
