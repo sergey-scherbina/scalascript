@@ -11406,7 +11406,34 @@ kept every reference resolvable and shrank from a legal file each time.
 **Done when** the ten-line case above prints 15 and a conformance case covers pattern-in-a-class-
 method under `package:`, on the lanes that support it.
 
-## js-emit-declares-an-identifier-twice — an import alias collides with a top-level FUNCTION
+## js-transport-enum-alias-resolves-to-unit — `Method not found: Spawn on ()`
+
+<!-- status: open
+     kind: bug
+     lane: js
+     area: codegen
+     confirmed: yes
+     gate: tests/conformance/run.sh -->
+
+```scalascript
+[mcpConnect, Transport](std/mcp/client.ssc)
+val client = mcpConnect(Transport.Spawn("node", List("examples/mcp-server-tools.js")))
+// js: Error: Method not found: Spawn on ()
+```
+
+`Transport` is imported and its alias IS emitted (`const Transport = std.mcp.Transport;`), but the
+right-hand side answers `()` — so selecting the enum case off it dispatches on unit. `Transport` is
+NOT one of the runtime's declarations, so the alias-suppression guard of
+`js-emit-declares-an-identifier-twice` is not involved; checked before filing.
+
+**Found 2026-08-25 UNDERNEATH a fix.** `tests/conformance/mcp-client-invoke.ssc` never parsed on
+`js` — the module declared `mcpConnect` twice — so this failure could not be seen until the parse
+error was gone. That is the ordinary shape of a corpus row with two defects stacked, and the reason
+the row stays red after a fix that was nevertheless correct.
+
+**Done when** `Transport.Spawn(…)` builds the enum case on `js` and `mcp-client-invoke` runs.
+
+## js-emit-declares-an-identifier-twice — an import alias collides with a RUNTIME declaration
 
 <!-- status: open
      kind: bug
@@ -11441,8 +11468,24 @@ warning on stderr, which my `2>&1 | node` fed to the parser as source. That entr
 one replaces it. **A pipeline that merges stderr into an interpreter turns any warning into a syntax
 error at a line number that means nothing.**
 
-**Done when** both cases run on `js`, with the guard asking about every top-level name rather than
-about consts alone.
+**FIXED 2026-08-25 — the SyntaxError is gone from both, and one of the two rows is green.**
+`direct-syntax-demo` runs and has left the contract's regression list. The guard now also asks
+`JsGen.runtimeTopLevelNames`, which is where `serve` and `mcpConnect` live and which the top-level
+census deliberately SKIPS so that runtime names are never renamed — they were invisible to every set
+the guard already consulted, by construction.
+
+**ASKING `usedTopLevelJsNames` AS WELL WAS TRIED AND REVERTED IN THE SAME RUN.** It holds names from
+every module WALKED, and a module can be walked without its definitions reaching this output, so the
+alias is then the only binding there is. Both cases went from
+`SyntaxError: Identifier 'serve' has already been declared` to
+`ReferenceError: jsonCoreRender is not defined` — a parse error traded for a missing binding, which
+is not a smaller failure. The runtime set has no such gap: what it names is always emitted.
+
+`mcp-client-invoke` now PARSES and fails further in, at
+`Error: Method not found: Spawn on ()` — a different defect, filed as
+`js-transport-enum-alias-resolves-to-unit`. That row stays red for that reason, not this one.
+
+**Done when** `mcp-client-invoke` also runs on `js`.
 
 ## corpus-contract-is-red-on-twelve-rows-and-the-freeze-is-global — adding one case ratifies the lot
 
@@ -11495,9 +11538,9 @@ existing digests byte-for-byte to prove the serialization matched the tool's own
 | rows | cause |
 |---|---|
 | 7 × `scljet-*` (v2) | `v2-package-frontmatter-hides-a-case-class-from-a-pattern-inside-a-class-method` — every scljet module declares `package: scljet`, and `jvm-vfs.ssc` matches its own `JvmVfsRead` inside a class method |
-| 1 × `extensions` (v2) | `v2-extension-receiver-is-typed-from-the-parameter-list` |
+| 1 × `extensions` (v2) | `v2-extension-receiver-is-typed-from-the-parameter-list` — **FIXED 2026-08-25**, green |
 | 2 × `agent-mcp-toolsource`, `mcp-client-discover` (js) | an MCP worker deadline expires — these need a server, which is why the reference host SKIPPED them and this one ran them |
-| 2 × `direct-syntax-demo`, `mcp-client-invoke` (js) | `js-emit-declares-an-identifier-twice` — one defect, not two: an import alias collides with a top-level FUNCTION |
+| 2 × `direct-syntax-demo`, `mcp-client-invoke` (js) | `js-emit-declares-an-identifier-twice` — one defect, not two: an import alias collides with a RUNTIME declaration. **FIXED 2026-08-25**; `direct-syntax-demo` is green, `mcp-client-invoke` now parses and fails at `js-transport-enum-alias-resolves-to-unit` underneath |
 
 **Only two of the twelve are environmental.** Both have a `* SKIP` baseline row — a case the
 reference host never ran — but so does `mcp-client-invoke`, which is code. The `* SKIP` → `FAIL`
@@ -11505,6 +11548,11 @@ transition narrows where to look and decides nothing: three candidates, two of t
 
 **Ten of the twelve are real defects in this tree**, each filed with its own repro. Nothing about
 them justifies re-freezing: a freeze would mark ten known defects as expected.
+
+**TWO ARE FIXED, 2026-08-25** — `extensions` and `direct-syntax-demo` are green and off the
+regression list. `mcp-client-invoke`'s parse error is fixed too and the row stays red on a second
+defect underneath it, which is what a corpus row with two stacked causes does. Eight rows remain:
+seven `scljet` on one unfixed cause, and this one.
 
 **Done when** the ten coded causes are fixed or deliberately frozen with that reason recorded, and
 the two environmental rows are either given their dependency or re-declared as SKIP by the case
@@ -11645,7 +11693,29 @@ an applied value that is not a function — so expect two causes rather than one
      kind: bug
      lane: native
      area: front
-     gate: tests/conformance/run.sh -->
+     confirmed: yes
+     gate: tests/conformance/run.sh
+     repro: examples/extensions.ssc -->
+
+> Closed in the commit that follows this one on `main`: the two-step protocol wants a `fixed-in:`
+> that is already an ancestor.
+
+**FIXED 2026-08-25, IN TWO STEPS, AND THE FIRST ONE LOOKED SUFFICIENT.** The registry that types a
+def's parameters was fed `callParams` — the written clauses — while `mkDef` binds `allParams`, which
+puts `ctxParams` and the extension RECEIVER in front of them. `ssc1inferLamTys` zips the two
+positionally, so the receiver was typed from the first written parameter. Registering over
+`allParams` fixed the position and `def widen(n: Int): String = s` started working.
+
+**IT WAS STILL WRONG, AND MY PROBE WAS WEAKER THAN THE CORPUS ROW IT WAS WRITTEN FOR.**
+`paramTypesCell` is cleared at the top of every def parse, so the receiver had a position and no
+TYPE. An unknown unifies silently with `= s`; `def repeat(n: Int): String = s * n` — the actual
+`examples/extensions.ssc` row — forces `*` to make the receiver numeric and the declared `String`
+return then contradicts it. The receiver's types now live in `extensionParamTypesCell` beside its
+names, cleared in the same two places, and merged BY NAME at registration so no position moves.
+
+Evidence: `examples/extensions.ssc` runs on v2 and left the contract's regression list; a probe
+covering receiver-with-differing-param-type, same-type, and a curried member answers `x`, `y-`, `7`;
+smoke-ci 123/123.
 
 ```scalascript
 extension (s: String)
