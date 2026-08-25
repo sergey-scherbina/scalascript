@@ -500,6 +500,7 @@ val suite = List(
   // and the gate checks both, because this lane runs F first and hands what F refuses to the legacy
   // front: a refusal in one is silently overridden by the other.
   Check("v2", "user-interpolator", "tests/e2e/user-interpolator-gate.sh", List(), 300000),
+  Check("v2", "extension-vararg", "tests/e2e/extension-vararg-gate.sh", List(), 400000),
   // THE REACTIVE `<select>` ON THE NATIVE LANE, and it goes in with the feature rather than after it.
   // The implementation landed with this gate already written and PASSING and the gate wired nowhere,
   // which is the state an unwired gate rots in: seven rows nobody runs are seven rows that stop being

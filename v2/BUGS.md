@@ -14206,10 +14206,17 @@ The second prints
 so inside the extension `args` is bound to the LAST ARGUMENT, `8`, rather than to the collected list.
 The receiver is prepended as the first parameter and the vararg packing then mis-associates.
 
-**RELATED AND MEASURED THE SAME DAY:** a vararg after a fixed parameter is refused outright by the
-checker — `def show(a: Int, args: Any*)` gives `TYPEERR: cannot unify String: String vs (Int -> t7)`
-— which is the same shape an extension lift produces, and is probably the same defect seen from the
-declaration side.
+⚠️ **CORRECTED — THE PARAGRAPH THAT STOOD HERE WAS WRONG.** It said a vararg after a fixed
+parameter is "refused outright by the checker", and offered that as probably the same defect seen
+from the declaration side. Re-measured against the same build:
+
+    def up(p: Int, xs: Any*): String = xs.length.toString
+    println(up(1, 7, 8))                                    // 2 — a fixed parameter is FINE
+
+The `TYPEERR` I had attributed to the fixed parameter came from the BODY of the probe, which also
+concatenated strings. It is a real defect, but a different one, and it is filed on its own as
+`v2-a-string-concat-on-a-vararg-expression-picks-the-int-plus`. Building a diagnosis on it would have
+sent the fix to the parameter-list code, where nothing was wrong.
 
 ⚠️ **THE FIRST PROBE SAID IT WORKED**, because its body never touched `args`:
 
@@ -14222,5 +14229,71 @@ lesson from a continuation composed twice whose remainder was `"END"`.
 
 **WHY IT MATTERS BEYOND ITSELF.** `SPEC.md` §5.7 defines a user-defined interpolator as an extension
 method on `StringContext` taking `args: Any*` — so this defect is what stops that feature on this
-lane, and why `v2-a-user-defined-interpolator-does-not-resolve` is answered today with a named
-refusal rather than an implementation.
+lane, and why `v2-a-user-defined-interpolator-does-not-resolve` was answered with a named refusal
+rather than an implementation.
+
+**THE CAUSE, MEASURED: ONE OFF-BY-ONE WITH THREE FACES.** The vararg registry records the
+parameter's index from the WRITTEN parameter list, and the extension lift prepends the receiver, so
+every index the collapse used was one short. Each call shape then failed differently, which is why
+the symptom read as several bugs:
+
+| shape | before | after |
+|---|---|---|
+| `SC(1).g(7,8)`, reads `xs.length` | `` `8.length` was selected but never called `` | `2` |
+| `SC(1).g(7,8)`, reads `xs.mkString` | `no dispatch for .mkString on 8` | `7,8` |
+| `g(SC(1),7,8)` as a plain function | `arity: 2 expected, 1 given` | `2` |
+| the body reads the RECEIVER | `` `7.p` was selected but never called `` | `9` |
+| `SC(1).g()` — no arguments at all | `` `SC.length` was called but does not exist `` | `0` |
+
+**AND THE ELIGIBILITY TEST HAD TO MOVE WITH THE INDEX.** Shifting the index alone turned the plain-
+function shape from `2 expected, 1 given` into `2 expected, **3** given` — the collapse stopped
+firing entirely, because `dlen(slices) == dlen(pd)` is also one short once a receiver is present. A
+fix that stops at the index looks like progress and is still wrong; `tests/e2e/extension-vararg-gate.sh`
+carries a row for each face for that reason.
+
+**THE GATE WAS PROVED AGAINST THE DEFECT, NOT JUST WRITTEN AFTER IT.** With `specs/v2.2-p6.5-fsub.ssc`
+reverted to its pre-fix state and the launcher rebuilt, 6 of its 9 rows fail and the 3 ordinary-vararg
+control rows stay green.
+
+## v2-a-string-concat-on-a-vararg-expression-picks-the-int-plus
+
+<!-- status: open
+     lane: v2-jvm
+     kind: bug
+     area: front
+     found-by: claude-code
+     found-at: 2026-08-25 -->
+
+**Inside a function with a vararg parameter, a String `+` whose operand is an expression MENTIONING
+that parameter is typed as the Int `+` and refused.** Binding the same expression to a `val` first
+makes it compile.
+
+```scalascript
+def c(xs: Any*): String = xs.length.toString + "!"     // TYPEERR: cannot unify String: String vs (Int -> t3)
+def c(xs: Any*): String =
+  val n = xs.length.toString
+  n + "!"                                              // 2! — the same expression, bound first
+```
+
+**THE FOUR PROBES THAT LOCATE IT.** Each changes one thing from the failing line, so the surviving
+suspect is named by the table rather than guessed:
+
+| probe | body | verdict |
+|---|---|---|
+| the failure | `xs.length.toString + "!"` | TYPEERR |
+| operand order | `"n=" + xs.length.toString` | TYPEERR — not about which side |
+| numeric `+` | `xs.length + 1` (`: Int`) | `3` — only the String `+` |
+| not a vararg | `ys: List[Any]`, same body | `2!` — only under a vararg parameter |
+| bound first | `val n = …; n + "!"` | `2!` — only when the operand mentions `xs` |
+
+`(Int -> t3)` in the message is the Int `+` — a method taking an Int — so the checker resolved the
+operator against `Int` and then could not unify the annotated `String` result. `.toString` on a
+vararg-derived expression is not carrying its result type to the operator.
+
+**WHY IT SURVIVED THIS LONG.** It hides behind the workaround: real code binds intermediate values,
+so a vararg body written normally never trips it. `SPEC.md` §5.7's interpolator accumulates into a
+`var` and compiles for exactly that reason.
+
+**FOUND WHILE FIXING** `v2-varargs-in-an-extension-bind-to-the-last-argument`, as the leftover red in
+that entry's probe matrix once the extension defect was gone — and it is what the corrected paragraph
+in that entry had been misread as.

@@ -963,7 +963,16 @@ def objDfltCall(mg, ts, env, cx) = scanArgs(ts) match { case (slices, rest) => (
 // default-arg path, which intercepts before): the fixed lead args stay positional, the tail folds via
 // consChain. Gated registered-vararg-ONLY (mg == "" or not registered → the plain path is unchanged, so
 // every non-vararg call stays byte-for-byte identical).
-def postMethV(c, nm, mg, es, r, env, cx) = if objVarargFires(mg, cx) then (objVarargEmit(mg, es, cx), r) else postMeth2(c, nm, es, r, env, cx)
+// AN EXTENSION METHOD WITH A VARARG, called through the dot. Without this arm the call went to the
+// runtime `__method__` dispatcher, which passes the arguments individually — so the callee's vararg
+// parameter received ONE of them and `xs.length` became `8.length`. The front collapses for a plain
+// call and had no equivalent here; this is that equivalent, and the receiver takes the slot the
+// lift gave it.
+def postMethV(c, nm, mg, es, r, env, cx) = if objVarargFires(mg, cx) then (objVarargEmit(mg, es, cx), r) else (if extVarargFires(nm, cx) then (extVarargEmit(nm, c, es, cx), r) else postMeth2(c, nm, es, r, env, cx))
+def extVarargFires(nm, cx) = if isExtMethod(nm, cx) then vaIdxOf(dfltEntryPd(nm, cx)) >= 0 else false
+// The arguments here EXCLUDE the receiver, so the recorded index needs no shift — it is the plain
+// call that shifts. `takeL` keeps the fixed leading arguments, the tail folds into one Cons list.
+def extVarargEmit(nm, c, es, cx) = "(app (global " ++ nm ++ ") " ++ c ++ joinArgs(takeL(vaIdxOf(dfltEntryPd(nm, cx)), es)) ++ " " ++ consChain(dropL(vaIdxOf(dfltEntryPd(nm, cx)), es)) ++ ")"
 def objVarargFires(mg, cx) = if mg == "" then false else objVarargHit(mg, objVarargsOf(cx))
 def objVarargHit(mg, reg) = reg match { case Nil => false case h :: t => if fst(h) == mg then true else objVarargHit(mg, t) }
 def objVarargLead(mg, reg) = reg match { case Nil => 0 case h :: t => if fst(h) == mg then snd(h) else objVarargLead(mg, t) }
@@ -1438,7 +1447,20 @@ def parseVarOrCallG(nm, ts, env, cx) = if isTok(hd(ts), 2, 21) then parseCall(nm
 // Cons chain. One decision site, and the three paths keep working unchanged.
 def parseCall(nm, ts, env, cx) = parseCallS(nm, vaCollapse(nm, scanArgsCur(nm, ts, cx), env, cx), ts, env, cx)
 def vaCollapse(nm, pr, env, cx) = pr match { case (sl, r) => (vaSlices(nm, sl, env, cx), r) }
-def vaSlices(nm, sl, env, cx) = if lookup(nm, env) >= 0 then sl else vaSlices1(vaIdxOf(dfltEntryPd(nm, cx)), sl)
+// THE INDEX IS RECORDED FROM THE WRITTEN PARAMETER LIST, AND AN EXTENSION LIFT PREPENDS A RECEIVER,
+// so for an extension method it is off by one. That single fact produced both halves of
+// `v2-varargs-in-an-extension-bind-to-the-last-argument`:
+//
+//   extension (sc: SC) def g(xs: Any*)     registered with vararg index 0 (only `xs` is written)
+//   g(SC(1), 7, 8)                         collapsed from 0 — ALL THREE args became one list, so the
+//                                          two-parameter lifted def got `arity: 2 expected, 1 given`
+//   SC(1).g(7, 8)                          the method path never collapsed at all (see postMethV)
+//
+// Shifting here rather than at registration keeps the recorded entry the shape every other reader
+// expects; only the two call sites know that a receiver is in play.
+def vaSlices(nm, sl, env, cx) = if lookup(nm, env) >= 0 then sl else vaSlices1(vaIdxCall(nm, cx), sl)
+def vaIdxCall(nm, cx) = vaIdxShift(vaIdxOf(dfltEntryPd(nm, cx)), isExtMethod(nm, cx))
+def vaIdxShift(k, ext) = if k < 0 then k else (if ext then k + 1 else k)
 def vaSlices1(k, sl) = if k < 0 then sl else (if dlen(sl) < k then sl else collapseVA(k, sl))
 def collapseVA(k, sl) = appEnv(takeL(k, sl), Cons(vaListSlice(dropL(k, sl)), Nil))
 def vaListSlice(rest) = Cons((3, "List"), Cons((2, 21), appEnv(joinSlices(rest), Cons((2, 22), Nil))))
@@ -1456,11 +1478,16 @@ def argClauseJoin(sl, pr2) = pr2 match { case (sl2, r2) => argClauseMore(appEnv(
 def parseCallS(nm, scan, ts, env, cx) = scan match { case (slices, rest) => parseCallV(nm, slices, ts, rest, env, cx) }
 def parseCallV(nm, slices, ts, rest, env, cx) = if vaGo(nm, slices, env, cx) then (vaCall(nm, slices, env, cx), rest) else parseCallD(nm, slices, ts, rest, env, cx)
 def parseCallD(nm, slices, ts, rest, env, cx) = if dfltGo(nm, slices, env, cx) then (synthCall(nm, dfltEntryPd(nm, cx), slices, env, cx), rest) else parseCallN(nm, slices, ts, rest, env, cx)
-def vaGo(nm, slices, env, cx) = if lookup(nm, env) >= 0 then false else vaGoR(dfltEntryPd(nm, cx), slices)
-def vaGoR(pd, slices) = if vaIdxOf(pd) < 0 then false else vaGoN(pd, slices)
+def vaGo(nm, slices, env, cx) = if lookup(nm, env) >= 0 then false else vaGoR(dfltEntryPd(nm, cx), slices, isExtMethod(nm, cx))
+def vaGoR(pd, slices, ext) = if vaIdxOf(pd) < 0 then false else vaGoN(pd, slices, ext)
 // Exactly-filled only. A short call (an omitted default before the varargs) falls through to the
 // synthesis paths, which know how to fill it and see the same collapsed slice.
-def vaGoN(pd, slices) = if anyNamedSlice(slices) then false else dlen(slices) == dlen(pd)
+// THE RECEIVER COUNTS HERE TOO. An extension method called as an ordinary function — `g(sc, 7, 8)`,
+// which it is, since the lift makes it a top-level def — arrives with one more argument than the
+// WRITTEN parameter list has, so the exactly-filled test has to expect it or the collapse never
+// fires and the call reaches a two-parameter def with three arguments.
+def vaGoN(pd, slices, ext) = if anyNamedSlice(slices) then false else dlen(slices) == dlenRecv(pd, ext)
+def dlenRecv(pd, ext) = if ext then dlen(pd) + 1 else dlen(pd)
 def vaCall(nm, slices, env, cx) = emitApp(calleeOf(nm, env, cx), vaArgs(slices, env, cx))
 def vaArgs(sl, env, cx) = sl match { case Nil => "" case h :: t => " " ++ erase(fst(parseArgExpr(h, env, cx)), cx) ++ vaArgs(t, env, cx) }
 def parseCallN(nm, slices, ts, rest, env, cx) = if nargGo(nm, slices, env, cx) then (nargCall(nm, slices, env, cx), rest) else parseCallP(nm, slices, ts, rest, env, cx)
