@@ -1,2 +1,3 @@
-# generation: 2874
+# generation: 2875
 #slug	agent	started	items	paths
+rust-survey-baseline	claude-code	2026-08-25T20:17:04Z	rust-std-survey-baseline-missing-two-std-modules	file:tests/rust-std-survey-baseline.tsv file:tests/BUGS.md file:tests/SPRINT.md
