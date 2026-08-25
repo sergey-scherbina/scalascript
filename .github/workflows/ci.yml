@@ -721,6 +721,39 @@ jobs:
           tests/e2e/f-foldable-grade-gate.sh
           tests/e2e/f-effects-gate.sh
 
+      # ── AND AGAIN TEN DAYS LATER — MOVED OFF THE PUSH PATH 2026-08-25 ────────────────────────
+      #
+      # The move above brought the suite to ~845 s. On 2026-08-25 the budget it derived on the CI
+      # host was 1717 s again and run 32842423639 (`af87dfd8f`) was killed at the 30 min cap with
+      # 94 of 136 checks logged. The same two families had regrown, costing 661.1 s (11.0 min) on
+      # that host: f-plain-class 75.8, f-guarded-arm 72.1, f-private-member 67.0, ui-select-from
+      # 64.7, f-context-bounds 63.5, f-triple-interp 56.1, f-ui-signal-counter 51.7, f-for-tuple
+      # 45.4, f-placeholder-ctor 45.1, ui-provider-gap 40.4, f-front-cache 35.6, ui-computed-signal
+      # 28.8, nativeui-annotation 14.9.
+      #
+      # Sergiy decided BOTH levers this time: these thirteen leave the push path AND `smoke.yml`'s
+      # cap goes 30 -> 45 min. Moving work off alone is what 2026-08-15 did, and its ~3 min of
+      # margin was gone in ten days, because nothing limits how much the next agent adds.
+      #
+      # They are `optional` in `scripts/smoke-ci.ssc`, so every push still PRINTS them as `skip`
+      # rather than letting them vanish. This step is where they execute.
+      - name: F-front and UI gates — moved off the push path 2026-08-25
+        if: always()          # see the block above this job's steps
+        run: |
+          tests/e2e/f-plain-class-gate.sh
+          tests/e2e/f-guarded-arm-gate.sh
+          tests/e2e/f-private-member-gate.sh
+          tests/e2e/f-context-bounds-gate.sh
+          tests/e2e/f-triple-interp-gate.sh
+          tests/e2e/f-for-tuple-gate.sh
+          tests/e2e/f-placeholder-ctor-gate.sh
+          tests/e2e/f-front-cache-gate.sh
+          tests/e2e/ui-select-from-gate.sh
+          tests/e2e/f-ui-signal-counter-gate.sh
+          tests/e2e/ui-provider-gap-gate.sh
+          tests/e2e/ui-computed-signal-gate.sh
+          tests/e2e/nativeui-annotation-gate.sh
+
       # Was in neither tier, which is why its failure went unread for weeks and got recorded in the
       # orphan census as "empty output" — the gate discarded stderr. It runs four lanes end to end,
       # one of them a scala-cli JVM compile: 6.5 s local, so it belongs here and not under the smoke

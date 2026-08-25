@@ -96,7 +96,22 @@ jobs:
     # measurement behind it cannot speak. If the suite genuinely grows, the inner budget is what says
     # so — and that one still must not be raised without measuring, which is what
     # tests/BUGS.md smoke-suite-over-its-own-budget is about.
-    timeout-minutes: 30
+    #
+    # ── 30 → 45, 2026-08-25, decided by Sergiy — and the rule above is why ───────────────────────
+    #
+    # 2026-08-15 moved nine gates off the push path rather than touch this number, and it worked:
+    # the suite went 1425.5 s → ~845 s, the budget ~1095 s ≈ 18 min under a 30 min cap. Ten days
+    # later run 32842423639 (`af87dfd8f`) derived a budget of 1717 s = 28.6 min and was killed here
+    # with 94 of 136 checks logged. Setup before the suite even starts is 6.9 min, so the rule
+    # needed 35.6 min under a cap of 30 — violated outright, not marginally.
+    #
+    # BOTH levers this time. Thirteen more f-*/ui-* gates (661.1 s) left the push path in the same
+    # commit, which puts the job at ~27 min; 45 gives that ~18 min of room instead of the ~3 min
+    # that decayed in ten days. The pair is deliberate: moving work off restores the rule, and the
+    # larger cap is what keeps the next decay VISIBLE — a cancelled run carries no evidence at all
+    # (P-6.7), so a cap the suite can reach turns every push into a coin flip. The measurement that
+    # says when this number is wrong is still the suite's own budget, unchanged.
+    timeout-minutes: 45
 
     steps:
       - name: Checkout

@@ -3,6 +3,35 @@
 This module's queue. **Two states and no third:** `[~]` in progress, `[x]` done. Anything not being
 worked on belongs in `tests/BACKLOG.md`. Layout: [`../specs/work-tracking-layout.md`](../specs/work-tracking-layout.md).
 
+- [~] **THE SMOKE JOB CAP IS UNDER THE SUITE AGAIN** (claim `smoke-job-cap`, BUGS
+      `smoke-job-cap-no-longer-looser-than-the-suite`). The 2026-08-15 fix held ten days and the
+      suite grew back. Measured 2026-08-25 from run 32842423639 (`af87dfd8f`, killed at the cap):
+      job cap `timeout-minutes: 30`; setup before the suite starts 11:27:47 -> 11:34:38 = **6.9
+      min**; the suite derived a budget of **1717 s = 28.6 min** (it was ~1095 s after 2026-08-15);
+      at the kill it had logged **94 of 136 checks** in 23.4 min and was still running. The rule the
+      cap is written under — strictly LOOSER than budget plus build — needs **35.6 min**.
+      Successful runs sit at 25.4-28.6 min and cancelled ones at 30.3-30.4, so the distribution
+      straddles the cap and a green is a coin flip rather than a verdict; `0c71bfe45` and
+      `7c048a081` died the same way.
+
+      **DECIDED 2026-08-25 by Sergiy: BOTH levers**, where 2026-08-15 used one.
+
+      1. **Take 661.1 s (11.0 min) off the push path** — the `f-*` and `ui-*` gates that accumulated
+         since the last move: f-plain-class 75.8, f-guarded-arm 72.1, f-private-member 67.0,
+         ui-select-from 64.7, f-context-bounds 63.5, f-triple-interp 56.1, f-ui-signal-counter 51.7,
+         f-for-tuple 45.4, f-placeholder-ctor 45.1, ui-provider-gap 40.4, f-front-cache 35.6,
+         ui-computed-signal 28.8, nativeui-annotation 14.9. Mark them `optional` in
+         `scripts/smoke-ci.ssc` AND wire them as a named step in `ci.yml`'s tier-2 job — `optional`
+         alone is deletion wearing a flag, because `ci.yml` does not run `smoke-ci` at all.
+      2. **Raise `timeout-minutes` 30 -> 45.** After (1) the push path is ~27 min, so the rule holds
+         with ~18 min of room instead of the ~3 min that decayed in ten days. Raising ALONE was
+         rejected on 2026-08-15 for the reason that still applies — nothing then limits the suite's
+         growth — which is why it is paired with (1) rather than used instead of it.
+
+      **Done when:** `scripts/smoke-ci --list` reports the new optional count (an optional check and
+      a deleted one must never look the same in a log), the local suite is green, and a real push run
+      of `smoke.yml` COMPLETES instead of being cancelled.
+
 - [~] **TYPES MUST BE RIGHT — v1, v2 AND v3.** Mandate from Sergiy 2026-08-15, recorded in full
       BEFORE any code, because by step 3 nobody will remember why step 1 exists.
 
