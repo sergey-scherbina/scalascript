@@ -5,7 +5,7 @@ started: 2026-08-25T21:49:56Z
 heartbeat: 2026-08-25T21:49:56Z
 status: claimed-before-planning
 items: uniml-spike-direct-marker-identifier-counts-as-a-silent-drop
-paths: file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/ScalaSpike.scala file:tests/BUGS.md
+paths: file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/ScalaSpike.scala file:uniml/.jvmopts file:tests/BUGS.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
