@@ -61,7 +61,32 @@ WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
 STAMP="$ROOT/bin/lib/.build-stamp"
-stamp_mtime() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null; }
+# GNU FORM FIRST, and the order is the whole fix. `stat -f` means two different things: on BSD/macOS
+# it is `--format`, on GNU/Linux it is `--file-system`. The GNU one SUCCEEDS — it prints a block of
+# filesystem statistics and exits 0 — so with the BSD form first the `||` fallback never ran on a
+# Linux runner, and this function returned free-block and free-inode counters that differ between two
+# calls seconds apart. The gate then reported "this gate MODIFIED the toolchain it was measuring
+# against" on every nightly from 2026-08-20, with the real mtime sitting IDENTICAL (1787630148) on
+# both sides of its own error message.
+#
+# `stat -c` does not exist on BSD, so it fails cleanly there and the fallback is the one that runs.
+# Verified on macOS: both orders answer 1786700680 for the same file.
+stamp_mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null; }
+
+# AND ASSERT THE SHAPE, because the ordering above is a fix for the OTHER host and this gate mostly
+# runs on this one. An mtime is one line of digits; the Linux failure produced a nine-line block of
+# filesystem statistics and the comparison below still ran happily on it, reporting a modification
+# that had not happened. Anything that is not a bare integer stops the gate with a message naming the
+# cause, instead of being silently compared.
+assert_mtime_shape() {
+    local what="$1" v="$2"
+    case "$v" in
+        "" ) echo "  [FAIL] stamp_mtime returned NOTHING for $what — neither stat form worked here" >&2; exit 2 ;;
+        *[!0-9]* ) printf '  [FAIL] stamp_mtime returned a non-integer for %s — read the stat(1) on this host:\n' "$what" >&2
+                   printf '%s\n' "$v" | head -3 | sed 's/^/         /' >&2
+                   exit 2 ;;
+    esac
+}
 
 mkstub() {  # mkstub <exit-code>
     mkdir -p "$WORK/bin"
@@ -90,6 +115,7 @@ if [ ! -f "$STAMP" ]; then
     exit 1
 fi
 stamp_before="$(stamp_mtime "$STAMP")"
+assert_mtime_shape "$STAMP (before)" "$stamp_before"
 
 fail=0
 row() {  # row <label> <stub-exit> <mechanism-the-output-must-contain>
@@ -126,6 +152,7 @@ row "sbt fails QUIETLY (exit 0)" 0 "cli/installBin did not run"
 # The gate must leave the toolchain it borrowed exactly as it found it. Under the cache this was
 # false — `rm -rf bin/lib` and a restore, in the shared checkout — and nothing said so.
 stamp_after="$(stamp_mtime "$STAMP")"
+assert_mtime_shape "$STAMP (after)" "$stamp_after"
 if [ "$stamp_after" != "$stamp_before" ]; then
     echo "  [FAIL] this gate MODIFIED the toolchain it was measuring against"
     echo "         $STAMP mtime $stamp_before -> $stamp_after"

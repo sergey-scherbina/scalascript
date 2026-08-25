@@ -1715,6 +1715,87 @@ fail" (it was not the one), then "trap every failure" (eight of them are deliber
 right idea at the wrong level, and both were caught by running the gate UNPLANTED rather than
 trusting the planted case.
 
+## install-sh-gate-self-check-uses-a-bsd-only-stat — `stat -f` is `--format` on BSD and `--file-system` on GNU
+
+<!-- status: open
+     lane: apparatus
+     area: build
+     kind: bug
+     gate: tests/e2e/install-sh-reports-failure-gate.sh
+     reported-by: claude-code
+     reported-at: 2026-08-25
+     confirmed: yes -->
+
+**`Examples and launcher smokes` has been red in the nightly since 2026-08-20**, on the gate's own
+closing self-check — the one that asserts it left the toolchain it borrowed as it found it:
+
+```
+[FAIL] this gate MODIFIED the toolchain it was measuring against
+       …/bin/lib/.build-stamp mtime   File: "…/bin/lib/.build-stamp"
+  ID: 542238b4501be5b9 Namelen: 255     Type: ext2/ext3
+Blocks: Total: 37815964   Free: 21615473   Available: 21611377
+…
+1787630148 ->   File: "…"   … Free: 21615469 … 1787630148
+```
+
+**Read the two numbers it printed: the mtime is `1787630148` on BOTH sides.** Nothing was modified.
+What differed is `Free:` — the filesystem's free-block and free-inode counters, which move between
+two calls seconds apart.
+
+**ROOT CAUSE.**
+
+```bash
+stamp_mtime() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null; }
+```
+
+`stat -f` means two different things. On BSD/macOS it is `--format`, so `-f %m` is the mtime. On
+GNU/Linux it is `--file-system`, and it **succeeds** — printing a block of filesystem statistics and
+exiting 0 — so the `||` fallback to the GNU `-c %Y` never ran on a runner. Every nightly compared
+free-block counters and called the difference a modification.
+
+**FIXED** by trying the GNU form first: `stat -c` does not exist on BSD, so it fails cleanly there
+and the fallback is the one that runs. Verified on macOS: both orders answer `1786700680` for the
+same file.
+
+**AND THE SHAPE IS NOW ASSERTED**, because the ordering is a fix for the OTHER host while this gate
+mostly runs on this one. An mtime is one line of digits; the Linux failure produced nine lines and
+the comparison ran happily on them. `assert_mtime_shape` stops the gate with the cause named when
+the value is empty or not a bare integer, instead of silently comparing it.
+
+## no-orphan-gates-evidence-audit-red-on-four-undeclared-skip-guarded-gates
+
+<!-- status: open
+     lane: apparatus
+     area: build
+     kind: bug
+     gate: tests/e2e/no-orphan-gates.sh
+     reported-by: claude-code
+     reported-at: 2026-08-25
+     confirmed: yes -->
+
+**`Every wired gate can fail (stub-launcher audit)` has been red in the nightly since 2026-08-20**
+with `no-orphan-gates --evidence: FAIL` on four gates:
+
+```
+FAIL  it RAN the launcher, the launcher FAILED, and the gate passed: ui-provider-gap-gate.sh
+FAIL  … ui-select-from-gate.sh
+FAIL  … v2-extern-default-args-gate.sh
+FAIL  … v2-unknown-member-refuses-gate.sh
+```
+
+The audit offers two readings and asks which: *either it swallows the failure — fix that — or it
+declines to judge on purpose, in which case declare it in `GREEN_WITHOUT_LAUNCHER` with the REASON.*
+
+**All four DECLINE.** Each calls `ssc_usable_or_skip` from `tests/e2e/lib/ssc-usable.sh` — the same
+shared helper the eleven entries already in that list use, which prints SKIP and exits 0 when the
+launcher is unusable. That is the audit's own `skip-guarded` category, so the four are declared with
+it. Nothing is swallowed and no gate is weakened.
+
+**They are simply NEWER than the list.** It was frozen on 2026-08-13 over 112 wired gates, and its
+rules say so in as many words: *a new gate that stays green must be declared here; one that starts
+going red must be deleted from here.* Four gates were added after that date and nobody declared
+them, so the audit did exactly what it exists to do — and stayed red for five days.
+
 ## js-preamble-collision-gate-fails-on-a-name-overlap-that-is-not-a-collision
 
 <!-- status: open
