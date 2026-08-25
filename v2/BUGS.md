@@ -14122,15 +14122,16 @@ named one. The four legal forms are untouched and answer exactly what they answe
 on all seven shapes — v3 refusing at LOWERING with a position and v2 at run time with a sentence, a
 difference in WHEN and not in WHETHER.
 
-## v2-a-user-defined-interpolator-does-not-resolve — the silent half is fixed, the feature is blocked
+## v2-a-user-defined-interpolator-does-not-resolve — the silent half first, then the feature
 
-<!-- status: open
+<!-- status: fixed
      lane: v2-jvm
      kind: bug
      area: front
      gate: tests/e2e/user-interpolator-gate.sh (in scripts/smoke-ci)
      found-by: claude-code
-     found-at: 2026-08-24 -->
+     found-at: 2026-08-24
+     fixed-in: 2a0af75e5 -->
 
 **THE SILENT HALF IS FIXED IN 9e839ec80 AND THE ENTRY STAYS OPEN.** `upper"hello"` no longer prints
 `<closure>` and `0`; it refuses by name and says what the construct is. What it still does not do is
