@@ -1715,6 +1715,57 @@ fail" (it was not the one), then "trap every failure" (eight of them are deliber
 right idea at the wrong level, and both were caught by running the gate UNPLANTED rather than
 trusting the planted case.
 
+## js-preamble-collision-gate-fails-on-a-name-overlap-that-is-not-a-collision
+
+<!-- status: open
+     lane: apparatus
+     area: build
+     kind: bug
+     gate: tests/e2e/js-preamble-collision-gate.sh
+     reported-by: claude-code
+     reported-at: 2026-08-25
+     confirmed: yes -->
+
+**The gate failed on a name it had not tested, in words that were not true of it.** It has been red
+in the nightly since `std/html.ssc` landed (~2026-08-20):
+
+```
+✗ 1 exported name(s) the preamble defines are NOT in declaredBindings —
+  each is a `SyntaxError: Identifier '<name>' has already been declared` for whoever imports it:
+    raw  (std/html.ssc)
+```
+
+**There is no SyntaxError.** Four import shapes were emitted and checked — `[raw](std/html.ssc)`,
+`[html, raw](…)`, the whole module, and one binding `raw` through a local def. Every one produced
+exactly ONE top-level `raw`, the preamble's, with no `const raw` beside it, and `node --check` was
+clean on all four. All three lanes answer the same for `println(raw("<em>x</em>"))`.
+
+**WHY THE RULE WAS WRONG.** The check intersected "names the preamble defines" with "names
+`std/**/*.ssc` export" and failed on any overlap not listed in `JsGen.declaredBindings`. That list
+was built on 2026-08-17 by MEASURING thirty names — emit a one-line importing program, run
+`node --check` — and the static rule that replaced the measurement cannot tell a colliding name from
+a benign one. It is the apparatus failure `AGENTS.md` names first: a gate that decides before
+comparing.
+
+**FIXED by restoring the measurement**, not by editing the list: every flagged name is now emitted
+and `node --check`ed, and only a name that really produces the SyntaxError fails the gate. A benign
+overlap is still PRINTED, because it is worth seeing that the import resolves to the preamble
+function rather than to the std def.
+
+Adding `"raw"` to `declaredBindings` would have been the wrong fix: that list's header says every
+entry was measured to break, so an entry that does not break destroys what the list tells its next
+reader.
+
+**THE GATE NOW CARRIES ITS OWN FAILURE PROOF.** The check decides with `node --check`, and a
+predicate that cannot say NO is a pass generator, so a self-test runs first: a hand-written bundle
+with a duplicate top-level declaration must be REJECTED and a clean one ACCEPTED, or the gate stops.
+
+**AN OBSERVATION, NOT A CLAIM ABOUT THE WHOLE LIST.** A control removed `"exec"` from
+`declaredBindings` and rebuilt; the bundle for `[exec](std/process.ssc)` came out BYTE-IDENTICAL, so
+something other than this list suppresses that binding. The emitter does still emit such bindings in
+general — `[htmlEscape](std/html.ssc)` produces `const htmlEscape = std.html.htmlEscape` in the same
+build. Whether the other 45 entries are load-bearing is one rebuild each and was NOT measured.
+
 ## rust-std-survey-baseline-missing-two-std-modules — two new std modules turned the nightly red for three days
 
 <!-- status: open
