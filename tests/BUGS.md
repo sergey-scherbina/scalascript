@@ -1,3 +1,57 @@
+## uniml-standalone-build-red-on-a-heap-cap-and-a-miscounted-syntax-token
+
+<!-- status: open
+     lane: apparatus
+     area: build
+     kind: bug
+     gate: .github/workflows/ci.yml
+     reported-by: claude-code
+     reported-at: 2026-08-25
+     confirmed: yes -->
+
+**`UniML — standalone build` has been red in the nightly since 2026-08-22, and it is TWO faults, not
+one.** The second is invisible in CI because the first stops the job before it.
+
+```
+[error] [launcher] error during sbt launcher: java.lang.OutOfMemoryError: Java heap space
+	at scalascript.uniml.ssc.SscCompose$.remap$1(SscCompose.scala:283)
+```
+
+**FAULT 1 — the runner's sbt heap.** `uniml/` had no `.jvmopts`, so the runner takes the stock
+default. It is not a leak: the whole suite is green here at `-Xmx2g` (218 tests, 41 s) and this
+box's own default is 4096 MB, so the runner is somewhere under 2 GB. The flag now sits on the
+job's own `sbt` line as `-J-Xmx4g`.
+
+`uniml/.jvmopts` would be the tidier home and is the first thing to reach for — **it is IGNORED**,
+by `.gitignore`'s `.*` rule, so it would have existed on my disk and nowhere else. `git add` refused
+it, which is the only reason this was caught before pushing a fix that fixes nothing in CI. 4g rather
+than 2g because the corpus this suite walks GROWS: the coverage spec alone reads 836,242 tokens
+across 1412 files, and every `.ssc` added to the repo is another one.
+
+**FAULT 2 — a syntax token counted as a silent drop.** With enough heap the suite gets further and
+`SpikeTypedCoverageSpec` fails instead:
+
+```
+35 was not less than or equal to 0   silent drops rose to 35 (ceiling 0)
+  drop 35  spike.direct / var -> spike.id   e.g. examples/direct-syntax-demo.ssc:37
+```
+
+All 35 are one token: the word `direct` itself. `parseAtom` reads it as an identifier and gives it
+the `var` role before `postfix` recognises the marker, the role travels into `spike.direct`, and
+`SpikeTyped`'s arm reads that node BY ROLE and correctly ignores it — the comment there records that
+taking it as a type argument was the bug it already fixed. But the coverage spec counts a content
+token that is neither modelled nor reported as `Unsupported` as a **silent drop**, and its ceiling
+is 0 and may only go down.
+
+**FIXED by classifying, not by suppressing.** The marker word IS syntax, so it now carries
+`direct.kw`; `.kw` is in that spec's own `SyntaxRoleSuffixes` for exactly this class of token. The
+count goes to **0**, and `spike.directmarker`'s projection takes its kids POSITIONALLY (head as
+inner) so the rename cannot reach it. Full suite green afterwards: 15 suites, 0 failures.
+
+**Raising the ceiling was not an option and should not become one** — the assert's own comment says
+"A ceiling, not a floor: this number may only go DOWN", and a token the projection genuinely cannot
+model belongs in `Unsupported`, where the spec can see it.
+
 ## f-triple-quoted-interpolated-string-is-silently-wrong — s-triple answered 0
 
 <!-- status: fixed

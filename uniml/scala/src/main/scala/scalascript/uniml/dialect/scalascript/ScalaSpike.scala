@@ -1957,7 +1957,18 @@ object SpikeParse:
         // two fronts then print different trees for the same file (v3's own parser keeps them).
         case "Focus"  => postfix(c, Node.Frame("spike.focusmarker", None, atom +: captureTypeArgTokens(c)))
         case "Prism"  => postfix(c, Node.Frame("spike.prism", None, atom +: captureTypeArgTokens(c)))
-        case "direct" => postfix(c, Node.Frame("spike.directmarker", None, atom +: captureTypeArgTokens(c)))
+        // `direct.kw`, NOT the `var` role `parseAtom` gave it. `direct` is read as an identifier
+        // before postfix recognises the marker, and the role travels: `spike.direct` ends up with a
+        // `var`-role child that its projection reads by role and correctly ignores — the comment in
+        // SpikeTyped's arm explains why taking it as a type argument was the bug there. But
+        // SpikeTypedCoverageSpec counts a content token that is neither modelled nor reported as
+        // `Unsupported` as a SILENT DROP, and this one accounted for all 35 of them against a
+        // ceiling of 0 (`spike.direct / var -> spike.id`, e.g. examples/direct-syntax-demo.ssc:37).
+        // The marker word IS syntax, so a syntax role is the accurate classification and not a
+        // suppression: `.kw` is in that spec's SyntaxRoleSuffixes for exactly this class of token.
+        // `spike.directmarker`'s own projection takes kids POSITIONALLY (head-as-inner), so the
+        // rename cannot reach it.
+        case "direct" => postfix(c, Node.Frame("spike.directmarker", None, atom.withRole("direct.kw") +: captureTypeArgTokens(c)))
         case _        => skipTypeParams(c); postfix(c, atom)
     // `direct[F] { … }` direct-style monadic block → Pair("direct", (typeArgs, block)); ssc1-lower desugars
     // it to a flatMap chain (ssc1-front.ssc0:1394). The `{ … }` is a plain block, not a lambda arg.

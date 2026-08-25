@@ -1796,9 +1796,18 @@ jobs:
         # The aggregate reports one line per project. A build that quietly
         # stopped aggregating would still exit 0 while testing LESS, so the
         # count is asserted — that is the failure an exit code cannot see.
+        # -J-Xmx4g, MEASURED. Without it this job died from 2026-08-22 with
+        #   [error] [launcher] error during sbt launcher: java.lang.OutOfMemoryError: Java heap space
+        # inside SscCompose.remap. Not a leak: the whole suite is green at -Xmx2g on a dev box
+        # (218 tests, 41 s) whose own sbt default is 4096 MB, so the runner's stock default is under
+        # 2 GB. `uniml/.jvmopts` would be the tidier home for this and is IGNORED by .gitignore's
+        # `.*` rule, so it would exist on the author's disk and nowhere else — the flag goes here,
+        # where CI can actually read it.
+        # 4g rather than 2g because the corpus this suite walks GROWS: the coverage spec alone reads
+        # 836,242 tokens across 1412 files, and every .ssc added to the repo is another one.
         run: |
           set -euo pipefail
-          sbt -batch test | tee /tmp/uniml.log
+          sbt -J-Xmx4g -batch test | tee /tmp/uniml.log
           passed=$(grep -c "All tests passed" /tmp/uniml.log || true)
           echo "UniML: $passed project(s) reported passing"
           # EXACT, not a floor, and the change is the point. This was `-lt 10`
