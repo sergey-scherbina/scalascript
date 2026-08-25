@@ -1,0 +1,11 @@
+slug: sbt-test-shard-enumeration
+branch: feature/sbt-test-shard-enumeration
+agent: claude-code
+started: 2026-08-25T23:57:43Z
+heartbeat: 2026-08-25T23:57:43Z
+status: claimed-before-planning
+items: sbt-test-shard-enumeration-produces-zero-suites-in-ci
+paths: file:scripts/sbt-test-shard file:tests/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
