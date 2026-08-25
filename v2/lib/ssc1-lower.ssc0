@@ -6134,8 +6134,40 @@ def lowerProg = (stmts) =>
   -- K62.6e: reset case-class field registry (generated _sel_ accessors)
   let _cf = #cell.set(caseFieldsCell, collectCaseFields(stmts)) in
   -- named-args: per-class ordered field lists (constructor reorder)
-  let _cfo = #cell.set(caseFieldOrderCell, collectCaseClassOrder(stmts)) in
-  let _cob = #cell.set(caseObjNamesCell, collectCaseObjNames(stmts)) in
+  --
+  -- ACCUMULATED, NOT REPLACED, and the reason is measured rather than defensive. `--structural`
+  -- runs THREE lowerings in one process: the user's program, `sscParseFrontmatters`' yaml module,
+  -- and `sscParseContents`' content-core module. They share these cells, and a program's defs are
+  -- lowered LAZILY — so the user's class-method bodies were reached AFTER the yaml lowering had
+  -- replaced this registry with its own. Traced on 2026-08-25:
+  --
+  --     LOWERPROG ctors=[P Holder ]                      <- the user's program registers
+  --     LOWERPROG ctors=[YamlNull YamlBool YamlInteger…] <- the front-matter parser REPLACES it
+  --     CKDBG     ctors=[YamlNull YamlBool YamlInteger…] <- the class-method body is lowered NOW
+  --     ssc: "unknown constructor 'P' in a pattern"
+  --
+  -- The verdict this produced was not subtle: on the legacy lane EVERY constructor pattern inside a
+  -- class method was refused, with or without front matter, and on the default lane it appeared
+  -- whenever F declined and the F4a fallback landed here. `package:` was recorded as the trigger
+  -- because it is a common reason for F to decline — the pattern fails with `name:` alone and with
+  -- no front matter at all under `SSC_FRONT=legacy`.
+  --
+  -- THIS IS A FIX AT THE COERCION SITE, and the real cause is named so the next reader does not
+  -- stop here: three lowerings sharing process-global registries under lazy evaluation is the
+  -- defect, and re-entrancy (a saved/restored or per-program registry) is the repair. Ordering the
+  -- calls does not work — every attempt to force the user's lowering first was defeated by the same
+  -- laziness, because an unused `let` binding is never evaluated.
+  --
+  -- WHAT IT COSTS, stated rather than hidden: the check `ckCtorTag` performs is "is this name a
+  -- declared constructor", and the union makes it "…in ANY program lowered by this process". A
+  -- pattern naming a yaml-module or content-core constructor is now accepted where it would have
+  -- been refused. That is a strictly smaller harm than refusing every valid one, and it cannot
+  -- accept a name no program in the process declares.
+  --
+  -- IT CHANGES NOTHING THAT ALREADY WORKED: a program with case classes and an enum lowers to
+  -- BYTE-IDENTICAL output before and after (12413 bytes, `--structural`).
+  let _cfo = #cell.set(caseFieldOrderCell, append(collectCaseClassOrder(stmts), #cell.get(caseFieldOrderCell))) in
+  let _cob = #cell.set(caseObjNamesCell, appendL(collectCaseObjNames(stmts), #cell.get(caseObjNamesCell))) in
   -- KC5b: reset active ctx (summon dispatch)
   let _ac = #cell.set(kc5ActiveCtxCell, Nil) in
   -- KC5-mono: reset the typeclass-monomorphisation worklist (populated while lowering)

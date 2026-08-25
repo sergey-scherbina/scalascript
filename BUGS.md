@@ -11398,6 +11398,69 @@ everything above is measured, and a fix guessed from here would be a fix to the 
 every `scljet-*` module declares `package: scljet`, and `std/scljet/jvm-vfs.ssc` pattern-matches its
 own `JvmVfsRead` inside `JvmSqliteFile.readAt`. The whole module chain that imports it fails with it.
 
+### 2026-08-25 — MEASURED. `package:` is not the cause, and the title was wrong twice over
+
+**The trigger is not the frontmatter and the scope is not `case class`.** Under `SSC_FRONT=legacy`
+the same program fails with `name:` alone and with **no front matter at all**, and a `case object`
+fails on BOTH fronts either way:
+
+| program | default lane | legacy lane |
+|---|---|---|
+| class-method pattern, no front matter | 15 | **refused** |
+| class-method pattern, `name:` only | 15 | **refused** |
+| class-method pattern, `package: demo` | **refused** | **refused** |
+| `case object` in a class method, no front matter | **refused** | **refused** |
+
+So on the legacy lane EVERY constructor pattern inside a class method was refused. `package:` earned
+its place in the title only because it is a common reason for F to DECLINE — and the F4a fallback
+lands in the reference lowerer, where the defect lives.
+
+**THE MECHANISM, traced rather than inferred.** `--structural` — which is what `bin/ssc` always
+passes — runs **three** lowerings in one process: the user's program, `sscParseFrontmatters`' yaml
+module, and `sscParseContents`' content-core module. All three share the process-global
+`caseFieldOrderCell` / `caseObjNamesCell`, and a program's defs lower **lazily**. Instrumenting the
+registry set and the refusal site printed the order directly:
+
+```
+LOWERPROG ctors=[P Holder ]                       the user's program registers
+LOWERPROG ctors=[YamlNull YamlBool YamlInteger…]  the front-matter parser REPLACES the registry
+CKDBG     ctors=[YamlNull YamlBool YamlInteger…]  the class-method body is lowered NOW
+ssc: "unknown constructor 'P' in a pattern"
+```
+
+The class-method bodies are the ones that reach the lowerer last, which is the whole reason the
+asymmetry in the table above exists: a top-level `def` and an `object` member are lowered while the
+registry is still the program's own.
+
+**WHY THE OBVIOUS FIXES DO NOT WORK, each tried and refuted:**
+
+| attempt | result |
+|---|---|
+| force the user's IR with `#coreir.encode` before the other parses | encode succeeded (`FORCED len=9083`) and the refusal still came later |
+| reorder so the front-matter and contents are computed first | `let` is LAZY — the bindings were never evaluated and the order did not change |
+| force those bindings through a length check | the user's `lowerProg` then never ran its resets at all |
+
+An unused `let` binding is never evaluated here, which defeats every ordering fix from outside.
+
+**FIXED at the coercion site**, with the real cause named: the two registries now ACCUMULATE across
+the process (`append(collectCaseClassOrder(stmts), #cell.get(…))`) instead of replacing. What it
+costs, stated rather than hidden: `ckCtorTag` asks "is this a declared constructor" and the union
+makes it "…in ANY program this process lowered", so a pattern naming a yaml-module or content-core
+constructor is now accepted where it would have been refused. That is strictly smaller than refusing
+every valid one, and it cannot accept a name no program in the process declares.
+
+**THE REAL REPAIR is re-entrancy** — a per-program registry, or a saved/restored one — and it is not
+done here because every ordering-based attempt above was defeated by the evaluation strategy.
+
+**NOTHING THAT ALREADY WORKED CHANGED:** a program with case classes and an enum lowers to
+BYTE-IDENTICAL output before and after (12413 bytes under `--structural`).
+
+**GATE** `tests/e2e/class-method-ctor-pattern-gate.sh`, new, wired into `scripts/smoke-ci.ssc`. Nine
+rows, each asserted on BOTH fronts: 5 FAIL / 4 controls green before the fix, 9/9 after. The last two
+rows are the control the union makes necessary — a genuinely undeclared constructor must still be
+refused, and is.
+
+
 **A REDUCTION THAT DELETED A MIDDLE RANGE MADE THE FILE ILLEGAL AND NEARLY SENT ME ELSEWHERE.**
 Cutting lines 47–145 removed the `extern def`s the surviving body calls; the cut file still said
 `unknown constructor`, but it could have said it for a different reason. The reduction that counted
