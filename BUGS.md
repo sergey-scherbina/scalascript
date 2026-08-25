@@ -11323,12 +11323,18 @@ clause count. Filed separately as `v2-curried-def-partial-application-unsupporte
 
 ## v2-package-frontmatter-hides-a-case-class-from-a-pattern-inside-a-class-method
 
-<!-- status: open
+<!-- status: fixed
      kind: bug
      lane: native
      area: front
      confirmed: yes
-     gate: tests/conformance/run.sh -->
+     gate: tests/conformance/run.sh
+     fixed-in: b5e777cb8 -->
+
+**FIXED 2026-08-25 in `b5e777cb8`** — the registries ACCUMULATE across the process instead of
+replacing, so the class-method bodies that lower last still see the program's own constructors. The
+title stays as filed for greppability; the dated section below records that `package:` is not the
+cause and `case class` is not the scope.
 
 ```scalascript
 ---

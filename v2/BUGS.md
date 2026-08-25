@@ -9,14 +9,18 @@ Newest first.
 
 ## v2-swift-backend-has-no-mk-method-obj-primitive — `emit-swift` dies on any program with an `object`
 
-<!-- status: open
+<!-- status: fixed
      lane: v2-rust
      kind: bug
      area: codegen
      gate: tests/e2e/v2-swift-cli.sh
      reported-by: claude-code
      reported-at: 2026-08-25
-     confirmed: yes -->
+     confirmed: yes
+     fixed-in: 6e96ded86 -->
+
+**FIXED 2026-08-25 in `6e96ded86`** — the four VM arms mirrored, `v2SwiftBackend/test` 59 passed 0
+failed, `tests/e2e/v2-swift-cli.sh` PASS.
 
 **`Validate ScalaScript`'s "v2 diagnostics and fast paths" step has been red in the nightly since
 2026-08-20**, and this is one of its two causes:

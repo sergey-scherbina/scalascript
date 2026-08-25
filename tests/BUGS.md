@@ -1,13 +1,17 @@
 ## uniml-standalone-build-red-on-a-heap-cap-and-a-miscounted-syntax-token
 
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: build
      kind: bug
      gate: .github/workflows/ci.yml
      reported-by: claude-code
      reported-at: 2026-08-25
-     confirmed: yes -->
+     confirmed: yes
+     fixed-in: c65ed038b -->
+
+**FIXED 2026-08-25 in `c65ed038b`** — `sbt -J-Xmx4g` on the job's own line, and the `direct` marker
+carries `direct.kw`. Drops 0, suite 15 green.
 
 **`UniML — standalone build` has been red in the nightly since 2026-08-22, and it is TWO faults, not
 one.** The second is invisible in CI because the first stops the job before it.
