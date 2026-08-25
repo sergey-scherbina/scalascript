@@ -14178,16 +14178,43 @@ never becomes a call and there is nothing for a user's extension to be found by.
 rule that has caught shipping examples in this repository before. The docs now state which lane
 implements the rule instead of claiming it everywhere.
 
-**THE BLOCKER UNDER IT IS GONE AS OF `82e48357a`, AND THIS ENTRY STAYS OPEN ANYWAY.** The reason a
-refusal was the honest answer here was that the feature's own shape did not run on this lane —
-`v2-varargs-in-an-extension-bind-to-the-last-argument`. It runs now, measured whole:
+**THE BLOCKER UNDER IT WENT FIRST** — `v2-varargs-in-an-extension-bind-to-the-last-argument`, fixed in
+`82e48357a`. Until then the feature's own shape did not run on this lane at all, which is why a
+refusal was the honest answer rather than a stopgap.
 
-    StringContext(List("hello ", ", welcome")).upper("ada")   // HELLO ada, WELCOME
+**THE FIX: BOTH FRONTS BUILD THE CALL SPEC.md 5.7 DEFINES.** `upper"a${x}b"` IS
+`StringContext(List("a", "b")).upper(x)`, so each front builds exactly that and hands it to its own
+expression parser. Nothing here emits CoreIR by hand: the extension lift, the vararg collapse, the
+constructor and the field selector already exist, are already tested, and now have one caller each
+instead of a second copy that can drift.
 
-So what remains is the FRONT half — lowering `upper"…"` to that call, and providing `StringContext`
-on a lane with no prelude. That is an implementation, not a diagnosis, and it is the work this entry
-now describes; the refusal stands until it lands, because a refusal is what the lane can say
-truthfully today.
+⚠️ **IT NEEDED BOTH FRONTS, AND THE FIRST DIAGNOSIS SAID OTHERWISE.** F compiles these files, so F
+looked like the whole job. Measured: with F lowering the construct CORRECTLY, the answer the user got
+was still the reference front's refusal — the program reaches that parser too, because the checker is
+kept beside F in both modes. The tell was the message TEXT: it was the wording I had landed in the
+other front, not the wording I had just written in F. Reading which front a message comes from is
+worth more here than reading what it says.
+
+**A REGISTRY ENTRY LOOKED LIKE ENOUGH AND WAS NOT.** This lane has no prelude, so `StringContext` had
+to come from somewhere. Registering the name and its field in F's case-class tables produced a program
+that called a global nothing defined: a case class's constructor is a GENERATED FUNCTION — `ctorApp`
+emits `(app (global X) …)` for everything but a builtin — and the function, the mirror and the `parts`
+selector are all emitted by `emitCCDecl` off the TOKEN stream, not off the table. The fix declares the
+class instead, by prefixing the source with the one line a user would otherwise write, and only when
+the program uses a user interpolator and does not declare the name itself. A program without one is
+byte-unchanged, so F's own source keeps its fixpoint.
+
+⚠️ **AND THE QUIETEST BUG OF THE THREE WAS IN THE NEW CODE.** The argument accumulator REPLACED
+instead of appending, so `j"${a}${b}"` built the source `j(, b)` — which parses as one argument. Every
+`parts` list stayed correct for every shape while `args.length` answered `1` for every hole count above
+zero. A wrong count that is still a number reads exactly like a working feature, which is why every row
+of `tests/e2e/user-interpolator-gate.sh` now reads BOTH lists: the two differ in length by one and each
+comes from its own walk, so a row reading one of them cannot see the other go wrong.
+
+**THE REFUSAL NARROWED RATHER THAN DISSOLVING.** A prefix with no extension method of that name is
+still refused by name, on both fronts and on `--native`; the six rows written for the refusal are
+unchanged and still green. What lowers is a prefix an `extension` actually defines — a prefix defined
+as an ORDINARY function is still refused, and that row is in the gate.
 
 ## v2-varargs-in-an-extension-bind-to-the-last-argument — and the first probe hid it
 

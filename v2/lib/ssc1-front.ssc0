@@ -1046,6 +1046,56 @@ def buildHtmlInterp = (raw) => htmlPartsToExpr(interpParts(raw))
 def buildMdInterp = (raw) =>
   Pair("prim", Pair("__mdStrip__", Cons(buildSInterp(raw), Nil)))
 
+-- A USER-DEFINED INTERPOLATOR (SPEC.md 5.7). `upper"a${x}b"` IS
+-- `StringContext(List("a", "b")).upper(x)` — so build exactly that call and let the extension lift,
+-- the vararg collapse and the field selector do the rest, the same way a hand-written call does.
+--
+-- WHY THIS FRONT AND NOT ONLY F: the checker is kept beside F in both modes, so a `.ssc` reaches THIS
+-- parser even when F is the lowerer. Measured 2026-08-25 — with F lowering the construct correctly and
+-- this arm still throwing, the throw was the answer the user saw; with holes in the string it was
+-- `structural CoreIR contains parser sentinel _err`.
+--
+-- THE TWO LISTS DIFFER IN LENGTH BY ONE, and that is the whole subtlety. `interpParts` was written for
+-- CONCATENATION, where an empty literal between two adjacent holes changes nothing and is therefore not
+-- emitted — but Scala's contract is `parts.length == args.length + 1`, and `upper"$a$b"` must see
+-- `List("", "", "")`. `uiParts` carries one bit for that: whether a literal is still owed before the
+-- next hole.
+def uiIsExt = (n, xs) =>
+  match xs {
+    case Nil => false
+    case Cons(h, t) => if #seq(h, n) then true else uiIsExt(n, t)
+  }
+
+def uiHole = (pk, pv) =>
+  if #seq(pk, "expr") then prV(parseExpr(lex(pv))) else mkVar(pv)
+
+def uiHoles = (ps) =>
+  match ps {
+    case Nil => Nil
+    case Cons(p, rest) =>
+      match p {
+        case Pair(pk, pv) =>
+          if #seq(pk, "str") then uiHoles(rest) else Cons(uiHole(pk, pv), uiHoles(rest))
+      }
+  }
+
+def uiParts = (ps, owe) =>
+  match ps {
+    case Nil => if owe then Cons(mkStr(""), Nil) else Nil
+    case Cons(p, rest) =>
+      match p {
+        case Pair(pk, pv) =>
+          if #seq(pk, "str") then Cons(mkStr(pv), uiParts(rest, false))
+          else if owe then Cons(mkStr(""), uiParts(rest, true))
+          else uiParts(rest, true)
+      }
+  }
+
+def buildUserInterp = (pfx, raw) =>
+  let ps = interpParts(raw) in
+  let sc = mkApp(mkUVar("StringContext"), Cons(mkApp(mkUVar("List"), uiParts(ps, true)), Nil)) in
+  mkApp(mkSel(sc, pfx), uiHoles(ps))
+
 -- K62.26b: f"" format specifiers. In an f-string a ${expr} may be followed by a printf
 -- spec  %[-#+ 0,(<]*[width][.prec]<letter>  at the front of the NEXT literal (f"$x%-4s").
 -- splitFFormatPrefix peels that spec off (default "%s" when absent). buildFInterp emits
@@ -1426,7 +1476,10 @@ def parseAtom = (toks) =>
     -- to the last argument inside an extension here (v2/BUGS.md
     -- `v2-varargs-in-an-extension-bind-to-the-last-argument`). Named refusal until that is fixed.
     else if isUnknownInterpPfx(v, advance(toks)) then
-      #__throw__(#sconcat(#sconcat("unknown interpolator prefix '", v), "' -- this front implements s, f, raw, md and html; a user-defined interpolator is an extension method on StringContext (SPEC 5.7) and is not available on this lane"))
+      if uiIsExt(v, #cell.get(extensionMethodsCell)) then
+        pr(buildUserInterp(v, tokVal(peek(advance(toks)))), advance(advance(toks)))
+      else
+        #__throw__(#sconcat(#sconcat(#sconcat("unknown interpolator prefix '", v), "' -- the built-in prefixes are s, f, raw, md and html, and a user-defined one is an extension method on StringContext (SPEC 5.7); no extension named '"), #sconcat(v, "' is defined above this point in the program")))
     else pr(mkVar(v), advance(toks))
   else if #seq(k, "uid") then pr(mkUVar(v), advance(toks))
   else if #seq(k, "kw") then

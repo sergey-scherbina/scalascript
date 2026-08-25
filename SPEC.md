@@ -844,9 +844,12 @@ malformed literal with a source position instead of building a wrong string at
 run time. See `v3/specs/60-compile-time-extension.md`.
 
 > **Implementation status.** The `StringContext` model is implemented on the
-> ScalaScript 3 fronts. The 2.1 reference implements the built-in prefixes in its
-> front and does not yet resolve a user-defined one — measured 2026-08-24 and
-> filed as `v2-a-user-defined-interpolator-does-not-resolve`.
+> ScalaScript 3 fronts and, since 2026-08-25, on the 2.1 reference lane as well:
+> both of its fronts lower `pfx"…"` to `StringContext(List(parts…)).pfx(holes…)`,
+> and declare the class for the program when the program does not declare one
+> itself. A prefix with no extension method of that name is refused by name.
+> The compile-time half — a prefix a plugin claims, receiving its parts as syntax —
+> remains a ScalaScript 3 feature.
 
 ### 5.8 A value may name its own rendering
 

@@ -827,9 +827,10 @@ refuse with a source position — an `html"…"` can reject an unclosed tag whil
 compiling rather than concatenate a broken string at run time. The mechanism is
 `v3/specs/60-compile-time-extension.md`; nothing in the kernel learns the prefix.
 
-*Implemented on the ScalaScript 3 fronts. The 2.1 reference implements the
-built-in prefixes in its own front and does not yet resolve a user-defined one
-(`v2/BUGS.md`, `v2-a-user-defined-interpolator-does-not-resolve`).*
+*Implemented on the ScalaScript 3 fronts and, since 2026-08-25, on the 2.1
+reference lane too — both of its fronts build the `StringContext` call, and
+declare the class for you when your program does not declare one itself. The
+compile-time half described just above is ScalaScript 3 only.*
 
 `doc(parts...)` keeps ordinary runtime values in source order; nested documents
 are flattened recursively when rendered, while empty nested documents add no

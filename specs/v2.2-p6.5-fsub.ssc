@@ -789,12 +789,46 @@ def interpRaw(tk, cx) = if fst(tk) == 8 then escTripleStr(snd(tk), cx) else snd(
 // SUBSTITUTION and leave literal chunks alone — so the flag has to reach the splitter, it
 // cannot be applied to the finished code. Mirrors legacy htmlPartToExpr.
 def escOfPfx(w) = if w == "html" then 1 else 0
-def interpPfxNode(w, tk, env, cx) = if w == "f" then parseFInterp(interpRaw(tk, cx), env, cx) else (if isInterpPfx(w) then mkInterpPfx(w, erase(parseInterpE(interpRaw(tk, cx), env, cx, escOfPfx(w)), cx)) else unknownPfx(w))
+def interpPfxNode(w, tk, env, cx) = if w == "f" then parseFInterp(interpRaw(tk, cx), env, cx) else (if isInterpPfx(w) then mkInterpPfx(w, erase(parseInterpE(interpRaw(tk, cx), env, cx, escOfPfx(w)), cx)) else (if isExtMethod(w, cx) then userInterpNode(w, interpRaw(tk, cx), env, cx) else unknownPfx(w)))
+// SPEC.md 5.7: `upper"a${x}b"` IS `StringContext(List("a", "b")).upper(x)` — so BUILD that source and
+// hand it to the expression parser, instead of emitting the call by hand. Everything the shape needs
+// already exists on this path and is already tested: the extension lift, the vararg collapse (fixed
+// 2026-08-25 — the receiver shifts the index, `v2-varargs-in-an-extension-bind-to-the-last-argument`),
+// the ctor, the field selector. Emitting CoreIR here would duplicate all four and drift from them.
+//
+// A PREFIX WITH NO EXTENSION STILL REFUSES BY NAME. That is why the test above is `isExtMethod` and
+// not "is any identifier": `upper"hello"` with nothing named `upper` in the program is the case that
+// used to print `<closure>` and `0`, and it must stay a refusal — the feature landing narrows that
+// guard rather than dissolving it.
+def userInterpNode(w, c, env, cx) = eNode(interpExpr(userInterpSrc(w, c, dqOf(cx)), env, cx))
+def userInterpSrc(w, c, dq) = "StringContext(List(" ++ uiParts(c, 0, 0, c.length, dq, "") ++ "))." ++ w ++ "(" ++ uiArgs(c, 0, c.length, "") ++ ")"
+// The parts and the holes are walked SEPARATELY over the same content, because the two lists have
+// different lengths by one and interleaving them into a single list is what loses that. Scala's
+// contract is `parts.length == args.length + 1`, which these two produce for free: every hole cuts a
+// part off in front of it, including an EMPTY one between two adjacent holes, and the tail after the
+// last hole is the final part. `upper""` is `List("")` and no arguments.
+def uiQ(seg, dq) = dq ++ seg ++ dq
+def uiParts(s, i, start, n, dq, acc) = if atEnd(i, n) then acc ++ uiQ(s.substring(start, i), dq) else uiPartsC(s, i, start, n, dq, acc)
+def uiPartsC(s, i, start, n, dq, acc) = if s.charAt(i) == 36 then uiPartsD(s, i, start, n, dq, acc) else uiParts(s, i + 1, start, n, dq, acc)
+def uiPartsD(s, i, start, n, dq, acc) = if atEnd(i + 1, n) then uiParts(s, i + 1, start, n, dq, acc) else uiPartsD2(s, i, start, n, dq, acc)
+def uiPartsD2(s, i, start, n, dq, acc) = if s.charAt(i + 1) == 123 then uiPartsCut(s, findBrace(s, i + 2, n, 1) + 1, start, i, n, dq, acc) else uiPartsCut(s, scanId(s, i + 1, n), start, i, n, dq, acc)
+def uiPartsCut(s, k, start, i, n, dq, acc) = uiParts(s, k, k, n, dq, acc ++ uiQ(s.substring(start, i), dq) ++ ", ")
+def uiArgs(s, i, n, acc) = if atEnd(i, n) then acc else uiArgsC(s, i, n, acc)
+def uiArgsC(s, i, n, acc) = if s.charAt(i) == 36 then uiArgsD(s, i, n, acc) else uiArgs(s, i + 1, n, acc)
+def uiArgsD(s, i, n, acc) = if atEnd(i + 1, n) then acc else uiArgsD2(s, i, n, acc)
+def uiArgsD2(s, i, n, acc) = if s.charAt(i + 1) == 123 then uiArgsB(s, i + 2, findBrace(s, i + 2, n, 1), n, acc) else uiArgsI(s, i + 1, scanId(s, i + 1, n), n, acc)
+// APPEND to the accumulator, never replace it. Written as `uiSep(acc) ++ arg` these two dropped every
+// argument but the last, and the failure was quiet: `j"${a}${b}"` built the source `j(, b)`, which parses
+// as ONE argument, so `args.length` answered 1 for every hole count above zero while `parts` stayed
+// right. A wrong count that is still a number reads exactly like a working feature.
+def uiArgsB(s, k, close, n, acc) = uiArgs(s, close + 1, n, acc ++ uiSep(acc) ++ s.substring(k, close))
+def uiArgsI(s, k, e, n, acc) = uiArgs(s, e, n, acc ++ uiSep(acc) ++ s.substring(k, e))
+def uiSep(acc) = if acc == "" then "" else ", "
 // A prefix this front does not build. SPEC.md 5.7 defines a user-defined interpolator as an
 // extension method on `StringContext`, which ScalaScript 3 implements and this front does not yet:
 // varargs bind wrongly inside an extension here (`v2-varargs-in-an-extension-bind-to-the-last-
 // argument`), and that is what a user-defined interpolator needs. Named refusal until then.
-def unknownPfx(w) = throw ("unknown interpolator prefix '" ++ w ++ "' — this front implements s, f, raw, md and html; a user-defined interpolator is an extension method on StringContext (SPEC 5.7) and is not available on this lane")
+def unknownPfx(w) = throw ("unknown interpolator prefix '" ++ w ++ "' — the built-in prefixes are s, f, raw, md and html, and a user-defined one is an extension method on StringContext (SPEC 5.7); no extension named '" ++ w ++ "' is defined in this program")
 // `f"…"` — printf-style interpolation. Legacy emits
 // (prim __fInterpolate__ lit0 spec1 arg1 lit1 spec2 arg2 lit2 …): a LEADING literal, then one
 // (spec, arg, following-literal) triple per substitution, where the spec is split off the FRONT
@@ -3939,7 +3973,9 @@ def entryOf3(ts, cs, docEntry, nDoc, dq, cms) = ") (entry " ++ entryBody3(ts, cs
 // The reference front already treats the two identically, so there is no distinction to preserve and
 // the cheap fix is also the correct one. Pricing a change against a semantics the project does not
 // implement is how a two-file fix comes to look like an eight-site one.
-def compile(src, dq, bs) = compile1(caseBeforeClass(layout(lex(src, 0, src.length))), dq, bs)
+def compile(src, dq, bs) = compileSC(caseBeforeClass(layout(lex(src, 0, src.length))), src, dq, bs)
+def compileSC(ts1, src, dq, bs) = if needsSC(ts1) then compileFrom("case class StringContext(parts: List[String])\n" ++ src, dq, bs) else compile1(ts1, dq, bs)
+def compileFrom(s2, dq, bs) = compile1(caseBeforeClass(layout(lex(s2, 0, s2.length))), dq, bs)
 def caseBeforeClass(ts) = if isEmpty(ts) then ts else caseBC1(hd(ts), tl(ts))
 // `case` already there -> leave the pair alone; a bare `class` -> synthesize the `case` in front of it.
 // `extern class` MUST NOT be touched, and this cost 23 corpus files to learn. `std/http.ssc` declares
@@ -3955,6 +3991,31 @@ def caseBeforeClass(ts) = if isEmpty(ts) then ts else caseBC1(hd(ts), tl(ts))
 def caseBC1(h, r) = if isTok(h, 2, 6) then Cons(h, caseBCkeep(r)) else (if isWord(h, "extern") then Cons(h, caseBCkeep(r)) else (if isTok(h, 2, 10) then Cons((2, 6), Cons(h, caseBeforeClass(r))) else Cons(h, caseBeforeClass(r))))
 def caseBCkeep(ts) = if isEmpty(ts) then ts else (if isTok(hd(ts), 2, 10) then Cons(hd(ts), caseBeforeClass(tl(ts))) else caseBeforeClass(ts))
 def compile1(ts, dq, bs) = compile2(ts, collectCC(ts), collectTypeCases(ts), dq, bs)
+// THIS LANE HAS NO PRELUDE, so `StringContext` — the class SPEC.md 5.7's shape is written against —
+// does not exist here: `StringContext(List("a"))` answers `unbound global` on BOTH fronts. So DECLARE it,
+// by prefixing the source with the one line a user would otherwise have to write themselves.
+//
+// A REGISTRY ENTRY IS NOT ENOUGH, and that is worth stating because it is the obvious cheaper move and
+// it fails silently in the middle: a case class's constructor is a GENERATED FUNCTION, not a builtin
+// `(ctor …)` — `ctorApp` emits `(app (global StringContext) …)` for every non-builtin — and the function,
+// the mirror and the field selector are all emitted by `emitCCDecl` off the TOKEN stream, not off `cs`.
+// Registering the name alone produced a program that called a global nothing had defined.
+//
+// CONDITIONAL ON BOTH SIDES, deliberately. Only when the program actually uses a user interpolator, so a
+// program without one is byte-unchanged and F's own source — which uses none — keeps its fixpoint; and
+// never when the program declares `StringContext` itself, so a user's own class wins.
+def needsSC(ts) = if hasUserInterp(ts) then hasNoCCName(collectCC(ts), "StringContext") else false
+def hasNoCCName(rs, n) = rs match { case Nil => true case h :: t => hasNoCCName1(h, t, n) }
+def hasNoCCName1(h, t, n) = if ccName(h) == n then false else hasNoCCName(t, n)
+// An identifier token directly followed by a string token, whose name is not one this front builds.
+// The same adjacency `isInterpApp` uses at the parse site, so the pre-pass and the parser agree about
+// what an interpolation IS — a pre-pass that answered a different question would declare the class for
+// programs that do not use one and withhold it from programs that do.
+def hasUserInterp(ts) = if isEmpty(ts) then false else (if isEmpty(tl(ts)) then false else hasUI1(hd(ts), hd(tl(ts)), tl(ts)))
+def hasUI1(t, u, rest) = if isUserInterpAt(t, u) then true else hasUserInterp(rest)
+def isUserInterpAt(t, u) = if fst(t) == 1 then isUserPfxTok(snd(t), u) else false
+def isUserPfxTok(w, u) = if interpTokIs(u) then isUserPfx(w) else false
+def isUserPfx(w) = if isInterpPfx(w) then false else (if w == "s" then false else true)
 // The pre-pass results become the parse CONTEXT: case-class names (cs, cc-only, for isCC) + the UNIFIED
 // type-case field names (tcs, cc + enum cases) + top-level val names + the enum registries. Top-level vals
 // are collected with a base cx first (their `rest` boundaries do not depend on val-name resolution).
