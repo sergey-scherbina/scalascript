@@ -14122,14 +14122,26 @@ named one. The four legal forms are untouched and answer exactly what they answe
 on all seven shapes — v3 refusing at LOWERING with a position and v2 at run time with a sentence, a
 difference in WHEN and not in WHETHER.
 
-## v2-a-user-defined-interpolator-does-not-resolve — and the failure is not a refusal
+## v2-a-user-defined-interpolator-does-not-resolve — the silent half is fixed, the feature is blocked
 
 <!-- status: open
      lane: v2-jvm
      kind: bug
      area: front
+     gate: tests/e2e/user-interpolator-gate.sh (in scripts/smoke-ci)
      found-by: claude-code
      found-at: 2026-08-24 -->
+
+**THE SILENT HALF IS FIXED IN 9e839ec80 AND THE ENTRY STAYS OPEN.** `upper"hello"` no longer prints
+`<closure>` and `0`; it refuses by name and says what the construct is. What it still does not do is
+WORK, and the reason is underneath it: `v2-varargs-in-an-extension-bind-to-the-last-argument`. An
+interpolator is an extension method on `StringContext` taking `args: Any*` (`SPEC.md` §5.7), and that
+shape is exactly the one this lane mis-binds. This closes the day that does.
+
+⚠️ **AND THE FIX HAD TO GO IN BOTH FRONTS, which is the part to remember.** This lane runs F first
+and hands a file F REFUSES to the legacy front. A refusal in F alone came back as "F did not lower
+this file; compiled with the default front instead" — and the program ran. A construct is handled or
+refused in BOTH, or the verdict belongs to whichever front is more permissive.
 
 **SPEC.md §5.7 says user-defined interpolators are extension methods on `StringContext`.** v3
 implements that. This lane does not, and what it does instead is worse than not implementing it:
