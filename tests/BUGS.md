@@ -1717,14 +1717,18 @@ trusting the planted case.
 
 ## install-sh-gate-self-check-uses-a-bsd-only-stat — `stat -f` is `--format` on BSD and `--file-system` on GNU
 
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: build
      kind: bug
      gate: tests/e2e/install-sh-reports-failure-gate.sh
      reported-by: claude-code
      reported-at: 2026-08-25
-     confirmed: yes -->
+     confirmed: yes
+     fixed-in: 7fb52c2b4 -->
+
+**FIXED 2026-08-25 in `7fb52c2b4`** — GNU form first, plus `assert_mtime_shape` so a non-integer
+reading stops the gate with the cause named instead of being compared.
 
 **`Examples and launcher smokes` has been red in the nightly since 2026-08-20**, on the gate's own
 closing self-check — the one that asserts it left the toolchain it borrowed as it found it:
@@ -1764,14 +1768,20 @@ the value is empty or not a bare integer, instead of silently comparing it.
 
 ## no-orphan-gates-evidence-audit-red-on-four-undeclared-skip-guarded-gates
 
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: build
      kind: bug
      gate: tests/e2e/no-orphan-gates.sh
      reported-by: claude-code
      reported-at: 2026-08-25
-     confirmed: yes -->
+     confirmed: yes
+     fixed-in: 7fb52c2b4 -->
+
+**FIXED 2026-08-25 in `7fb52c2b4`. It was SIX, not four** — CI's log is truncated and named only
+four; running the audit locally named `single-line-extension-gate.sh` and `ui-computed-signal-gate.sh`
+too. All six call the shared `ssc_usable_or_skip`, so all six are declared `skip-guarded`. Reading
+the CI failure alone would have left the gate red after the fix.
 
 **`Every wired gate can fail (stub-launcher audit)` has been red in the nightly since 2026-08-20**
 with `no-orphan-gates --evidence: FAIL` on four gates:
@@ -1798,14 +1808,19 @@ them, so the audit did exactly what it exists to do — and stayed red for five 
 
 ## js-preamble-collision-gate-fails-on-a-name-overlap-that-is-not-a-collision
 
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: build
      kind: bug
      gate: tests/e2e/js-preamble-collision-gate.sh
      reported-by: claude-code
      reported-at: 2026-08-25
-     confirmed: yes -->
+     confirmed: yes
+     fixed-in: 6aa99eb15 -->
+
+**FIXED 2026-08-25 in `6aa99eb15`** — the check measures the collision instead of inferring it
+from a name, and carries a self-test proving its own failure path. `raw` is reported as an overlap
+that does not collide.
 
 **The gate failed on a name it had not tested, in words that were not true of it.** It has been red
 in the nightly since `std/html.ssc` landed (~2026-08-20):
@@ -1849,14 +1864,18 @@ build. Whether the other 45 entries are load-bearing is one rebuild each and was
 
 ## rust-std-survey-baseline-missing-two-std-modules — two new std modules turned the nightly red for three days
 
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: build
      kind: bug
      gate: tests/e2e/rust-std-survey-gate.sh
      reported-by: claude-code
      reported-at: 2026-08-25
-     confirmed: yes -->
+     confirmed: yes
+     fixed-in: 1510b1d17 -->
+
+**FIXED 2026-08-25 in `1510b1d17`.** Both modules classified REFUSED; totals 79/55 against
+77/55, COMPILES unchanged and BADRUST empty on both sides.
 
 **`Conformance shard 1/4` has been red since 2026-08-22** on one line:
 
