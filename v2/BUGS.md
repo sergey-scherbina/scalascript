@@ -14178,14 +14178,26 @@ never becomes a call and there is nothing for a user's extension to be found by.
 rule that has caught shipping examples in this repository before. The docs now state which lane
 implements the rule instead of claiming it everywhere.
 
+**THE BLOCKER UNDER IT IS GONE AS OF `82e48357a`, AND THIS ENTRY STAYS OPEN ANYWAY.** The reason a
+refusal was the honest answer here was that the feature's own shape did not run on this lane —
+`v2-varargs-in-an-extension-bind-to-the-last-argument`. It runs now, measured whole:
+
+    StringContext(List("hello ", ", welcome")).upper("ada")   // HELLO ada, WELCOME
+
+So what remains is the FRONT half — lowering `upper"…"` to that call, and providing `StringContext`
+on a lane with no prelude. That is an implementation, not a diagnosis, and it is the work this entry
+now describes; the refusal stands until it lands, because a refusal is what the lane can say
+truthfully today.
+
 ## v2-varargs-in-an-extension-bind-to-the-last-argument — and the first probe hid it
 
-<!-- status: open
+<!-- status: fixed
      lane: v2-jvm
      kind: bug
      area: front
      found-by: claude-code
-     found-at: 2026-08-25 -->
+     found-at: 2026-08-25
+     fixed-in: 82e48357a -->
 
 **A vararg parameter works in an ordinary function and does not work in an extension method.**
 
