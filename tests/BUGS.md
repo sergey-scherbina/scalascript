@@ -8,7 +8,7 @@
      reported-by: claude-code
      reported-at: 2026-08-26
      confirmed: yes
-     fixed-in: PENDING -->
+     fixed-in: 1c6eaa76d -->
 
 **`sbt test shard 1/4` on the 2026-08-26 dispatch (run 32946617005).** The row *"exclusive rollback
 lock is visible to a subprocess"* failed on a diff about a line the probe never printed:
