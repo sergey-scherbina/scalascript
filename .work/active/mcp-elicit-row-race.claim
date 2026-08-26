@@ -1,0 +1,11 @@
+slug: mcp-elicit-row-race
+branch: feature/mcp-elicit-row-race
+agent: claude-code
+started: 2026-08-26T20:19:48Z
+heartbeat: 2026-08-26T20:19:48Z
+status: claimed-before-planning
+items: mcp-v2-parked-elicit-answer-does-not-reach-the-handler-on-ci
+paths: file:tests/e2e/v21-standard-mcp-smoke.sh file:BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
