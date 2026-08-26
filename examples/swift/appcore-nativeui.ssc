@@ -7,7 +7,7 @@ bundle-id: com.scalascript.appcore-nativeui
 
 # Swift AppCore NativeUi ABI smoke
 
-[signal, textNode, signalText, fragment, emit](../../runtime/std/ui/primitives.ssc)
+[signal, textNode, signalText, fragment, emit](std/ui/primitives.ssc)
 
 ```scalascript
 val message = signal("message", "before")
