@@ -1,0 +1,11 @@
+slug: nested-bytecode-row-vs-declared-gap
+branch: feature/nested-bytecode-row-vs-declared-gap
+agent: claude-code
+started: 2026-08-26T20:41:58Z
+heartbeat: 2026-08-26T20:41:58Z
+status: claimed-before-planning
+items: v2-f-nested-bytecode-fast-path-asserts-a-path-the-product-declares-it-cannot-take
+paths: file:tests/e2e/v2-f-nested-bytecode-fast-path.sh file:v1/tools/cli/src/test/scala/scalascript/cli/SingletonFailoverTest.scala
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
