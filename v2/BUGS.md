@@ -79,8 +79,34 @@ So the shape needs the DIAMOND: the program imports `index.ssc` directly, and `j
 same `index.ssc` by a different spelling (`index.ssc`, relative — `jdbc.ssc:48`). Building the case
 UP from a guess kept printing the right answer; only cutting the real example DOWN reproduced it.
 
-Still open. The reduction is the deliverable here — a 74-line example is now ten lines with a named
-trigger.
+### 2026-08-26 — eight lines, and the `<foreign>` is definitely the CONSTRUCTOR
+
+```
+[ByteSlice, byteSliceToList](std/scljet/index.ssc)
+[jdbcOpen](std/scljet/jdbc.ssc)
+
+```scalascript
+ByteSlice.fromList(List(65)) match
+  case Left(e) => println("err")
+  case Right(bs) => println(byteSliceToList(bs).length.toString)
+```
+```
+
+→ `app: not a function: <foreign> — applied to 3 argument(s): Map(0 -> List(65)), 0, 1`
+
+The `65` is the caller's own byte, so the chain is `ByteSlice.fromList` → `byteSliceUnsafe` →
+`ByteSlice(buildChunks(…), 0, values.length)`: **the applied `<foreign>` is the case-class
+constructor**, and the companion `object ByteSlice` is what stands in its place. `jdbcOpen` is still
+never called — the import alone decides it.
+
+**A FIFTH GUESS RULED OUT: a plugin is not shadowing the name.** `v1/runtime/plugins/scljet-jdbc-plugin`
+exists and looked like the obvious culprit, since `<foreign>` is what a plugin value prints as. It
+registers no such name — it is a host-side JDBC driver (`ScljetDriver`, `ScljetConnection`,
+`ScljetResultSet`), and the only strings it maps are connection options (`journal`, `page_size`,
+`vfs`).
+
+Still open, and the reduction is the deliverable: a 74-line example is now eight lines, the failing
+name is identified, and five hypotheses are closed.
 
 ## v2-swift-backend-has-no-mk-method-obj-primitive — `emit-swift` dies on any program with an `object`
 
