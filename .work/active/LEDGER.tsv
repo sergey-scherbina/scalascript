@@ -1,3 +1,3 @@
-# generation: 2931
+# generation: 2932
 #slug	agent	started	items	paths
-vm-companion-clobbers-ctor	claude-code	2026-08-26T12:46:34Z	scljet-jdbc-v2-applies-a-foreign-value-as-a-function	file:v2/lib/ssc1-lower.ssc0 file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/vm-companion-ctor-gate.sh
+vm-companion-clobbers-ctor	claude-code	2026-08-26T12:46:34Z	scljet-jdbc-v2-applies-a-foreign-value-as-a-function	file:v2/lib/ssc1-lower.ssc0 file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/vm-companion-ctor-gate.sh file:v2/BUGS.md
