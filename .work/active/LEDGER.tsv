@@ -1,2 +1,3 @@
-# generation: 2945
+# generation: 2946
 #slug	agent	started	items	paths
+tier-stale-reds	claude-code	2026-08-26T18:16:50Z	no-orphan-gates-evidence-red swift-nativeui-fixture-imports-a-moved-path	file:tests/e2e/no-orphan-gates.sh file:examples/swift/appcore-nativeui.ssc
