@@ -634,15 +634,72 @@ def sscPkgFwdLines = (owner, names) =>
   }
 -- A registration object must be non-empty, hence `__pkg`. Teaching the front to
 -- register an empty object is a front change for a cosmetic gain.
+-- EACH STUB CARRIES ITS NEXT SEGMENT, and that member is the whole reason a dotted package name
+-- resolves under F. The stubs used to be flat and empty --
+--
+--     object org:          def __pkg = 0
+--     object org_example:  def __pkg = 0
+--
+-- so nothing connected `org` to `example`. The reference lowerer never cared: it collapses the whole
+-- chain to the mangled global `org_example_ui_Card_render` out of its own object registry. F instead
+-- asks `isObjMember(receiver, member)` against the registry the SOURCE declares, found no `example`
+-- on `org`, and fell through to method dispatch:
+--
+--     ssc: __method__: no method 'example' in method-object
+--
+-- That is Validate's "package: keyword across four lanes" step, red since 2026-08-20, plus the
+-- alias/root row of the same gate whose CONTROL is this same call.
+--
+-- Emitting `def example = org_example` into `object org` makes the member real, so F's own
+-- isObjMember answers yes and the chain collapses one segment at a time. It costs the reference lane
+-- nothing: that lane already resolved the chain without reading these members.
+--
+-- The tail is bound as `rest2`, NOT as `_`: this parser takes `_` only as a whole pattern, and a
+-- wildcard nested inside a constructor makes the WHOLE RUNNER unparseable -- every program, even
+-- `println("hi")`, dies with `ssc: expected identifier, got Underscore`.
+def sscPkgLastSeg = (s) => sscPkgLastSegGo(s, #i.sub(#slen(s), 1))
+def sscPkgLastSegGo = (s, i) => if #i.lt(i, 0) then s else sscPkgLastSegAt(s, i)
+def sscPkgLastSegAt = (s, i) => if #i.eq(#scodeAt(s, i), 95) then #sslice(s, #i.add(i, 1), #slen(s)) else sscPkgLastSegGo(s, #i.sub(i, 1))
 def sscPkgStub = (name) => #sconcat("object ", #sconcat(name, ":\n  def __pkg = 0\n"))
+def sscPkgStubLinked = (name, nextPrefix) => #sconcat("object ", #sconcat(name, #sconcat(":\n  def __pkg = 0\n  def ", #sconcat(sscPkgLastSeg(nextPrefix), #sconcat(" = ", #sconcat(nextPrefix, "\n"))))))
 def sscPkgStubs = (prefixes) =>
   match prefixes {
     case Nil => ""
     case Cons(p, rest) =>
       match rest {
         case Nil => ""
-        case _ => #sconcat(sscPkgStub(p), sscPkgStubs(rest))
+        case Cons(nxt, rest2) => #sconcat(sscPkgStubs(rest), sscPkgStubLinked(p, nxt))
       }
+  }
+-- A NESTED OBJECT IS A MEMBER OF ITS PACKAGE, and the leaf object never said so. `sscPkgMemberNames`
+-- keeps `def` and `val` only, so `object Card` inside `package: org.example.ui` was emitted as the
+-- top-level `org_example_ui_Card` and NOTHING named it from `org_example_ui`. The reference lane
+-- mangles the whole selection to one global and never asks; F asks its object registry and got
+--
+--     ssc: __method__: no method 'Card' in method-object
+--
+-- one hop further along than the `example` failure the stubs above fix. Same shape, same remedy: a
+-- real member, aliased by VALUE, emitted after the object it names.
+def sscPkgObjNames = (stmts) =>
+  match stmts {
+    case Nil => Nil
+    case Cons(s, rest) =>
+      match s {
+        case Pair(tag, data) =>
+          if #seq(tag, "object") then
+            (match data {
+              case Pair(oname, ostmts) =>
+                if sscPkgIdentOk(oname) then Cons(oname, sscPkgObjNames(rest)) else sscPkgObjNames(rest)
+            })
+          else sscPkgObjNames(rest)
+      }
+  }
+def sscPkgObjMemberLines = (leaf, onames) =>
+  match onames {
+    case Nil => ""
+    case Cons(n, rest) =>
+      #sconcat("  def ", #sconcat(n, #sconcat(" = ", #sconcat(leaf, #sconcat("_", #sconcat(n,
+        #sconcat("\n", sscPkgObjMemberLines(leaf, rest))))))))
   }
 def sscPkgObjBlocks = (leaf, stmts) =>
   match stmts {
@@ -673,11 +730,16 @@ def sscPkgNsSource = (pkg, defs) =>
     if sscPkgPrefixesOk(prefixes) then
       (let leaf = sscPkgLeaf(prefixes) in
        let names = sscPkgMemberNames(defs, false) in
+       -- ORDER IS LOAD-BEARING: a stub names the object one segment deeper as a VALUE, and a
+       -- global is not in scope before its declaration -- emitting the stubs first cost
+       -- `ssc: unbound global: std_yaml` on EVERY program, the tower's own `package: std.yaml`
+       -- module included. So the leaf object goes out first and the stubs follow it deepest-first,
+       -- each one emitted after the object it names.
        #sconcat(sscPkgRefLines(leaf, names),
-         #sconcat(sscPkgStubs(prefixes),
+         #sconcat(sscPkgObjBlocks(leaf, defs),
            #sconcat("object ", #sconcat(leaf, #sconcat(":\n  def __pkg = 0\n",
              #sconcat(sscPkgMemberLines(leaf, names),
-               sscPkgObjBlocks(leaf, defs))))))))
+               #sconcat(sscPkgObjMemberLines(leaf, sscPkgObjNames(defs)), sscPkgStubs(prefixes)))))))))
     else ""
 
 -- ── `as` in an import link (v2/BUGS.md native-import-link-alias-is-ignored) ──
