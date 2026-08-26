@@ -1,2 +1,3 @@
-# generation: 2920
+# generation: 2921
 #slug	agent	started	items	paths
+scljet-vfs-probe-env	claude-code	2026-08-26T09:53:00Z	scljet-vfs-host-test-compares-a-subprocess-stream-carrying-a-jvm-note	file:v1/runtime/plugins/scljet-vfs-plugin/src/test/scala/scalascript/compiler/plugin/scljet/SclJetJvmVfsHostTest.scala file:tests/BUGS.md
