@@ -1,3 +1,39 @@
+## bench-intrinsics-test-looks-for-the-plugin-at-its-pre-move-path
+
+<!-- status: fixed
+     lane: apparatus
+     area: build
+     kind: bug
+     gate: v1/runtime/plugins/bench-plugin/src/test/scala/scalascript/compiler/plugin/bench/BenchIntrinsicsTest.scala
+     reported-by: claude-code
+     reported-at: 2026-08-26
+     confirmed: yes
+     fixed-in: PENDING -->
+
+**One of the five `sbt test` failures the 2026-08-26 dispatch surfaced:**
+
+```
+bench plugin main sources do not import interpreter internals *** FAILED ***
+  could not locate repo root from …/v1/runtime/plugins/bench-plugin
+```
+
+The repo-root walk required `build.sbt` **and** `runtime/std/bench-plugin`, and the scan that
+follows read `runtime/std/bench-plugin/src/main`. The plugin lives at
+`v1/runtime/plugins/bench-plugin`; neither `runtime/std/bench-plugin` nor `std/bench-plugin` exists.
+**Both spellings are pre-move**, so the assertion under them has not run since the plugin moved.
+
+**IT FAILED LOUDLY, and that is the only reason it is a red line rather than a green check over
+nothing** — the walk threw on a missing directory instead of returning an empty list. A walk made
+tolerant of that would have reported "no offenders" forever.
+
+**FIXED** by pointing both at `v1/runtime/plugins/bench-plugin`, and by asserting the scan found
+`.scala` sources at all: a walk over nothing reports no offenders, which is indistinguishable from a
+clean plugin. 2 passed, 0 failed.
+
+**THIRD INSTANCE TONIGHT of a path that outlived its move** — the others were
+`SwiftBackendTest`'s `runtime/std/ui/lower.ssc` and `ContentBackendExposureTest`'s baseDir. Each was
+invisible because the suite around it was already red for another reason.
+
 ## content-backend-exposure-test-passes-the-repo-root-as-basedir-for-a-conformance-source
 
 <!-- status: fixed
