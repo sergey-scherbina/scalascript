@@ -1,0 +1,11 @@
+slug: corpus-two-regressions
+branch: feature/corpus-two-regressions
+agent: claude-code
+started: 2026-08-26T06:11:30Z
+heartbeat: 2026-08-26T06:11:30Z
+status: claimed-before-planning
+items: scljet-jdbc-v2-foreign-not-a-function agent-mcp-toolsource-js-mcpconnect-timeout
+paths: file:v2/BUGS.md file:v1/runtime/backend/js/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement

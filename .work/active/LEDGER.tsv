@@ -1,5 +1,6 @@
-# generation: 2905
+# generation: 2906
 #slug	agent	started	items	paths
 content-exposure-basedir	claude-code	2026-08-26T06:02:33Z	content-backend-exposure-test-passes-the-repo-root-as-basedir-for-a-conformance-source	file:v1/runtime/backend/interpreter/src/test/scala/scalascript/ContentBackendExposureTest.scala file:tests/BUGS.md
 bench-plugin-test-paths	claude-code	2026-08-26T06:05:37Z	bench-intrinsics-test-looks-for-the-plugin-at-its-pre-move-path	file:v1/runtime/plugins/bench-plugin/src/test/scala/scalascript/compiler/plugin/bench/BenchIntrinsicsTest.scala file:tests/BUGS.md
 f-pkg-chain-note	claude-code	2026-08-26T06:08:55Z	f-does-not-resolve-a-multi-segment-package-namespace-chain	file:v2/BUGS.md
+corpus-two-regressions	claude-code	2026-08-26T06:11:30Z	scljet-jdbc-v2-foreign-not-a-function agent-mcp-toolsource-js-mcpconnect-timeout	file:v2/BUGS.md file:v1/runtime/backend/js/BUGS.md
