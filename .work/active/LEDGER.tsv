@@ -1,4 +1,3 @@
-# generation: 2916
+# generation: 2917
 #slug	agent	started	items	paths
-jvm-rowpayload-preamble	claude-code	2026-08-26T06:41:42Z	jvm-gen-row-payload-helpers-only-exist-for-serving-programs	file:v1/runtime/backend/jvm/src/main/scala/scalascript/codegen/JvmGenPreamble.scala file:v1/runtime/backend/jvm/src/main/scala/scalascript/codegen/JvmGen.scala file:v1/runtime/backend/jvm/src/main/scala/scalascript/codegen/JvmGenBlockAnalysis.scala file:v1/runtime/backend/jvm/BUGS.md
 audit-stability-correction	claude-code	2026-08-26T06:47:11Z	no-orphan-gates-evidence-reveals-blind-gates-one-run-at-a-time	file:tests/BUGS.md
