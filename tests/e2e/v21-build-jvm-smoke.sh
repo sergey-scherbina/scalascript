@@ -30,21 +30,63 @@ trap 'rm -rf "$sandbox"' EXIT HUP INT TERM
 # location — one trap covering all of them, rather than twenty hand-written messages that would
 # drift from the assertions they describe.
 trap 'rc=$?; printf "FAIL v21-build-jvm-smoke: line %s: %s\n" "$LINENO" "$BASH_COMMAND" >&2; exit $rc' ERR
+# SYMLINKS ONLY, NO DIRECTORY — and `/bin` is the directory that was here and had to go.
+#
+# On macOS `/bin` is a real directory of 39 entries and holds no compiler, so this gate was green
+# here for as long as it existed. On Ubuntu — every runner this repo uses — `/bin` is a SYMLINK to
+# `/usr/bin`, so putting it on the "sanitized" path re-admitted the entire system toolchain,
+# `javac` included. The gate then refused its own setup with `sanitized PATH unexpectedly contains
+# a compiler`, which is the correct verdict about a path that was not sanitized: this job has been
+# red on it in the nightly since 2026-08-20.
+#
+# `bin/ssc` calls exactly two external commands — `dirname` and `mkdir` — plus `bash`, which is not
+# in its body but in its SHEBANG: `#!/usr/bin/env bash` makes the kernel run `env`, and `env`
+# searches PATH. Dropping `/bin` took `bash` with it and the launcher died as
+# `env: bash: No such file or directory` — measured here, not reasoned. This script also runs `java`
+# under the clean path. Anything else must be added HERE, one link at a time, so the set stays a
+# statement about what the launcher depends on rather than "whatever the host happens to have".
 mkdir -p "$sandbox/toolbin"
-ln -s "$(command -v java)" "$sandbox/toolbin/java"
-ln -s "$(command -v dirname)" "$sandbox/toolbin/dirname"
-clean_path="$sandbox/toolbin:/bin"
+for tool in bash java dirname mkdir; do
+  src="$(command -v "$tool")" || {
+    echo "v21-build-jvm-smoke: $tool is not on PATH — cannot build a sanitized one without it" >&2
+    exit 2
+  }
+  ln -s "$src" "$sandbox/toolbin/$tool"
+done
+clean_path="$sandbox/toolbin"
 
 [[ -x "$ROOT/bin/ssc" ]] || {
   echo 'v21-build-jvm-smoke: run scripts/sbtc "installBin" first' >&2
   exit 2
 }
-if PATH="$clean_path" command -v scala-cli >/dev/null 2>&1 ||
-   PATH="$clean_path" command -v scalac >/dev/null 2>&1 ||
-   PATH="$clean_path" command -v javac >/dev/null 2>&1; then
-  echo 'v21-build-jvm-smoke: sanitized PATH unexpectedly contains a compiler' >&2
-  exit 1
+# SELF-TEST FIRST, because the check below can no longer be tripped by the host. That is the point
+# of building the path from symlinks — and it also means a guard that used to fire on a real
+# condition now fires only if someone reintroduces a directory or links a compiler in. A guard
+# nothing can trip is indistinguishable from one that does not work, and this repo audits for
+# exactly that, so the guard is exercised here on a planted toolbin before it is trusted on the
+# real one.
+probe_dir="$sandbox/selftest-toolbin"
+mkdir -p "$probe_dir"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$probe_dir/javac"
+chmod +x "$probe_dir/javac"
+if ! PATH="$probe_dir" command -v javac >/dev/null 2>&1; then
+  echo 'v21-build-jvm-smoke: SELF-TEST failed — the compiler probe cannot see a planted javac,' >&2
+  echo '  so the sanitized-path check below would pass on any path at all.' >&2
+  exit 2
 fi
+rm -rf "$probe_dir"
+
+# NAME THE COMPILER IT FOUND. The old message said only that one was there, and the answer — that
+# `/bin` is `/usr/bin` on Linux — took a reader with a Mac and a CI log that could not say which of
+# the three matched, or where.
+for compiler in scala-cli scalac javac; do
+  if found="$(PATH="$clean_path" command -v "$compiler" 2>/dev/null)"; then
+    echo "v21-build-jvm-smoke: sanitized PATH unexpectedly contains a compiler" >&2
+    echo "  $compiler resolves to $found" >&2
+    echo "  PATH was: $clean_path" >&2
+    exit 1
+  fi
+done
 
 build() {
   PATH="$clean_path" SSC_NO_CDS=1 "$ROOT/bin/ssc" build-jvm \

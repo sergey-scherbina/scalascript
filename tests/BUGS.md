@@ -1,3 +1,47 @@
+## v21-build-jvm-smoke-sanitized-path-is-not-sanitized-on-linux — `/bin` is `/usr/bin` there
+
+<!-- status: open
+     lane: apparatus
+     area: build
+     kind: bug
+     gate: tests/e2e/v21-build-jvm-smoke.sh
+     reported-by: claude-code
+     reported-at: 2026-08-26
+     confirmed: yes -->
+
+**`Examples and launcher smokes` has been red on this since 2026-08-20**, and the gate is refusing
+its own setup rather than the code under test:
+
+```
+v21-build-jvm-smoke: sanitized PATH unexpectedly contains a compiler
+```
+
+The gate proves `ssc build-jvm` needs no compiler on PATH, by building one that has none:
+
+```bash
+clean_path="$sandbox/toolbin:/bin"
+```
+
+**On macOS `/bin` is a real directory of 39 entries with no compiler in it, so this was green here
+for as long as it existed. On Ubuntu — every runner this repo uses — `/bin` is a SYMLINK to
+`/usr/bin`**, so the "sanitized" path re-admitted the entire system toolchain, `javac` included. The
+refusal is the correct verdict about a path that was not sanitized.
+
+**FIXED by making the path symlinks-only.** `bin/ssc` calls exactly two external commands,
+`dirname` and `mkdir`; `bash` is needed too, not from its body but from its SHEBANG — `#!/usr/bin/env
+bash` makes the kernel run `env`, which searches PATH. Dropping `/bin` took `bash` with it and the
+launcher died as `env: bash: No such file or directory`, which is how that dependency was measured
+rather than guessed. With `bash java dirname mkdir` linked in, the gate passes — and it now proves
+something STRONGER than before, since `/bin` is no longer quietly supplying tools the launcher might
+have been leaning on.
+
+**AND THE GUARD IS NOW SELF-TESTED**, because the fix makes it unreachable from outside: a path built
+from symlinks cannot be polluted by the host, so planting `javac` on the outer PATH no longer trips
+it — verified. A guard nothing can trip is indistinguishable from one that does not work, and this
+repo audits for exactly that, so the probe is exercised on a planted toolbin before it is trusted on
+the real one. It fires only if someone reintroduces a directory or links a compiler in, which is the
+condition it should have been guarding all along.
+
 ## sbt-test-shard-enumeration-produces-zero-suites-in-ci — all four shards refuse, and the log cannot say why
 
 <!-- status: open
