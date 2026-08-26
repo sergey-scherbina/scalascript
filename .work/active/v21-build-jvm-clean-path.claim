@@ -1,0 +1,11 @@
+slug: v21-build-jvm-clean-path
+branch: feature/v21-build-jvm-clean-path
+agent: claude-code
+started: 2026-08-26T05:22:55Z
+heartbeat: 2026-08-26T05:22:55Z
+status: claimed-before-planning
+items: v21-build-jvm-smoke-sanitized-path-is-not-sanitized-on-linux
+paths: file:tests/e2e/v21-build-jvm-smoke.sh file:tests/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement

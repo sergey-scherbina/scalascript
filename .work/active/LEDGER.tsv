@@ -1,2 +1,3 @@
-# generation: 2896
+# generation: 2897
 #slug	agent	started	items	paths
+v21-build-jvm-clean-path	claude-code	2026-08-26T05:22:55Z	v21-build-jvm-smoke-sanitized-path-is-not-sanitized-on-linux	file:tests/e2e/v21-build-jvm-smoke.sh file:tests/BUGS.md
