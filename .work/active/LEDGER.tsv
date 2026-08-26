@@ -1,3 +1,2 @@
-# generation: 2952
+# generation: 2953
 #slug	agent	started	items	paths
-mcp-elicit-row-race	claude-code	2026-08-26T20:19:48Z	mcp-v2-parked-elicit-answer-does-not-reach-the-handler-on-ci	file:tests/e2e/v21-standard-mcp-smoke.sh file:BUGS.md
