@@ -1,3 +1,55 @@
+## v2-caseclass-cli-test-harness-omits-the-standard-plugin-jars
+
+<!-- status: fixed
+     lane: apparatus
+     area: cli
+     kind: bug
+     gate: v1/tools/cli/src/test/scala/scalascript/cli/V2CaseClassMethodCliTest.scala
+     reported-by: claude-code
+     reported-at: 2026-08-26
+     confirmed: yes
+     fixed-in: PENDING -->
+
+**The last of the five `sbt test` failures the 2026-08-26 dispatch surfaced.** The row is named
+*"std mapreduce Cluster.close executes without a stub under default v2 runner"* and it was reporting
+a stub — correctly, for a runner that is not the default one.
+
+Three lines reproduce it:
+
+```scalascript
+import std.mapreduce.*
+
+val cluster = Cluster(List())
+println("made")
+```
+
+| how it is run | result |
+|---|---|
+| `bin/ssc run` | `made` |
+| `java -Dssc.lib.path=… -jar cli/…/ssc.jar run` (the harness) | `app: not a function: <foreign> — applied to 2 argument(s): List(), List()` |
+
+The two arguments are `Cluster`'s own fields (`nodes`, and the defaulted `pids`), so the `<foreign>`
+is the **stub the plugins replace** — which is exactly what the row is named for. `bin/ssc` runs
+
+```
+-cp "$_SSC_BIN/lib/standard/jars/*:$_SSC_BIN/lib/standard/ssc.jar" scalascript.cli.StandardMain
+```
+
+and a bare `-jar` carries none of `standard/jars`.
+
+**THE SAME CLASS OF GAP THIS HARNESS ALREADY FIXED ONCE.** The comment above `runSsc` records why
+`-Dssc.lib.path` is set: without it the CLI exits 1 and *"that is a harness gap, not a product
+defect"*. The classpath is the other half of the same launcher and was still missing.
+
+**FIXED** by giving the harness the launcher's classpath, with the assembled jar FIRST so it remains
+the thing under test and the staged jars only supply what it was never meant to carry. 3 passed,
+0 failed.
+
+**WHAT IT IS NOT.** `Cluster` is a case class with a companion `object Cluster` (`cluster.ssc:67`),
+which is the same shape as `ByteSlice` in the still-open `scljet-jdbc` entry — and the resemblance
+is a coincidence of the SYMPTOM, not a shared cause. This one is a missing classpath; that one
+reproduces under `bin/ssc` itself.
+
 ## bench-intrinsics-test-looks-for-the-plugin-at-its-pre-move-path
 
 <!-- status: fixed

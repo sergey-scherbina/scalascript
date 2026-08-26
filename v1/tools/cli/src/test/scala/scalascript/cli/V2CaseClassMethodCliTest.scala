@@ -34,8 +34,21 @@ class V2CaseClassMethodCliTest extends AnyFunSuite:
     val root = stagedRoot(jar)
     if !os.exists(root / "bin" / "lib" / "native-front") then
       cancel(s"staged bin/lib/native-front not found under $root - run `sbt installBin` first")
+    // AND THE PLUGIN JARS, for the same reason the property above is here: this harness
+    // approximates `bin/ssc`, and every part of that launcher it leaves out is a failure it will
+    // report as a product defect. `bin/ssc` runs
+    //   -cp "$_SSC_BIN/lib/standard/jars/*:$_SSC_BIN/lib/standard/ssc.jar" scalascript.cli.StandardMain
+    // and a bare `-jar` carries none of `standard/jars`. Measured: `import std.mapreduce.*` then
+    // `Cluster(List())` dies as `app: not a function: <foreign> — applied to 2 argument(s)` under
+    // `-jar` and prints normally under the launcher — the `<foreign>` is the stub the plugins
+    // replace, which is exactly what the row below is named for.
+    //
+    // The ASSEMBLED jar stays first on the classpath, so it is still the thing under test; the
+    // staged jars only supply what it was never meant to carry.
     val cmd: Seq[os.Shellable] = Seq[os.Shellable](
-      "java", s"-Dssc.lib.path=$root", "-jar", jar.toString) ++
+      "java", s"-Dssc.lib.path=$root",
+      "-cp", s"$jar${java.io.File.pathSeparator}$root/bin/lib/standard/jars/*",
+      "scalascript.cli.StandardMain") ++
       args.map(a => a: os.Shellable)
     os.proc(cmd).call(
       cwd = cwd,
