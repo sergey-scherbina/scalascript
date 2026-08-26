@@ -8,7 +8,7 @@
      reported-by: claude-code
      reported-at: 2026-08-26
      confirmed: yes
-     fixed-in: PENDING -->
+     fixed-in: a7ef63e0b -->
 
 **One of the five `sbt test` failures the 2026-08-26 dispatch surfaced:**
 
