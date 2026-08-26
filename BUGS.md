@@ -5228,14 +5228,51 @@ causes. The case now uses named givens and says why.
 
 ## mcp-v2-a-curried-plugin-native-yields-a-closure-instead-of-registering — `srv.tool(name)(handler)` registers nothing
 
-<!-- status: open
+<!-- status: fixed
      lane: v2-jvm
      kind: bug
-     area: runtime
+     area: front
      gate: tests/e2e/v21-standard-mcp-smoke.sh
      reported-by: claude-code
      reported-at: 2026-08-26
-     confirmed: yes -->
+     confirmed: yes
+     fixed-in: 22e27f1e3 -->
+
+**FIXED 2026-08-26 (`22e27f1e3`) — and `area:` moved from `runtime` to `front`, because the subject was
+neither the plugin nor the v2 lane.** F's `collectCurried` registers a name so `f(a)(b)` FLATTENS to
+one call instead of nesting; it already skipped `extern`, and a member DECLARED in a trait is the
+same thing without the keyword. `std/mcp/server.ssc` declares `def tool(name: String)(handler: …):
+Unit` with no body, so every call site of that NAME flattened:
+
+```
+(prim __method__ (lit (str "tool")) (local 0) (lit (str "greet")) (lam 1 …))
+```
+
+One call carrying both clauses. The plugin's first clause took both arguments, returned the closure
+that registers the tool, and nothing applied it — which is exactly the `<closure>` the section above
+measured, and why nothing errored.
+
+**THE TWO MEASUREMENTS THAT MOVED THE SUBJECT**, both cheap and both worth repeating before blaming a
+runtime:
+
+* splitting the call — `val f = srv.tool("greet"); f(handler)` — REGISTERS the tool, so the runtime
+  applies that value correctly and the defect is in what the front emits;
+* the reference front, which has no curried table, registers it correctly on the same program. One
+  front, not the lane.
+
+**A PROBE THAT LOOKED LIKE A REFUTATION WAS NOT ONE.** Replacing the handler with a string, to see
+whether the first clause received two arguments, answered `tools:[]` under BOTH hypotheses — the v2
+plugin's `tool` arm reads `first.lift(1)` without matching on the list's length, so registration
+lives in the inner closure either way. The IR settled it; nothing observable from outside the plugin
+could have.
+
+**NOT the same root as `scljet-jdbc-v2-applies-a-foreign-value-as-a-function`**, which the section
+above wondered about: that one is a case class colliding with its companion on the VM lane.
+
+**The mirror defect is filed**: `v2/BUGS.md
+reference-front-drops-a-curried-methods-second-clause` — the reference front gets a curried CASE-CLASS
+method wrong where F gets it right. Found by running the same four programs on both fronts while
+checking this fix did not take the neighbouring shapes with it.
 
 **`sbt — compile and release gates` has been red in the nightly since 2026-08-20** on
 `v21-standard-mcp-smoke: elicit did not reach the wire on --v2`. The elicit row is not the defect —
