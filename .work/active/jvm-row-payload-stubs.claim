@@ -1,0 +1,11 @@
+slug: jvm-row-payload-stubs
+branch: feature/jvm-row-payload-stubs
+agent: claude-code
+started: 2026-08-26T13:03:07Z
+heartbeat: 2026-08-26T13:03:07Z
+status: claimed-before-planning
+items: jvm-gen-row-payload-helpers-only-exist-for-serving-programs
+paths: file:v1/runtime/backend/jvm/src/main/resources/scalascript/jvm-runtime/stubServeRuntime file:v1/runtime/backend/jvm/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
