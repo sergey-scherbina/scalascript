@@ -145,6 +145,7 @@ EOF
 #                         program. Removing the jars is not a mutation of anything it looks at.
 read -r -d '' GREEN_WITHOUT_LAUNCHER <<'EOF' || true
 f-alternative-pattern-gate.sh	skip-guarded	ssc_usable_or_skip prints SKIP and exits 0
+f-assign-arm-body-gate.sh	skip-guarded	ssc_usable_or_skip prints SKIP and exits 0
 f-bare-member-call-gate.sh	skip-guarded	ssc_usable_or_skip prints SKIP and exits 0
 f-curried-def-gate.sh	skip-guarded	ssc_usable_or_skip prints SKIP and exits 0
 f-global-v-gate.sh	skip-guarded	ssc_usable_or_skip prints SKIP and exits 0
