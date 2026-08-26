@@ -57,6 +57,45 @@ working tree's `std/` in a checkout (so both spellings name one file), or a rela
 escapes into `std/` should be refused with a diagnostic that says which root it reached. The first
 is the smaller change and the one worth measuring first.
 
+## reference-front-drops-a-curried-methods-second-clause — `Box.add: expected 2 argument(s), got 1`
+
+<!-- status: open
+     lane: native
+     kind: bug
+     area: front
+     gate: tests/e2e/f-curried-def-gate.sh
+     reported-by: claude-code
+     reported-at: 2026-08-26
+     confirmed: yes -->
+
+**Found beside the F defect it is the mirror of** (root `BUGS.md`
+`mcp-v2-a-curried-plugin-native-yields-a-closure-instead-of-registering`), by running the same four
+programs on both fronts. Each front is wrong exactly where the other is right:
+
+```scalascript
+case class Box(k: Int):
+  def add(a: Int)(b: Int): Int = a + b + k
+def main(): Unit = println(Box(100).add(5)(6))
+```
+
+| front | answer |
+|---|---|
+| F (`SSC_FRONT_STRICT=1`) | `111` |
+| reference (`SSC_FRONT=legacy`) | `ssc: Box.add: expected 2 argument(s), got 1` |
+| v1 (`ssc-tools run --v1`) | `111` |
+
+A top-level `plain(1)(2)` and an object method `O.add(3)(4)` are correct on BOTH fronts — only the
+CASE-CLASS method differs, so this is not "the reference front has no curried table" but one shape
+missing from the one it has.
+
+**IT IS NOT REACHED ON THE DEFAULT LANE TODAY**, which is why nothing was red: this lane runs F
+first and F gets it right, so the reference front sees this shape only when F declines the file for
+some other reason. That makes it a latent divergence rather than a live break — and the reason to
+write it down rather than wait for the file that trips both.
+
+`tests/e2e/f-curried-def-gate.sh` now carries the three shapes as anti-rows for the F fix; they run
+under the DEFAULT front, so they do not cover this. A row pinned to `SSC_FRONT=legacy` would.
+
 ## scljet-jdbc-v2-applies-a-foreign-value-as-a-function — `not a function: <foreign>` on three arguments
 
 <!-- status: fixed

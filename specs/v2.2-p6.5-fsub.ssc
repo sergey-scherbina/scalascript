@@ -3362,7 +3362,24 @@ def curriedEntry(ts) = curried1(snd(hd(tl(ts))), afterDefParams(skipGen(tl(tl(ts
 // lowered at `(lam 2 …)` and every call site passing one argument — `arity: 2 expected, 1 given`,
 // a different message for the same missing separator skip.
 def curried1(nm, rest) = curried2(nm, clauseSkip(rest))
-def curried2(nm, rest) = if isUsingClause(rest) then Nil else (if isTok(hd(rest), 2, 21) then Cons(nm, Nil) else Nil)
+def curried2(nm, rest) = if isUsingClause(rest) then Nil else (if isTok(hd(rest), 2, 21) then curried3(nm, rest) else Nil)
+// A BODYLESS `def` IS A DECLARATION, and registering it here flattens calls that must not flatten.
+// `collectCurried` already skips `extern`; a member declared in a trait — `def tool(name: String)
+// (handler: …): Unit` in std/mcp/server.ssc — is the same thing without the keyword. There is no
+// `(global tool)` to flatten INTO: every call to it is a `__method__` dispatch onto a receiver the
+// program does not define, and the value that receiver answers is genuinely two closures.
+// Flattening turned `srv.tool("greet")(handler)` into ONE call
+//     (prim __method__ (lit (str "tool")) (local 0) (lit (str "greet")) (lam 1 …))
+// so the plugin's first clause got both arguments, returned its second closure, and NOTHING applied
+// it — `tools/list` answered `[]` with no error at all (BUGS.md
+// mcp-v2-a-curried-plugin-native-yields-a-closure-instead-of-registering; the reference front, which
+// has no such table, registers it correctly).
+// The `=` (2,20) has to be looked for AFTER every clause: a default parameter value carries one
+// INSIDE the parens. A bodyless header is followed by the layout's virtual `;` (2,52) — the same
+// token `objBodyEnd` above separates on, for the same reason.
+def curried3(nm, rest) = if defHasBodyF(skipClausesF(rest)) then Cons(nm, Nil) else Nil
+def skipClausesF(ts) = if isEmpty(ts) then ts else (if isTok(hd(ts), 2, 21) then skipClausesF(skipBalP(tl(ts), 1)) else ts)
+def defHasBodyF(ts) = if isEmpty(ts) then false else (if isTok(hd(ts), 2, 20) then true else (if isTok(hd(ts), 2, 52) then false else defHasBodyF(tl(ts))))
 def defRetEntry(ts) = defRet1(snd(hd(tl(ts))), afterDefParams(skipGen(tl(tl(ts)))))
 def afterDefParams(ts) = if isTok(hd(ts), 2, 21) then skipBalP(tl(ts), 1) else ts
 def skipBalP(ts, d) = if isEmpty(ts) then ts else (if isTok(hd(ts), 2, 21) then skipBalP(tl(ts), d + 1) else (if isTok(hd(ts), 2, 22) then (if d == 1 then tl(ts) else skipBalP(tl(ts), d - 1)) else skipBalP(tl(ts), d)))

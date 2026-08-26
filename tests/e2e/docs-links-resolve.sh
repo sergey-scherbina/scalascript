@@ -41,12 +41,6 @@ read -r -d '' KNOWN_BROKEN <<'EOF' || true
 docs/tutorial.md	../frontend-examples/src/main/scala/scalascript/frontend/examples/ToolkitDemo.scala	deleted; the tutorial section needs rewriting against the demos that exist
 docs/tutorial.md	../frontend-examples/src/test/scala/scalascript/frontend/examples/ToolkitCrossBackendTest.scala	deleted; replaced by ReferenceAppsTest.scala, which tests different apps
 docs/user-guide.md	../frontend-examples/src/main/scala/scalascript/frontend/examples/ToolkitDemo.scala	deleted; same section as the tutorial's
-docs/user-guide.md	./charts/card.ssc	an IMPORT-syntax example, not a link
-docs/user-guide.md	./geometry.ssc	an IMPORT-syntax example, not a link
-docs/user-guide.md	./shapes.ssc	an IMPORT-syntax example, not a link
-docs/user-guide.md	./ui/card.ssc	an IMPORT-syntax example, not a link
-docs/user-guide.md	a.ssc	an IMPORT-syntax example, not a link
-docs/user-guide.md	mylib://widget.ssc	a registry-URI example, not a link
 EOF
 known="$(mktemp)"; printf '%s\n' "$KNOWN_BROKEN" | grep -v '^$' | cut -f1,2 | LC_ALL=C sort > "$known"
 seen="$(mktemp)"; : > "$seen"
@@ -83,7 +77,24 @@ check_file() {
         fails=$((fails + 1))
       fi
     fi
-  done < <(grep -oE '\]\([^)]+\)' "$f" | sed -E 's/^\]\(//; s/\)$//')
+  done < <(outside_fences "$f" | grep -oE '\]\([^)]+\)' | sed -E 's/^\]\(//; s/\)$//')
+}
+
+# A `[names](path)` INSIDE A FENCE IS NOT A LINK — it is a ScalaScript import, and the two spellings
+# resolve against different roots. `docs/mcp.md`'s example imports `std/mcp/server.ssc`, which the
+# runtime resolves against the STD ROOT and this scan would resolve against `docs/`. It read as a
+# link for as long as it was written `../std/mcp/server.ssc`, which resolves as BOTH — an accident
+# that held until the example had to be made runnable from any directory
+# (BUGS.md mcp-v2-a-curried-plugin-native-yields-a-closure-instead-of-registering: the doc row of
+# v21-standard-mcp-smoke extracts that program to a temp dir and runs it).
+#
+# Only ``` fences: an indented code block cannot be told from a quoted paragraph here, and no doc
+# under docs/ uses one for an import.
+# Inline `code` goes with them, and for the same reason: docs/mcp.md's prose says
+# "the import is a bracketed list, `[names](std/mcp/server.ssc)`" — a QUOTATION of the syntax, which
+# is no more a link than the fenced program it describes.
+outside_fences() {
+  awk '/^[[:space:]]*```/ { inblk = !inblk; next } !inblk' "$1" | sed 's/`[^`]*`//g'
 }
 
 echo "── every relative link under docs/ resolves"

@@ -173,6 +173,29 @@ else
   echo "  SKIP std-ui/smoke-test: not present"
 fi
 
+# ── THE ANTI-ROWS FOR THE BODYLESS-DECL RULE ────────────────────────────────────────────────────
+#
+# `collectCurried` registers a name so `f(a)(b)` FLATTENS instead of nesting, and it now requires the
+# def to HAVE A BODY: a bodyless declaration in a trait is a plugin-backed member whose value really
+# is two closures, and flattening its call sites made `srv.tool("greet")(handler)` register nothing
+# at all (BUGS.md mcp-v2-a-curried-plugin-native-yields-a-closure-instead-of-registering — the row
+# that FAILS without the rule lives in v21-standard-mcp-smoke, which needs a plugin receiver).
+#
+# These three are what the rule must NOT take with it: a curried METHOD, reached three ways. Each
+# has a body, so each must still flatten; each passes with the rule REVERTED, which is what makes
+# them anti-rows rather than a second copy of the defect row.
+lowered_and_correct object-curried-method 7 'object O:
+  def add(a: Int)(b: Int): Int = a + b
+def main(): Unit = println(O.add(3)(4))'
+lowered_and_correct class-curried-method 111 'case class Box(k: Int):
+  def add(a: Int)(b: Int): Int = a + b + k
+def main(): Unit = println(Box(100).add(5)(6))'
+lowered_and_correct class-curried-method-local 103 'case class Box(k: Int):
+  def add(a: Int)(b: Int): Int = a + b + k
+def main(): Unit =
+  val b = Box(100)
+  println(b.add(1)(2))'
+
 if [[ $fails -eq 0 ]]; then
   echo "✓ f-curried-def-gate PASSED"
   exit 0
