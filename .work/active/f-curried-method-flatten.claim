@@ -1,0 +1,11 @@
+slug: f-curried-method-flatten
+branch: feature/f-curried-method-flatten
+agent: claude-code
+started: 2026-08-26T13:44:48Z
+heartbeat: 2026-08-26T13:44:48Z
+status: claimed-before-planning
+items: mcp-v2-a-curried-plugin-native-yields-a-closure-instead-of-registering
+paths: file:specs/v2.2-p6.5-fsub.ssc file:BUGS.md file:tests/e2e/f-curried-method-gate.sh file:scripts/smoke-ci.ssc
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
