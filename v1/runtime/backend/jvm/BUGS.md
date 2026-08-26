@@ -17,7 +17,7 @@ Newest first.
      reported-by: claude-code
      reported-at: 2026-08-26
      confirmed: yes
-     fixed-in: PENDING -->
+     fixed-in: 4e42a79ce -->
 
 **One of the five `sbt test` failures the 2026-08-26 dispatch surfaced** — the first time that tier
 had a verdict at all. `JvmGenRowsPathTest`'s row "scala-cli executes emitted JVM row payload
