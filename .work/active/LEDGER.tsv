@@ -1,4 +1,4 @@
-# generation: 2929
+# generation: 2930
 #slug	agent	started	items	paths
 f-pkg-chain-fix	claude-code	2026-08-26T11:44:23Z	f-does-not-resolve-a-multi-segment-package-namespace-chain	file:v2/bin/ssc1-run-fsub.ssc0 file:v2/bin/ssc1-run.ssc0 file:v2/BUGS.md
-vm-companion-clobbers-ctor	claude-code	2026-08-26T12:46:34Z	scljet-jdbc-v2-applies-a-foreign-value-as-a-function	file:v2/lib/ssc1-lower.ssc0 file:tests/e2e/vm-companion-ctor-gate.sh
+vm-companion-clobbers-ctor	claude-code	2026-08-26T12:46:34Z	scljet-jdbc-v2-applies-a-foreign-value-as-a-function	file:v2/lib/ssc1-lower.ssc0 file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/vm-companion-ctor-gate.sh

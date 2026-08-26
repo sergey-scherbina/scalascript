@@ -3,9 +3,9 @@ branch: feature/vm-companion-clobbers-ctor
 agent: claude-code
 started: 2026-08-26T12:46:34Z
 heartbeat: 2026-08-26T12:46:34Z
-status: claimed-before-planning
+status: in-progress
 items: scljet-jdbc-v2-applies-a-foreign-value-as-a-function
-paths: file:v2/lib/ssc1-lower.ssc0 file:tests/e2e/vm-companion-ctor-gate.sh
+paths: file:v2/lib/ssc1-lower.ssc0 file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/vm-companion-ctor-gate.sh
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+next: guard both fronts so a companion object does not overwrite its case-class constructor on the VM lane
