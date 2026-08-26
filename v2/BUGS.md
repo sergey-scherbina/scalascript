@@ -7,16 +7,106 @@ grepping for status.
 
 Newest first.
 
-## scljet-jdbc-v2-applies-a-foreign-value-as-a-function — `not a function: <foreign>` on three arguments
+## a-module-reached-by-both-spellings-of-std-is-loaded-twice — `std/x.ssc` and `../std/x.ssc` are two FILES
 
 <!-- status: open
      lane: native
      kind: bug
-     area: runtime
-     gate: tests/conformance/contract.sc
+     area: front
+     gate: none
      reported-by: claude-code
      reported-at: 2026-08-26
      confirmed: yes -->
+
+**`NativeSourceClosure.resolveImport` sends the two spellings to two different roots**, and inside a
+checkout both exist with the same content:
+
+* `std/…` → `stdRoot`, which is the STAGED tree `bin/lib/standard/native-front/runtime/std`
+  (measured: renaming `def fromList` there changes the program's behaviour; renaming it in the
+  working tree's `std/` changes nothing).
+* `../std/…` → the importer's parent, i.e. the WORKING tree's `std/`.
+
+`seen` dedups on `canonical.getPath`, so it never notices: the two paths canonicalise to two
+different files. Every declaration in the module is spliced TWICE, and the duplicate wins in a way
+that depends on which declarations there are:
+
+```
+$ cat probe/m.ssc                       # exports mNoop, imports [ByteSlice](../std/scljet/index.ssc)
+$ cat pm.ssc                            # imports [ByteSlice, byteSliceToList](std/scljet/index.ssc)
+                                        # plus [mNoop](probe/m.ssc); jdbc-style, nothing calls mNoop
+$ bin/ssc run pm.ssc
+ssc: unbound global: byteError
+```
+
+Deleting the `probe/m.ssc` import line prints `1`. Making that module say `std/scljet/index.ssc`
+instead of `../std/scljet/index.ssc` also prints `1` — the SAME file, one spelling apart.
+
+**THE POPULATION IS A CHECKOUT, not user projects.** Outside the repo there is no sibling `std/`, so
+`../std/…` simply fails to resolve and nobody is surprised. Inside a checkout — which is where every
+module in `std/` is edited and every corpus case runs — it is a silent duplicate splice reported as
+an unbound global naming a symbol the file never mentions.
+
+**NOT the cause of `scljet-jdbc-v2-applies-a-foreign-value-as-a-function`**, and that is worth
+writing down because the two look identical from the message. That one was a case class colliding
+with its companion on the VM lane and reproduced with `std/`-form imports only; renaming `fromList`
+in the OTHER staged tree left it unchanged, so a second tree was never in its closure. Found while
+reducing it, kept apart from it.
+
+**THE FIX IS NOT "canonicalise harder".** Both files genuinely exist. Either `stdRoot` should be the
+working tree's `std/` in a checkout (so both spellings name one file), or a relative path that
+escapes into `std/` should be refused with a diagnostic that says which root it reached. The first
+is the smaller change and the one worth measuring first.
+
+## scljet-jdbc-v2-applies-a-foreign-value-as-a-function — `not a function: <foreign>` on three arguments
+
+<!-- status: fixed
+     lane: native
+     kind: bug
+     area: runtime
+     gate: tests/e2e/vm-companion-ctor-gate.sh
+     reported-by: claude-code
+     reported-at: 2026-08-26
+     confirmed: yes
+     fixed-in: a43c0a2f6 -->
+
+**FIXED 2026-08-26 (`a43c0a2f6`), and it is not an scljet bug.** `case class ByteSlice` and its
+companion `object ByteSlice` both bind the bare global `ByteSlice`. The VM installs top-level defs in
+TWO passes (`v2/src/Runtime.scala`): lambdas first, values second. The companion lowers to a
+`__mk_method_obj__` member record — a VALUE — so it lands SECOND and overwrites the constructor
+closure. The `<foreign>` being applied is that record: instrumenting the payload printed
+`<foreign scala.collection.immutable.Map$Map3>`, three members, which is `empty`/`fromList`/`zeros`.
+
+**WHY A FULL CORPUS NEVER SAW IT.** The bytecode lane binds the two separately and is unaffected, and
+`ssc run` uses that lane by default. Only a program that trips ClassTooLargeException and falls back
+to the VM is exposed — which is why this arrived as a 74-line example and read like an scljet defect.
+`--vm` reproduces it in three lines:
+
+```
+case class B(x: Int)
+object B:
+  def mk(i: Int): B = B(i)
+def main(): Unit = println(B.mk(7).x)
+```
+
+**THE SIZE THRESHOLD WAS THE WHOLE PUZZLE AND IT WAS THE CLASS LIMIT.** Dropping ONE `package:`
+declaration from `std/scljet/sql.ssc` moved the same program from red to green; so did dropping it
+from `write.ssc` while keeping sql's; dropping it from `bytes.ssc` or `index.ssc` did not. That looked
+like a threshold on the number of `object scljet` namespace declarations (18 worked, 19 failed) until
+the working configuration turned out not to print the bytecode-fallback line at all: the "threshold"
+is simply where the generated `ssc/gen/Entry` stops fitting
+(`scljet-jdbc-facade-bytecode-class-too-large`, still open as a capacity gap).
+
+The fix guards BOTH fronts — `declaredCtorTag` in `ssc1-lower.ssc0`, `isCC` in
+`specs/v2.2-p6.5-fsub.ssc` — because both emit that def. Prefixed member globals are unaffected, so
+`ByteSlice.fromList` still resolves statically.
+
+**NOT the same root as `mcp-v2-a-curried-plugin-native-yields-a-closure-instead-of-registering`**, and
+the note above that wondered has its answer: that one is a chained application on a plugin receiver
+and reproduces with no case class in sight.
+
+**THE FOUR RULED-OUT GUESSES BELOW STAY**, because each cost a run and each is still the obvious next
+guess for the next reader. The DIAMOND theory they led to was wrong: the second import matters only
+because it makes the program bigger.
 
 **One of the two corpus-contract regressions left after the constructor-registry fix** (`b5e777cb8`
 cleared `scljet-readonly-codecs` and `scljet-write-table`; this one and `agent-mcp-toolsource`
