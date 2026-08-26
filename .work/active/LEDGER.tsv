@@ -1,3 +1,2 @@
-# generation: 2950
+# generation: 2951
 #slug	agent	started	items	paths
-install-fixtures-test-refresh	claude-code	2026-08-26T20:09:34Z	standalone-install-fixtures-test-asserts-deleted-channels	file:v1/tools/cli/src/test/scala/scalascript/cli/StandaloneInstallFixturesTest.scala
