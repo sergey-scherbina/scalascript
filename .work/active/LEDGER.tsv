@@ -1,4 +1,3 @@
-# generation: 2937
+# generation: 2938
 #slug	agent	started	items	paths
 jvm-row-payload-stubs	claude-code	2026-08-26T13:03:07Z	jvm-gen-row-payload-helpers-only-exist-for-serving-programs	file:v1/runtime/backend/jvm/src/main/scala/scalascript/codegen/JvmGen.scala file:v1/runtime/backend/jvm/BUGS.md
-assign-arm-gate-declaration	claude-code	2026-08-26T13:24:36Z	no-orphan-gates-evidence-red	file:tests/e2e/no-orphan-gates.sh
