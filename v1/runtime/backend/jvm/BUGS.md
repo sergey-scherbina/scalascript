@@ -9,14 +9,15 @@ Newest first.
 
 ## jvm-gen-row-payload-helpers-only-exist-for-serving-programs — `fieldsPayload` emits a call to a function it never defines
 
-<!-- status: open
+<!-- status: fixed
      lane: jvm
      kind: bug
      area: codegen
      gate: v1/runtime/backend/interpreter/src/test/scala/scalascript/JvmGenRowsPathTest.scala
      reported-by: claude-code
      reported-at: 2026-08-26
-     confirmed: yes -->
+     confirmed: yes
+     fixed-in: PENDING -->
 
 **One of the five `sbt test` failures the 2026-08-26 dispatch surfaced** — the first time that tier
 had a verdict at all. `JvmGenRowsPathTest`'s row "scala-cli executes emitted JVM row payload
@@ -38,19 +39,23 @@ JVM preamble does define them — `JvmGenPreamble.scala:809-811` — but those l
 `serveRuntime`, which `JvmGen.scala:506` emits only `if usesHttpServer`. A program that merely CALLS
 one of them, as any program may, gets the call and not the definition.
 
-**AN ATTEMPTED FIX, MEASURED AND REVERTED**, recorded so the next reader does not repeat it. Widening
-the condition to `usesHttpServer || blocksUseRowPayload(blocks)` — following the precedent already in
-that file, where `serveRuntime` is emitted for MCP too — did **not** clear the row: the compile then
-reported **7** errors instead of 1, six new `E008`s alongside the same `Not found: fieldsPayload`.
-So either the predicate does not fire on this shape or `serveRuntime` alone is not what supplies the
-name, and pulling a whole server preamble into a non-serving program brings in references that do not
-resolve on this classpath regardless.
+**FIXED 2026-08-26** by extracting the two private validators (`_ssc_dottedRowName`,
+`_ssc_exactRowPayload`) and the three builders into their own `rowPayloadRuntime`, emitted when a
+program serves OR calls one of them — and before `serveRuntime`, which still uses both validators in
+`rowDeleteAction` / `rowPostAction`. `JvmGenRowsPathTest` 2 passed 0 failed; every `JvmGen*` class,
+76 passed 0 failed.
 
-**WHAT THAT LEAVES AS THE LIKELY SHAPE**: extract the row-payload helpers and their two private
-validators (`_ssc_dottedRowName`, `_ssc_exactRowPayload`) into their own preamble value, emitted when
-a program serves OR calls one of them — rather than moving the emission of the whole server runtime.
-That is a change to a memoized string several tests assert against BY CONTENT, so it wants its own
-measurement rather than being tacked onto this note.
+**⚠️ AN EARLIER NOTE HERE WAS WRONG AND IS CORRECTED.** It said that widening the condition to
+`usesHttpServer || blocksUseRowPayload(blocks)` "made it worse — 7 compile errors instead of 1". Six
+of those seven were `value swing is not a member of scalascript.frontend` and the javafx twin: this
+test builds its classpath from `frontend/{core,custom,swing,javafx}/target/…/classes`, and a FRESH
+WORKTREE has not compiled them. They are an artefact of the tree, not of the change. Only one error
+was ever real, and the first attempt very likely fixed it too.
+
+**The extraction is still the better shape**, for the reason the first attempt could not settle:
+emitting a whole server preamble into a non-serving program is a much larger blast radius than
+emitting five definitions. But "it made things worse" was a measurement error — a control run in a
+worktree missing four compiled modules — and reverting on it cost a round.
 
 ## jvm-listdir-answers-empty-where-every-other-lane-raises
 

@@ -208,6 +208,22 @@ private[codegen] trait JvmGenBlockAnalysis:
       found
     }
 
+  /** True when a block calls one of the row-payload builders `std/ui/primitives.ssc` exports.
+   *  Gates `rowPayloadRuntime` for a program that uses them without serving anything. */
+  private[codegen] def blocksUseRowPayload(blocks: List[JvmGen.Block]): Boolean =
+    blocks.exists { b =>
+      var found = false
+      ScalaNode.fold(b.node) { tree =>
+        if !found then tree.collect {
+          case Term.Apply.After_4_6_0(Term.Name("fieldsPayload"),   _) => found = true
+          case Term.Apply.After_4_6_0(Term.Name("fieldPayload"),    _) => found = true
+          case Term.Apply.After_4_6_0(Term.Name("wholeRowPayload"), _) => found = true
+          case Term.Name("wholeRowPayload")                            => found = true
+        }
+      }
+      found
+    }
+
   /** Bare-name intrinsics that route through the v1.6 actor model and
    *  must be rewritten to `Actor.<name>(...)` at emission time.  Listed
    *  once here so the analysis (`blocksUseActors`) and the rewrite-gate
