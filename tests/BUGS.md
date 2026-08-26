@@ -1,3 +1,54 @@
+## sbt-test-shard-enumeration-produces-zero-suites-in-ci — all four shards refuse, and the log cannot say why
+
+<!-- status: open
+     lane: apparatus
+     area: build
+     kind: bug
+     gate: scripts/sbt-test-shard
+     reported-by: claude-code
+     reported-at: 2026-08-25
+     confirmed: yes -->
+
+**`sbt test` has had NO verdict at all**, which is worth stating before the mechanism: those four
+jobs run only on a dispatched full tier, and on the dispatch of 2026-08-25 (run 32908578101) all
+four refused:
+
+```
+sbt-test-shard: enumeration produced 0 suite(s) — refusing. sbt output unparsed or
+  the test sources did not compile; running a slice of nothing would report green.
+  (sbt wrote nothing to stderr — so it ran and produced output this parser did not match,
+   not a build that failed. Compare a real line against the awk header pattern above.)
+```
+
+**THE REFUSAL IS CORRECT AND THE MESSAGE IS NOT ANSWERABLE.** It tells the reader to "compare a real
+line against the awk header pattern" — and the job log contains **zero** occurrences of
+`definedTestNames`, because the enumeration goes into a pipe and the pipe is not the log. The script
+held the only copy of the real lines and dropped them.
+
+This is the second half of a fix that was already made once. On 2026-08-15 the same four shards
+failed on the same message, and `2>/dev/null` was removed so stderr would survive — the comment in
+the file says exactly why. Stderr answers *"did the build fail?"*. It is empty, so the answer is no,
+and the other half — *"what did it print instead?"* — was still being discarded.
+
+**Locally the parser is fine**: `show Test/definedTestNames` gives **274 headers and 274 `Vector(`
+lines**, and the awk matches all of them. So the difference is the environment, not the pattern.
+
+**TWO CHANGES, both verified against stubs rather than by reasoning:**
+
+1. **STDOUT IS KEPT** and the refusal prints the first 20 lines of what sbt actually printed, both
+   attempts appended in order — which of them came back empty is the question the reader is asking.
+2. **A COLD `sbt -batch` RETRY** when the thin client yields no headers. `scripts/sbtc` is
+   `sbt --client`, which exists to reuse a resident server; a CI runner has no resident server to
+   reuse, so the client buys nothing there and adds a way to come back empty. The retry costs ~8 s
+   on a warm dev box, where it never fires.
+
+Verified on three paths with stubbed `sbtc`/`sbt`: headers present → no retry and the partition is
+correct (24 synthetic suites split 6/6/6/6 across four shards); headers absent → the retry fires and
+says so; both empty → the refusal prints both attempts.
+
+**STILL OPEN**, deliberately: this makes the next dispatch SAY what sbt printed. It does not yet
+prove `sbt test` passes — nothing has, and that is the gap that matters for a release.
+
 ## uniml-standalone-build-red-on-a-heap-cap-and-a-miscounted-syntax-token
 
 <!-- status: fixed

@@ -78,10 +78,29 @@ fi
 # for deciding between them already discarded. Measured 2026-08-15: all FOUR shards of the dispatch
 # tier failed on that message, and it is not answerable from the log, because the log is what was
 # thrown away. A refusal that cannot say why is a refusal somebody has to reproduce by hand.
+# AND STDOUT IS KEPT TOO, for the reason the paragraph above stops one step short of. Keeping stderr
+# answered "did the build fail?" and left "what did it print instead?" unanswerable — which is the
+# half that actually happened. Measured on the dispatch run of 2026-08-25: all four shards refused
+# with `sbt wrote nothing to stderr`, and the log contains ZERO occurrences of `definedTestNames`,
+# because the enumeration goes into a pipe and the pipe is not the log. The message told the reader
+# to "compare a real line against the awk header pattern" while holding the only copy of the real
+# lines and dropping it.
 ENUM_ERR="${TMPDIR:-/tmp}/sbt-test-shard-enum.err"
+ENUM_OUT="${TMPDIR:-/tmp}/sbt-test-shard-enum.out"
 enumerate() {
   if [[ -n "$from_file" ]]; then cat "$from_file"; return; fi
-  "$ROOT/scripts/sbtc" "show Test/definedTestNames" 2>"$ENUM_ERR"
+  # THE THIN CLIENT, THEN A COLD BATCH. `sbtc` is `sbt --client`, which exists to reuse a resident
+  # server — and on a CI runner there is no resident server to reuse, so the client buys nothing
+  # there and adds a way to come back empty. The batch retry costs ~8 s wall on a warm dev box where
+  # it never runs, and it is the difference between a shard that reports and a shard that refuses.
+  : > "$ENUM_OUT"
+  "$ROOT/scripts/sbtc" "show Test/definedTestNames" 2>"$ENUM_ERR" | tee -a "$ENUM_OUT"
+  if ! grep -qE '^\[info\] .* / Test / definedTestNames$' "$ENUM_OUT"; then
+    echo "sbt-test-shard: the thin client produced no enumeration headers — retrying with a cold \`sbt -batch\`" >&2
+    # APPEND: the refusal below prints this file, and a reader needs BOTH attempts — which one came
+    # back empty is the question they are answering.
+    ( cd "$ROOT" && sbt -no-colors -batch "show Test/definedTestNames" ) 2>>"$ENUM_ERR" | tee -a "$ENUM_OUT"
+  fi
 }
 
 pairs="$(enumerate | awk '
@@ -109,7 +128,13 @@ if [[ "$total" -lt 10 ]]; then
     tail -20 "$ENUM_ERR" | sed 's/^/  | /' >&2
   else
     echo "  (sbt wrote nothing to stderr — so it ran and produced output this parser did not match," >&2
-    echo "   not a build that failed. Compare a real line against the awk header pattern above.)" >&2
+    echo "   not a build that failed. The real lines are below; compare one against the awk header" >&2
+    echo "   pattern in this file. Saying 'compare a real line' while discarding every real line is" >&2
+    echo "   what made the 2026-08-25 dispatch run unanswerable from its own log.)" >&2
+  fi
+  if [[ -z "$from_file" && -s "$ENUM_OUT" ]]; then
+    echo "  ── first 20 lines of what sbt actually printed ($(grep -c . "$ENUM_OUT") lines total) ──" >&2
+    head -20 "$ENUM_OUT" | sed 's/^/  | /' >&2
   fi
   exit 2
 fi
