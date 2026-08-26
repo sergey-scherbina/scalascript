@@ -2821,7 +2821,16 @@ def objectItem1(name, ts, cx) = if isTok(hd(ts), 2, 28) then objectItem2(name, c
 // is required here, because an object's `var` lives as `O_v__cell` and a naive `(global O_v)` would
 // be unbound. Same change as `ssc1-lower.ssc0`'s `object` arm; the two fronts are twins and this is
 // the pair that `tests/BUGS.md two-front-bug-pairs` exists to catch.
-def objectItem2(name, ms, ts, cx) = ((join2(objDefsStr(name, ms, withCurObj((name, (objVarMemberNames(ms), objDefMemberNames(ms))), cx)), givenMethodObj(name, ms, cx)), ""), skipBrace(tl(ts), 1))
+def objectItem2(name, ms, ts, cx) = ((join2(objDefsStr(name, ms, withCurObj((name, (objVarMemberNames(ms), objDefMemberNames(ms))), cx)), objValueDef(name, ms, cx)), ""), skipBrace(tl(ts), 1))
+// A COMPANION MUST NOT TAKE THE CTOR'S NAME. `case class B` + `object B` both want the bare global
+// `B`; the VM installs lambdas first and values second, so the method object lands SECOND and
+// overwrites the constructor -- `B(x)` then applies a member record and dies
+// `app: not a function: <foreign>`. The bytecode lane does not do this, which is why it stayed
+// hidden: only a program big enough to trip ClassTooLargeException and fall back to the VM shows it
+// (v2/BUGS.md scljet-jdbc-v2-applies-a-foreign-value-as-a-function). ssc1-lower :4738 carries the
+// SAME guard -- both fronts emit this def, so fixing one leaves the other compiling the bug.
+// Members stay prefixed either way, so `B.m` still resolves statically.
+def objValueDef(name, ms, cx) = if isCC(name, cx) then "" else givenMethodObj(name, ms, cx)
 // A `val` MEMBER BELONGS IN THIS LIST TOO, and the reason is that it is emitted exactly like a
 // method. `objDefEmit` writes a def member as `(def O_m …)` and a val member as `(def O_base …)` —
 // the same naming convention — so the BARE reference wants the same answer, `(global O_base)`.

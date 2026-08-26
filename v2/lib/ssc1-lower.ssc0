@@ -4736,7 +4736,25 @@ def lowerStmtToList = (stmt) =>
             -- The prefixed members stay: direct `A.css` still resolves through `A_css`, so this only
             -- ADDS a binding and changes no existing resolution.
             let dictionary = IrPrim("__mk_method_obj__", staticMemberObjectArgs(prefix, stmts)) in
-            appendL(loweredMembers, Cons(IrDef(name, dictionary), Nil))
+            -- …UNLESS THE NAME IS ALREADY A CONSTRUCTOR. `case class B` + `object B` both want the
+            -- bare global `B`, and the VM installs top-level defs in TWO passes: lambdas first,
+            -- values second (v2/src/Runtime.scala, "pass 1"/"pass 2"). The dictionary is a value, so
+            -- it lands SECOND and overwrites the ctor closure; `B(x)` then applies a member record:
+            --
+            --     ssc: app: not a function: <foreign> — applied to 3 argument(s): …
+            --
+            -- The bytecode lane binds these separately and never sees it, which is why this survived
+            -- a corpus: it bites only a program big enough to trip ClassTooLargeException and fall
+            -- back to the VM. That is v2/BUGS.md scljet-jdbc-v2-applies-a-foreign-value-as-a-function
+            -- — red on shard 1 since 2026-08-16 — and the JS backend had the same collision under
+            -- v1-js-case-companion-duplicate-declaration.
+            --
+            -- `specs/v2.2-p6.5-fsub.ssc objValueDef` carries the SAME guard: BOTH fronts emit this
+            -- def, and which one compiles a given file is not a choice.
+            --
+            -- The prefixed members are emitted either way, so `B.member` still resolves statically.
+            if declaredCtorTag(name) then loweredMembers
+            else appendL(loweredMembers, Cons(IrDef(name, dictionary), Nil))
         }
       else if #seq(tag, "given_obj") then
         -- KC5+KC7b: given name: T with { defs } → emit prefixed defs plus the
