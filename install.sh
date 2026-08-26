@@ -60,7 +60,31 @@ if ! command -v java &>/dev/null; then
 fi
 # BSD `stat -f %m` and GNU `stat -c %Y` spell this differently, and CI is Linux while this host is
 # macOS — the shape that has made a gate green here and red there before.
-_stat_mtime() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null; }
+# GNU FORM FIRST, and the order is load-bearing rather than stylistic. `stat -f` means two
+# different things: on BSD/macOS it is `--format`, on GNU/Linux it is `--file-system`. The GNU one
+# SUCCEEDS — it prints a block of filesystem statistics and exits 0 — so with the BSD form first the
+# `||` fallback never ran on a Linux host and this returned free-block counters instead of an mtime.
+#
+# WHAT THAT COST: the witness below compares this value before and after the build to decide whether
+# `cli/installBin` actually ran. Free-block counters differ between two calls seconds apart, so the
+# comparison was ALWAYS "changed" and the witness NEVER fired — on every Linux runner, for as long
+# as it has existed. `install.sh` reported success for a build that staged nothing, which is exactly
+# the failure this guard was written to stop (tests/e2e/install-sh-reports-failure-gate.sh, and
+# BUGS `installsh-dev-exits-0-on-compile-failure`). The gate caught it; the gate was right.
+#
+# `stat -c` does not exist on BSD, so it fails cleanly there and the fallback is the one that runs.
+_stat_mtime() {
+  _m="$(stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null)"
+  # AND THE SHAPE IS CHECKED, because the ordering above is a fix for the OTHER host and this script
+  # mostly runs on this one. An mtime is one line of digits; the Linux failure produced nine lines of
+  # filesystem statistics and every comparison downstream ran happily on them. Anything that is not a
+  # bare integer answers empty, which the witness treats as "no stamp" and refuses on — the safe
+  # direction.
+  case "$_m" in
+    "" | *[!0-9]* ) printf '' ;;
+    * ) printf '%s' "$_m" ;;
+  esac
+}
 
 if ! command -v sbt &>/dev/null; then
     echo "Error: sbt not found. Run ./setup.sh first to install required tools." >&2

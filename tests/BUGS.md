@@ -1,3 +1,49 @@
+## install-sh-witness-is-inert-on-linux-because-stat-f-is-file-system-there
+
+<!-- status: fixed
+     lane: apparatus
+     area: build
+     kind: bug
+     gate: tests/e2e/install-sh-reports-failure-gate.sh
+     reported-by: claude-code
+     reported-at: 2026-08-26
+     confirmed: yes
+     fixed-in: PENDING -->
+
+**`install.sh` reported SUCCESS for a build that staged nothing, on every Linux runner, for as long
+as the guard against exactly that has existed.** Found because its own gate said so on the
+2026-08-26 dispatch:
+
+```
+[FAIL] sbt fails QUIETLY (exit 0)   install.sh exit=0 — it reported SUCCESS
+```
+
+**ROOT CAUSE, and it is the same one line twice.**
+
+```bash
+_stat_mtime() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null; }
+```
+
+`stat -f` is `--format` on BSD/macOS and `--file-system` on GNU/Linux, where it **succeeds** — so the
+`||` fallback never ran there and this answered filesystem statistics. The witness after the build
+compares that value before and after to decide whether `cli/installBin` ran; free-block counters
+differ between two calls seconds apart, so the comparison always said "changed" and **the witness
+never fired**. That is `installsh-dev-exits-0-on-compile-failure` restored to life by a portability
+slip.
+
+Its twin in `tests/e2e/install-sh-reports-failure-gate.sh` was fixed earlier the same night
+(`7fb52c2b4`). Fixing the gate is what let it reach the row that named the defect in `install.sh`
+itself.
+
+**FIXED** by trying the GNU form first — `stat -c` does not exist on BSD, so it fails cleanly there —
+and by answering EMPTY for anything that is not a bare integer, which the witness treats as "no
+stamp" and refuses on: the safe direction.
+
+**AND THE OTHER HOST IS NOW EMULATED IN THE GATE**, because this bug lives on Linux and the gate
+mostly runs on macOS, where the BSD branch answers correctly and nothing could see it. The gate puts
+a GNU-SHAPED `stat` on PATH and asserts the helper still answers one stable integer. Verified both
+ways: it PASSES with the fix and FAILS on the unfixed helper.
+
 ## sbt-test-shard-3-does-not-fit-the-50-minute-step-cap — the slice is blind to cost
 
 <!-- status: open

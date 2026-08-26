@@ -146,6 +146,40 @@ row() {  # row <label> <stub-exit> <mechanism-the-output-must-contain>
     fi
 }
 
+# ── EMULATE THE OTHER HOST, because the bug this gate exists for lives on Linux and this gate
+# mostly runs here ─────────────────────────────────────────────────────────────────────────────
+#
+# `install.sh`'s witness compares `.build-stamp`'s mtime before and after the build to decide
+# whether `cli/installBin` ran. It read that mtime with `stat -f %m … || stat -c %Y …`, and on
+# GNU/Linux `stat -f` means `--file-system`: it SUCCEEDS, prints filesystem statistics, and the
+# fallback never runs. Free-block counters differ between two calls seconds apart, so the comparison
+# always said "changed" and the witness NEVER fired on a runner — `install.sh` reported success for
+# a build that staged nothing, which is the one thing it must not do.
+#
+# On macOS the BSD branch answers correctly, so nothing here could see it. This probe puts a
+# GNU-SHAPED `stat` on PATH and asserts the helper still answers ONE STABLE INTEGER. It fails on the
+# old helper and passes on the new one — measured, not argued.
+probe_dir="$(mktemp -d)"
+cat > "$probe_dir/stat" <<'PROBE'
+#!/usr/bin/env bash
+if [ "$1" = "-f" ]; then echo "  File: \"$3\""; echo "Blocks: Free: $RANDOM"; exit 0; fi
+if [ "$1" = "-c" ]; then echo 1787630148; exit 0; fi
+exit 1
+PROBE
+chmod +x "$probe_dir/stat"
+_probe_helper="$(sed -n '/^_stat_mtime() {/,/^}/p' "$ROOT/install.sh")"
+_a="$(PATH="$probe_dir:$PATH" bash -c "$_probe_helper"'; _stat_mtime "'"$ROOT"'/install.sh"')"
+_b="$(PATH="$probe_dir:$PATH" bash -c "$_probe_helper"'; _stat_mtime "'"$ROOT"'/install.sh"')"
+rm -rf "$probe_dir"
+if [ -z "$_a" ] || [ "$_a" != "$_b" ]; then
+    echo "  [FAIL] install.sh's _stat_mtime is not stable under a GNU-shaped stat: [$_a] vs [$_b]" >&2
+    echo "         On Linux that makes the witness below compare filesystem counters and never fire," >&2
+    echo "         so install.sh reports success for a build that staged nothing." >&2
+    exit 1
+fi
+echo "  [PASS] _stat_mtime answers one stable integer under a GNU-shaped stat  ($_a)"
+echo
+
 row "sbt fails loudly  (exit 1)" 1 "Project loading failed"
 row "sbt fails QUIETLY (exit 0)" 0 "cli/installBin did not run"
 
