@@ -70,6 +70,32 @@ emitting a whole server preamble into a non-serving program is a much larger bla
 emitting five definitions. But "it made things worse" was a measurement error — a control run in a
 worktree missing four compiled modules — and reverting on it cost a round.
 
+### 2026-08-26, second attempt — measured further, still not fixed, and the instrument is the trap
+
+Re-applied the extraction and went after the one question the revert left open: **why does the
+`effects` case receive this preamble at all?**
+
+| measured | value |
+|---|---|
+| `usesHttpServer` for `effects` | **true** — it includes `effectOps.nonEmpty`, and that case uses effect operations |
+| `blocksUseRowPayload(blocks)` | false |
+| `serveRuntime.length` | 157043 — the value is not empty |
+| the emitted program | carries `_ssc_exactRowPayload` (3 hits) and **no** `rowDeleteAction` / `rowPostAction` / `RowActionDef` |
+| every compile error | inside the extracted block, lines 7119-7135; nothing else in the file references `scalascript.frontend` |
+
+So `usesHttpServer` is true, `serveRuntime` is non-empty and is appended two lines below the block —
+and the emitted program contains the block WITHOUT serveRuntime's own definitions. Those three facts
+do not fit together, and the reason they do not is the next thing to find.
+
+**⚠️ THE INSTRUMENT IS PART OF THE PROBLEM, which is why this is written down.** `run-jvm` swallows
+the generator's stderr: a `System.err.println` in `JvmGen` printed exactly once — from the BUILD, not
+from the run — and every later invocation printed nothing while still failing. Half of this session's
+readings were of a `.scala-build` directory that had been reused between runs. Anyone continuing
+here should dump the generated program to a file from inside `JvmGen` rather than trusting stderr or
+a temp directory's freshness.
+
+**Not fixed. The revert stands.**
+
 ## jvm-listdir-answers-empty-where-every-other-lane-raises
 
 <!-- status: fixed
