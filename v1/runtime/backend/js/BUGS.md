@@ -61,9 +61,42 @@ the connect still times out. The worker does not throw — instrumenting it to w
 still tracks.
 
 **A note on instrumenting this code path:** neither `worker.on('error')` nor a `postMessage` back to
-the parent can report anything while the parent is in `Atomics.wait`. The worker's own
-`console.error` is the only channel that works, and even a comment containing a backtick inside
-`_mcpClientWorkerSrc` breaks it — that string is a template literal.
+the parent can report anything while the parent is in `Atomics.wait`. A comment containing a
+backtick inside `_mcpClientWorkerSrc` also breaks it — that string is a template literal.
+
+### 2026-08-26 — the worker does not hang, it dies on its first `require`, and three layers hid it
+
+**⚠️ "It HANGS inside makeTransport or client.connect" above is WRONG and is corrected here.** It
+does not hang. It throws immediately on
+`require('@modelcontextprotocol/sdk/client/index.js')` — **the package is not installed on this
+machine at all** — and three separate layers turned that into a ten-second timeout blaming the
+server:
+
+| layer | what it hid |
+|---|---|
+| the parent is parked in `Atomics.wait` | its `worker.on('error')` cannot run, so a dead worker looks like a slow one |
+| the worker's `console.error` is swallowed under `run-js` | an error saying *"see stderr above"* with nothing above |
+| the SECOND failure overwrote the first | `new Client(...)` with `Client` undefined threw `Client is not a constructor`, a consequence that describes nothing actionable |
+
+Each was removed in turn, and the message went from
+
+```
+mcpConnect: connection timeout                       (after 10 s, blaming the server)
+```
+
+to
+
+```
+mcpConnect: the client worker failed to start: Cannot find module '@modelcontextprotocol/sdk/client/index.js'
+```
+
+**SO THIS ROW'S LOCAL FAILURE IS A MISSING DEPENDENCY, not a product defect.** Whether CI fails for
+the same reason is **not established** — the corpus-contract log prints `agent-mcp-toolsource js
+FAIL` and no cause — and the two are deliberately not merged here.
+
+**WHAT WAS FIXED** is the reporting, and it is worth having on its own: a startup failure now names
+itself instead of being reported as a timeout. The reason travels in the shared buffer rather than
+on stderr, and only the FIRST failure is recorded.
 
 ## js-imported-parenless-def-mention-reads-the-function-object — `answer.length` was the arity, on every import
 

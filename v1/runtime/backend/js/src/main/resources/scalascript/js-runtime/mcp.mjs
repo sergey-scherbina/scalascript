@@ -221,17 +221,63 @@ function serveMcp(transport) {
 function _mcpClientWorkerSrc(transportSpec) {
   return `
 const { parentPort, workerData } = require('worker_threads');
-const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
+// A STARTUP FAILURE HAS TO BE REPORTED, and there is exactly one channel that works. The parent is
+// parked in Atomics.wait while this runs, so it cannot receive a postMessage and cannot run its own
+// worker.on('error') handler; and this require used to sit at top level, so a missing dependency
+// killed the worker before any handler existed. The parent then waited out its full timeout and
+// blamed the SERVER: 'mcpConnect: connection timeout' for what is actually
+// 'Cannot find module @modelcontextprotocol/sdk'. Measured on a machine where that package is not
+// installed at all — the message named the wrong thing for the whole of it.
+// Slot 1 of the shared buffer is the failure flag; this worker's own stderr carries the reason.
+// FIRST FAILURE WINS. A missing dependency makes the require throw, and execution then reaches
+// new Client(...) with Client undefined and fails a SECOND time — which used to overwrite the
+// reason in the buffer, so the caller was told 'Client is not a constructor' when the truth was
+// 'Cannot find module @modelcontextprotocol/sdk'. The later message is a consequence of the first
+// and describes nothing the reader can act on. (No backticks: worker SOURCE TEMPLATE.)
+let _mcpFailed = false;
+const _mcpFail = (e) => {
+  if (_mcpFailed) return;
+  _mcpFailed = true;
+  const _msg = String((e && e.message) || e);
+  try { console.error('mcpConnect: client worker failed to start: ' + String((e && e.stack) || e)); } catch (_) {}
+  try {
+    if (workerData.readySab) {
+      const f = new Int32Array(workerData.readySab);
+      // THE REASON TRAVELS IN THE BUFFER, not on stderr. A worker's stderr is not always plumbed to
+      // where the user is looking — under run-js it is swallowed — and an error that says
+      // 'see stderr above' with nothing above is a promise the output does not keep.
+      const bytes = new TextEncoder().encode(_msg).slice(0, 480);
+      new Uint8Array(workerData.readySab, 12, bytes.length).set(bytes);
+      Atomics.store(f, 2, bytes.length);
+      Atomics.store(f, 1, 1);
+      Atomics.notify(f, 1);
+    }
+  } catch (_) {}
+};
+process.on('uncaughtException', _mcpFail);
+process.on('unhandledRejection', _mcpFail);
+// ESM/CJS INTEROP, and it is the reason this whole path was reported as a server timeout. The SDK
+// is ESM; a require() of it answers a module NAMESPACE, and depending on how the package is built
+// the class can sit on the namespace or under .default. Destructuring only the first spelling bound
+// undefined, and the failure surfaced later as 'Client is not a constructor' — which nobody saw,
+// because the parent was blocked and reported 'mcpConnect: connection timeout' instead.
+// (No backticks: this comment lives inside the worker SOURCE TEMPLATE.)
+const _mcpPick = (mod, name) => (mod && mod[name]) || (mod && mod.default && mod.default[name]);
+let Client;
+try { Client = _mcpPick(require('@modelcontextprotocol/sdk/client/index.js'), 'Client'); } catch (e) { _mcpFail(e); }
+if (!Client) _mcpFail(new Error('@modelcontextprotocol/sdk exports no Client (checked the namespace and .default)'));
 const spec = workerData.transportSpec;
 
 async function makeTransport(spec) {
   switch (spec.type) {
     case 'Spawn': {
-      const { StdioClientTransport } = require('@modelcontextprotocol/sdk/client/stdio.js');
+      const StdioClientTransport = _mcpPick(require('@modelcontextprotocol/sdk/client/stdio.js'), 'StdioClientTransport');
+      if (!StdioClientTransport) throw new Error('@modelcontextprotocol/sdk exports no StdioClientTransport');
       return new StdioClientTransport({ command: spec.cmd, args: spec.args || [] });
     }
     case 'Http': {
-      const { SSEClientTransport } = require('@modelcontextprotocol/sdk/client/sse.js');
+      const SSEClientTransport = _mcpPick(require('@modelcontextprotocol/sdk/client/sse.js'), 'SSEClientTransport');
+      if (!SSEClientTransport) throw new Error('@modelcontextprotocol/sdk exports no SSEClientTransport');
       return new SSEClientTransport(new URL(spec.path || '/mcp', 'http://localhost:' + spec.port));
     }
     default:
@@ -239,9 +285,11 @@ async function makeTransport(spec) {
   }
 }
 
-const client = new Client({ name: 'scalascript-mcp-client', version: '1.0.0' });
+let client;
+try { client = new Client({ name: 'scalascript-mcp-client', version: '1.0.0' }); } catch (e) { _mcpFail(e); }
 
 (async () => {
+  if (!Client) return;
   const transport = await makeTransport(spec);
   await client.connect(transport);
   // WRITE THE FLAG, do not only post a message. The caller cannot receive a message while it is
@@ -384,8 +432,12 @@ function mcpConnect(transport, timeoutMs) {
   // timeout, and every spawn-transport connect died as `mcpConnect: connection timeout` against a
   // server that was already answering. Measured: `examples/mcp-server-tools.js` replies to
   // `initialize` immediately when spoken to directly.
-  const sab  = new SharedArrayBuffer(4);
-  const flag = new Int32Array(sab);
+  // TWO SLOTS: [0] ready, [1] the worker failed to start. Without the second one every startup
+  // failure — a missing dependency being the common one — is indistinguishable from a slow server,
+  // and the caller is told the server timed out.
+  // [0] ready, [1] failed, [2] reason length, then the reason itself as UTF-8 from byte 12.
+  const sab  = new SharedArrayBuffer(512);
+  const flag = new Int32Array(sab, 0, 3);
 
   const src  = _mcpClientWorkerSrc(spec);
   const worker = new Worker(src, { eval: true, workerData: { transportSpec: spec, readySab: sab } });
@@ -395,6 +447,12 @@ function mcpConnect(transport, timeoutMs) {
 
   const deadline = Date.now() + (timeoutMs || 10000);
   while (Atomics.load(flag, 0) === 0) {
+    if (Atomics.load(flag, 1) === 1) {
+      const n = Atomics.load(flag, 2);
+      const why = n > 0 ? new TextDecoder().decode(new Uint8Array(sab, 12, n)) : 'no reason reported';
+      worker.terminate();
+      throw McpError('mcpConnect: the client worker failed to start: ' + why);
+    }
     if (Date.now() > deadline) { worker.terminate(); throw McpError('mcpConnect: connection timeout'); }
     Atomics.wait(flag, 0, 0, 100);
   }
