@@ -1,4 +1,4 @@
-# generation: 2941
+# generation: 2942
 #slug	agent	started	items	paths
 jvm-row-payload-stubs	claude-code	2026-08-26T13:03:07Z	jvm-gen-row-payload-helpers-only-exist-for-serving-programs	file:v1/runtime/backend/jvm/src/main/scala/scalascript/codegen/JvmGen.scala file:v1/runtime/backend/jvm/BUGS.md
-f-curried-method-flatten	claude-code	2026-08-26T13:44:48Z	mcp-v2-a-curried-plugin-native-yields-a-closure-instead-of-registering	file:specs/v2.2-p6.5-fsub.ssc file:BUGS.md file:docs/mcp.md file:tests/e2e/f-curried-def-gate.sh
+f-curried-method-flatten	claude-code	2026-08-26T13:44:48Z	mcp-v2-a-curried-plugin-native-yields-a-closure-instead-of-registering	file:specs/v2.2-p6.5-fsub.ssc file:BUGS.md file:v2/BUGS.md file:docs/mcp.md file:tests/e2e/f-curried-def-gate.sh
