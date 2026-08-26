@@ -1,6 +1,5 @@
-# generation: 2914
+# generation: 2915
 #slug	agent	started	items	paths
 jvm-rowpayload-preamble	claude-code	2026-08-26T06:41:42Z	jvm-gen-row-payload-helpers-only-exist-for-serving-programs	file:v1/runtime/backend/jvm/src/main/scala/scalascript/codegen/JvmGenPreamble.scala file:v1/runtime/backend/jvm/src/main/scala/scalascript/codegen/JvmGen.scala file:v1/runtime/backend/jvm/src/main/scala/scalascript/codegen/JvmGenBlockAnalysis.scala file:v1/runtime/backend/jvm/BUGS.md
 audit-stability-correction	claude-code	2026-08-26T06:47:11Z	no-orphan-gates-evidence-reveals-blind-gates-one-run-at-a-time	file:tests/BUGS.md
 js-mcp-spawn-handshake	claude-code	2026-08-26T06:49:03Z	agent-mcp-toolsource-js-mcpconnect-times-out-against-a-server-that-answers	file:v1/runtime/backend/js/src/main/resources/scalascript/js-runtime/mcp.mjs file:v1/runtime/backend/js/BUGS.md
-v2caseclass-harness-classpath	claude-code	2026-08-26T07:47:41Z	v2-caseclass-cli-test-harness-omits-the-standard-plugin-jars	file:v1/tools/cli/src/test/scala/scalascript/cli/V2CaseClassMethodCliTest.scala file:tests/BUGS.md
