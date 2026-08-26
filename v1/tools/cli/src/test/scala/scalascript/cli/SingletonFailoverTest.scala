@@ -157,14 +157,14 @@ class SingletonFailoverTest extends AnyFunSuite:
     // Resolve the worktree (or canonical) repo root that owns `runtime/std/`
     // so the node processes can import `runtime/std/cluster/singleton.ssc`
     // on a relative path.  Walk up from os.pwd looking for a sibling
-    // `runtime/std/cluster/singleton.ssc`.
+    // `std/cluster/singleton.ssc`.
     val stdRepoRoot: String =
       def findStd(p: os.Path, depth: Int): Option[os.Path] =
         if depth == 0 then None
         else if os.exists(p / "std" / "cluster" / "singleton.ssc") then Some(p)
         else findStd(p / os.up, depth - 1)
       findStd(os.pwd, 6).map(_.toString)
-        .getOrElse(fail("can't locate runtime/std/cluster/singleton.ssc above os.pwd"))
+        .getOrElse(fail("can't locate std/cluster/singleton.ssc above os.pwd"))
     val sandbox = os.pwd / "target" / "ssc-singleton-failover"
     os.remove.all(sandbox)
     os.makeDir.all(sandbox)
