@@ -5236,9 +5236,9 @@ causes. The case now uses named givens and says why.
      reported-by: claude-code
      reported-at: 2026-08-26
      confirmed: yes
-     fixed-in: PLACEHOLDER -->
+     fixed-in: e609d89a0 -->
 
-**FIXED 2026-08-26 (`PLACEHOLDER`), and this entry was WRONG in its title, its `lane`, its `area`
+**FIXED 2026-08-26 (`e609d89a0`), and this entry was WRONG in its title, its `lane`, its `area`
 and its framing.** It is not a v2 defect, not a runtime defect, and not a CI-only one. The row's
 driver wrote the elicit answer one second after `tools/call`, on a timer. When the server needed
 longer than that to dispatch and put `elicitation/create` on the wire, the answer was read before any
