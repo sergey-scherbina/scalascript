@@ -9,15 +9,14 @@ Newest first.
 
 ## jvm-gen-row-payload-helpers-only-exist-for-serving-programs — `fieldsPayload` emits a call to a function it never defines
 
-<!-- status: fixed
+<!-- status: open
      lane: jvm
      kind: bug
      area: codegen
      gate: v1/runtime/backend/interpreter/src/test/scala/scalascript/JvmGenRowsPathTest.scala
      reported-by: claude-code
      reported-at: 2026-08-26
-     confirmed: yes
-     fixed-in: 4e42a79ce -->
+     confirmed: yes -->
 
 **One of the five `sbt test` failures the 2026-08-26 dispatch surfaced** — the first time that tier
 had a verdict at all. `JvmGenRowsPathTest`'s row "scala-cli executes emitted JVM row payload
@@ -39,11 +38,25 @@ JVM preamble does define them — `JvmGenPreamble.scala:809-811` — but those l
 `serveRuntime`, which `JvmGen.scala:506` emits only `if usesHttpServer`. A program that merely CALLS
 one of them, as any program may, gets the call and not the definition.
 
-**FIXED 2026-08-26** by extracting the two private validators (`_ssc_dottedRowName`,
-`_ssc_exactRowPayload`) and the three builders into their own `rowPayloadRuntime`, emitted when a
-program serves OR calls one of them — and before `serveRuntime`, which still uses both validators in
-`rowDeleteAction` / `rowPostAction`. `JvmGenRowsPathTest` 2 passed 0 failed; every `JvmGen*` class,
-76 passed 0 failed.
+**A FIX WAS LANDED AND REVERTED THE SAME NIGHT (`4e42a79ce`, reverted here).** Extracting the two
+private validators and the three builders into their own `rowPayloadRuntime` DID clear this row —
+`JvmGenRowsPathTest` 2 passed 0 failed, every `JvmGen*` class 76 passed 0 failed — and it broke
+`tests/e2e/smoke-lane-breadth.sh`, which is in the smoke suite:
+
+```
+effects, --lanes jvm:  Not found: scalascript
+  7121 |    case name: String => scalascript.frontend.…
+```
+
+The `effects` case names none of the three builders and does not serve, so it should not receive
+that preamble at all — yet its emitted program carries `_ssc_exactRowPayload` and cannot resolve
+`scalascript.frontend`. **Bisected rather than argued**: at `4e42a79ce~1` the gate PASSES, at
+`4e42a79ce` it FAILS.
+
+**AND MY FIRST BISECT SAID THE OPPOSITE.** Checking the three codegen files out at the parent inside
+a worktree and rebuilding reported the same failure, which is what let the change land. Only a
+separate worktree checked out at the parent commit gave the true answer. A partial checkout plus an
+incremental rebuild is not a revert.
 
 **⚠️ AN EARLIER NOTE HERE WAS WRONG AND IS CORRECTED.** It said that widening the condition to
 `usesHttpServer || blocksUseRowPayload(blocks)` "made it worse — 7 compile errors instead of 1". Six

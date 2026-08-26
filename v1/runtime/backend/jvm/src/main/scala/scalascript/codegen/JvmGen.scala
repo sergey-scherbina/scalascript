@@ -503,9 +503,6 @@ class JvmGen(
     // serveRuntime is also emitted when MCP is used so that `serveMcp(Transport.Http|Ws(...))`
     // can drive the JVM HTTP+WS server via route() / onWebSocket() / serve() instead of
     // throwing "not yet supported".  See JvmRuntimeMcp serveMcp(Transport.Http/Ws) arms.
-    // BEFORE serveRuntime, which uses both validators in rowDeleteAction / rowPostAction — and also
-    // on its own for a program that merely CALLS a row-payload builder without serving anything.
-    if usesHttpServer || blocksUseRowPayload(blocks) then sb.append(rowPayloadRuntime)
     if usesHttpServer then sb.append(serveRuntime)
     else sb.append(if userShadowsHttpModel then nonServerHttpModelRefs(stubServeRuntime) else stubServeRuntime)
     if blocksUseMcp(blocks)                                                          then sb.append(JvmRuntimeMcp)
