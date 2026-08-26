@@ -1,3 +1,2 @@
-# generation: 2895
+# generation: 2896
 #slug	agent	started	items	paths
-sbt-test-shard-enumeration	claude-code	2026-08-25T23:57:43Z	sbt-test-shard-enumeration-produces-zero-suites-in-ci	file:scripts/sbt-test-shard file:tests/BUGS.md
