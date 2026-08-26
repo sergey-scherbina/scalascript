@@ -21,6 +21,13 @@
 # exactly this check. This file's own header says why that is worse: a check that is red on
 # arrival gets ignored. What is owed is a board for those modules, or an area map that routes
 # their entries to an existing one — not another row here.
+#
+# A SEVENTH ROW, 2026-08-26, for the same reason and with the same debt. `uniml` still has no
+# board — the paragraph above already says so — and the entry
+# `uniml-standalone-build-red-on-a-heap-cap-and-a-miscounted-syntax-token` fixes ScalaSpike.scala
+# under it. Added BY HAND rather than with `--update-baseline`, because that flag rewrites the
+# file and drops this header: eleven comment lines, including the paragraph recording what is
+# owed. A tool that silently deletes the reason a row exists is not the way to add one.
 build-rust-default-params-not-applied	v2	v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala	fixed-in
 build-rust-std-imports-unlowerable	tests	v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala	fixed-in
 busi-v1-lane-runtime-regressions	v1/runtime/backend/interpreter	v1/runtime/backend/jvm/src/main/scala/scalascript/codegen/JvmGenContentEmit.scala	fixed-in
@@ -98,6 +105,7 @@ typed-pattern-against-an-any-does-not-test-the-type	tests	v1/runtime/backend/rus
 typer-does-not-know-the-coroutine-intrinsics	tests	v1/lang/core/src/main/scala/scalascript/typer/Typer.scala	fixed-in
 typer-prelude-list-should-be-generated-from-std-exports	tests	v1/lang/core/src/main/scala/scalascript/typer/Typer.scala	fixed-in
 ui-fetch-get-offline-rejection	tests	v1/runtime/backend/js/src/main/resources/scalascript/js-runtime/signals.mjs	fixed-in
+uniml-standalone-build-red-on-a-heap-cap-and-a-miscounted-syntax-token	tests	uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/ScalaSpike.scala	fixed-in
 uniml-version-drifted-from-root	tests	uniml/scala/.../UnimlCoordinatesSpec.scala	prose
 uniml-yaml-alias-resolution-last-wins	v1/runtime/backend/js	uniml/yaml/src/main/scala/scalascript/uniml/dialect/yaml/YamlProjection.scala	fixed-in
 uniml-yaml-bare-tag-missing-separation	v1/runtime/backend/js	uniml/yaml/src/main/scala/scalascript/uniml/dialect/yaml/YamlLexer.scala	fixed-in
