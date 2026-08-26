@@ -1,2 +1,3 @@
-# generation: 2953
+# generation: 2954
 #slug	agent	started	items	paths
+ci-caps-from-ci	claude-code	2026-08-26T20:30:08Z	validate-and-examples-jobs-hit-their-caps-and-report-cancelled	file:.github/workflows/ci.yml
