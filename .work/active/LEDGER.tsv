@@ -1,6 +1,5 @@
-# generation: 2911
+# generation: 2912
 #slug	agent	started	items	paths
-bench-plugin-test-paths	claude-code	2026-08-26T06:05:37Z	bench-intrinsics-test-looks-for-the-plugin-at-its-pre-move-path	file:v1/runtime/plugins/bench-plugin/src/test/scala/scalascript/compiler/plugin/bench/BenchIntrinsicsTest.scala file:tests/BUGS.md
 f-pkg-chain-note	claude-code	2026-08-26T06:08:55Z	f-does-not-resolve-a-multi-segment-package-namespace-chain	file:v2/BUGS.md
 corpus-two-regressions	claude-code	2026-08-26T06:11:30Z	scljet-jdbc-v2-foreign-not-a-function agent-mcp-toolsource-js-mcpconnect-timeout	file:v2/BUGS.md file:v1/runtime/backend/js/BUGS.md
 jvm-rowpayload-preamble	claude-code	2026-08-26T06:41:42Z	jvm-gen-row-payload-helpers-only-exist-for-serving-programs	file:v1/runtime/backend/jvm/src/main/scala/scalascript/codegen/JvmGenPreamble.scala file:v1/runtime/backend/jvm/src/main/scala/scalascript/codegen/JvmGen.scala file:v1/runtime/backend/jvm/src/main/scala/scalascript/codegen/JvmGenBlockAnalysis.scala file:v1/runtime/backend/jvm/BUGS.md
