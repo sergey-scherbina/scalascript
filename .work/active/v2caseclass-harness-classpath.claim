@@ -1,0 +1,11 @@
+slug: v2caseclass-harness-classpath
+branch: feature/v2caseclass-harness-classpath
+agent: claude-code
+started: 2026-08-26T07:47:41Z
+heartbeat: 2026-08-26T07:47:41Z
+status: claimed-before-planning
+items: v2-caseclass-cli-test-harness-omits-the-standard-plugin-jars
+paths: file:v1/tools/cli/src/test/scala/scalascript/cli/V2CaseClassMethodCliTest.scala file:tests/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
