@@ -1,5 +1,5 @@
-# generation: 2935
+# generation: 2936
 #slug	agent	started	items	paths
-vm-companion-clobbers-ctor	claude-code	2026-08-26T12:46:34Z	scljet-jdbc-v2-applies-a-foreign-value-as-a-function	file:v2/lib/ssc1-lower.ssc0 file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/vm-companion-ctor-gate.sh file:v2/BUGS.md
+vm-companion-clobbers-ctor	claude-code	2026-08-26T12:46:34Z	scljet-jdbc-v2-applies-a-foreign-value-as-a-function	file:v2/lib/ssc1-lower.ssc0 file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/vm-companion-ctor-gate.sh file:v2/BUGS.md file:scripts/smoke-ci.ssc
 jvm-row-payload-stubs	claude-code	2026-08-26T13:03:07Z	jvm-gen-row-payload-helpers-only-exist-for-serving-programs	file:v1/runtime/backend/jvm/src/main/scala/scalascript/codegen/JvmGen.scala file:v1/runtime/backend/jvm/BUGS.md
 assign-arm-gate-declaration	claude-code	2026-08-26T13:24:36Z	no-orphan-gates-evidence-red	file:tests/e2e/no-orphan-gates.sh
