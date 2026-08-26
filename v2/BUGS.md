@@ -170,14 +170,35 @@ about what. Fixed to `std/ui/…`; the suite is now **59 passed, 0 failed** and
 
 ## f-does-not-resolve-a-multi-segment-package-namespace-chain — `org.example.ui.Card` dies on the middle segment
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      kind: bug
      area: front
      gate: tests/e2e/package-keyword-smoke.sh
      reported-by: claude-code
      reported-at: 2026-08-25
-     confirmed: yes -->
+     confirmed: yes
+     fixed-in: 0cf11d629 -->
+
+**FIXED 2026-08-26 (`0cf11d629`).** Each prefix stub now carries its next segment as a real member
+(`object org: def example = org_example`), and a nested object is a member of its package object
+(`def Card = org_example_ui_Card`) — `sscPkgObjBlocks` emitted those as top-level
+`org_example_ui_Card` and nothing named them from `org_example_ui`, which is why the first fix moved
+the failure one hop along, from `no method 'example'` to `no method 'Card'`.
+
+TWO THINGS COST A BUILD EACH, recorded so the next edit to this generator does not repeat them:
+
+* **Emission order is load-bearing.** A stub names the object one segment deeper as a VALUE, and a
+  global is not in scope before its declaration. Stubs-first gave `ssc: unbound global: std_yaml` on
+  EVERY program — the tower's own `package: std.yaml` module included. Leaf object first, then the
+  nested-object blocks, then the stubs deepest-first.
+* **`_` nested inside a constructor pattern does not parse in `.ssc0`.** `case Cons(nxt, _)` makes
+  the WHOLE RUNNER unparseable, so every program — `println("hi")` included — dies with
+  `ssc: expected identifier, got Underscore`, a message that names nothing and points nowhere near
+  the edit. Bind the tail (`rest2`) instead.
+
+Measured on the landed tree: `package-keyword-smoke.sh` 2 red rows → 7/7 green, conformance 373/373,
+smoke 114/114.
 
 **A module published under a dotted `package:` is unreachable through its own name on the DEFAULT
 front.** `Validate ScalaScript`'s step *"Gates without a home — the package: keyword across four
