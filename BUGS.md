@@ -5226,6 +5226,71 @@ Found while writing a gate case for the given-member double emission: the first 
 anonymous form and went red on THIS instead, which would have made the case ambiguous between
 causes. The case now uses named givens and says why.
 
+## mcp-v2-a-curried-plugin-native-yields-a-closure-instead-of-registering — `srv.tool(name)(handler)` registers nothing
+
+<!-- status: open
+     lane: v2-jvm
+     kind: bug
+     area: runtime
+     gate: tests/e2e/v21-standard-mcp-smoke.sh
+     reported-by: claude-code
+     reported-at: 2026-08-26
+     confirmed: yes -->
+
+**`sbt — compile and release gates` has been red in the nightly since 2026-08-20** on
+`v21-standard-mcp-smoke: elicit did not reach the wire on --v2`. The elicit row is not the defect —
+it is the first row that happens to use a tool. **No tool registers on the v2 lane at all.**
+
+Six lines, and the two lanes disagree:
+
+```scalascript
+[mcpServer, serveMcp, Transport, Tool](std/mcp/server.ssc)
+
+def main(): Unit =
+  mcpServer(srv =>
+    srv.tool("greet")(args => Tool.text("hi")))
+  serveMcp(Transport.Stdio)
+```
+
+`tools/list` on the same input:
+
+| lane | answer |
+|---|---|
+| `--v1` (ssc-tools) | `{"tools":[{"name":"greet","inputSchema":{"type":"object"}}]}` |
+| `--v2` (standard launcher) | `{"tools":[]}` |
+
+and `tools/call` then answers `unknown tool: greet`.
+
+**THE SERVER IS FINE AND THE REGISTRY IS EMPTY**, which is what makes this narrow. The protocol works
+— `initialize` and `tools/list` both answer correctly on v2 — and `serveMcp` does NOT raise its
+`no mcpServer { ... } configured first` error, so it found the builder that `mcpServer` put in
+`Mcp.builderTL`. The setup callback runs on both lanes (a `println` inside it prints on both).
+
+**WHAT THE APPLICATION ACTUALLY PRODUCES.** Bind the call and print it:
+
+```scalascript
+val z = srv.tool("greet")(args => Tool.text("hi"))
+println("forced:" + z)      // v2 prints:  forced:<closure>
+```
+
+`McpServer.tool` is a curried plugin native — `tool(name)` returns a `PluginValue.nativeFn` that
+takes `List(handler)` and calls `registerTool` (`McpIntrinsics.scala:495`). On v2 the second
+application yields a **closure** instead of invoking that native, so `registerTool` never runs. The
+declared return type is `Unit`; a `<closure>` is the tell that the application under-applied rather
+than that the registration failed.
+
+**SO THE SUBJECT IS THE LANE, NOT MCP.** Every `std/mcp` member with this shape is affected —
+`tool`, `toolWithSchema`, `resource`, `resourceTemplate`, `prompt` are all declared
+`def m(args…)(handler…)` — and the same is true of any other plugin native curried the same way.
+The MCP smoke is simply where it shows first.
+
+**NOT the Swift `__mk_method_obj__` gap** it was found beside (fixed 2026-08-25): that was a backend
+refusing the primitive outright with a named error. This one runs, answers, and silently registers
+nothing.
+
+**Filed rather than fixed**: the repair is in how the v2 lane applies a second argument list to a
+plugin native, and guessing at that from here would be a fix to the wrong site.
+
 ## mcp-v2-srv-prompt-missing — `prompt` is declared in std/mcp and the default lane had no such member
 
 <!-- status: fixed
