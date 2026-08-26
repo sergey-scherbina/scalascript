@@ -5236,9 +5236,9 @@ causes. The case now uses named givens and says why.
      reported-by: claude-code
      reported-at: 2026-08-26
      confirmed: yes
-     fixed-in: PLACEHOLDER -->
+     fixed-in: a946e86b4 -->
 
-**FIXED 2026-08-26 (`PLACEHOLDER`).** The test writes a node script per cluster member and imports
+**FIXED 2026-08-26 (`a946e86b4`).** The test writes a node script per cluster member and imports
 the singleton module by a relative hop count:
 
 ```
