@@ -119,6 +119,31 @@ hits only F. Fixing the first did not move this row.
 this same call — so one fix should clear both rows. The gate says as much itself: *"A green alias
 row would prove nothing while this is red."*
 
+### 2026-08-26 — the generated TEXT is identical on both lanes; the difference is the LOWERING
+
+Measured rather than inferred, and it moves the fix off the namespace generator:
+
+* `sscPkgStub` is **byte-identical** in `ssc1-run-fsub.ssc0` (:637) and `ssc1-run.ssc0` (:640).
+  Both emit FLAT objects — `object org:`, `object org_example:`, `object org_example_ui:` — each
+  with only `def __pkg = 0`. **Nothing links `org` to `example` in the source either lane sees.**
+* So the chain is not resolved by those objects. Running the reference runner directly on the
+  consumer and reading its IR shows what it does instead:
+
+  ```
+  org_example_ui  org_example_ui___pkg  org_example_ui_Card
+  org_example_ui_Card___pkg  org_example_ui_Card_render
+  ```
+
+  It **collapses the dotted chain into the mangled global** `org_example_ui_Card_render`.
+
+F does not, and treats `org` as a value: `__method__("example", org)` on a method object that has no
+such member, which is the reported error exactly. So the repair is a chain-collapse in F — when a
+dotted prefix matches a declared namespace object, rewrite to the mangled name — and **not** a change
+to `sscPkgNsSource`, which is where the first reading of this entry would send it.
+
+Still filed rather than fixed: that collapse is a front feature, and the reference implementation of
+it is spread across the lowerer's object registry rather than sitting in one function to copy.
+
 ## ui-anonymous-signal-collides-when-its-helper-is-called-twice — a form with two fields dies
 
 <!-- status: fixed
