@@ -9,14 +9,25 @@ Newest first.
 
 ## jvm-gen-row-payload-helpers-only-exist-for-serving-programs — `fieldsPayload` emits a call to a function it never defines
 
-<!-- status: open
+<!-- status: fixed
      lane: jvm
      kind: bug
      area: codegen
      gate: v1/runtime/backend/interpreter/src/test/scala/scalascript/JvmGenRowsPathTest.scala
      reported-by: claude-code
      reported-at: 2026-08-26
-     confirmed: yes -->
+     confirmed: yes
+     fixed-in: e1b97aeac -->
+
+**FIXED 2026-08-26 (`e1b97aeac`) — and the heading above is WRONG about what happened.** The helper
+IS defined; it is out of SCOPE. See the third-pass section below for the four lines of the generated
+file that say so. The fix keeps the extern drop and excepts the one module it is false for, in
+`hoistSscImportsIntoObjectStd` where the generated source is in hand — a name already defined at top
+level (`serve`, measured as the only one of the 37) is left out, or the import makes it ambiguous.
+
+Measured on the landed tree: `JvmGenRowsPathTest` 2/2 (was 1/2), every `JvmGen*` suite 76/76,
+`tests/e2e/smoke-lane-breadth.sh` PASS on all four lanes — the gate that forced the revert of
+`4e42a79ce` — conformance 373/373, smoke 114/114.
 
 **One of the five `sbt test` failures the 2026-08-26 dispatch surfaced** — the first time that tier
 had a verdict at all. `JvmGenRowsPathTest`'s row "scala-cli executes emitted JVM row payload
