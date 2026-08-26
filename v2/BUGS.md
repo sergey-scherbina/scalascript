@@ -43,6 +43,45 @@ instead of invoking. Whether it is the same root is NOT established** — that o
 from a second argument list, this one refuses a foreign value outright — and saying so is cheaper
 than a wrong merge.
 
+### 2026-08-26 — REDUCED to ten lines, and the trigger is a second import that is never used
+
+```
+[SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[jdbcOpen](std/scljet/jdbc.ssc)
+
+```scalascript
+buildTableDatabase(512, 1, 1, "emp", "CREATE TABLE emp(id INTEGER, name TEXT, salary INTEGER)",
+  List(List(SqlInteger(1L), SqlText("ann"), SqlInteger(100L)))) match
+  case Left(error) => println("open failed: " + error.message)
+  case Right(image) => println("built")
+```
+```
+
+**`jdbcOpen` is never called.** Deleting that one import line prints `built`; keeping it gives
+`app: not a function: <foreign> — applied to 3 argument(s): Map(0 -> List(123)), 0, 1`.
+
+**WHAT THE ARGUMENTS NAME.** `ByteSlice` is `case class ByteSlice(chunks: Map[Int, List[Int]],
+start: Int, length: Int)` (`std/scljet/bytes.ssc:49`), and those three values are exactly its fields
+— so the `<foreign>` being applied is the **constructor position of `ByteSlice`**, reached from
+`byteSliceWindow` (:85). `std/scljet/bytes.ssc:137` also declares `object ByteSlice`, so the name is
+both a class and a companion, and something in the multi-module splice binds the OBJECT there.
+
+**FOUR THINGS RULED OUT, each by its own run** — recorded because each is the obvious next guess:
+
+| guess | measurement |
+|---|---|
+| the module is loaded twice under two spellings | instrumented `sscLoadMod`: every module LOADs once, later requests SKIP. Dedup works |
+| a companion object shadows its case class in one file | `case class B` + `object B`, both orders, both fronts: prints `1` |
+| …across a module boundary | same through an `exports:` import: prints `1` |
+| …through a helper, as in `bytes.ssc` | object member → helper def → constructor: prints `1` |
+
+So the shape needs the DIAMOND: the program imports `index.ssc` directly, and `jdbc.ssc` imports the
+same `index.ssc` by a different spelling (`index.ssc`, relative — `jdbc.ssc:48`). Building the case
+UP from a guess kept printing the right answer; only cutting the real example DOWN reproduced it.
+
+Still open. The reduction is the deliverable here — a 74-line example is now ten lines with a named
+trigger.
+
 ## v2-swift-backend-has-no-mk-method-obj-primitive — `emit-swift` dies on any program with an `object`
 
 <!-- status: fixed
