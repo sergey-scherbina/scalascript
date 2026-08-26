@@ -179,7 +179,19 @@ jobs:
     # mistake in the other direction — 737 s measured inside a warm job, 1193 s when it ran alone.
     # A generous cap costs nothing here; a tight one costs the whole verdict, and reports it as
     # `cancelled` so it does not even look like a failure.
-    timeout-minutes: 45
+    #
+    # 90, AND 45 WAS ALREADY WRONG WHEN IT WAS WRITTEN DOWN AGAIN. Measured on run 32992683651:
+    # 86 steps summing 54.7 min — and that job was CUT at 45, so an unknown number of steps never
+    # ran at all and 54.7 is a FLOOR, not the cost. The two steps added since this number was sized
+    # are most of the gap: `F-front and UI gates` 7.8 min (added 2026-08-25 without touching this
+    # cap — mine) and `F-front regression gates` 7.5 min. The single most expensive step is
+    # `Rust build smoke` at 12.3 min.
+    #
+    # THE FAILURE MODE THIS FIXES IS THE ONE THE PARAGRAPH ABOVE NAMES, and it bit twice in one day:
+    # the 08:13 nightly and the 17:11 dispatch both reported `cancelled` for this job, which reads
+    # as "superseded" and not as "no verdict". Four of its steps were red in the 08:13 run and
+    # nobody was told, because a cancelled job's log is discarded.
+    timeout-minutes: 90
 
     steps:
       - name: Checkout
@@ -1356,7 +1368,11 @@ jobs:
     # cost ~491 s, and this job's own header documents ~11 further minutes for the 17 orphan gates
     # that were being skipped. 491 + 660 + the 246 s build lands ON the old 20-minute line, which
     # is how a job "fixed" by deleting one step goes straight back to `cancelled`.
-    timeout-minutes: 30
+    # 50: measured 30.5 min over 52 steps on run 32992683651 against a cap of 30, so this job was
+    # cut in its last step and reported `cancelled` — the same no-verdict failure as `validate`
+    # above. Its most expensive step is `what a declared type means, per lane` at 12.3 min, whose
+    # own name says "46s incl. self-test"; that discrepancy is worth a look and is not this change.
+    timeout-minutes: 50
 
     steps:
       - name: Checkout
