@@ -70,6 +70,50 @@ emitting a whole server preamble into a non-serving program is a much larger bla
 emitting five definitions. But "it made things worse" was a measurement error — a control run in a
 worktree missing four compiled modules — and reverting on it cost a round.
 
+### 2026-08-26, third pass — the heading was WRONG: the definition is emitted, two scopes away
+
+**`def fieldsPayload` IS in the generated file** — line 10882 of it, inside
+`object std { object ui { object primitives {` — while the failing call sits at line 10940, at TOP
+LEVEL. "emits a call to a function it never defines" was the wrong reading of `Not found`, and every
+attempt above was aimed at the wrong question.
+
+Read straight out of the file `scala-cli` was compiling, whose path the error message names — no
+instrumentation needed, which is the part worth remembering after the stderr trap recorded above:
+
+```
+10678:  import ui.primitives.{View, EventHandler, signal, …, fieldsPayload, …}   ← inside object std
+10882:      def fieldsPayload(names: List[String]): Any = …                      ← inside the object
+10938:import std.ui.primitives.{Signal, View, EventHandler}                      ← top level
+10940:locally { val _auto: Any = fieldsPayload(List()); … }                      ← top level, unbound
+```
+
+The test program says `[fieldsPayload](std/ui/primitives.ssc)`, so it DID ask for the name. It was
+dropped by the extern filter in `importLinesFor` (`JvmGen.scala`):
+
+```scala
+// Drop the module's `extern def` names: the emitter strips those stubs from the module
+// object and the host defines them at the script's top level, where they resolve without an
+// import.
+.filterNot(sp => externHere.contains(sp.name) && sp.alias.isEmpty)
+```
+
+**That premise is false for exactly one module.** `JvmRuntimeUiPrimitives.source` is MERGED INTO the
+module object (`JvmRuntimeUiPrimitives.scala:6`) rather than emitted at top level, so its members are
+reachable only through `std.ui.primitives` — and dropping them from the import leaves nothing that
+defines them where the call is.
+
+So `usesHttpServer`, `serveRuntime.length` and "the block is present" never had to fit together: they
+were all about the wrong file region. `serveRuntime` was emitted and is fine.
+
+**AND THE EXTRACTION WOULD NOT HAVE HELPED**, which retires the "still the better shape" note above:
+those helpers name `scalascript.frontend.RowPayload` in every line, so hoisting them to top level
+moves the error from `Not found: fieldsPayload` to `Not found: scalascript` for any program without
+that jar — which is precisely the `smoke-lane-breadth` red that forced the revert. The revert was
+right; the reason recorded for it was not.
+
+The fix keeps the drop and excepts the one module, against the SAME member list the in-object import
+already uses so the two cannot drift.
+
 ### 2026-08-26, second attempt — measured further, still not fixed, and the instrument is the trap
 
 Re-applied the extraction and went after the one question the revert left open: **why does the

@@ -1093,6 +1093,16 @@ class JvmGen(
       k += 1
     k
 
+  /** What `JvmRuntimeUiPrimitives.source` actually defines inside `object std.ui.primitives`.
+   *
+   *  ONE list, read from two places, because they must agree: this is both what the in-object
+   *  import names and what a USER's import of an extern from that module is allowed to keep
+   *  (see the extern filter in importLinesFor). Kept by hand — the source is a stripMargin
+   *  string, so deriving it by regex would also pick up its private helpers.
+   */
+  private[codegen] val uiPrimitivesMembers: List[String] =
+    "View, EventHandler, signal, seedSignal, componentScope, element, textNode, signalText, showSignal, fragment, forKeyedView, forJsonView, itemField, selectFromView, setSignal, inputChange, toggleSignal, eqSignal, hashSignal, emptyHeaders, emit, serve, fetchUrlSignal, fetchRowsSource, fetchAction, fetchActionTo, incSignal, fetchActionClear, fetchCaptureAction, fieldColumn, fieldPayload, wholeRowPayload, fieldsPayload, rowDeleteAction, rowPostAction, rowLinkAction, rowEditAction, dataTableView".split(", ").toList
+
   /** After `colonObjectsToBraces`, alias import blocks like
    *  `import std.ui.nodes.{TkNode,...}` end up between (or after) the
    *  `object std { ... }` blocks they were generated alongside.  Once
@@ -1172,9 +1182,40 @@ class JvmGen(
       // this had silently drifted — forKeyedView/selectFromView/seedSignal/emptyHeaders/fetchActionTo/
       // fetchCaptureAction/rowEditAction were missing, so any real .ssc using dynamic
       // forKeyed or those less-common primitives hit "Not found" on this import alone).
-      importBuf.prepend("  import ui.primitives.{View, EventHandler, signal, seedSignal, componentScope, element, textNode, signalText, showSignal, fragment, forKeyedView, forJsonView, itemField, selectFromView, setSignal, inputChange, toggleSignal, eqSignal, hashSignal, emptyHeaders, emit, serve, fetchUrlSignal, fetchRowsSource, fetchAction, fetchActionTo, incSignal, fetchActionClear, fetchCaptureAction, fieldColumn, fieldPayload, wholeRowPayload, fieldsPayload, rowDeleteAction, rowPostAction, rowLinkAction, rowEditAction, dataTableView}")
+      importBuf.prepend("  import ui.primitives.{" + uiPrimitivesMembers.mkString(", ") + "}")
 
     if importBuf.isEmpty && !hasPrimitivesObj then return src
+
+    // THE TOP-LEVEL IMPORT HAS TO CARRY THE VALUE MEMBERS TOO, and this is the only place that can
+    // decide which. `importLinesFor` drops a module's `extern def` names because the host normally
+    // defines them at the script's top level — true everywhere except here:
+    // `JvmRuntimeUiPrimitives.source` is MERGED INTO the module object, so its members exist only
+    // as `std.ui.primitives.*`. `[fieldsPayload](std/ui/primitives.ssc)` therefore emitted a
+    // top-level call whose definition sat two scopes away in the SAME FILE — `Not found:
+    // fieldsPayload` on line 10940 beside `def fieldsPayload` on line 10882
+    // (BUGS jvm-gen-row-payload-helpers-only-exist-for-serving-programs).
+    //
+    // A NAME ALREADY DEFINED AT TOP LEVEL IS LEFT OUT, and that exclusion is the whole reason this
+    // runs here rather than at the import site. `serve` is one: the serve preamble emits three
+    // top-level `def serve`, so importing it as well makes every `[serve](std/ui/primitives.ssc)`
+    // program ambiguous. Measured on the generated program, `serve` was the ONLY one of the 37 —
+    // but the same test also excludes a name the USER defines themselves, for free.
+    val topLevelDefs =
+      lines.collect { case l if l.startsWith("def ") || l.startsWith("private def ") =>
+        l.drop(if l.startsWith("private ") then 12 else 4).takeWhile(c => c.isLetterOrDigit || c == '_')
+      }.toSet
+    val primitivesImportIdx =
+      if !hasPrimitivesObj then -1
+      else lines.indexWhere(_.startsWith("import std.ui.primitives.{"))
+    val extendedPrimitivesImport =
+      if primitivesImportIdx < 0 then None
+      else
+        val line = lines(primitivesImportIdx)
+        val existing = line.stripPrefix("import std.ui.primitives.{").stripSuffix("}")
+          .split(",").map(_.trim).filter(_.nonEmpty).toList
+        val added = uiPrimitivesMembers.filterNot(topLevelDefs.contains).filterNot(existing.contains)
+        if added.isEmpty then None
+        else Some("import std.ui.primitives.{" + (existing ++ added).mkString(", ") + "}")
 
     // Reassemble: copy all lines, skip removed ones, inject hoisted imports
     // as the first lines of object std's body (right after firstStdObj).
@@ -1184,7 +1225,7 @@ class JvmGen(
       if removedLines.contains(idx) then
         ()  // dropped — will appear inside object std instead
       else
-        out.append(l).append('\n')
+        out.append(extendedPrimitivesImport.filter(_ => idx == primitivesImportIdx).getOrElse(l)).append('\n')
         if idx == firstStdObj then
           importBuf.distinct.foreach { il => out.append(il).append('\n') }
     out.toString.stripTrailing
@@ -2839,6 +2880,10 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
       val rootAliases = requested.flatMap { sp =>
         if pkgRoot.contains(sp.name) then sp.alias.map(a => s"val $a = ${sp.name}") else None
       }
+      // The std.ui.primitives members this drop is WRONG for are restored later, in
+      // hoistSscImportsIntoObjectStd — see the comment there. It cannot be done here: whether the
+      // premise above holds for a given name depends on what the PREAMBLE emits, and this function
+      // has not seen the generated source yet.
       requested
         .filterNot(sp => externHere.contains(sp.name) && sp.alias.isEmpty)
         .filterNot(sp => pkgRoot.contains(sp.name))
