@@ -244,6 +244,16 @@ const client = new Client({ name: 'scalascript-mcp-client', version: '1.0.0' });
 (async () => {
   const transport = await makeTransport(spec);
   await client.connect(transport);
+  // WRITE THE FLAG, do not only post a message. The caller cannot receive a message while it is
+  // waiting: it blocks in Atomics.wait, which never returns to the event loop, so an on('message')
+  // handler there can never run. Storing into the shared buffer and notifying is the only signal
+  // that crosses a blocked thread. (No backticks in this comment: it lives inside the worker
+  // SOURCE TEMPLATE, and one would end the template literal.)
+  if (workerData.readySab) {
+    const _rf = new Int32Array(workerData.readySab);
+    Atomics.store(_rf, 0, 1);
+    Atomics.notify(_rf, 0);
+  }
   parentPort.postMessage({ ready: true });
 
   parentPort.on('message', async (msg) => {
@@ -366,19 +376,25 @@ function mcpConnect(transport, timeoutMs) {
     }
   })();
 
-  const src  = _mcpClientWorkerSrc(spec);
-  const worker = new Worker(src, { eval: true, workerData: { transportSpec: spec } });
-
-  // Wait for worker to signal ready
   const { receiveMessageOnPort, MessageChannel } = require('worker_threads');
+  // THE BUFFER IS CREATED BEFORE THE WORKER and handed to it, which is the whole fix. This used to
+  // create the Worker first and wait for an `on('message')` handler to set the flag — a handler on
+  // the MAIN thread, which is the thread parked in `Atomics.wait` below. A blocked thread does not
+  // run its event loop, so that handler could never fire, `_ready` stayed false for the full
+  // timeout, and every spawn-transport connect died as `mcpConnect: connection timeout` against a
+  // server that was already answering. Measured: `examples/mcp-server-tools.js` replies to
+  // `initialize` immediately when spoken to directly.
   const sab  = new SharedArrayBuffer(4);
   const flag = new Int32Array(sab);
-  let _ready = false;
-  worker.on('message', msg => {
-    if (msg.ready) { _ready = true; Atomics.store(flag, 0, 1); }
-  });
+
+  const src  = _mcpClientWorkerSrc(spec);
+  const worker = new Worker(src, { eval: true, workerData: { transportSpec: spec, readySab: sab } });
+  // Kept as a second, harmless signal: a worker built from an older source string still posts it,
+  // and reading it costs nothing. The FLAG is what the wait below observes.
+  worker.on('message', msg => { if (msg && msg.ready) Atomics.store(flag, 0, 1); });
+
   const deadline = Date.now() + (timeoutMs || 10000);
-  while (!_ready) {
+  while (Atomics.load(flag, 0) === 0) {
     if (Date.now() > deadline) { worker.terminate(); throw McpError('mcpConnect: connection timeout'); }
     Atomics.wait(flag, 0, 0, 100);
   }

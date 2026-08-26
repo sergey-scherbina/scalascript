@@ -41,6 +41,30 @@ transport never delivers the request, or it never reads the reply. A timeout is 
 that looks like an environment problem and is not — which is why this is filed with the server's own
 answer beside it.
 
+### 2026-08-26 — one real defect found and fixed; it does NOT clear this row
+
+**The ready handshake could never complete, by construction.** `mcpConnect` created the worker,
+registered `worker.on('message', …)` to set a flag, and then parked the MAIN thread in
+`Atomics.wait`. That handler runs on the main thread's event loop, and a thread inside `Atomics.wait`
+does not run its event loop — so the only writer of the flag could never execute, `_ready` stayed
+false for the whole timeout, and every spawn connect ended in `mcpConnect: connection timeout`.
+
+Fixed: the `SharedArrayBuffer` is now created BEFORE the worker and handed to it via `workerData`,
+and the worker does `Atomics.store` + `Atomics.notify` itself. A store from another thread is the
+only signal that crosses a blocked one. The `on('message')` handler is kept as a harmless second
+path.
+
+**THE ROW STILL FAILS, and that is stated rather than left to be discovered.** With the fix in place
+the connect still times out. The worker does not throw — instrumenting it to write to its own stderr
+(which bypasses the parent's blocked event loop) produced nothing — so it HANGS, inside
+`makeTransport` or `client.connect`. That is a second, independent cause and it is what this entry
+still tracks.
+
+**A note on instrumenting this code path:** neither `worker.on('error')` nor a `postMessage` back to
+the parent can report anything while the parent is in `Atomics.wait`. The worker's own
+`console.error` is the only channel that works, and even a comment containing a backtick inside
+`_mcpClientWorkerSrc` breaks it — that string is a template literal.
+
 ## js-imported-parenless-def-mention-reads-the-function-object — `answer.length` was the arity, on every import
 
 <!-- status: fixed
