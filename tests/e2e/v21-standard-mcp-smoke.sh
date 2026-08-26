@@ -783,28 +783,46 @@ def main(): Unit =
       Tool.text("action=" + r.action)))
   serveMcp(Transport.Stdio)
 SSC
-# The pauses are what make this a test of the LOOP: the answer is written a second after the call,
-# by which time the handler is already parked inside elicit. Sending both at once would pass on a
-# server that read its whole input before dispatching anything.
-elicit_driver() {
-  printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"probe","version":"1"}}}'
-  sleep 1
-  printf '%s\n' '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"ask","arguments":{}}}'
-  sleep 1
-  if [[ ${1:-} == answer ]]; then
-    printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"action":"accept","content":{"name":"ann"}}}'
-    sleep 3
+# THE ANSWER IS WITHHELD UNTIL THE REQUEST IS ON THE WIRE, and that is the whole point of the row:
+# it must arrive while the handler is PARKED inside elicit. Sending it on a timer only approximates
+# that, and the approximation is a RACE — this row used to sleep 1 s after `tools/call` and write the
+# answer regardless. When the server needed longer than that to dispatch and send
+# `elicitation/create`, the answer was read before any request existed to match it, dropped, and the
+# handler then waited out its whole 6 s budget. Measured 2026-08-26: red on the runner, red here on
+# ~1 run in 2, on BOTH lanes — it read as a v2 serve-loop defect and was filed as one
+# (BUGS.md mcp-v2-parked-elicit-answer-does-not-reach-the-handler-on-ci). Synchronising on the
+# request instead makes it 3/3 on v2 and green on v1, with no product change.
+#
+# Sending both at once would still pass on a server that read its whole input before dispatching
+# anything — which is why the answer waits for the REQUEST rather than for a duration.
+elicit_answer_when_asked() { # $1 lane, $2 launcher, $3 out file, $4 answer|silent
+  local fifo="$tmp/elicit-in.$$"
+  rm -f "$fifo"; mkfifo "$fifo"; : > "$3"
+  ( timeout 60 "$2" run "$1" "$elicit_prog" < "$fifo" > "$3" 2>/dev/null ) &
+  local server=$!
+  exec 9>"$fifo"
+  printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"probe","version":"1"}}}' >&9
+  printf '%s\n' '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"ask","arguments":{}}}' >&9
+  if [[ ${4:-} == answer ]]; then
+    # Bounded: 20 s is far past the handler's own 6 s budget, so a server that never asks still
+    # reaches the assertion below with a timed-out transcript rather than hanging this script.
+    local waited=0
+    while ! grep -q 'elicitation/create' "$3" 2>/dev/null; do
+      sleep 0.2; waited=$((waited + 1)); [[ $waited -gt 100 ]] && break
+    done
+    printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"action":"accept","content":{"name":"ann"}}}' >&9
+    sleep 2
   else
     sleep 8
   fi
+  exec 9>&-
+  wait "$server" 2>/dev/null || true
+  rm -f "$fifo"
 }
 for lane in --v1 --v2; do
   if [[ $lane == --v1 ]]; then el_launcher=$ROOT/bin/ssc-tools; else el_launcher=$LAUNCHER; fi
 
-  elicit_driver answer | "$el_launcher" run $lane "$elicit_prog" >"$tmp/roundtrip$lane.out" 2>"$tmp/roundtrip$lane.err" || {
-    echo "v21-standard-mcp-smoke: the stdio elicit case FAILED to run on $lane" >&2
-    cat "$tmp/roundtrip$lane.err" >&2; exit 1
-  }
+  elicit_answer_when_asked "$lane" "$el_launcher" "$tmp/roundtrip$lane.out" answer
   grep -qF '"text":"action=accept"' "$tmp/roundtrip$lane.out" || {
     echo "v21-standard-mcp-smoke: on $lane a client answer sent while the handler was parked did" >&2
     echo "  not reach it — the serve loop stopped reading. Got:" >&2
@@ -812,7 +830,7 @@ for lane in --v1 --v2; do
   }
 
   # THE CONTROL.
-  elicit_driver silent | "$el_launcher" run $lane "$elicit_prog" >"$tmp/elicitctl$lane.out" 2>/dev/null || true
+  elicit_answer_when_asked "$lane" "$el_launcher" "$tmp/elicitctl$lane.out" silent
   grep -qF 'timed out' "$tmp/elicitctl$lane.out" || {
     echo "v21-standard-mcp-smoke: on $lane an UNANSWERED elicit should time out and say so; the" >&2
     echo "  positive case above therefore proves nothing. Got:" >&2

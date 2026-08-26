@@ -5226,16 +5226,40 @@ Found while writing a gate case for the given-member double emission: the first 
 anonymous form and went red on THIS instead, which would have made the case ambiguous between
 causes. The case now uses named givens and says why.
 
-## mcp-v2-parked-elicit-answer-does-not-reach-the-handler-on-ci — green here, red on the runner
+## mcp-v2-parked-elicit-answer-does-not-reach-the-handler-on-ci — the GATE raced the server, on both lanes
 
-<!-- status: open
-     lane: v2-jvm
+<!-- status: fixed
+     lane: apparatus
      kind: bug
-     area: runtime
+     area: other
      gate: tests/e2e/v21-standard-mcp-smoke.sh
      reported-by: claude-code
      reported-at: 2026-08-26
-     confirmed: yes -->
+     confirmed: yes
+     fixed-in: PLACEHOLDER -->
+
+**FIXED 2026-08-26 (`PLACEHOLDER`), and this entry was WRONG in its title, its `lane`, its `area`
+and its framing.** It is not a v2 defect, not a runtime defect, and not a CI-only one. The row's
+driver wrote the elicit answer one second after `tools/call`, on a timer. When the server needed
+longer than that to dispatch and put `elicitation/create` on the wire, the answer was read before any
+request existed to match it, dropped, and the handler then waited out its whole 6-second budget.
+
+**WHAT I GOT WRONG AND HOW.** I filed this as "green here, red on the runner" after ONE local pass of
+the whole gate, and wrote "passes on this machine, whole-gate, repeatedly". Re-running it made it
+fail here too — on `--v1`, the lane this entry claimed was unaffected. One pass of a row that fails
+about half the time is not "repeatedly", and the lane it happened to pass on is not evidence about
+the lane.
+
+**THE MEASUREMENT THAT SETTLED IT**, and it is the one the entry's own step 1 asked for: withhold the
+answer until `elicitation/create` actually appears in the transcript, and the row goes 3/3 on v2 and
+green on v1, with no product change. Step 2 — raising the 6-second budget — would have been the
+wrong fix and is now moot: the budget was never the constraint, the ordering was.
+
+`elicit_answer_when_asked` replaces `elicit_driver`: it drives the server through a fifo and waits
+for the request before answering, bounded at 20 s so a server that never asks still reaches the
+assertion with a timed-out transcript instead of hanging. The row tests what it always meant to —
+the answer arrives while the handler is parked — and now it does so by construction rather than by
+hoping the timing holds. Verified: three consecutive whole-gate runs, all PASS.
 
 **The last row of `v21-standard-mcp-smoke`, and it is the FIRST run in which anything reached it.**
 The row above it — `elicit did not reach the wire on --v2` — had been failing since 2026-08-20, so
