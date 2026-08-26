@@ -5226,6 +5226,55 @@ Found while writing a gate case for the given-member double emission: the first 
 anonymous form and went red on THIS instead, which would have made the case ambiguous between
 causes. The case now uses named givens and says why.
 
+## mcp-v2-parked-elicit-answer-does-not-reach-the-handler-on-ci — green here, red on the runner
+
+<!-- status: open
+     lane: v2-jvm
+     kind: bug
+     area: runtime
+     gate: tests/e2e/v21-standard-mcp-smoke.sh
+     reported-by: claude-code
+     reported-at: 2026-08-26
+     confirmed: yes -->
+
+**The last row of `v21-standard-mcp-smoke`, and it is the FIRST run in which anything reached it.**
+The row above it — `elicit did not reach the wire on --v2` — had been failing since 2026-08-20, so
+this one had never executed. Fixing that one (`22e27f1e3`) made it reachable and it went red on the
+runner:
+
+```
+v21-standard-mcp-smoke: on --v2 a client answer sent while the handler was parked did
+  not reach it — the serve loop stopped reading. Got:
+{"jsonrpc":"2.0","method":"elicitation/create","params":{"message":"your name?",…},"id":1}
+{"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":
+  "srv.elicit: srv.request 'elicitation/create' timed out after 6000ms"}],"isError":true}}
+```
+
+**The registration works and the request reaches the wire** — `elicitation/create` is right there —
+so this is downstream of everything the fix above was about. What fails is the READ side: the answer
+the driver writes one second after the call does not reach the parked handler inside its 6-second
+budget.
+
+**IT PASSES ON THIS MACHINE, whole-gate, repeatedly**, which is the awkward part and why this is
+filed rather than fixed. Both lanes run the identical program and driver; `--v1` passes on the runner
+too. So the difference is not the program and not the protocol — it is scheduling, and a defect that
+only appears under one is still a defect.
+
+**WHAT TO MEASURE FIRST, in the order that costs least:**
+
+1. Whether the answer is *buffered but unread* or *never written*. The driver sleeps 1 s after
+   `tools/call`; on a runner the JVM may not have reached `serveMcp` before the driver finished, so
+   every line sits in the pipe. A server that reads its whole input before dispatching would pass;
+   one that parks mid-line might never come back for it. `strace`-free version: have the driver echo
+   what it wrote to a side file and compare against what the server logged reading.
+2. Whether 6000 ms is simply too small on a loaded runner — raise it to 30 s in a scratch copy and
+   see if the row goes green. That decides "slow" vs "stuck" and nothing else does; the two look
+   identical from the transcript.
+
+**DO NOT raise the timeout in the gate as the fix** until step 2 says slow. The row exists to prove
+the loop keeps reading while a handler is parked; a longer budget for a loop that never reads again
+just moves the red later.
+
 ## mcp-v2-a-curried-plugin-native-yields-a-closure-instead-of-registering — `srv.tool(name)(handler)` registers nothing
 
 <!-- status: fixed
