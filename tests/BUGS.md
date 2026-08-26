@@ -1994,7 +1994,7 @@ mostly runs on this one. An mtime is one line of digits; the Linux failure produ
 the comparison ran happily on them. `assert_mtime_shape` stops the gate with the cause named when
 the value is empty or not a bare integer, instead of silently comparing it.
 
-## no-orphan-gates-evidence-reveals-blind-gates-one-run-at-a-time
+## no-orphan-gates-evidence-audit-has-22-undeclared-blind-gates
 
 <!-- status: open
      lane: apparatus
@@ -2005,34 +2005,41 @@ the value is empty or not a bare integer, instead of silently comparing it.
      reported-at: 2026-08-25
      confirmed: yes -->
 
-**Two full `--evidence` runs on the same tree named DIFFERENT gates, and neither named all of them.**
-Measured 2026-08-25 while clearing the nightly:
+> Filed 2026-08-25 as `no-orphan-gates-evidence-reveals-blind-gates-one-run-at-a-time`, claiming the
+> audit named a different subset on every run. **That claim was mine and it was wrong.** The
+> retraction and the measurement that settled it are below, before anything else, because the
+> original is the kind of accusation that stops the next reader trusting the instrument.
 
-| run | gates it flagged |
-|---|---|
-| CI, 2026-08-25 nightly | `ui-provider-gap`, `ui-select-from`, `v2-extern-default-args`, `v2-unknown-member-refuses` |
-| local, after those four were declared | `single-line-extension`, `ui-computed-signal` |
-| local, after those six were declared | `nativeui-annotation` |
+### ⚠️ RETRACTED: the audit is STABLE. I was comparing different trees
 
-**The obvious explanations are both refuted by the runs' own output.** Neither run printed a
-`NO VERDICT` section, so nothing was cut off at `SSC_EVIDENCE_CAP`; and neither printed a
-`(sweep said X was blind; alone it is not)` line, so the re-run-alone confirmation rejected nothing.
-The sweep simply saw a different set each time.
+Two back-to-back `--evidence` runs on the SAME tree, 2026-08-26:
 
-**WHY IT MATTERS more than the count.** Declaring one gate per nightly is not convergence — it is a
-red that moves. The nightly cannot go green while each fix reveals the next name, and an agent who
-reads only the CI log gets a list that is both incomplete and different from what the same command
-produces locally.
+| | run 1 | run 2 |
+|---|---|---|
+| wired gates that invoked a launcher | 206 | 207 |
+| **passed anyway (blind)** | **42** | **42** |
+| first seven names reported | identical | identical |
 
-**WHAT IS KNOWN about the population.** 41 gates call the shared `ssc_usable_or_skip`; 20 are
-declared. The remaining 21 are NOT all blind — a skip-guarded gate can still go red for a reason
-that arrives before its guard — so declaring the family wholesale would plant exactly the rot this
-list's own rules forbid ("an exemption that outlives its need is the same rot as a stale known-red").
-Telling them apart needs the audit to be deterministic first, which is what this entry is for.
+**What produced the appearance of instability was me.** The three runs I compared were on three
+different trees — I declared gates between them — so each run's list was the previous list minus
+what I had just declared. Comparing them as if they were repeats of one measurement is the error the
+rest of this file exists to catch, and I made it. `head -8` on the output finished the job by hiding
+that the lists were long, not short.
 
-**NOT the same thing as the six declared in `7fb52c2b4`.** Those were real, verified by the shared
-guard they all call. This entry is about the instrument that found them naming a different subset
-every time it runs.
+### What is actually true
+
+**42 of 206 wired gates pass with the launcher removed, and 22 of those are undeclared.** The list
+is stable and reproducible. The declared set holds 20 entries; the audit flags the rest.
+
+The undeclared 22 are the `f-*` family plus `nativeui-annotation`, and every one of them calls the
+shared `ssc_usable_or_skip`, so they are `skip-guarded` in the audit's own vocabulary. **That is not
+a licence to declare them wholesale** — the list's rules say an exemption that outlives its need is
+the same rot as a stale known-red, and a skip-guarded gate can still go red for a reason arriving
+before its guard. Telling them apart is one run per gate.
+
+**CI's log names only four of them**, which is what sent me down this path: the job log is truncated,
+so an agent reading the failure gets a list that is both incomplete and different from what the same
+command prints locally. That part of the original entry stands.
 
 ## no-orphan-gates-evidence-audit-red-on-four-undeclared-skip-guarded-gates
 
