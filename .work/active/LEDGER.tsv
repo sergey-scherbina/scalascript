@@ -1,2 +1,3 @@
-# generation: 2955
+# generation: 2956
 #slug	agent	started	items	paths
+singleton-test-moved-path	claude-code	2026-08-26T20:36:24Z	singleton-failover-test-imports-a-moved-path	file:v1/tools/cli/src/test/scala/scalascript/cli/SingletonFailoverTest.scala file:BUGS.md
