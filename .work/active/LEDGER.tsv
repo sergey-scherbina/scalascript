@@ -1,4 +1,3 @@
-# generation: 2957
+# generation: 2958
 #slug	agent	started	items	paths
 singleton-test-moved-path	claude-code	2026-08-26T20:36:24Z	singleton-failover-test-imports-a-moved-path	file:v1/tools/cli/src/test/scala/scalascript/cli/SingletonFailoverTest.scala file:BUGS.md
-nested-bytecode-row-vs-declared-gap	claude-code	2026-08-26T20:41:58Z	v2-f-nested-bytecode-fast-path-asserts-a-path-the-product-declares-it-cannot-take	file:tests/e2e/v2-f-nested-bytecode-fast-path.sh file:v1/tools/cli/src/test/scala/scalascript/cli/SingletonFailoverTest.scala
