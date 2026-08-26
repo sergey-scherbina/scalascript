@@ -1,3 +1,43 @@
+## sbt-test-shard-3-does-not-fit-the-50-minute-step-cap — the slice is blind to cost
+
+<!-- status: open
+     lane: apparatus
+     area: build
+     kind: bug
+     gate: .github/workflows/ci.yml
+     reported-by: claude-code
+     reported-at: 2026-08-26
+     confirmed: yes -->
+
+**Measured on run 32946617005 — the first dispatch in which every shard ran its suites to the end**
+rather than stopping at a failure:
+
+| shard | wall | outcome |
+|---|---|---|
+| 0 | 34.3 min | success |
+| 1 | 25.5 min | one test failed (fixed separately) |
+| 2 | 21.4 min | one test failed (the reverted row-payload row) |
+| 3 | **killed at 50** | **19 succeeded, 0 failed** — still inside `ScljetScalarSemanticsDifferentialTest` |
+
+Nothing is failing in shard 3. The slice does not fit.
+
+**IT WAS HIDDEN BY A FAILURE.** Shard 3 used to stop early on `BenchIntrinsicsTest`; fixing that let
+it run on and reach the cap. A shard that fails fast never shows how long it would have taken.
+
+**THE PARTITION IS THE DEFECT.** `scripts/sbt-test-shard` slices with `NR % n == i` over an
+alphabetically sorted list of `project/suite` pairs — a rule that knows nothing about cost. The
+scljet differential suites spawn processes and cross-check every value against reference
+sqlite-jdbc, and they land together. Four supposedly equal quarters run 21.4, 25.5, 34.3 and >50
+minutes.
+
+**RAISED TO 75 as the stop-gap**, so one slow slice cannot cost a whole tier, with the numbers in the
+workflow beside it. 75 is the observed worst case plus room: shard 3 was at 57.3 min of job time when
+the run ended, so roughly 60 of step time, and a cap sized at the observed maximum is the cap that
+goes red on the next slow host.
+
+**Balancing properly needs per-suite timings, and nothing collects them yet** — which is why this
+stays open rather than being closed by the cap.
+
 ## scljet-vfs-host-test-compares-a-subprocess-stream-carrying-a-jvm-note
 
 <!-- status: fixed

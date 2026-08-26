@@ -2618,8 +2618,28 @@ jobs:
 
       # The enumeration this needs is a by-product of the compile above, so the slice costs no extra
       # build. `--shard i/4` prints what it selected before running anything.
+      # 50 -> 75, MEASURED on run 32946617005 — the first dispatch in which every shard ran its
+      # suites to the end rather than stopping at a failure:
+      #
+      #   shard 0  34.3 min   shard 1  25.5 min   shard 2  21.4 min   shard 3  KILLED at 50
+      #
+      # Shard 3 was still inside ScljetScalarSemanticsDifferentialTest when the step was cut, with
+      # every test it had run passing (19 succeeded, 0 failed). Nothing is failing there; the slice
+      # does not fit.
+      #
+      # THE REAL PROBLEM IS THE PARTITION, and this cap only stops it costing a whole tier. The
+      # slice is `NR % n == i` over an alphabetically sorted list of project/suite pairs
+      # (scripts/sbt-test-shard), which is blind to cost — so the scljet differential suites, which
+      # spawn processes and cross-check against reference sqlite-jdbc, all land in one shard. The
+      # spread is 21.4 to >50 minutes across four supposedly equal quarters. Filed as
+      # tests/BUGS.md `sbt-test-shard-3-does-not-fit-the-50-minute-step-cap`; balancing needs
+      # per-suite timings, which nothing collects yet.
+      #
+      # 75 is the measured worst case plus room, not a round number: shard 3 was at 57.3 min of job
+      # time when the run ended, so ~60 of step time, and a cap sized at the observed maximum is the
+      # cap that goes red on the next slow host.
       - name: Test via sbt, shard ${{ matrix.shard }}/4
-        timeout-minutes: 50
+        timeout-minutes: 75
         run: |
           set -o pipefail
           scripts/sbt-test-shard --shard ${{ matrix.shard }}/4 2>&1 | tee /tmp/sbt-test.log
