@@ -8,7 +8,7 @@
      reported-by: claude-code
      reported-at: 2026-08-26
      confirmed: yes
-     fixed-in: PENDING -->
+     fixed-in: a9118888f -->
 
 **The last of the five `sbt test` failures the 2026-08-26 dispatch surfaced.** The row is named
 *"std mapreduce Cluster.close executes without a stub under default v2 runner"* and it was reporting
