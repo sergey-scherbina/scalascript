@@ -1,3 +1,4 @@
-# generation: 2921
+# generation: 2922
 #slug	agent	started	items	paths
 scljet-vfs-probe-env	claude-code	2026-08-26T09:53:00Z	scljet-vfs-host-test-compares-a-subprocess-stream-carrying-a-jvm-note	file:v1/runtime/plugins/scljet-vfs-plugin/src/test/scala/scalascript/compiler/plugin/scljet/SclJetJvmVfsHostTest.scala file:tests/BUGS.md
+sbt-shard-step-cap	claude-code	2026-08-26T09:56:16Z	sbt-test-shard-3-does-not-fit-the-50-minute-step-cap	file:.github/workflows/ci.yml file:tests/BUGS.md
