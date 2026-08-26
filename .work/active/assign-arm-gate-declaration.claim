@@ -1,0 +1,11 @@
+slug: assign-arm-gate-declaration
+branch: feature/assign-arm-gate-declaration
+agent: claude-code
+started: 2026-08-26T13:24:36Z
+heartbeat: 2026-08-26T13:24:36Z
+status: claimed-before-planning
+items: no-orphan-gates-evidence-red
+paths: file:tests/e2e/no-orphan-gates.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
