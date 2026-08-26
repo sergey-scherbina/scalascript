@@ -8,7 +8,7 @@
      reported-by: claude-code
      reported-at: 2026-08-26
      confirmed: yes
-     fixed-in: PENDING -->
+     fixed-in: 752ef1ee1 -->
 
 **`install.sh` reported SUCCESS for a build that staged nothing, on every Linux runner, for as long
 as the guard against exactly that has existed.** Found because its own gate said so on the
