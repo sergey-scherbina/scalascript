@@ -7,6 +7,51 @@ grepping for status.
 
 Newest first.
 
+## jvm-gen-row-payload-helpers-only-exist-for-serving-programs — `fieldsPayload` emits a call to a function it never defines
+
+<!-- status: open
+     lane: jvm
+     kind: bug
+     area: codegen
+     gate: v1/runtime/backend/interpreter/src/test/scala/scalascript/JvmGenRowsPathTest.scala
+     reported-by: claude-code
+     reported-at: 2026-08-26
+     confirmed: yes -->
+
+**One of the five `sbt test` failures the 2026-08-26 dispatch surfaced** — the first time that tier
+had a verdict at all. `JvmGenRowsPathTest`'s row "scala-cli executes emitted JVM row payload
+rejection" fails, and not on what it is testing:
+
+```
+-- [E006] Not Found Error: …
+10940 |locally { val _auto: Any = fieldsPayload(List()); … }
+      |                           ^^^^^^^^^^^^^
+      |                           Not found: fieldsPayload
+```
+
+The test asserts that the EMITTED program rejects a bad payload with `fields must be unique
+non-empty dotted field paths`. It never gets there: the emitted Scala does not compile.
+
+**WHERE THEY LIVE.** `fieldsPayload`, `fieldPayload` and `wholeRowPayload` are ordinary
+`std/ui/primitives.ssc` exports (`extern def fieldsPayload(names: List[String]): Any`, :325) and the
+JVM preamble does define them — `JvmGenPreamble.scala:809-811` — but those lines are inside
+`serveRuntime`, which `JvmGen.scala:506` emits only `if usesHttpServer`. A program that merely CALLS
+one of them, as any program may, gets the call and not the definition.
+
+**AN ATTEMPTED FIX, MEASURED AND REVERTED**, recorded so the next reader does not repeat it. Widening
+the condition to `usesHttpServer || blocksUseRowPayload(blocks)` — following the precedent already in
+that file, where `serveRuntime` is emitted for MCP too — did **not** clear the row: the compile then
+reported **7** errors instead of 1, six new `E008`s alongside the same `Not found: fieldsPayload`.
+So either the predicate does not fire on this shape or `serveRuntime` alone is not what supplies the
+name, and pulling a whole server preamble into a non-serving program brings in references that do not
+resolve on this classpath regardless.
+
+**WHAT THAT LEAVES AS THE LIKELY SHAPE**: extract the row-payload helpers and their two private
+validators (`_ssc_dottedRowName`, `_ssc_exactRowPayload`) into their own preamble value, emitted when
+a program serves OR calls one of them — rather than moving the emission of the whole server runtime.
+That is a change to a memoized string several tests assert against BY CONTENT, so it wants its own
+measurement rather than being tacked onto this note.
+
 ## jvm-listdir-answers-empty-where-every-other-lane-raises
 
 <!-- status: fixed
