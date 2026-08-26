@@ -1,4 +1,3 @@
-# generation: 2927
+# generation: 2928
 #slug	agent	started	items	paths
-scljet-vfs-probe-env	claude-code	2026-08-26T09:53:00Z	scljet-vfs-host-test-compares-a-subprocess-stream-carrying-a-jvm-note	file:v1/runtime/plugins/scljet-vfs-plugin/src/test/scala/scalascript/compiler/plugin/scljet/SclJetJvmVfsHostTest.scala file:tests/BUGS.md
 f-pkg-chain-fix	claude-code	2026-08-26T11:44:23Z	f-does-not-resolve-a-multi-segment-package-namespace-chain	file:v2/bin/ssc1-run-fsub.ssc0 file:v2/bin/ssc1-run.ssc0 file:v2/BUGS.md
