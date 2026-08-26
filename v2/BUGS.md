@@ -7,6 +7,42 @@ grepping for status.
 
 Newest first.
 
+## scljet-jdbc-v2-applies-a-foreign-value-as-a-function — `not a function: <foreign>` on three arguments
+
+<!-- status: open
+     lane: native
+     kind: bug
+     area: runtime
+     gate: tests/conformance/contract.sc
+     reported-by: claude-code
+     reported-at: 2026-08-26
+     confirmed: yes -->
+
+**One of the two corpus-contract regressions left after the constructor-registry fix** (`b5e777cb8`
+cleared `scljet-readonly-codecs` and `scljet-write-table`; this one and `agent-mcp-toolsource`
+remain). Shard 1 has reported it since at least 2026-08-16.
+
+```
+$ bin/ssc run examples/scljet-jdbc.ssc
+ssc: --bytecode fell back to the VM lane [class-size-limit] (ClassTooLargeException: Class too large: ssc/gen/Entry)
+ssc: app: not a function: <foreign> — applied to 3 argument(s): Map(0 -> List(123)), 0, 1
+```
+
+**Two things happen and only the second is the defect.** The `--bytecode` fallback is a declared,
+named degradation (`scljet-jdbc-facade-bytecode-class-too-large`) and the program continues on the
+VM lane. It then applies a `<foreign>` — a plugin value — to three arguments as if it were a
+function, and dies.
+
+The arguments name the shape: `Map(0 -> List(123)), 0, 1` is a byte-slice read — a map of page
+index to bytes, an offset and a length. So the receiver is a plugin object whose read member is
+being APPLIED rather than dispatched.
+
+**SAME SYMPTOM CLASS as `mcp-v2-a-curried-plugin-native-yields-a-closure-instead-of-registering`
+(root `BUGS.md`, filed the same night): a plugin native reached in a position the v2 lane applies
+instead of invoking. Whether it is the same root is NOT established** — that one produced a closure
+from a second argument list, this one refuses a foreign value outright — and saying so is cheaper
+than a wrong merge.
+
 ## v2-swift-backend-has-no-mk-method-obj-primitive — `emit-swift` dies on any program with an `object`
 
 <!-- status: fixed

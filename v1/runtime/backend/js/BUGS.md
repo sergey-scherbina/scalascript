@@ -7,6 +7,40 @@ grepping for status.
 
 Newest first.
 
+## agent-mcp-toolsource-js-mcpconnect-times-out-against-a-server-that-answers
+
+<!-- status: open
+     lane: js
+     kind: bug
+     area: runtime
+     gate: tests/conformance/contract.sc
+     reported-by: claude-code
+     reported-at: 2026-08-26
+     confirmed: yes -->
+
+**The second of the two corpus-contract regressions left after the constructor-registry fix.**
+
+```
+$ bin/ssc-tools run-js examples/agent-mcp-toolsource.ssc
+{ _type: 'McpError', message: 'mcpConnect: connection timeout' }
+```
+
+The case spawns its own server — `mcpConnect(Transport.Spawn("node", List("examples/mcp-server-tools.js")))`
+— so there is no network and nothing external to blame.
+
+**THE SERVER IS NOT THE PROBLEM, and that is the measurement worth keeping.** Spoken to directly it
+answers immediately:
+
+```
+$ printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n' | node examples/mcp-server-tools.js
+{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","capabilities":{…},"serverInfo":{"name":"ssc-example-tools"…
+```
+
+exit 0, protocol-correct. So the handshake fails on the CLIENT side of the JS lane: either the spawn
+transport never delivers the request, or it never reads the reply. A timeout is the one failure mode
+that looks like an environment problem and is not — which is why this is filed with the server's own
+answer beside it.
+
 ## js-imported-parenless-def-mention-reads-the-function-object — `answer.length` was the arity, on every import
 
 <!-- status: fixed
