@@ -5226,6 +5226,53 @@ Found while writing a gate case for the given-member double emission: the first 
 anonymous form and went red on THIS instead, which would have made the case ambiguous between
 causes. The case now uses named givens and says why.
 
+## singleton-failover-test-imports-a-moved-path — three nodes that never started, read as flaky elections
+
+<!-- status: fixed
+     lane: apparatus
+     kind: bug
+     area: other
+     gate: v1/tools/cli/src/test/scala/scalascript/cli/SingletonFailoverTest.scala
+     reported-by: claude-code
+     reported-at: 2026-08-26
+     confirmed: yes
+     fixed-in: PLACEHOLDER -->
+
+**FIXED 2026-08-26 (`PLACEHOLDER`).** The test writes a node script per cluster member and imports
+the singleton module by a relative hop count:
+
+```
+[Singleton](../../../../runtime/std/cluster/singleton.ssc)
+```
+
+Both halves had rotted. `runtime/std/` became `std/` in `b433a41e4` (the v1→v2 migration), and the
+scripts moved one directory deeper — `<repo>/v1/tools/cli/target/ssc-singleton-failover/` — so the
+four hops were wrong as well. Every node process died before joining anything:
+
+```
+[ERROR] Import not found: ../../../../runtime/std/cluster/singleton.ssc
+scalascript.interpreter.InterpretError: Import not found: …
+```
+
+**IT LOOKED LIKE CLUSTER FLAKINESS AND WAS NOT, and the transcript said so all along.** The
+assertion reports `phase1` as `List(false, false, false)` — ALL three nodes, never a subset — and
+the test's own retry harness prints `transient election-timing miss?` around it. Three attempts that
+all report every node false are not a timing miss. The question mark in that message is the only
+thing about it that was honest.
+
+**NOT A REGRESSION FROM ANYTHING LANDED TODAY**, checked rather than assumed: a separate worktree at
+`ccc95a5ff` — the commit the 08:13 nightly ran, before any of today's changes — fails identically,
+three attempts, same all-false list. It became visible today because `sbt test shard 3/4` stopped
+timing out at its 50-minute cap (`0efac4d61`) and the shards were re-enumerated.
+
+`std/cluster/singleton.ssc` resolves against the std root from any directory — the form the other 22
+examples in this repo use, and the one the comment on `pb.directory` in the same test already
+assumed this line was using. Verified: three consecutive runs, `SENT1:true`, `SENT2:true`, 1/1 each.
+
+**Its sibling was the same defect in a different file**: `examples/swift/appcore-nativeui.ssc`
+imported `../../runtime/std/ui/primitives.ssc` and broke four `SwiftV2CliTest` rows (fixed
+`ed3ef301c`). Two files were left behind by that migration; a grep for `runtime/std/` finds any third.
+
 ## mcp-v2-parked-elicit-answer-does-not-reach-the-handler-on-ci — the GATE raced the server, on both lanes
 
 <!-- status: fixed

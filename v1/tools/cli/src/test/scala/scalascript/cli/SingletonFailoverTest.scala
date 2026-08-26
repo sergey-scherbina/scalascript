@@ -43,11 +43,23 @@ class SingletonFailoverTest extends AnyFunSuite:
     val joinStmt =
       if peerUrls.isEmpty then "()"
       else s"joinCluster(List($joinList))"
-    // Relative path back up to runtime/std/cluster/singleton.ssc — imports
-    // must be relative to the .ssc file's directory, and our scripts
-    // live at <repo>/tools/cli/target/ssc-singleton-failover/.  Four `..`
-    // hops up gets us to the repo root.
-    val singletonPath = "../../../../runtime/std/cluster/singleton.ssc"
+    // THE STD-ROOT FORM, not a hop count. This said
+    // `../../../../runtime/std/cluster/singleton.ssc`, and both halves of that had rotted:
+    // `runtime/std/` moved to `std/` in b433a41e4 (the v1→v2 migration), and the scripts now live
+    // one directory deeper, at `<repo>/v1/tools/cli/target/ssc-singleton-failover/`, so the four
+    // hops were wrong too. Every node died on
+    //
+    //     [ERROR] Import not found: ../../../../runtime/std/cluster/singleton.ssc
+    //
+    // before joining anything, which is why `phase1` was `List(false, false, false)` — ALL three,
+    // never a subset. The retry harness below calls that a "transient election-timing miss?"; three
+    // attempts that all report every node false are not a timing miss, and the question mark in
+    // that message is the only thing that kept it honest.
+    //
+    // `std/…` resolves against the std root from any directory, which is what the launcher already
+    // does for the 22 other examples in this repo and what the comment on `pb.directory` below
+    // already assumed this line was doing.
+    val singletonPath = "std/cluster/singleton.ssc"
     val _ = stdRepoRoot
     s"""---
        |name: node-$nodeId
