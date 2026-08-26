@@ -143,13 +143,25 @@ class SclJetJvmVfsHostTest extends AnyFunSuite:
         assert(SclJetJvmVfsHost.lock(handle, HostLockLevel.Pending).isOk)
         assert(SclJetJvmVfsHost.lock(handle, HostLockLevel.Exclusive).isOk)
         val javaBin = Path.of(System.getProperty("java.home"), "bin", "java").toString
-        val process = ProcessBuilder(javaBin, "-cp", System.getProperty("java.class.path"),
+        // THE PROBE'S ENVIRONMENT IS CLEARED OF THE TWO JVM OPTION VARS, and this line is the fix.
+        // `redirectErrorStream(true)` folds the child's stderr into the stream compared below, and a
+        // JVM that inherits JDK_JAVA_OPTIONS or JAVA_TOOL_OPTIONS announces it there:
+        //   NOTE: Picked up JDK_JAVA_OPTIONS:  -Xmx4g
+        // The assertion then read `]busy" did not equal "[]busy"` — a diff about a note the probe
+        // never printed. The probe opens one database and prints one word; it needs neither var.
+        val builder = ProcessBuilder(javaBin, "-cp", System.getProperty("java.class.path"),
           "scalascript.compiler.plugin.scljet.SclJetVfsLockProbe", path.toString)
-          .redirectErrorStream(true).start()
+          .redirectErrorStream(true)
+        builder.environment().remove("JDK_JAVA_OPTIONS")
+        builder.environment().remove("JAVA_TOOL_OPTIONS")
+        val process = builder.start()
         assert(process.waitFor(30, java.util.concurrent.TimeUnit.SECONDS))
-        val output = String(process.getInputStream.readAllBytes()).trim
-        assert(process.exitValue() == 0, output)
-        assert(output == "busy", output)
+        val raw = String(process.getInputStream.readAllBytes()).trim
+        // …AND THE ASSERTION READS THE LAST NON-EMPTY LINE, so the next thing a JVM decides to
+        // announce on startup cannot turn this row red again. The probe's answer is its last word.
+        val output = raw.linesIterator.map(_.trim).filter(_.nonEmpty).toList.lastOption.getOrElse("")
+        assert(process.exitValue() == 0, raw)
+        assert(output == "busy", raw)
       finally SclJetJvmVfsHost.close(handle)
     }
 

@@ -1,3 +1,36 @@
+## scljet-vfs-host-test-compares-a-subprocess-stream-carrying-a-jvm-note
+
+<!-- status: fixed
+     lane: apparatus
+     area: build
+     kind: bug
+     gate: v1/runtime/plugins/scljet-vfs-plugin/src/test/scala/scalascript/compiler/plugin/scljet/SclJetJvmVfsHostTest.scala
+     reported-by: claude-code
+     reported-at: 2026-08-26
+     confirmed: yes
+     fixed-in: PENDING -->
+
+**`sbt test shard 1/4` on the 2026-08-26 dispatch (run 32946617005).** The row *"exclusive rollback
+lock is visible to a subprocess"* failed on a diff about a line the probe never printed:
+
+```
+]busy" did not equal "[]busy"   NOTE: Picked up JDK_JAVA_OPTIONS:  -Xmx4g
+```
+
+The test starts a probe JVM with `.redirectErrorStream(true)` and compares the whole stream to
+`"busy"`. A JVM that inherits `JDK_JAVA_OPTIONS` (or `JAVA_TOOL_OPTIONS`) announces the fact on
+**stderr** — which that flag folds into the compared stream.
+
+**FIXED twice over.** The probe's environment is cleared of both variables: it opens one database
+and prints one word, and needs neither. And the assertion now reads the LAST non-empty line, so the
+next thing a JVM decides to announce at startup cannot turn this row red again.
+
+**Its sibling at line 189 was already safe** and is worth naming as the contrast: that one reads
+stdout with `reader.readLine()` and stderr separately, so the note has nowhere to leak into. The
+difference between the two rows is one `redirectErrorStream(true)`.
+
+6 passed, 0 failed.
+
 ## v2-caseclass-cli-test-harness-omits-the-standard-plugin-jars
 
 <!-- status: fixed
