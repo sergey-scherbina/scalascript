@@ -1,3 +1,2 @@
-# generation: 2901
+# generation: 2902
 #slug	agent	started	items	paths
-jvm-row-payload-helpers	claude-code	2026-08-26T05:33:46Z	jvm-gen-row-payload-helpers-only-exist-for-serving-programs	file:v1/runtime/backend/jvm/src/main/scala/scalascript/codegen/JvmGen.scala file:v1/runtime/backend/jvm/src/main/scala/scalascript/codegen/JvmGenBlockAnalysis.scala file:v1/runtime/backend/jvm/BUGS.md
