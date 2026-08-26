@@ -26,8 +26,19 @@ class ContentBackendExposureTest extends AnyFunSuite with Matchers:
   private lazy val toMarkdownExpected: String =
     os.read(repoRoot / "tests" / "conformance" / "expected" / "content-to-markdown.txt").stripTrailing
 
+  /** The directory a source is READ FROM, which is the base its relative imports resolve against.
+   *
+   *  Every other case in this file has only `std/…` imports, which the resolver re-resolves against
+   *  `ssc.std.path` (build.sbt:72 pins it to the repo root for tests) no matter what base it is
+   *  given — so passing `repoRoot` worked for them and hid that it is the wrong base.
+   *  `content-linked-namespaces.ssc` also imports `./lib/content-copy.ssc`, and a `./` path has no
+   *  such fallback: against `repoRoot` it becomes `<root>/lib/content-copy.ssc`, which does not
+   *  exist, and the JVM row died with `Import not found: ./lib/content-copy.ssc` while the JS row
+   *  reached `None.get` at runtime on the value the missing import should have provided. */
+  private lazy val conformanceDir: os.Path = repoRoot / "tests" / "conformance"
+
   private lazy val linkedNamespacesSource: String =
-    os.read(repoRoot / "tests" / "conformance" / "content-linked-namespaces.ssc")
+    os.read(conformanceDir / "content-linked-namespaces.ssc")
 
   private lazy val linkedNamespacesExpected: String =
     os.read(repoRoot / "tests" / "conformance" / "expected" / "content-linked-namespaces.txt").stripTrailing
@@ -79,8 +90,8 @@ class ContentBackendExposureTest extends AnyFunSuite with Matchers:
   test("JS codegen exposes directly imported Markdown content namespaces"):
     assume(ProcTestUtil.commandOk("node"), "node not available")
     val module = Parser.parse(linkedNamespacesSource)
-    val runtime = JsGen.generateRuntime(JsGen.detectCapabilities(module, Some(repoRoot)))
-    val userCode = JsGen.generate(module, Some(repoRoot))
+    val runtime = JsGen.generateRuntime(JsGen.detectCapabilities(module, Some(conformanceDir)))
+    val userCode = JsGen.generate(module, Some(conformanceDir))
     val tmp = os.temp(runtime + "\n" + userCode + "\n", suffix = ".cjs", deleteOnExit = true)
     val result = os.proc("node", tmp.toString).call(check = false, stdout = os.Pipe, stderr = os.Pipe)
     assert(result.exitCode == 0, s"node failed:\n${result.err.text()}")
@@ -89,7 +100,7 @@ class ContentBackendExposureTest extends AnyFunSuite with Matchers:
   test("JVM codegen exposes directly imported Markdown content namespaces"):
     assume(ProcTestUtil.commandOk("scala-cli"), "scala-cli not available")
     val module = Parser.parse(linkedNamespacesSource)
-    val scala = "//> using scala 3.8.3\n" + JvmGen.generate(module, Some(repoRoot))
+    val scala = "//> using scala 3.8.3\n" + JvmGen.generate(module, Some(conformanceDir))
     val tmp = os.temp(scala, suffix = ".sc", deleteOnExit = true)
     val result = os.proc("scala-cli", "run", "--server=false", tmp.toString).call(check = false, stdout = os.Pipe, stderr = os.Pipe)
     assert(result.exitCode == 0, s"scala-cli failed:\n${result.err.text()}")

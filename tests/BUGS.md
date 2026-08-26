@@ -1,3 +1,42 @@
+## content-backend-exposure-test-passes-the-repo-root-as-basedir-for-a-conformance-source
+
+<!-- status: fixed
+     lane: apparatus
+     area: conformance
+     kind: bug
+     gate: v1/runtime/backend/interpreter/src/test/scala/scalascript/ContentBackendExposureTest.scala
+     reported-by: claude-code
+     reported-at: 2026-08-26
+     confirmed: yes
+     fixed-in: PENDING -->
+
+**Two of the five `sbt test` failures the 2026-08-26 dispatch surfaced**, and one cause:
+
+```
+JVM codegen exposes directly imported Markdown content namespaces *** FAILED ***
+  java.lang.RuntimeException: Import not found: ./lib/content-copy.ssc
+JS  codegen exposes directly imported Markdown content namespaces *** FAILED ***
+  node failed: … case 'get': throw new Error('None.get');
+```
+
+`tests/conformance/lib/content-copy.ssc` **exists**. The tests read
+`tests/conformance/content-linked-namespaces.ssc` and then pass `Some(repoRoot)` as the codegen
+baseDir — so its `[copyVersion](./lib/content-copy.ssc)` resolved to `<root>/lib/content-copy.ssc`,
+which does not.
+
+**WHY ONLY THESE TWO ROWS, out of eight in the same file.** Every other case imports only
+`std/…`, and `ImportResolver` re-resolves a bare `std/` path against `ssc.std.path` when it is not
+found relative to the base — `build.sbt:72` pins that to the repo root for tests. So the wrong base
+was invisible for six rows: the fallback quietly repaired it. A `./` path has no such fallback.
+
+**The two symptoms are the same defect seen from two backends.** JVM refuses the missing import by
+name; JS emits a program that runs and reaches `None.get` on the value that import should have
+provided — which is the more dangerous of the two, because it is a runtime error a reader would
+start debugging in the emitted bundle.
+
+**FIXED** by giving the source's own directory as its base. Whole file green afterwards: 8 passed,
+0 failed.
+
 ## v21-build-jvm-smoke-sanitized-path-is-not-sanitized-on-linux — `/bin` is `/usr/bin` there
 
 <!-- status: open
