@@ -117,6 +117,88 @@ object O:
       case _ => -1
 println(O.read(P(8)))' '8'
 
+echo "== F must not DECLINE these files — the answer alone cannot see it =="
+
+# EVERY ROW ABOVE PASSED WHILE HALF THE BUG STOOD, and this section is why it now cannot.
+# `both` reads STDOUT, and stdout is right whichever front produced it: when F refuses a file the
+# lane hands it to the reference front and the program answers correctly. So the rows above went
+# green on 2026-08-27 with F still refusing `case P(n)` in a class method under `package:` — the
+# measurement was of the OTHER front, silently.
+#
+# `SSC_FRONT_STRICT=1` makes F's refusal a reported `reason:` instead of a silent fallback. The
+# assertion is narrow on purpose: only `unknown constructor` counts. F declining for some other
+# reason is coverage, which this gate is not about, and folding that in would make the rows fail
+# for the wrong thing the day F's coverage moves.
+#
+# THE MECHANISM, traced 2026-08-27 rather than guessed. Under `--structural` the F path lowers the
+# frontmatter and content modules with `lowerProg`, and `package:` makes the runner parse the
+# program a second time to build its namespace source. The user's class-method bodies were then
+# lowered with `caseFieldOrderCell` holding `std/yaml-core.ssc`'s constructors — 78 patterns
+# checked in one run, 77 of them Yaml* and the 78th the user's — while the user's program had never
+# been through a `lowerProg` of its own. Recording the name where it is DECLARED, in the parser,
+# is what makes the registry total; `declaredCtorNamesCell` in `v2/lib/ssc1-front.ssc0`.
+f_lowers() { # name, source, expected stdout
+  printf '%s\n' "$2" > "$TMP/t.ssc"
+  local out reason
+  out="$(SSC_FRONT_STRICT=1 timeout 200 "$SSC" run "$TMP/t.ssc" 2>"$TMP/s.err" | head -1)"
+  reason="$(grep -m1 "unknown constructor" "$TMP/s.err" || true)"
+  if [ -n "$reason" ]; then
+    printf '  FAIL %-32s F REFUSED it: %s\n' "$1" "$(printf '%s' "$reason" | cut -c1-60)"
+    fails=$((fails + 1))
+  elif [ "$out" != "$3" ]; then
+    printf '  FAIL %-32s want [%s] got [%s]\n' "$1" "$3" "$(printf '%s' "$out" | cut -c1-40)"
+    fails=$((fails + 1))
+  else
+    printf '  ok   %-32s F lowered it (%s)\n' "$1" "$3"
+  fi
+}
+
+f_lowers 'class method, package'  "---
+name: t
+package: demo
+---
+$BODY" '15'
+
+f_lowers 'CASE class method, package' "---
+name: t
+package: demo
+---
+case class P(n: Int)
+
+case class Holder(h: Int):
+  def read(v: Any): Int =
+    v match
+      case P(n) => n + h
+      case _ => -1
+
+println(Holder(10).read(P(5)))" '15'
+
+# An ENUM case is the other registry `lowerProg` fills, and it was NOT covered by the first version
+# of the parser-side fix. Measured: `case class` went green while this stayed red, which is the
+# spelling-matrix failure this repo keeps paying for. The row exists so it cannot happen quietly.
+f_lowers 'enum case in a class method, package' "---
+name: t
+package: demo
+---
+enum C:
+  case Red(n: Int)
+  case Blue
+
+class Holder(h: Int):
+  def read(v: Any): Int =
+    v match
+      case Red(n) => n + h
+      case Blue => 0
+      case _ => -1
+
+println(Holder(10).read(Red(5)))" '15'
+
+f_lowers 'case object in a class method, package' "---
+name: t
+package: demo
+---
+$OBJBODY" '11'
+
 echo "== CONTROL: an undeclared constructor is still refused =="
 
 # A REFUSAL is stderr, so this one folds the streams on purpose — the opposite of `both` above and

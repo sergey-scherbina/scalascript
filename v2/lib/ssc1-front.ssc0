@@ -2395,9 +2395,40 @@ def mkMatch   = (e, arms) => Pair("match",   Pair(e, arms))
 -- Product declarations retain the source data needed by portable Mirror and
 -- exact custom derives synthesis. Constructor lowering still consumes `ps`;
 -- `types` and `derives` are metadata, never host reflection handles.
+-- ── EVERY DECLARED CONSTRUCTOR NAME, RECORDED AS IT IS PARSED ───────────────────────────────────
+-- `ckCtorTag` (ssc1-lower.ssc0) answers "is this name a declared constructor" out of
+-- `caseFieldOrderCell`, which `lowerProg` fills from the statements IT was handed. That is the
+-- wrong scope for the question, and the gap is not hypothetical: under `--structural` with a
+-- `package:` front matter the runner parses a program whose class-method bodies are then lowered
+-- while the only registry in the process belongs to `std/yaml-core.ssc`. Traced 2026-08-27 on a
+-- twelve-line file: 78 constructor patterns were checked, 77 of them Yaml* and the 78th the user's
+-- `JvmVfsRead` — with the user's program never having been lowered by `lowerProg` at all, so no
+-- amount of accumulating inside `lowerProg` can reach it.
+--
+-- DECLARATION IS A PARSE-TIME FACT, so it is recorded at parse time. You cannot lower a statement
+-- you have not parsed, which makes this registry TOTAL for every program the process lowers —
+-- the property `caseFieldOrderCell` cannot have, because it is filled per `lowerProg` call.
+--
+-- IT IS THE EXISTENCE CHECK ONLY. Field ORDER still comes from `caseFieldOrderCell`; nothing reads
+-- this list except `ckCtorTag`'s last resort, so no lowering starts believing a tag has fields.
+--
+-- WHAT IT COSTS: process-global, so a `case class Foo` parsed for one program makes a bare
+-- `case Foo(x)` acceptable in another lowered by the same process. `caseFieldOrderCell` has
+-- accumulated across programs since the union landed and this is the same trade, one step wider:
+-- it also covers modules that are PARSED but never lowered. What it cannot do is accept a name no
+-- source declares, which is the whole failure `pattern-undefined-name-gate` exists for.
+def declaredCtorNamesCell = #cell.new(Nil)
+def noteDeclaredCtor = (n) => #cell.set(declaredCtorNamesCell, Cons(n, #cell.get(declaredCtorNamesCell)))
+def noteDeclaredEnumCases = (cs) =>
+  match cs {
+    case Nil => 0
+    case Cons(c, rest) =>
+      match c { case Pair(cn, ps) => let _d = noteDeclaredCtor(cn) in noteDeclaredEnumCases(rest) }
+  }
 def mkCaseCls = (n, ps, types, derives) =>
+  let _d = noteDeclaredCtor(n) in
   Pair("casecls", Pair(n, Pair(ps, Pair(types, derives))))
-def mkCaseObj = (n)       => Pair("caseobj", n)
+def mkCaseObj = (n)       => let _d = noteDeclaredCtor(n) in Pair("caseobj", n)
 
 -- parsePat: single flat pattern; returns (pat, remaining-toks)
 -- Supports: Ctor(v1,v2), lowercase-var, _ wildcard, kw-literal
@@ -3413,6 +3444,10 @@ def parseOneStmt = (toks) =>
           else pr(reverse(acc), tsA) in
         let rc = goCases(ts5, Nil) in
         let ts6 = if brace then skipRestBrace(prT(rc)) else prT(rc) in
+        -- An enum case is a declared constructor too — `lowerProg` reaches them through
+        -- `enumCaseOrder`, and this registry has to mirror that or the same file fails on
+        -- `case Red(n)` where it stopped failing on `case JvmVfsRead(…)`. Measured: it did.
+        let _de = noteDeclaredEnumCases(prV(rc)) in
         pr(Pair("enum", Pair(ename, prV(rc))), ts6)
       else parseExprOrAssign(toks)
     else parseExprOrAssign(toks)

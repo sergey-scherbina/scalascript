@@ -139,6 +139,46 @@ removing one blocker turned the next one into the first thing anyone had ever se
 The F path overflows on these too (`ssc1-run-fsub.ssc0 --fsub-src specs/v2.2-p6.5-fsub.ssc`),
 identically before and after this week's front changes, so it is not F-specific.
 
+## front-ir-cache-switches-off-the-nested-f0-direct-asm-fast-path
+
+<!-- status: open
+     lane: native
+     kind: perf
+     area: cli
+     gate: tests/e2e/v2-f-nested-bytecode-fast-path.sh
+     reported-by: claude-code
+     reported-at: 2026-08-27
+     confirmed: yes -->
+
+**V-6b selective nested-F0 direct ASM is off on the default configuration, and one env var proves
+it.** Same command, same file, stdout byte-identical either way:
+
+```
+SSC_FRONT_CACHE=off  ->  [SSC_FRONT=F] nested F0 direct-ASM
+cache on (default)   ->  stderr EMPTY
+```
+
+`fNestedBytecodeEvaluator` (`RunNativeV2.scala`) is a ONE-SHOT: the first `coreir.eval` is taken to
+be F0, and it is consumed whether or not it is admitted. Its admission test is
+`JvmBytecodeAdmission.requiresStringChunking`, which asks "does this program hold a string constant
+over the class-file limit" — a proxy for "this is the big F0 that has the user's source spliced into
+it". `sscFsubIrSlow` builds exactly that: `compile("<the whole user closure>", …)` as a top-level
+expression. The pre-lowered `--fsub-ir` path does not: `sscFsubIrWarm` evaluates F's own cached
+program and APPLIES it to `userSrc` afterwards, so there is no oversized constant, the proxy says
+no, the one-shot is spent, and nothing later can take the ASM path.
+
+**IT WAS INVISIBLE BECAUSE THE ONLY EXAMPLE THAT EXERCISES IT WAS DECLINED.**
+`examples/scljet-hello.ssc` is the corpus's one large-first-F0 case, and F refused it until
+`f-refuses-jvmvfsread-in-a-pattern` was fixed on 2026-08-27. The gate row said "F DECLINED" and
+could say nothing about the fast path; the moment the decline went away, the row reported this
+instead. Unblocking a dead path reveals every defect in it.
+
+**NOT FIXED HERE.** The repair is a design choice about the admission test — recognise F by
+something other than a huge string constant, or move the one-shot past the cached front — and it is
+a PERF feature, so it wants the alternating A/B protocol and a number, not a same-night patch. The
+gate stays RED rather than accepting it: the feature is off, and a gate that agreed would be saying
+that does not matter.
+
 ## negtc-frontend-ok-117-below-floor-200 — 83 of 97 sweep failures are ONE missing directory
 
 <!-- status: fixed
@@ -9815,10 +9855,59 @@ next failure once Emit is fixed). `bin/ssc run`/`--bytecode` green does NOT cove
      lane: native
      kind: bug
      area: front
-     gate: tests/e2e/v2-f-nested-bytecode-fast-path.sh
+     gate: tests/e2e/class-method-ctor-pattern-gate.sh
      reported-by: claude-code
      reported-at: 2026-08-27
      confirmed: yes -->
+
+### 2026-08-27, later — FIXED, and the registry was not late, it was NEVER FILLED
+
+**The question was being asked in the wrong scope, not at the wrong time.** Everything below is
+right about WHERE and had one thing wrong about WHAT: it reads the empty registry as an ordering
+problem ("a name that has not been registered YET at force time"), and the plan that follows from
+that reading — a saved/restored or per-program registry — would not have fixed this. Traced with a
+counter on `lowerProg` and a log of every `ctorPatternArms` call, on the twelve-line file:
+
+```
+78 constructor patterns checked in the whole run
+77 of them Yaml*        (from std/yaml-core.ssc, the ONE lowerProg the process performed)
+ 1 of them JvmVfsRead   (the user's, checked at lowerProg-count = 1)
+```
+
+**The user's program is never lowered by `lowerProg` at all** — F lowers it; `lowerProg` runs only
+for the front-matter yaml module. So there is no per-program registry to save and restore, and no
+ordering that helps: the name is never registered by anybody, because registration happens inside a
+call the user's program never makes.
+
+**SO THE FIX RECORDS THE NAME WHERE IT IS DECLARED — in the parser.** `declaredCtorNamesCell`
+(`v2/lib/ssc1-front.ssc0`) is appended by `mkCaseCls`, `mkCaseObj` and the enum-case walk, and
+`ckCtorTag` consults it as its last resort. You cannot lower a statement you have not parsed, which
+makes this registry TOTAL for every program the process lowers — the property `caseFieldOrderCell`
+cannot have, being filled per `lowerProg` call. It is the EXISTENCE check only: field ORDER still
+comes from `caseFieldOrderCell`, so no lowering starts believing a tag has fields.
+
+**THE ENUM CASE WAS A SECOND CELL, and the first version of the fix missed it.** `case class` went
+green while `case Red(n)` in the same position stayed red — the spelling matrix again. Both are
+covered now, and `tests/e2e/class-method-ctor-pattern-gate.sh` carries a row for each.
+
+**COST, stated rather than hidden:** the cell is process-global, so a `case class Foo` parsed for
+one program makes a bare `case Foo(x)` acceptable in another lowered by the same process.
+`caseFieldOrderCell` has accumulated across programs since `b5e777cb8` and this is the same trade
+one step wider — it also covers modules PARSED but never lowered. It still cannot accept a name no
+source declares, which is the whole of `pattern-undefined-name-gate`.
+
+**GATE, both directions on the same command:** the four new `f_lowers` rows FAIL on the unfixed
+toolchain (`P`, `P`, `Red`, `Alpha`) and pass on the fixed one; the two `refuses` controls hold in
+both. The gate moves to `class-method-ctor-pattern-gate.sh`, which is where the shape lives —
+`v2-f-nested-bytecode-fast-path.sh` was only ever the place the symptom happened to surface, and
+its scljet row now fails for a DIFFERENT reason (`front-ir-cache-switches-off-the-nested-f0-fast-path`).
+
+**WHAT THE ROWS ABOVE IT COULD NOT SEE, worth the line:** every existing row in that gate passed
+while this stood, because they read STDOUT and stdout is right whichever front produced it — the
+F4a fallback answers correctly. Only `SSC_FRONT_STRICT=1` turns F's refusal into something a gate
+can read.
+
+### 2026-08-27, earlier — the report
 
 **Twelve lines, and every ingredient is necessary — each dropped one at a time, each its own run:**
 

@@ -3515,7 +3515,13 @@ def ckCtorTag = (nm) =>
   (if declaredCtorTag(nm) then nm else
   (if memberOfL(nm, #cell.get(caseObjNamesCell)) then nm else
   (if memberOfL(nm, #cell.get(qualPatCtorsCell)) then nm else
-   #__throw__(#sconcat(#sconcat("unknown constructor '", nm), "' in a pattern")))))))
+  -- LAST RESORT, and the only one that is total: every constructor name the PARSER has seen.
+  -- `caseFieldOrderCell` above is per-`lowerProg`, so it is empty-or-somebody-else's whenever the
+  -- statements being lowered did not come through a `lowerProg` of their own — which is exactly
+  -- what `--structural` + a `package:` front matter produces. See the block above
+  -- `declaredCtorNamesCell` in ssc1-front.ssc0 for the trace and the cost.
+  (if memberOfL(nm, #cell.get(declaredCtorNamesCell)) then nm else
+   #__throw__(#sconcat(#sconcat("unknown constructor '", nm), "' in a pattern"))))))))
 def ctorPatternArms = (ctorName0, arity, body) =>
   let ctorName = ckCtorTag(ctorName0) in
   if #seq(ctorName, "Pair") then

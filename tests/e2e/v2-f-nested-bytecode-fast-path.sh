@@ -102,8 +102,21 @@ if compare_pair scljet "$scljet"; then
     echo "     silently accepted either: while F declines this file the row cannot mean what it says."
     fails=$((fails + 1))
   else
+    # A FOURTH OUTCOME, and it is named because it was MEASURED, not because it was expected.
+    # 2026-08-27: F stopped declining this file and the row moved straight from "F DECLINED" to
+    # here, with F's stderr EMPTY. `SSC_FRONT_CACHE=off` on the same command prints the marker;
+    # with the cache on it does not, and stdout is byte-identical either way. So the pre-lowered
+    # `--fsub-ir` front consumes the one-shot nested evaluator with a program that carries no
+    # oversized string constant, `requiresStringChunking` says no, and the user program can never
+    # reach the ASM path afterwards. v2/BUGS.md `front-ir-cache-switches-off-the-nested-f0-fast-path`.
+    #
+    # STILL RED, deliberately. The feature this gate is the product gate for is off on the default
+    # configuration; accepting that here would be the gate agreeing it does not matter.
     echo "FAIL [scljet] exact output passed, no direct-ASM marker, no declared fallback, and F did"
-    echo "     not decline — the fast path stopped firing without saying why. F stderr:"
+    echo "     not decline. Measured cause: the pre-lowered --fsub-ir front consumes the one-shot"
+    echo "     nested evaluator, so the fast path never sees the user program. Proof, same command:"
+    echo "       SSC_FRONT_CACHE=off -> marker printed;  cache on -> silent, stdout identical."
+    echo "     v2/BUGS.md front-ir-cache-switches-off-the-nested-f0-fast-path. F stderr:"
     sed -n '1,120p' "$TMP/scljet.F.err"
     fails=$((fails + 1))
   fi
