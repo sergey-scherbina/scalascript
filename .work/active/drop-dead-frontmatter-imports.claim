@@ -1,0 +1,11 @@
+slug: drop-dead-frontmatter-imports
+branch: feature/drop-dead-frontmatter-imports
+agent: claude-code
+started: 2026-08-27T23:05:41Z
+heartbeat: 2026-08-27T23:05:41Z
+status: claimed-before-planning
+items: frontmatter-imports-is-not-an-import-on-any-front
+paths: file:examples/distributed-streams.ssc file:examples/streams.ssc file:v2/BUGS.md file:TASK/v2-perfomance.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement

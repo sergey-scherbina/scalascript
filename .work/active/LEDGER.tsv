@@ -1,2 +1,3 @@
-# generation: 3005
+# generation: 3006
 #slug	agent	started	items	paths
+drop-dead-frontmatter-imports	claude-code	2026-08-27T23:05:41Z	frontmatter-imports-is-not-an-import-on-any-front	file:examples/distributed-streams.ssc file:examples/streams.ssc file:v2/BUGS.md file:TASK/v2-perfomance.md
