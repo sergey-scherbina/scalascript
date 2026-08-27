@@ -1,0 +1,11 @@
+slug: typer-coroutine-hand-list
+branch: feature/typer-coroutine-hand-list
+agent: claude-code
+started: 2026-08-27T12:10:29Z
+heartbeat: 2026-08-27T12:10:29Z
+status: claimed-before-planning
+items: typer-prelude-hand-list-grew-back
+paths: file:v1/lang/core/src/main/scala/scalascript/typer/Typer.scala
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement

@@ -1,2 +1,3 @@
-# generation: 2979
+# generation: 2980
 #slug	agent	started	items	paths
+typer-coroutine-hand-list	claude-code	2026-08-27T12:10:29Z	typer-prelude-hand-list-grew-back	file:v1/lang/core/src/main/scala/scalascript/typer/Typer.scala
