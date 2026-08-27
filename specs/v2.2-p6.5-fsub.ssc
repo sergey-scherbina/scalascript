@@ -4045,7 +4045,24 @@ def isUserPfx(w) = if isInterpPfx(w) then false else (if w == "s" then false els
 // The pre-pass results become the parse CONTEXT: case-class names (cs, cc-only, for isCC) + the UNIFIED
 // type-case field names (tcs, cc + enum cases) + top-level val names + the enum registries. Top-level vals
 // are collected with a base cx first (their `rest` boundaries do not depend on val-name resolution).
-def mkCxE(cs, tcs, ts, dq, vals, vars, bs, pless) = mkCx(dq, ccNamesL(cs), allFieldNames(tcs), vals, collectEnumCaseNames(ts), collectEnumReg(ts), vars, bs, pless, (collectSubReg(ts), collectEnumAllReg(ts)), collectObjReg(ts), appEnv(collectFuncDflts(ts), collectObjDflts(ts)), (collectGivenTable(ts), (collectUsingSig(ts), (collectExtMethods(ts), (mangleExtMethods(ts), (collectObjVarargs(ts), (collectRetTab(ts), (("", Nil), collectCurried(ts)))))))))
+// A STANDALONE `case object` IS A MATCHABLE TAG and belongs in ccNames beside the case classes.
+// `caseObjectItem` lowers it to `(def N (ctor N))` — a nullary ctor, exactly like a nullary enum
+// case — but nothing put its NAME anywhere `ckCtorF` looks, so `case A =>` was refused with
+// `unknown constructor 'A' in a pattern` and F declined the whole file. Nine lines reproduce it:
+// two bare `case object`s and a match on them.
+//
+// The comment above `ckCtorF` says a case object is accepted because F "routes those through
+// objReg/vals … which is what a case object lowers to here". That stopped being true when
+// `caseObjectItem` landed and started lowering them as ctor DEFS; the pattern check was not
+// updated with it, and the two have disagreed since. `isTopVal` stays in that chain for the shapes
+// that really are vals.
+//
+// ccNames rather than a new cx slot: `isCC` has exactly two readers, and a case object is right for
+// both — it IS a nullary constructor to `ckCtorF`, and to `objValueDef` the name is taken, which it
+// is (you cannot declare `case object A` and `object A` in one file). The FIELD list is untouched:
+// only the name list grows, so nothing starts believing this tag has fields.
+def caseObjNamesF(ts) = if isEmpty(ts) then Nil else (if isCaseObjectHead(ts) then Cons(snd(hd(tl(tl(ts)))), caseObjNamesF(tl(tl(tl(ts))))) else caseObjNamesF(tl(ts)))
+def mkCxE(cs, tcs, ts, dq, vals, vars, bs, pless) = mkCx(dq, appEnv(ccNamesL(cs), caseObjNamesF(ts)), allFieldNames(tcs), vals, collectEnumCaseNames(ts), collectEnumReg(ts), vars, bs, pless, (collectSubReg(ts), collectEnumAllReg(ts)), collectObjReg(ts), appEnv(collectFuncDflts(ts), collectObjDflts(ts)), (collectGivenTable(ts), (collectUsingSig(ts), (collectExtMethods(ts), (mangleExtMethods(ts), (collectObjVarargs(ts), (collectRetTab(ts), (("", Nil), collectCurried(ts)))))))))
 def compile2(ts, cs, tcs, dq, bs) = compile2b(ts, cs, tcs, dq, bs, mkCxE(cs, tcs, ts, dq, Nil, Nil, bs, Nil))
 def compile2b(ts, cs, tcs, dq, bs, base) = compile3(ts, cs, tcs, dq, mkCxE(cs, tcs, ts, dq, collectTopVals(ts, base), collectTopVars(ts, base), bs, collectPlessDefs(ts, base)))
 def compile3(ts, cs, tcs, dq, cx) = walkTop(ts, cx) match { case (strs, nDoc) => compile4(strs, nDoc, ts, tcs, dq, cx) }

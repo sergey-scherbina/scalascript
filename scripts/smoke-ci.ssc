@@ -528,6 +528,10 @@ val suite = List(
   // ClassTooLargeException and fall back to the VM does. The gate runs BOTH lanes for that reason, and
   // carries the reported scljet example as its last row.
   Check("v2", "vm-companion-ctor", "tests/e2e/vm-companion-ctor-gate.sh", List(), 900000),
+  // A STANDALONE `case object` IN A PATTERN. F refused the whole file with `unknown constructor`
+  // and the lane quietly compiled it with the reference front — nothing red, every measurement of
+  // that file the other front's. `examples/scljet-hello.ssc` is one of the files it happened to.
+  Check("v2", "f-case-object-pattern", "tests/e2e/f-case-object-pattern-gate.sh", List(), 400000),
   // THE REACTIVE `<select>` ON THE NATIVE LANE, and it goes in with the feature rather than after it.
   // The implementation landed with this gate already written and PASSING and the gate wired nowhere,
   // which is the state an unwired gate rots in: seven rows nobody runs are seven rows that stop being
