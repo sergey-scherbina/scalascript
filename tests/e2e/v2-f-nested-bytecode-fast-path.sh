@@ -94,9 +94,16 @@ if compare_pair scljet "$scljet"; then
   elif grep -qF -- '--bytecode fell back to the VM lane [class-size-limit]' "$TMP/scljet.F.err"; then
     echo "ok   [scljet] output exact; the DECLARED class-size fallback took it off the ASM path"
     echo "     (scljet-jdbc-facade-bytecode-class-too-large — a capacity gap, not this gate's to close)"
+  elif grep -q "F did not lower this file" "$TMP/scljet.F.err"; then
+    echo "FAIL [scljet] exact output passed, but F DECLINED the file, so its fast path was never"
+    echo "     reachable — the numbers above are the reference front's:"
+    grep -oE '\["[^"]*"\]' "$TMP/scljet.F.err" | head -1 | sed 's/^/       /'
+    echo "     v2/BUGS.md f-refuses-jvmvfsread-in-a-pattern. Not this gate's to close, and not"
+    echo "     silently accepted either: while F declines this file the row cannot mean what it says."
+    fails=$((fails + 1))
   else
-    echo "FAIL [scljet] exact output passed, no direct-ASM marker, and no declared fallback either"
-    echo "     — the fast path stopped firing without saying why. F stderr:"
+    echo "FAIL [scljet] exact output passed, no direct-ASM marker, no declared fallback, and F did"
+    echo "     not decline — the fast path stopped firing without saying why. F stderr:"
     sed -n '1,120p' "$TMP/scljet.F.err"
     fails=$((fails + 1))
   fi

@@ -108,6 +108,29 @@ echo "  what a declared type means, per lane — frozen table"
 echo "============================================================"
 echo
 
+# A LANE IS JUDGED ON THE CONTROL FIRST, and the other two rows are only compared if it passed.
+# On run 33046772911 `v3/ssc3` produced nothing in the `Examples and launcher smokes` job and this
+# gate reported THREE divergences — `frozen 'x', got ''` twice plus `frozen '42', got ''` for the
+# control itself. One absent binary, counted three times, with the row that would have explained it
+# buried among the two that could not.
+#
+# NOT A SKIP, and that distinction is the whole design: a lane failing its control still FAILS this
+# gate, once, naming the control. What it stops doing is claiming the lane disagreed about the
+# ill-typed rows — it never answered them. A lane that cannot print 42 has said nothing about types.
+printf '```scalascript\n%s\n```\n' "$prog_control" > "$WORK/__probe.ssc"
+broken=""
+for lane in native v1 js v3; do
+  probe="$(run_lane "$lane" "$WORK/__probe.ssc")"
+  if [ "$probe" != "$(frozen control-ok "$lane")" ]; then
+    broken="$broken $lane"
+    echo "  FAIL [control-ok/$lane] frozen '$(frozen control-ok "$lane")', got '$(printf '%s' "$probe" | cut -c1-70)'"
+    echo "         This lane cannot answer the CONTROL, so its other cells are not compared — they"
+    echo "         would report a disagreement it never expressed. Fix the lane, or the harness."
+    fail=1
+  fi
+done
+[ -n "$broken" ] && echo
+
 agree=0; diverge=0
 for name in param-declared use-derived control-ok; do
   case "$name" in
@@ -118,6 +141,10 @@ for name in param-declared use-derived control-ok; do
   printf '```scalascript\n%s\n```\n' "$src" > "$WORK/$name.ssc"
   row=""; distinct=""
   for lane in native v1 js v3; do
+    case " $broken " in *" $lane "*)
+      row="$row $(printf '%-8s' '-')"
+      continue ;;
+    esac
     got="$(run_lane "$lane" "$WORK/$name.ssc")"
     want="$(frozen "$name" "$lane")"
     if [ "$want" = "__no_frozen_cell__" ]; then
