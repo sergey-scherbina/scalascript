@@ -1,3 +1,2 @@
-# generation: 2974
+# generation: 2975
 #slug	agent	started	items	paths
-negtc-stale-override	claude-code	2026-08-27T10:28:50Z	negtc-release-gate-stale-override-row	file:tests/fixtures/v21-sentinel-taxonomy/overrides.tsv
