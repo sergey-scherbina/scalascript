@@ -9588,6 +9588,57 @@ next failure once Emit is fixed). `bin/ssc run`/`--bytecode` green does NOT cove
 (bundle) and `RequiredPrefixes` (fail-fast). Gate `tests/e2e/v21-build-jvm-release-gate.sh` red→green
 (PASS, `forbidden.references=0`). Lesson recorded in `SPRINT.md` F5 (the "SECOND STAGING LIST" note).
 
+## f-refuses-a-standalone-case-object-in-a-pattern — `unknown constructor 'A' in a pattern`
+
+<!-- status: fixed
+     lane: native
+     kind: bug
+     area: front
+     gate: tests/e2e/f-case-object-pattern-gate.sh
+     reported-by: claude-code
+     reported-at: 2026-08-27
+     confirmed: yes
+     fixed-in: 3362ef649 -->
+
+**FIXED 2026-08-27 (`3362ef649`).** Nine lines — two top-level `case object`s and a match on them —
+made F refuse a whole file:
+
+```scalascript
+case object A
+case object B
+def f(x: Any): Int = x match
+  case A => 1
+  case B => 2
+def main(): Unit = println(f(A))
+```
+
+```
+reason: "unknown constructor 'A' in a pattern"
+```
+
+**NOTHING WAS RED.** The lane hands what F refuses to the reference front, so the program ran and
+printed the right answer; what was lost was that every measurement of such a file is the other
+front's numbers. `examples/scljet-hello.ssc` is one of the files it happened to, which is why
+`tests/e2e/v2-f-nested-bytecode-fast-path.sh` could never observe F taking its own fast path.
+
+**TWO HALVES THAT DISAGREED, neither wrong alone.** `ckCtorF` accepts a case object through
+`isTopVal`, and the comment above it says that is "what a case object lowers to here". That was true
+when it was written. `caseObjectItem` then landed and began lowering a standalone `case object N` to
+`(def N (ctor N))` — a ctor DEF, not a val — and the pattern check was not updated with it. The two
+have contradicted each other since, and the comment is the thing that made it look settled.
+
+The names now go into `ccNames`, where `ckCtorF` already looks. `isCC` has exactly two readers and a
+case object is right for both: it IS a nullary constructor to the pattern check, and to
+`objValueDef` the name is taken, which it is — `case object A` and `object A` cannot coexist. Only
+the NAME list grows; the field list is untouched, so nothing starts believing the tag has fields.
+
+**THE NEXT REFUSAL IS A DIFFERENT DEFECT.** With this fixed, `scljet-hello` moves on to
+`unknown constructor 'JvmVfsRead' in a pattern` — a plain `case class` matched inside a case class's
+method body. Three shapes were probed and none reproduces it on their own: a case-class pattern
+inside a plain `class` method, inside a `case class … extends T:` method, and a declaration sitting
+before an `extern def`. All three compile on F. Reducing `std/scljet/jvm-vfs.ssc` DOWN is the next
+step; building cases UP from a guess has now reproduced the guess three times.
+
 ## scljet-jdbc-facade-bytecode-class-too-large — the JDBC-facade examples overflow the JVM class-size limit on the bytecode lane
 <!-- status: fixed
      lane: native
