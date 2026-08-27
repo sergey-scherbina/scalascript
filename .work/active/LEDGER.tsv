@@ -1,2 +1,3 @@
-# generation: 3001
+# generation: 3002
 #slug	agent	started	items	paths
+ios-entry-board-owner	claude-code	2026-08-27T20:54:15Z	ios-run-refuses-the-host-before-the-program	file:BUGS.md file:v2/BUGS.md file:TASK/v2-perfomance.md
