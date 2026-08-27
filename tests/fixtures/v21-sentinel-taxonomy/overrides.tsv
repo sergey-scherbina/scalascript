@@ -1,4 +1,3 @@
 file	category	reason
 quoted-macro-constfold.ssc	tools-backend	restricted quoted-macro expansion remains an explicit tools-tier compiler surface
 quoted-macro-interpreter.ssc	tools-backend	restricted quoted-macro expansion remains an explicit tools-tier compiler surface
-x402-client.ssc	tools-backend	regular scalascript fence imports scala.concurrent and sttp compiler/backend APIs forbidden in the standard tier
