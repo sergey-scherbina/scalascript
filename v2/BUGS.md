@@ -150,6 +150,38 @@ identically before and after this week's front changes, so it is not F-specific.
      reported-at: 2026-08-27
      confirmed: yes -->
 
+**FIXED 2026-08-27 — the SOURCE decides, because its length IS the admission test.** The report
+below ends with "not fixed here, it wants the A/B protocol and a number". It got both, so here they
+are. `examples/scljet-hello.ssc`, alternating, three pairs, byte-identical stdout throughout:
+
+| | run 1 | run 2 | run 3 | marker |
+|---|---|---|---|---|
+| cache on (the default) | 52.8s | 54.3s | 54.2s | absent |
+| cache off | 17.3s | 17.5s | 17.9s | present |
+
+**3.1x, and the groups do not overlap.** The cache buys back the 8.74s of parsing and lowering F's
+392 KB source — the measurement it was built on, 2026-08-16 — and pays ~37s for it on this program.
+
+`sscFsubIrPick` now takes the UNCACHED path when `#slen(userSrc)` exceeds 65535, the constant-pool
+limit `requiresStringChunking` tests. Over it, F0 carries the source and the ASM path fires; under
+it the program is small, the small-program policy would decline it anyway, and the cache's 8.74s is
+pure win. Verified on the built toolchain, cache ON in both rows:
+
+```
+scljet-hello   54.2s no marker  ->  17.4s / 17.6s WITH the marker
+hello          1.3s no marker   ->  1.3s no marker      (control: unchanged, still cached)
+```
+
+and `v2-f-nested-bytecode-fast-path.sh` reports `ok [scljet] large first F0 selected nested direct
+ASM` for the first time — F=18s against legacy=19s, where it was F=54s.
+
+**THE ONE CASE THAT PAYS AND GETS NOTHING**, stated because nothing measures it: a source over the
+limit whose F0 is then declined by `runNestedF0Bytecode` for another reason (`Unsupported`, or the
+class-size limit) loses the cache's 8.74s and gains nothing. Both of those print a reason under
+`SSC_FRONT_TRACE=1`, so it is visible when it happens; no corpus example does it today.
+
+### The report, 2026-08-27
+
 **V-6b selective nested-F0 direct ASM is off on the default configuration, and one env var proves
 it.** Same command, same file, stdout byte-identical either way:
 

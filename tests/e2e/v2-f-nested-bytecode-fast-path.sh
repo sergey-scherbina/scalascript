@@ -102,21 +102,18 @@ if compare_pair scljet "$scljet"; then
     echo "     silently accepted either: while F declines this file the row cannot mean what it says."
     fails=$((fails + 1))
   else
-    # A FOURTH OUTCOME, and it is named because it was MEASURED, not because it was expected.
-    # 2026-08-27: F stopped declining this file and the row moved straight from "F DECLINED" to
-    # here, with F's stderr EMPTY. `SSC_FRONT_CACHE=off` on the same command prints the marker;
-    # with the cache on it does not, and stdout is byte-identical either way. So the pre-lowered
-    # `--fsub-ir` front consumes the one-shot nested evaluator with a program that carries no
-    # oversized string constant, `requiresStringChunking` says no, and the user program can never
-    # reach the ASM path afterwards. v2/BUGS.md `front-ir-cache-switches-off-the-nested-f0-fast-path`.
-    #
-    # STILL RED, deliberately. The feature this gate is the product gate for is off on the default
-    # configuration; accepting that here would be the gate agreeing it does not matter.
+    # A FOURTH OUTCOME, kept as a guard because it has already happened once. 2026-08-27, the day
+    # F stopped declining this file, the row landed here with F's stderr EMPTY: the pre-lowered
+    # `--fsub-ir` front spent the one-shot nested evaluator on a program carrying no oversized
+    # string constant, so `requiresStringChunking` said no and the user program could never reach
+    # the ASM path. `SSC_FRONT_CACHE=off` printed the marker and cache-on did not, with identical
+    # stdout — and the cost was 54s against 17s, three alternating pairs, no overlap. Fixed by
+    # picking the uncached front when the source is over the constant-pool limit
+    # (`sscFsubIrPick`, v2/bin/ssc1-run-fsub.ssc0); the branch stays so a regression says so.
     echo "FAIL [scljet] exact output passed, no direct-ASM marker, no declared fallback, and F did"
-    echo "     not decline. Measured cause: the pre-lowered --fsub-ir front consumes the one-shot"
-    echo "     nested evaluator, so the fast path never sees the user program. Proof, same command:"
-    echo "       SSC_FRONT_CACHE=off -> marker printed;  cache on -> silent, stdout identical."
-    echo "     v2/BUGS.md front-ir-cache-switches-off-the-nested-f0-fast-path. F stderr:"
+    echo "     not decline — the fast path is not firing. The last time this happened the cause was"
+    echo "     the front IR cache spending the one-shot evaluator; check it the same way, one env var:"
+    echo "       SSC_FRONT_CACHE=off -> marker printed?  then it is sscFsubIrPick's threshold again."
     sed -n '1,120p' "$TMP/scljet.F.err"
     fails=$((fails + 1))
   fi

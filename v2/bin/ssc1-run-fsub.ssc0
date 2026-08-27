@@ -1396,10 +1396,34 @@ def irTextToData = (t) =>
 -- missing or unwritable cache degrades to the old cost, never to a different answer — and the JDK
 -- side keys the path on the CONTENT of `fsub.ssc`, so a changed front cannot be served from a stale
 -- artifact.
+-- ── THE CACHE AND THE NESTED-ASM FAST PATH ARE MUTUALLY EXCLUSIVE, so the SOURCE decides ────────
+-- `fNestedBytecodeEvaluator` (RunNativeV2.scala) takes the FIRST `coreir.eval` to be F0 and admits
+-- it when `requiresStringChunking` says yes — a proxy for "this is the big F0 with the user's whole
+-- closure spliced into it as a literal". `sscFsubIrSlow` builds exactly that. The cached paths do
+-- not: they eval F's own program and APPLY it to `userSrc` afterwards, so there is no oversized
+-- constant, the one-shot is spent on a program that is not admitted, and the ASM path is dead for
+-- the rest of the run.
+--
+-- MEASURED before this line existed, alternating A/B, `examples/scljet-hello.ssc`, three pairs:
+--
+--     cache on   52.8s  54.3s  54.2s   (no direct-ASM marker)
+--     cache off  17.3s  17.5s  17.9s   (marker present)
+--
+-- byte-identical stdout, no overlap between the groups. The cache buys back the 8.74s of parsing
+-- and lowering F's 392 KB source (measured 2026-08-16, the reason it exists) and pays ~37s for it.
+--
+-- SO IT IS NOT "cache good" OR "cache bad" — the two are worth different amounts on different
+-- programs, and the source length is exactly what tells them apart, because it IS the admission
+-- test. Over the limit, take the uncached path so F0 carries the source and the ASM path fires;
+-- under it, the program is small, the ASM path would decline it by the small-program policy
+-- anyway (`v2-f-nested-bytecode-fast-path.sh` asserts that for `hello.ssc`), and the cache's 8.74s
+-- is pure win. The threshold is the class-file constant-pool limit the admission test uses.
+def sscFsubAsmSrcFloor = 65535
 def sscFsubIr = (userSrc) => sscFsubIrPick(#cell.get(sscFsubIrCell), userSrc)
 def sscFsubIrPick = (irPath, userSrc) =>
   if #i.eq(slen(irPath), 0) then sscFsubIrSlow(userSrc)
-  else (if #io.exists(irPath) then sscFsubIrWarm(irPath, userSrc) else sscFsubIrCold(irPath, userSrc))
+  else (if #i.gt(#slen(userSrc), sscFsubAsmSrcFloor) then sscFsubIrSlow(userSrc)
+  else (if #io.exists(irPath) then sscFsubIrWarm(irPath, userSrc) else sscFsubIrCold(irPath, userSrc)))
 def sscFsubIrWarm = (irPath, userSrc) =>
   sscFsubApply(#coreir.eval(irTextToData(#utf8->str(#io.readFile(irPath)))), userSrc)
 def sscFsubIrCold = (irPath, userSrc) =>
