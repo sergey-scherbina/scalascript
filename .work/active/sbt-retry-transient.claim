@@ -1,0 +1,11 @@
+slug: sbt-retry-transient
+branch: feature/sbt-retry-transient
+agent: claude-code
+started: 2026-08-27T11:00:29Z
+heartbeat: 2026-08-27T11:00:29Z
+status: claimed-before-planning
+items: a-transient-mirror-502-kills-a-whole-job
+paths: file:scripts/sbt-retry-transient file:.github/workflows/ci.yml
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
