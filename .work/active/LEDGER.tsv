@@ -1,2 +1,3 @@
-# generation: 2999
+# generation: 3000
 #slug	agent	started	items	paths
+ios-run-refuses-the-program-before-the-host	claude-code	2026-08-27T20:30:14Z	ios-run-refuses-the-host-before-the-program	file:v1/tools/cli/src/main/scala/scalascript/cli/Main.scala file:tests/e2e/v2-swift-cli.sh file:v2/BUGS.md
