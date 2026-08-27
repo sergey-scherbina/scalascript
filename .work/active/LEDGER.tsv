@@ -1,3 +1,2 @@
-# generation: 2991
+# generation: 2992
 #slug	agent	started	items	paths
-ref-front-qualified-ctor-pattern	claude-code	2026-08-27T15:27:52Z	negtc-frontend-ok-117-below-floor-200 f-refuses-jvmvfsread-in-a-pattern	file:v2/lib/ssc1-front.ssc0 file:v2/lib/ssc1-lower.ssc0 file:v2/BUGS.md file:tests/e2e/ref-front-qualified-ctor-pattern-gate.sh file:.github/workflows/ci.yml
