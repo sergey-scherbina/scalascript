@@ -5,7 +5,7 @@ started: 2026-08-27T12:53:58Z
 heartbeat: 2026-08-27T12:53:58Z
 status: claimed-before-planning
 items: negtc-frontend-ok-117-below-floor-200
-paths: file:tests/BUGS.md file:tests/e2e/v21-negative-toolchain-release-gate.sh
+paths: file:tests/BUGS.md file:v2/bin/ssc1-run.ssc0 file:v2/bin/ssc1-run-fsub.ssc0
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+next: the default std root is the pre-migration v1/runtime/; std moved to the repo root on 2026-08-09
