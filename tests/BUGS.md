@@ -46,14 +46,23 @@ ways: it PASSES with the fix and FAILS on the unfixed helper.
 
 ## negtc-frontend-ok-117-below-floor-200 — 83 of 97 sweep failures are ONE missing directory
 
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      kind: bug
      area: other
      gate: tests/e2e/v21-negative-toolchain-release-gate.sh
      reported-by: claude-code
      reported-at: 2026-08-27
-     confirmed: yes -->
+     confirmed: yes
+     fixed-in: 5115e5eeb -->
+
+**FIXED 2026-08-27 (`5115e5eeb`).** Both runners named `v1/runtime/` as the DEFAULT std root — the
+place `std-to-repo-root` moved 108 modules out of on 2026-08-09. The launcher always sets that cell,
+so the default fires only when the runner is invoked DIRECTLY, which is exactly how
+`scripts/native-front-corpus` measures the front. Proven both ways on one command: without the fix
+`rc=1` with the CI error verbatim, with it `rc=0`; eight `std/`-importing examples go 8-for-8, and
+`bin/ssc run` never read this default. The entry's own guess — "produced at run time inside the slim
+tree the sweep assembles" — was right about WHERE and had not yet found WHAT.
 
 **The `negtc release gate`'s next blocker after the stale override row (`cce372187`), and the first
 one it has been able to REPORT** — that job spent weeks reporting `cancelled` at a 40-minute cap
