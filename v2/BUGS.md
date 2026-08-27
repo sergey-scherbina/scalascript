@@ -141,16 +141,17 @@ identically before and after this week's front changes, so it is not F-specific.
 
 ## front-ir-cache-switches-off-the-nested-f0-direct-asm-fast-path
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      kind: perf
      area: cli
      gate: tests/e2e/v2-f-nested-bytecode-fast-path.sh
      reported-by: claude-code
      reported-at: 2026-08-27
-     confirmed: yes -->
+     confirmed: yes
+     fixed-in: 73d7a2837 -->
 
-**FIXED 2026-08-27 — the SOURCE decides, because its length IS the admission test.** The report
+**FIXED 2026-08-27 (`73d7a2837`) — the SOURCE decides, because its length IS the admission test.** The report
 below ends with "not fixed here, it wants the A/B protocol and a number". It got both, so here they
 are. `examples/scljet-hello.ssc`, alternating, three pairs, byte-identical stdout throughout:
 
