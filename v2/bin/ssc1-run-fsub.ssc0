@@ -427,9 +427,23 @@ def sscSlash = (s) =>
 def sscStdRoot = () =>
   let staged = #cell.get(sscStdRootCell) in
   if #seq(staged, "") then
+    -- THE DEFAULT IS THE REPO ROOT, because that is where `std/` has lived since 2026-08-09.
+    -- It said `v1/runtime/`, the location `std-to-repo-root` moved 108 modules OUT of, and nothing
+    -- noticed because the launcher always sets the cell above: `bin/ssc` passes the staged root, so
+    -- the default only fires when the runner is invoked DIRECTLY — which is exactly what
+    -- `scripts/native-front-corpus` does (`ssc.cli run …/bin/ssc1-run.ssc0 <file>`).
+    --
+    -- It cost 83 of the 97 frontend errors in the negtc sweep — `NoSuchFileException:
+    -- v1/runtime/std/http.ssc` and its siblings — and held `frontend.ok` at 117 against a floor of
+    -- 200 (tests/BUGS.md negtc-frontend-ok-117-below-floor-200). The job reported `cancelled` at its
+    -- cap for weeks, so nobody saw the red that would have named this.
+    --
+    -- `""` and not a path: `sscResolve` concatenates this with `std/…`, so an empty root means the
+    -- import resolves relative to the working directory, which for every direct caller is the repo
+    -- root. `SSC_STD` still overrides, and a staged tree still sets the cell.
     match #io.env("SSC_STD") {
-      case Some(e) => if #seq(e, "") then "v1/runtime/" else sscSlash(e)
-      case None    => "v1/runtime/"
+      case Some(e) => if #seq(e, "") then "" else sscSlash(e)
+      case None    => ""
     }
   else sscSlash(staged)
 
