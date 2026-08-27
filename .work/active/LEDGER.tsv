@@ -1,2 +1,3 @@
-# generation: 2959
+# generation: 2960
 #slug	agent	started	items	paths
+bytecode-class-chunk-too-high	claude-code	2026-08-27T04:45:23Z	scljet-jdbc-facade-bytecode-class-too-large	file:v2/backend-jvm-bytecode/JvmByteGen.scala file:tests/e2e/v2-f-nested-bytecode-fast-path.sh file:v2/BUGS.md
