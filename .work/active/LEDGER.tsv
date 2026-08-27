@@ -1,3 +1,2 @@
-# generation: 2968
+# generation: 2969
 #slug	agent	started	items	paths
-declare-caseobj-gate	claude-code	2026-08-27T07:27:01Z	no-orphan-gates-evidence-red	file:tests/e2e/no-orphan-gates.sh
