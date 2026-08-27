@@ -1,0 +1,11 @@
+slug: v3-lane-cold-build
+branch: feature/v3-lane-cold-build
+agent: claude-code
+started: 2026-08-27T10:31:16Z
+heartbeat: 2026-08-27T10:31:16Z
+status: claimed-before-planning
+items: declared-type-agreement-reads-an-absent-lane-as-a-divergence
+paths: file:tests/e2e/declared-type-agreement.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
