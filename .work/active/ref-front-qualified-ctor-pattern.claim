@@ -1,0 +1,11 @@
+slug: ref-front-qualified-ctor-pattern
+branch: feature/ref-front-qualified-ctor-pattern
+agent: claude-code
+started: 2026-08-27T15:27:52Z
+heartbeat: 2026-08-27T15:27:52Z
+status: claimed-before-planning
+items: negtc-frontend-ok-117-below-floor-200 f-refuses-jvmvfsread-in-a-pattern
+paths: file:v2/lib/ssc1-front.ssc0 file:v2/lib/ssc1-lower.ssc0 file:v2/BUGS.md file:tests/e2e/ref-front-qualified-ctor-pattern-gate.sh file:scripts/smoke-ci.ssc file:tests/e2e/no-orphan-gates.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
