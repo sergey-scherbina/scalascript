@@ -80,7 +80,13 @@ run_lane() {  # run_lane <lane> <file> -> REJECT, or the first line printed
     native) out="$(SSC_NO_CDS=1 timeout 150 "$ROOT/bin/ssc" run "$f" 2>&1 | head -1)" ;;
     v1)     out="$(SSC_NO_CDS=1 timeout 150 "$ROOT/bin/ssc-tools" run --v1 "$f" 2>&1 | head -1)" ;;
     js)     out="$(SSC_NO_CDS=1 timeout 300 "$ROOT/bin/ssc-tools" run-js "$f" 2>&1 | grep -v '^\[' | head -1)" ;;
-    v3)     out="$(SSC_NO_CDS=1 timeout 200 "$ROOT/v3/ssc3" run "$f" 2>&1 | tail -1)" ;;
+    # 600, NOT 200, and the control probe above is why that is enough anywhere. `v3/ssc3` FETCHES a
+    # compiler through coursier and packages both trees into `v3/.jars` on its first call — the
+    # `Validate` job spends 5.3 min on exactly that in a step of its own. This gate runs in
+    # `Examples and launcher smokes`, which never builds v3, so on a cold runner every v3 cell timed
+    # out at 200 s and came back EMPTY. Measured on run 33053494265: `frozen '42', got ''` for the
+    # control. The probe pays the cold build once; the three rows after it hit a warm `.jars`.
+    v3)     out="$(SSC_NO_CDS=1 timeout 600 "$ROOT/v3/ssc3" run "$f" 2>&1 | tail -1)" ;;
   esac
   # A refusal is a refusal whatever wording the lane uses. Everything else is the printed value, and
   # comparing the VALUE is the point: two lanes that both "work" while printing different things is
