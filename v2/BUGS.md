@@ -195,6 +195,33 @@ start: Int, length: Int)` (`std/scljet/bytes.ssc:49`), and those three values ar
 `byteSliceWindow` (:85). `std/scljet/bytes.ssc:137` also declares `object ByteSlice`, so the name is
 both a class and a companion, and something in the multi-module splice binds the OBJECT there.
 
+### 2026-08-27 — the registry is EMPTY at the throw, not occupied by another program
+
+Put the registry into the message itself — `#__throw__` is the only output channel the lowerer has —
+and re-ran the twelve-line case:
+
+```
+reason: "unknown constructor 'JvmVfsRead' in a pattern [reg: ]"
+```
+
+**Nothing at all.** The story in `ssc1-lower.ssc0`'s comment is that a SECOND program's lowering
+moves the registry on and the first program's body is forced against the wrong contents
+(`CKDBG ctors=[YamlNull YamlBool …]`). That is not what happens here: there are no contents. The
+class-method body is lowered at a point where `caseFieldOrderCell` still holds the `#cell.new(Nil)`
+it was created with, so no amount of ACCUMULATING helps — accumulation fixes "the wrong program's
+names", and this is "no names yet".
+
+Which narrows the repair: it is not the union that is wrong, it is that on this path the set at
+`lowerProg`'s head has not run before the body is lowered. The comment's diagnosis — re-entrancy,
+a saved/restored or per-program registry — still points the right way, and the reason it cannot be
+patched at the coercion site is now sharper: there is nothing to coerce against.
+
+**NOT ATTEMPTED, and stated rather than half-done:** making `ckCtorTag` fail OPEN when the registry
+is empty would turn this green and would also let every genuine typo through — the failure mode
+`v2-zero-arg-unknown-method-fails-open` exists for. Threading the registry as a value instead of a
+process cell is the repair the code itself names, and it touches every lowering; it is not a patch
+to land beside four other fixes in one night.
+
 **FOUR THINGS RULED OUT, each by its own run** — recorded because each is the obvious next guess:
 
 | guess | measurement |
