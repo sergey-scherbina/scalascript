@@ -1,8 +1,6 @@
 #!/usr/bin/env ssc
 ---
 description: Distributed Streams — DStream[T] / Pipeline bounded examples (v2.1.10)
-imports:
-  - ../../std/dstreams.ssc
 ---
 
 # Distributed Streams — `DStream[T]` / `Pipeline`

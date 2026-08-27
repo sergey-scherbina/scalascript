@@ -140,10 +140,17 @@ decides how much this is worth:
 So fixing it is not a front change at all: it is a decision about which implementation the example
 targets, and then making that one work. It moves `frontend.ok` 205 -> 206 against a floor of 200.
 
-**WHAT IS ACTUALLY WRONG AND CHEAP TO FIX**: two examples carry an `imports:` key that does nothing
-(`distributed-streams.ssc`, `streams.ssc`). A line that looks like an import and is not one is how
-this entry came to exist. Either delete them or make the key real — but not because a front is
-missing a feature, because the source is lying.
+**WHAT IS ACTUALLY WRONG AND CHEAP TO FIX — DONE**: two examples carried an `imports:` key that does
+nothing (`distributed-streams.ssc`, `streams.ssc`). A line that looks like an import and is not one
+is how this entry came to exist. The keys are deleted, not because a front is missing a feature but
+because the source was lying. Measured before and after, six cells, both examples on all three
+lanes: same exit code, and stdout AND stderr byte-identical in every one. `bc-parity-sweep`'s
+front-matter classification is unchanged (`none` both ways — nothing entered its `head -25` window),
+and `freeze-consistency-gate` PASSES over all 573 corpus cases, which is the gate that exists to
+catch front-matter drifting away from the corpus baseline and the negtc overrides.
+
+The rest of this entry stands: the key is dead on every front, and the EXAMPLES are still red for
+their own reasons. Deleting the line changed nothing and was never going to — that is the point.
 
 ### The original report, kept for the probes it does contain
 

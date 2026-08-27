@@ -1,9 +1,6 @@
 #!/usr/bin/env ssc
 ---
 description: Streams with backpressure — Source/Sink/Flow examples (v1.51)
-imports:
-  - ../../std/streams.ssc
-  - ../../std/ui/primitives.ssc
 ---
 
 # Streams with Backpressure
