@@ -3,9 +3,9 @@ branch: feature/ref-front-parser-declared-ctor-registry
 agent: claude-code
 started: 2026-08-27T16:24:18Z
 heartbeat: 2026-08-27T16:24:18Z
-status: claimed-before-planning
+status: in-progress
 items: f-refuses-jvmvfsread-in-a-pattern
-paths: file:v2/lib/ssc1-front.ssc0 file:v2/lib/ssc1-lower.ssc0 file:v2/BUGS.md file:tests/e2e/class-method-ctor-pattern-gate.sh
+paths: file:v2/lib/ssc1-front.ssc0 file:v2/lib/ssc1-lower.ssc0 file:v2/BUGS.md file:tests/e2e/class-method-ctor-pattern-gate.sh file:tests/e2e/v2-f-nested-bytecode-fast-path.sh
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+next: file the cache/fast-path finding, close f-refuses-jvmvfsread-in-a-pattern, land
