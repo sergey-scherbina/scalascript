@@ -1,0 +1,11 @@
+slug: ci-caps-round-two
+branch: feature/ci-caps-round-two
+agent: claude-code
+started: 2026-08-27T08:00:11Z
+heartbeat: 2026-08-27T08:00:11Z
+status: claimed-before-planning
+items: validate-and-examples-jobs-hit-their-caps-and-report-cancelled
+paths: file:.github/workflows/ci.yml
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
