@@ -141,14 +141,17 @@ identically before and after this week's front changes, so it is not F-specific.
 
 ## ios-run-refuses-the-host-before-the-program — `no available iOS Simulator` for a program that is not a UI app
 
-<!-- status: open
+<!-- status: fixed
      lane: n/a
      kind: bug
      area: cli
      gate: tests/e2e/v2-swift-cli.sh
      reported-by: claude-code
      reported-at: 2026-08-27
-     confirmed: yes -->
+     confirmed: yes
+     fixed-in: 000263b9b -->
+
+**FIXED 2026-08-27 (`000263b9b`).**
 
 **The same command answered two different things depending on where it was asked.**
 
