@@ -1,0 +1,11 @@
+slug: negtc-stale-override
+branch: feature/negtc-stale-override
+agent: claude-code
+started: 2026-08-27T10:28:50Z
+heartbeat: 2026-08-27T10:28:50Z
+status: claimed-before-planning
+items: negtc-release-gate-stale-override-row
+paths: file:tests/fixtures/v21-sentinel-taxonomy/overrides.tsv
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
