@@ -44,65 +44,6 @@ mostly runs on macOS, where the BSD branch answers correctly and nothing could s
 a GNU-SHAPED `stat` on PATH and asserts the helper still answers one stable integer. Verified both
 ways: it PASSES with the fix and FAILS on the unfixed helper.
 
-## negtc-frontend-ok-117-below-floor-200 — 83 of 97 sweep failures are ONE missing directory
-
-<!-- status: fixed
-     lane: apparatus
-     kind: bug
-     area: other
-     gate: tests/e2e/v21-negative-toolchain-release-gate.sh
-     reported-by: claude-code
-     reported-at: 2026-08-27
-     confirmed: yes
-     fixed-in: 5115e5eeb -->
-
-**FIXED 2026-08-27 (`5115e5eeb`).** Both runners named `v1/runtime/` as the DEFAULT std root — the
-place `std-to-repo-root` moved 108 modules out of on 2026-08-09. The launcher always sets that cell,
-so the default fires only when the runner is invoked DIRECTLY, which is exactly how
-`scripts/native-front-corpus` measures the front. Proven both ways on one command: without the fix
-`rc=1` with the CI error verbatim, with it `rc=0`; eight `std/`-importing examples go 8-for-8, and
-`bin/ssc run` never read this default. The entry's own guess — "produced at run time inside the slim
-tree the sweep assembles" — was right about WHERE and had not yet found WHAT.
-
-**The `negtc release gate`'s next blocker after the stale override row (`cce372187`), and the first
-one it has been able to REPORT** — that job spent weeks reporting `cancelled` at a 40-minute cap
-(raised to 75 in `b9513883b`), so nothing under it had a verdict.
-
-```
-v21-negative-toolchain-freeze: frontend.ok=117 below floor 200
-```
-
-Counted from the run's own artifact (`negtc-release-report`, run 33053494265), not inferred:
-214 rows, **117 OK and 97 ERROR**. Grouping the 97 by message is what makes this small:
-
-| count | error |
-|---|---|
-| **83** | `java.nio.file.NoSuchFileException: v1/runtime/std/…` |
-| 4 | `unknown interpolator prefix 'uri'` / `'xml'` |
-| 10 | `unknown constructor '…' in a pattern`, several distinct names |
-
-The 83 break down as `v1/runtime/std/http.ssc` (23), `…/scljet/index.ssc` (14), `…/ui/content.ssc`
-(7), `…/ui/primitives.ssc` (6) and a tail. **`v1/runtime/std` has not existed since `b433a41e4`**
-moved std to the repo root; `AutoResolve.scala:96` and `ImportResolver` both carry notes about that
-migration.
-
-**IT IS NOT IN ANY SOURCE.** Checked: no `.ssc` under `std/` or `examples/` imports that path, and
-no Scala file builds the literal — the only occurrences in the tree are prose in `BUGS.md` and
-`BACKLOG.md`. The path is produced at RUN time, and the run is the sweep's: it copies `bin/ssc` and
-`bin/ssc-standard` into a SLIM tree (`--sweeps-only`, gate lines 110-116) and runs
-`scripts/native-front-corpus --standard` against it. Reproducing that slim tree is where the next
-reader should start — the failure is a relative path, so whatever picks it is not consulting the
-staged std root the slim tree does have.
-
-**IT IS NOT A REGRESSION FROM THIS WEEK, on the evidence available:** the floor is 200 and the
-measurement is 117, so this has been red for as long as the corpus has had ~214 rows; a job that
-reports `cancelled` shows nobody a red. That is the same shape as the four stale test failures found
-on 2026-08-26 when `sbt test shard 3/4` stopped timing out.
-
-**The other 14 errors are separate and smaller**: `uri`/`xml` are tools-tier interpolators the
-standard tier refuses correctly (see `cce372187`), and the `unknown constructor` rows are the family
-of `v2/BUGS.md f-refuses-jvmvfsread-in-a-pattern`.
-
 ## sbt-test-shard-3-does-not-fit-the-50-minute-step-cap — the slice is blind to cost
 
 <!-- status: open
