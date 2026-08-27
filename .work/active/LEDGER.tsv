@@ -1,3 +1,2 @@
-# generation: 2976
+# generation: 2977
 #slug	agent	started	items	paths
-v3-lane-cold-build	claude-code	2026-08-27T10:31:16Z	declared-type-agreement-reads-an-absent-lane-as-a-divergence	file:tests/e2e/declared-type-agreement.sh
