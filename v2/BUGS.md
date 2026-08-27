@@ -83,20 +83,72 @@ into "measured" in that gate, where the standard is `F-wrong 0 <= 0` — a fix a
 in one commit, with no prior reading of what the nine would say. Do it as its own change and read
 the agreement table before and after.
 
-## tower-front-ignores-frontmatter-imports — `imports:` in the YAML header loads nothing
+## frontmatter-imports-is-not-an-import-on-any-front — the `imports:` key loads nothing, anywhere
 
 <!-- status: open
-     lane: native
+     lane: multi
      kind: bug
-     area: cli
-     gate: tests/e2e/ref-front-qualified-ctor-pattern-gate.sh
+     area: docs
+     gate: none
      reported-by: claude-code
      reported-at: 2026-08-27
      confirmed: yes -->
 
+### 2026-08-27, corrected — THE ENTRY BELOW WAS WRONG, and I was one commit from building on it
+
+It said the YAML `imports:` list "is followed by v1 and by nothing in the tower", and proposed
+teaching the tower to read it. **v1 does not read it either.** The control is the whole argument —
+the same file with and without the key:
+
+```
+kv.ssc WITH    imports: - std/dstreams.ssc   ->  v1 prints a:1
+kv.ssc WITHOUT the key at all                ->  v1 prints a:1     <- the import did NOTHING
+im1.ssc, a name that exists ONLY in the imported module
+                                             ->  v1: [ERROR] Undefined: mk
+```
+
+The first probe was the one I had, and it could not discriminate: `KV` is provided AMBIENTLY by the
+v1 dstreams plugin, so it resolves whether or not anything is imported. Only the second shape — a
+name no plugin supplies — asks the question, and the answer is that the key is metadata on every
+front. `[names](path.ssc)` is the import spelling; there is no other.
+
+**SO `examples/distributed-streams.ssc` IS NOT A FRONT DEFECT.** Its `KV`, `Pipeline` and `InMemory`
+come from the v1 PLUGIN, which the standard tier cannot see, so the reference front's
+`unknown constructor 'KV' in a pattern` is the same correct refusal as the `uri` / `xml`
+interpolators — not a missing feature.
+
+**AND THE OBVIOUS REPAIR MAKES IT WORSE, measured rather than assumed.** Rewriting the example's
+import to the working spelling (`[…](../std/dstreams.ssc)`):
+
+```
+tower front  rc=0     <- it compiles
+v1           rc=1     No key 'empty' in map
+```
+
+`std/dstreams.ssc` and the plugin are two different implementations of the same names, and the
+example is written against the plugin.
+
+**THE EXAMPLE IS ALREADY RED ON EVERY LANE, for three different reasons**, which is the fact that
+decides how much this is worth:
+
+| lane | outcome |
+|---|---|
+| v1 | `rc=1`, `No method 'toIntOption' on StringV`, after 11 lines of correct output |
+| default v2 | `rc=1`, `unknown constructor 'KV' in a pattern` |
+| tower front | refuses, same `KV` |
+
+So fixing it is not a front change at all: it is a decision about which implementation the example
+targets, and then making that one work. It moves `frontend.ok` 205 -> 206 against a floor of 200.
+
+**WHAT IS ACTUALLY WRONG AND CHEAP TO FIX**: two examples carry an `imports:` key that does nothing
+(`distributed-streams.ssc`, `streams.ssc`). A line that looks like an import and is not one is how
+this entry came to exist. Either delete them or make the key real — but not because a front is
+missing a feature, because the source is lying.
+
+### The original report, kept for the probes it does contain
+
 `v2/bin/ssc1-run.ssc0` resolves `.ssc` module imports from MARKDOWN LINKS only — `sscImports` is
-`sscMapSnd(sscImportLinks(src))`, and the string `"imports"` does not occur in the file. The other
-spelling, a YAML `imports:` list in the front matter, is followed by v1 and by nothing in the tower.
+`sscMapSnd(sscImportLinks(src))`, and the string `"imports"` does not occur in the file.
 
 Twelve lines, both spellings, one module (`case class Box(v: Int)` + `def mk`):
 
@@ -107,13 +159,9 @@ imports: [./mod.ssc]   -> rc=1  "unknown constructor 'Box' in a pattern"
 
 **IT LOOKS LIKE IT WORKS UNTIL A PATTERN ASKS.** Nothing checks an unknown VALUE name, so `mk(3)`
 lowers to `(global mk)` and the file passes; only a constructor pattern consults a registry, so
-only a constructor pattern notices the module was never read. That is why this surfaced as
-`unknown constructor 'KV' in a pattern` on `examples/distributed-streams.ssc` — `KV` is declared at
-`std/dstreams.ssc:41` and the example imports it this way.
-
-Two examples in the corpus use the spelling (`distributed-streams.ssc`, `streams.ssc`), and
-`distributed-streams` is the last of the ten `unknown constructor` front errors left after
-`ref-front-refuses-a-qualified-constructor-pattern`.
+only a constructor pattern notices the module was never read. That observation stands — it is why
+the tower says `unknown constructor` rather than `unbound global`. What does not stand is the
+conclusion drawn from it about v1.
 
 ## ref-front-stack-overflows-on-the-four-scljet-examples
 
@@ -271,8 +319,10 @@ on 2026-08-26 when `sbt test shard 3/4` stopped timing out.
 standard tier refuses correctly (see `cce372187`). The guess about the `unknown constructor` rows —
 "the family of `f-refuses-jvmvfsread-in-a-pattern`" — was WRONG, and is corrected here rather than
 left for someone to act on: nine of the ten are QUALIFIED patterns, a different mechanism entirely
-(`ref-front-refuses-a-qualified-constructor-pattern`), and the tenth is
-`tower-front-ignores-frontmatter-imports`. Neither touches the empty registry that entry is about.
+(`ref-front-refuses-a-qualified-constructor-pattern`), and the tenth is not a front defect at all —
+`examples/distributed-streams.ssc` matches on a name the v1 PLUGIN supplies, so the refusal is
+correct (`frontmatter-imports-is-not-an-import-on-any-front`, which also corrects what this
+paragraph first said about it). Neither touches the empty registry that entry is about.
 
 ## a-module-reached-by-both-spellings-of-std-is-loaded-twice — `std/x.ssc` and `../std/x.ssc` are two FILES
 
