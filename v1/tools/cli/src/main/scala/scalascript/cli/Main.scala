@@ -2116,13 +2116,37 @@ private[cli] def runV2IosTargets(
           context, resolvedTeam, deviceId, console, "run --target ios --device")
     else
       val outDir = os.Path("target/build", os.pwd) / "ios"
-      val (simUdid, simName) = pickIosSimulator().getOrElse {
+      // ── THE PROGRAM'S PROBLEM IS REPORTED BEFORE THE HOST'S ──────────────────────────────────
+      //
+      // A program that defines no NativeUi application cannot be run on iOS on ANY host, and that
+      // is true whether or not a simulator exists. Picking the simulator first made the answer
+      // depend on where you asked: macOS with Xcode reached `buildXcodeApplication` and said
+      //   run --target ios: checked program does not define a NativeUi application
+      // while a Linux runner stopped one step earlier with
+      //   run --target ios: no available iOS Simulator
+      // — telling someone their machine is missing a simulator when their program was never a UI
+      // app in the first place, and sending them to install Xcode for a message they would still
+      // get afterwards. `tests/e2e/v2-swift-cli.sh` pins the first sentence and was therefore red
+      // on every Linux runner; it is not the gate that was wrong.
+      //
+      // So the emit and the xcodeApp check come first, and the simulator is picked LAZILY — forced
+      // by the destination string, which is the first thing that genuinely needs it. A `lazy val`
+      // rather than a move into the loop: `pickIosSimulator` shells out to `xcrun simctl list`, and
+      // running that once per file to fix an ordering bug would be trading one defect for a cost.
+      lazy val simulator = pickIosSimulator().getOrElse {
         throw new IllegalStateException("run --target ios: no available iOS Simulator")
       }
       for file <- files do
         val emitted = buildV2SwiftPackage(
           os.Path(file, os.pwd), outDir, _root_.ssc.swift.SwiftPlatform.IOS,
           backendBaseUrl = backendBaseUrl)
+        // The same sentence `buildXcodeApplication` raises below — said HERE so that it is said
+        // before anything about the host. Reaching that copy still works; this one just gets there
+        // first, on every host.
+        if emitted.xcodeApp.isEmpty then
+          throw new IllegalArgumentException(
+            "run --target ios: checked program does not define a NativeUi application")
+        val (simUdid, simName) = simulator
         val built = SwiftV2Cli.buildXcodeApplication(
           emitted, s"platform=iOS Simulator,id=$simUdid", outDir / "derived", "run --target ios")
         os.proc("xcrun", "simctl", "boot", simUdid).call(check = false, stdout = os.Pipe, stderr = os.Pipe)

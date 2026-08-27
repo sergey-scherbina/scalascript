@@ -132,6 +132,40 @@ expect_line "$TMP/ios-run.err" \
   'run --target ios: checked program does not define a NativeUi application'
 ! grep -Fq 'Exception in thread' "$TMP/ios-run.err"
 
+# ── AND THE SAME SENTENCE ON A HOST WITH NO SIMULATOR, which is where CI runs ────────────────────
+#
+# The row above passed on every macOS developer machine and was RED on every Linux runner, for a
+# whole month in which nobody saw it: this gate sits behind `v2-f-nested-bytecode-fast-path.sh` in
+# the same `bash -e` step, so the step aborted before reaching it. When that gate went green on
+# 2026-08-27 this one reported
+#     want | run --target ios: checked program does not define a NativeUi application
+#     got  | run --target ios: no available iOS Simulator
+# — `runV2IosTargets` picked the simulator BEFORE emitting the package, so the host's problem was
+# announced ahead of the program's, and the program's is true on every host.
+#
+# The fix is an ordering in `Main.scala`; this row is what keeps it. A failing `xcrun` first on PATH
+# is the whole emulation — `pickIosSimulator` spawns it and treats any failure as "no simulator",
+# which is exactly what a Linux runner produces. Without this row the fix would be asserted only
+# where it cannot fail, and the same red would come back the next time the order moved.
+NOSIM="$TMP/nosim-bin"
+mkdir -p "$NOSIM"
+printf '#!/bin/sh\necho "xcrun: no developer tools (gate stub)" >&2\nexit 1\n' > "$NOSIM/xcrun"
+chmod +x "$NOSIM/xcrun"
+# The stub must be the ONLY thing that changes: everything else keeps the real PATH behind it.
+PATH="$NOSIM:$PATH" "$NOSIM/xcrun" >/dev/null 2>&1 && {
+  echo "v2-swift-cli: the xcrun stub SUCCEEDED — the emulation is not emulating" >&2; exit 1; }
+
+set +e
+PATH="$NOSIM:$PATH" "$SSC" run --v2 --target ios "$FIXTURE" \
+  >"$TMP/ios-run-nosim.out" 2>"$TMP/ios-run-nosim.err"
+NOSIM_EXIT=$?
+set -e
+test "$NOSIM_EXIT" -eq 1
+expect_line "$TMP/ios-run-nosim.err" \
+  'run --target ios: checked program does not define a NativeUi application'
+! grep -Fq 'no available iOS Simulator' "$TMP/ios-run-nosim.err"
+! grep -Fq 'Exception in thread' "$TMP/ios-run-nosim.err"
+
 set +e
 "$SSC" package --v2 --target ios --out "$TMP/package" "$FIXTURE" \
   >"$TMP/ios-package.out" 2>"$TMP/ios-package.err"
