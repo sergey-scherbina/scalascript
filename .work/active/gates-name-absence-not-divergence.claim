@@ -1,0 +1,11 @@
+slug: gates-name-absence-not-divergence
+branch: feature/gates-name-absence-not-divergence
+agent: claude-code
+started: 2026-08-27T08:03:18Z
+heartbeat: 2026-08-27T08:03:18Z
+status: claimed-before-planning
+items: declared-type-agreement-reads-an-absent-lane-as-a-divergence
+paths: file:tests/e2e/declared-type-agreement.sh file:tests/e2e/v2-f-nested-bytecode-fast-path.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement

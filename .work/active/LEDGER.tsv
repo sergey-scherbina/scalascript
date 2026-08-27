@@ -1,2 +1,3 @@
-# generation: 2971
+# generation: 2972
 #slug	agent	started	items	paths
+gates-name-absence-not-divergence	claude-code	2026-08-27T08:03:18Z	declared-type-agreement-reads-an-absent-lane-as-a-divergence	file:tests/e2e/declared-type-agreement.sh file:tests/e2e/v2-f-nested-bytecode-fast-path.sh
