@@ -148,6 +148,7 @@ f-alternative-pattern-gate.sh	skip-guarded	ssc_usable_or_skip prints SKIP and ex
 f-assign-arm-body-gate.sh	skip-guarded	ssc_usable_or_skip prints SKIP and exits 0
 f-at-bind-pattern-gate.sh	skip-guarded	ssc_usable_or_skip prints SKIP and exits 0
 f-blockend-sentinel-gate.sh	skip-guarded	ssc_usable_or_skip prints SKIP and exits 0
+f-case-object-pattern-gate.sh	skip-guarded	ssc_usable_or_skip prints SKIP and exits 0
 f-bodyless-object-gate.sh	skip-guarded	ssc_usable_or_skip prints SKIP and exits 0
 f-char-escape-gate.sh	skip-guarded	ssc_usable_or_skip prints SKIP and exits 0
 f-cons-nil-tail-gate.sh	skip-guarded	ssc_usable_or_skip prints SKIP and exits 0
