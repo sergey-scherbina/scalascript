@@ -1,3 +1,2 @@
-# generation: 2966
+# generation: 2967
 #slug	agent	started	items	paths
-lower-registry-reentrancy	claude-code	2026-08-27T07:03:08Z	f-refuses-jvmvfsread-in-a-pattern	file:v2/lib/ssc1-lower.ssc0 file:v2/BUGS.md
