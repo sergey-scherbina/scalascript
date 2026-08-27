@@ -306,9 +306,15 @@ class Typer(
     // is called with explicit type arguments and a block, and this typer does not check effect
     // discharge or continuation types — a precise-looking arrow here would be a claim it cannot
     // enforce. The same reasoning the effect runners above are declared with.
-    s.define(Symbol("coroutineCreate", variadic, SymbolKind.Def))
-    s.define(Symbol("coroutineResume", variadic, SymbolKind.Def))
-    s.define(Symbol("coroutineCancel", variadic, SymbolKind.Def))
+    // THE THREE NAMES ARE GONE FROM HERE BECAUSE THE RUNTIME ALREADY ANSWERS THEM.
+    // `BuiltinsRuntime.initBuiltins` calls `CoroutineRuntime.install`, and `ambientGlobalNames`
+    // probes exactly that — so `coroutineCreate`/`Resume`/`Cancel` arrive by the route this whole
+    // block's header describes, and writing them out again made this the hand-kept list growing
+    // back. `tests/e2e/typer-prelude-from-runtime-names.sh` exists to catch precisely that and did.
+    //
+    // NOTHING IS TAKEN AWAY: the measurement that added them (c9b698622 — three of the first sixty
+    // conformance cases refused with `Reference to undefined name: coroutineCreate`) still holds,
+    // and those cases still pass, now for the reason the header gives instead of by a second copy.
     // NonDet and Reader globals (no dedicated plugin yet — stay in core)
     s.define(Symbol("NonDet",   SType.Named("NonDet",  Nil), SymbolKind.Object))
     s.define(Symbol("Reader",   SType.Named("Reader",  Nil), SymbolKind.Object))

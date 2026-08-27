@@ -68,8 +68,23 @@ done
 # ── and it came from the RUNTIME, not from a fresh hand entry ────────────────────────────────────
 # This is the half that makes the row above mean something. Without it, someone closing the next gap
 # by typing the name into `pluginBuiltins` would leave this gate green while undoing its purpose.
+# COMMENTS ARE NOT CODE, and this grep could not tell them apart. It read the whole file as text, so
+# a comment EXPLAINING where a name comes from — `// (interp.globals("coroutineCreate") = …)` — trips
+# it exactly like a fresh hand entry would. That is the same shape as an anti-assertion a comment can
+# satisfy: it guards nothing and it accuses the wrong line. Measured 2026-08-27: with the three
+# `s.define` calls deleted this gate still reported `coroutineCreate` as a string literal, and the
+# only occurrence left was that comment.
+#
+# Line comments and scaladoc continuations are stripped; a name inside a BLOCK comment on the same
+# line as code would still be seen, which is a shape this file does not use and not worth a parser.
+# COMPUTED ONCE, INTO A VARIABLE, and not piped into `grep -q`. `set -o pipefail` is on at the top
+# of this file, and `grep -q` exits the instant it matches — which SIGPIPEs the `sed` feeding it, so
+# the pipeline's status is 141 and the `if` takes the ELSE branch. A MATCH read as NO MATCH: with a
+# hand entry planted back into Typer.scala the gate said "absent from Typer.scala" and passed.
+# Measured, because the first cut of this fix shipped that pipeline and the plant went undetected.
+TYPER_CODE="$(sed -e 's|//.*||' -e '/^[[:space:]]*\*/d' -e '/^[[:space:]]*\/\*/d' "$TYPER")"
 for n in coroutineCreate readFile exec Random; do
-  if grep -q "\"$n\"" "$TYPER"; then
+  if grep -q "\"$n\"" <<<"$TYPER_CODE"; then
     bad "[$n] is a string literal in Typer.scala — the hand list is growing back, ask the runtime instead"
   else
     ok "[$n] absent from Typer.scala — learned from Interpreter.ambientGlobalNames"
