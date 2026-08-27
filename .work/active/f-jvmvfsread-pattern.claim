@@ -1,0 +1,11 @@
+slug: f-jvmvfsread-pattern
+branch: feature/f-jvmvfsread-pattern
+agent: claude-code
+started: 2026-08-27T06:43:18Z
+heartbeat: 2026-08-27T06:43:18Z
+status: claimed-before-planning
+items: f-refuses-jvmvfsread-in-a-pattern
+paths: file:specs/v2.2-p6.5-fsub.ssc file:v2/BUGS.md file:tests/e2e/f-case-object-pattern-gate.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement

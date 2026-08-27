@@ -1,2 +1,3 @@
-# generation: 2963
+# generation: 2964
 #slug	agent	started	items	paths
+f-jvmvfsread-pattern	claude-code	2026-08-27T06:43:18Z	f-refuses-jvmvfsread-in-a-pattern	file:specs/v2.2-p6.5-fsub.ssc file:v2/BUGS.md file:tests/e2e/f-case-object-pattern-gate.sh
