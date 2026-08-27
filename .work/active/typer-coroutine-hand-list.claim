@@ -5,7 +5,7 @@ started: 2026-08-27T12:10:29Z
 heartbeat: 2026-08-27T12:10:29Z
 status: claimed-before-planning
 items: typer-prelude-hand-list-grew-back
-paths: file:v1/lang/core/src/main/scala/scalascript/typer/Typer.scala
+paths: file:v1/lang/core/src/main/scala/scalascript/typer/Typer.scala file:tests/e2e/typer-prelude-from-runtime-names.sh
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+next: the gate must read code, not raw text — a comment quoting the name trips it
