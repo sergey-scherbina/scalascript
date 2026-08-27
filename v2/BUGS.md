@@ -139,57 +139,6 @@ removing one blocker turned the next one into the first thing anyone had ever se
 The F path overflows on these too (`ssc1-run-fsub.ssc0 --fsub-src specs/v2.2-p6.5-fsub.ssc`),
 identically before and after this week's front changes, so it is not F-specific.
 
-## ios-run-refuses-the-host-before-the-program — `no available iOS Simulator` for a program that is not a UI app
-
-<!-- status: fixed
-     lane: n/a
-     kind: bug
-     area: cli
-     gate: tests/e2e/v2-swift-cli.sh
-     reported-by: claude-code
-     reported-at: 2026-08-27
-     confirmed: yes
-     fixed-in: 000263b9b -->
-
-**FIXED 2026-08-27 (`000263b9b`).**
-
-**The same command answered two different things depending on where it was asked.**
-
-```
-macOS with Xcode : run --target ios: checked program does not define a NativeUi application
-Linux runner     : run --target ios: no available iOS Simulator
-```
-
-`runV2IosTargets` picked the simulator BEFORE emitting the package, and the `xcodeApp` check lives
-inside `buildXcodeApplication`, one step further on. So the HOST's problem was announced ahead of
-the PROGRAM's — and the program's is true on every host: a file that defines no NativeUi
-application cannot be run on iOS anywhere. The message as it stood sends someone to install Xcode
-for a diagnostic they will still get afterwards.
-
-**REPRODUCED BOTH WAYS ON ONE MACHINE**, no CI round trip needed: `pickIosSimulator` spawns `xcrun`
-and treats any failure as "no simulator", so a failing `xcrun` first on PATH IS the Linux runner.
-
-```
-default PATH        run --target ios: checked program does not define a NativeUi application
-xcrun stub on PATH  run --target ios: no available iOS Simulator          <- the CI red, exactly
-```
-
-**FIX:** emit and check `xcodeApp` first; `pickIosSimulator` becomes a `lazy val`, forced by the
-destination string, which is the first thing that genuinely needs it. A lazy binding rather than a
-move into the loop, because `pickIosSimulator` shells out to `xcrun simctl list` and running that
-once per file would trade one defect for a cost. After it, both rows above say the same sentence.
-
-**IT HAD NEVER RUN IN CI.** `tests/e2e/v2-swift-cli.sh` sits behind
-`tests/e2e/v2-f-nested-bytecode-fast-path.sh` in one `bash -e` step, and that gate was red for
-weeks, so the step aborted before reaching this one. It surfaced the same day the fast path went
-green — the fourth time in one day that unblocking a path revealed what was standing behind it.
-
-**THE GATE NOW CARRIES THE OTHER HOST.** A row runs the same command with the `xcrun` stub on PATH
-and asserts the program sentence AND the absence of the simulator sentence, so the fix is checked
-where it can actually fail rather than only on a developer's Mac. The stub is verified to fail
-before it is trusted — an emulation that silently stops emulating is the failure mode this repo has
-paid for before.
-
 ## front-ir-cache-switches-off-the-nested-f0-direct-asm-fast-path
 
 <!-- status: fixed
