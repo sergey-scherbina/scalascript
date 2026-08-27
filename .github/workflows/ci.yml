@@ -2378,6 +2378,14 @@ jobs:
       - name: A plain string literal ends at its closing quote
         run: tests/e2e/ref-front-string-literal-gate.sh
 
+      # Also the reference front, and the one gate here that drives the tower straight from the
+      # checkout rather than through the launcher — because that is the surface `negtc` measures
+      # (`scripts/native-front-corpus` runs `v2/bin/ssc1-run.ssc0` under `ssc.cli`), and because a
+      # staged copy then cannot be stale. 9 of the 18 front errors left on 2026-08-27 were one
+      # shape: `case JsonValue.Str(v)`, refused because the qualifier is dropped before the check.
+      - name: A qualified constructor pattern is not a bare unknown name
+        run: tests/e2e/ref-front-qualified-ctor-pattern-gate.sh
+
       # Also the reference front. The runner joins every fence into one source, so the block
       # boundary survives only as a sentinel; this front never emitted it and printed only the
       # whole program's final value, dropping every earlier block's tail. A ONE-block document

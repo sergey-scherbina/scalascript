@@ -2445,6 +2445,26 @@ def finishCtorPat = (tag, toks) =>
         pr(Pair("cpat", Pair(tag, subs)), skipKind(")", prT(rSub))) }
   else pr(Pair("cpat", Pair(tag, Nil)), toks)
 
+-- A QUALIFIED constructor pattern — `Owner.Case(x)` — keeps only its last segment as the arm tag,
+-- because that is what the runtime matches on and what a local `enum E { case A }` already lowers
+-- to. The qualifier is therefore DROPPED here, and with it the one fact that distinguishes
+-- `case JsonValue.Str(v)` from `case Nope =>`: the author named a namespace, so this is not the
+-- bare stable-identifier typo `ckCtorTag` exists to catch. v1's typer draws that line explicitly —
+-- `Typer.scala` matches `case n: Term.Name` and never a `Term.Select` — and the note above its
+-- check says so in the first sentence ("a capitalised BARE name"). The tower front was stricter
+-- than v1 by accident, and refused the whole FILE for it: 9 of the 18 remaining negtc front errors
+-- on 2026-08-27 were `JsonValue.Str`, `PaymentIntent.Succeeded`, `BankRailsEvent.AchTransferSettled`
+-- and friends, every one of them a type declared in a JVM plugin package the standard tier cannot
+-- see and does not need to.
+--
+-- So the name is recorded as it is parsed, and `ckCtorTag` (ssc1-lower.ssc0) treats membership here
+-- as "the source qualified this name at least once". WHAT THAT COSTS, stated rather than hidden: it
+-- is a NAME list, not a name+owner pair, so a bare `case Str(v)` elsewhere in the same process is
+-- accepted once any `X.Str(...)` has been parsed. That is a far smaller widening than failing open
+-- when the registry is empty (see `f-refuses-jvmvfsread-in-a-pattern`, where that was rejected for
+-- letting every genuine typo through) and it cannot accept a name no source ever qualified.
+def qualPatCtorsCell = #cell.new(Nil)
+
 def parsePatAtom = (toks) =>
   let t  = peek(toks) in
   let k  = tokKind(t) in
@@ -2454,6 +2474,7 @@ def parsePatAtom = (toks) =>
     if kindIs(".", ts2) then
       let ts3 = advance(ts2) in
       let opName = tokVal(peek(ts3)) in
+      let _q = #cell.set(qualPatCtorsCell, Cons(opName, #cell.get(qualPatCtorsCell))) in
       finishCtorPat(opName, advance(ts3))
     else finishCtorPat(v, ts2)
   else if #seq(k, "id") then

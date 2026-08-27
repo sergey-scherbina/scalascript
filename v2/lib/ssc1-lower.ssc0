@@ -3514,7 +3514,8 @@ def ckCtorTag = (nm) =>
   (if runtimeCtorTag(nm) then nm else
   (if declaredCtorTag(nm) then nm else
   (if memberOfL(nm, #cell.get(caseObjNamesCell)) then nm else
-   #__throw__(#sconcat(#sconcat("unknown constructor '", nm), "' in a pattern"))))))
+  (if memberOfL(nm, #cell.get(qualPatCtorsCell)) then nm else
+   #__throw__(#sconcat(#sconcat("unknown constructor '", nm), "' in a pattern")))))))
 def ctorPatternArms = (ctorName0, arity, body) =>
   let ctorName = ckCtorTag(ctorName0) in
   if #seq(ctorName, "Pair") then

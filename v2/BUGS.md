@@ -7,6 +7,138 @@ grepping for status.
 
 Newest first.
 
+## ref-front-refuses-a-qualified-constructor-pattern — `case JsonValue.Str(v)` killed the whole file
+
+<!-- status: open
+     lane: native
+     kind: bug
+     area: front
+     gate: tests/e2e/ref-front-qualified-ctor-pattern-gate.sh
+     reported-by: claude-code
+     reported-at: 2026-08-27
+     confirmed: yes -->
+
+**Diagnosed and fixed 2026-08-27; the header flips in the follow-up commit that can name the SHA.**
+`parsePatAtom` keeps only the LAST segment of a qualified pattern, because
+that is the arm tag the runtime matches on — a local `enum E { case A }` has always lowered
+`case E.A(n)` to `(arm A 1 …)`. Dropping the qualifier also dropped the one fact that separates
+`case JsonValue.Str(v)` from the typo `case Nope =>`: **the author named a namespace.** `ckCtorTag`
+then refused the name, and a refusal there kills the FILE, not the arm.
+
+**v1 DRAWS THE LINE WHERE THIS FIX DRAWS IT.** `Typer.scala:1242` matches `case n: Term.Name` and
+never a `Term.Select`, and the note above it opens with "a capitalised BARE name". The tower front
+was stricter than v1 by accident; `UndefinedPatternNameTest` pins v1's three shapes and none of
+them is qualified.
+
+**MEASURED, both directions, over the whole 214-example corpus** (`v2/bin/ssc1-run.ssc0` under
+`ssc.cli`, the surface `scripts/native-front-corpus` uses):
+
+| | front OK | front ERROR |
+|---|---|---|
+| before | 196 | 18 |
+| after | **205** | 9 |
+
+The 196 that already lowered produce **byte-identical IR** — 196 identical, 0 differing, 0
+regressed — so this only ever adds acceptance. The 9 recovered are `bank-rails-ach`,
+`bank-rails-fednow`, `bank-rails-sepa`, `distributed-dataset-typed-helpers`,
+`distributed-dataset-wire-protocol`, `distributed-dataset-wire-shuffle`, `graph-rdf4j-storage`,
+`traditional-payments` and `typed-object-codec`; every owner (`JsonValue`, `PaymentIntent`,
+`BankRailsEvent`, `TJsonValue`, `RdfNode`) is a type declared in a JVM plugin package the standard
+tier cannot see and does not need to. None of the nine emits the `(global _err)` sentinel, so the
+sentinel taxonomy does not grow — checked before landing, because `standard-gap` has a limit of 0.
+
+**WHAT IT COSTS, stated rather than hidden.** The acceptance set is a list of NAMES, not
+name+owner pairs, so once any `X.Str(…)` has been parsed a bare `case Str(v)` is accepted in the
+same process too. That is deliberate and far narrower than the alternative rejected in
+`f-refuses-jvmvfsread-in-a-pattern` — failing open when the registry is empty, which lets every
+genuine typo through — and it cannot accept a name no source ever qualified. The gate ASSERTS the
+widening as its own row, so tightening it to a name+owner pair has to flip that row on purpose.
+
+**NOT the same defect as `f-refuses-jvmvfsread-in-a-pattern`**, which is a BARE name in a
+class-method body lowered while `caseFieldOrderCell` is still empty. This one never touches the
+registry: the name was never in it and never should have been looked for.
+
+## f-refuses-a-qualified-constructor-pattern — F has the same gap, and it is invisible
+
+<!-- status: open
+     lane: native
+     kind: bug
+     area: front
+     gate: tests/e2e/ref-front-qualified-ctor-pattern-gate.sh
+     reported-by: claude-code
+     reported-at: 2026-08-27
+     confirmed: yes -->
+
+The twin of `ref-front-refuses-a-qualified-constructor-pattern`, in F: `ckCtorF`
+(`specs/v2.2-p6.5-fsub.ssc:2374`) asks the same question of a name whose qualifier F's own
+`parsePatAtom` has already dropped, and refuses for the same reason.
+
+**NOTHING IS RED, and that is the whole problem.** The lane tries F first and falls back to the
+reference front, so F's refusal is silently overridden — the file compiles, by the OTHER front, and
+every measurement of it is the reference front's numbers. `f-output-agreement-gate` counts these in
+"F declined (coverage, not judged here): 163".
+
+**NOT FIXED HERE ON PURPOSE.** Teaching F to accept them moves nine files out of "declined" and
+into "measured" in that gate, where the standard is `F-wrong 0 <= 0` — a fix and a coverage change
+in one commit, with no prior reading of what the nine would say. Do it as its own change and read
+the agreement table before and after.
+
+## tower-front-ignores-frontmatter-imports — `imports:` in the YAML header loads nothing
+
+<!-- status: open
+     lane: native
+     kind: bug
+     area: cli
+     gate: tests/e2e/ref-front-qualified-ctor-pattern-gate.sh
+     reported-by: claude-code
+     reported-at: 2026-08-27
+     confirmed: yes -->
+
+`v2/bin/ssc1-run.ssc0` resolves `.ssc` module imports from MARKDOWN LINKS only — `sscImports` is
+`sscMapSnd(sscImportLinks(src))`, and the string `"imports"` does not occur in the file. The other
+spelling, a YAML `imports:` list in the front matter, is followed by v1 and by nothing in the tower.
+
+Twelve lines, both spellings, one module (`case class Box(v: Int)` + `def mk`):
+
+```
+[Box, mk](./mod.ssc)   -> rc=0
+imports: [./mod.ssc]   -> rc=1  "unknown constructor 'Box' in a pattern"
+```
+
+**IT LOOKS LIKE IT WORKS UNTIL A PATTERN ASKS.** Nothing checks an unknown VALUE name, so `mk(3)`
+lowers to `(global mk)` and the file passes; only a constructor pattern consults a registry, so
+only a constructor pattern notices the module was never read. That is why this surfaced as
+`unknown constructor 'KV' in a pattern` on `examples/distributed-streams.ssc` — `KV` is declared at
+`std/dstreams.ssc:41` and the example imports it this way.
+
+Two examples in the corpus use the spelling (`distributed-streams.ssc`, `streams.ssc`), and
+`distributed-streams` is the last of the ten `unknown constructor` front errors left after
+`ref-front-refuses-a-qualified-constructor-pattern`.
+
+## ref-front-stack-overflows-on-the-four-scljet-examples
+
+<!-- status: open
+     lane: native
+     kind: bug
+     area: front
+     gate: tests/e2e/v21-negative-toolchain-release-gate.sh
+     reported-by: claude-code
+     reported-at: 2026-08-27
+     confirmed: yes -->
+
+`scljet-file`, `scljet-hello`, `scljet-jdbc` and `scljet-unique-index` end the reference front with
+`java.lang.StackOverflowError` **at `-Xss512m`**, which is the stack `scripts/native-front-corpus`
+already gives it. The top frames are `scala.collection.concurrent.TrieMap.lookuphc` /
+`TrieMap.get`, i.e. the interpreter's own memo table inside a recursion that does not bottom out.
+
+**THEY ARE NEWLY VISIBLE, not newly broken.** Until `5115e5eeb` all four died earlier, on
+`NoSuchFileException: v1/runtime/std/scljet/index.ssc` — the stale default std root. Fixing that
+let them reach the lowering that overflows. Same shape as every other entry filed this week where
+removing one blocker turned the next one into the first thing anyone had ever seen.
+
+The F path overflows on these too (`ssc1-run-fsub.ssc0 --fsub-src specs/v2.2-p6.5-fsub.ssc`),
+identically before and after this week's front changes, so it is not F-specific.
+
 ## negtc-frontend-ok-117-below-floor-200 — 83 of 97 sweep failures are ONE missing directory
 
 <!-- status: fixed
@@ -63,8 +195,11 @@ reports `cancelled` shows nobody a red. That is the same shape as the four stale
 on 2026-08-26 when `sbt test shard 3/4` stopped timing out.
 
 **The other 14 errors are separate and smaller**: `uri`/`xml` are tools-tier interpolators the
-standard tier refuses correctly (see `cce372187`), and the `unknown constructor` rows are the family
-of `f-refuses-jvmvfsread-in-a-pattern`, below.
+standard tier refuses correctly (see `cce372187`). The guess about the `unknown constructor` rows —
+"the family of `f-refuses-jvmvfsread-in-a-pattern`" — was WRONG, and is corrected here rather than
+left for someone to act on: nine of the ten are QUALIFIED patterns, a different mechanism entirely
+(`ref-front-refuses-a-qualified-constructor-pattern`), and the tenth is
+`tower-front-ignores-frontmatter-imports`. Neither touches the empty registry that entry is about.
 
 ## a-module-reached-by-both-spellings-of-std-is-loaded-twice — `std/x.ssc` and `../std/x.ssc` are two FILES
 
