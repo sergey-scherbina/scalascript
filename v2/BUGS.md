@@ -9588,6 +9588,74 @@ next failure once Emit is fixed). `bin/ssc run`/`--bytecode` green does NOT cove
 (bundle) and `RequiredPrefixes` (fail-fast). Gate `tests/e2e/v21-build-jvm-release-gate.sh` red→green
 (PASS, `forbidden.references=0`). Lesson recorded in `SPRINT.md` F5 (the "SECOND STAGING LIST" note).
 
+## f-refuses-jvmvfsread-in-a-pattern — the message says F and the thrower is the reference lowerer
+
+<!-- status: open
+     lane: native
+     kind: bug
+     area: front
+     gate: tests/e2e/v2-f-nested-bytecode-fast-path.sh
+     reported-by: claude-code
+     reported-at: 2026-08-27
+     confirmed: yes -->
+
+**Twelve lines, and every ingredient is necessary — each dropped one at a time, each its own run:**
+
+```
+---
+name: m
+package: scljet          <- (1) drop this and F compiles it
+exports: [JvmVfsRead]
+---
+case class JvmVfsRead(bytes: List[Int], short: Boolean)
+
+case class Holder(handle: Int):          <- (2) move the match to a top-level def and F compiles it
+  def readIt(r: Any): Int = r match
+    case JvmVfsRead(values, short) => 1
+    case _ => 0
+```
+
+imported by a program that does nothing with it. (3) The same text AS THE ROOT PROGRAM compiles.
+
+```
+ssc: F did not lower this file … ["unknown constructor 'JvmVfsRead' in a pattern"]
+```
+
+**NOTHING IS BROKEN.** The F4a fallback compiles it with the reference front and the program prints
+the right answer; `SSC_FRONT=legacy` alone is green. What is lost is measurement: every number taken
+on such a file is the other front's, and `tests/e2e/v2-f-nested-bytecode-fast-path.sh` can never
+observe F take its own nested-ASM path on `examples/scljet-hello.ssc`, which is this shape.
+
+**THE THROWER IS NOT F, and the wording is why that took three hours to establish.** BOTH
+`specs/v2.2-p6.5-fsub.ssc` (`ckCtorF`) and `v2/lib/ssc1-lower.ssc0` (`ckCtorTag`) raise this exact
+sentence. Marking F's copy — `unknown constructor [F] '…'` — and rebuilding answered it: the message
+comes back UNMARKED, so the reference lowerer throws it while running on F's path, and
+`SSC_FRONT_STRICT`'s "F did not compile this file" is attributing the throw rather than naming the
+thrower.
+
+**IT IS THE REGISTRY RE-ENTRANCY ALREADY NAMED IN `ssc1-lower.ssc0`** (the comment above
+`caseFieldOrderCell`, dated 2026-08-25): `--structural` runs three lowerings in one process sharing
+process-global registries, defs are lowered LAZILY, and a class-method body can be forced after
+another program's lowering has moved the registry on. `b5e777cb8` made those cells ACCUMULATE, which
+covers the common ordering; `package:` shifts the order enough to defeat it again, because
+accumulation cannot help a name that has not been registered YET at force time. That comment states
+the repair — "re-entrancy (a saved/restored or per-program registry)" — and states that ordering the
+calls does not work, every attempt being defeated by the same laziness.
+
+**FOUR THINGS RULED OUT, each by its own run**, recorded because each is the obvious next guess:
+
+| guess | measurement |
+|---|---|
+| F's own `ckCtorF` refuses it | the `[F]` marker probe: the message comes back unmarked |
+| the generated `object <pkg>:` block is unterminated and swallows the file | appending `__sscBlockEnd__` makes the assembly byte-identical to a shape that compiles — and it still refuses |
+| a hand-written `object scljet:` in the module reproduces it | it does not, in the same block or in a second one |
+| a case-class pattern inside a class method is the whole shape | compiles as the root program, and compiles in a module with no `package:` |
+
+**A TRAP THAT COST TWO WRONG READINGS**, worth the line: `./install.sh --dev` RE-STAGES `std/` from
+the repo, so a reduced module edited under `bin/lib/.../runtime/std/` is silently restored by every
+rebuild. Two measurements here were taken against the full file while I believed they were against
+the twelve-line one. Rewrite the reduction AFTER each build.
+
 ## f-refuses-a-standalone-case-object-in-a-pattern — `unknown constructor 'A' in a pattern`
 
 <!-- status: fixed
