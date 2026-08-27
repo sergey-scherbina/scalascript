@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+#
+# sbt-retry-transient — run sbt, and retry ONLY when it died fetching a dependency.
+#
+# WHY THIS EXISTS. On 2026-08-27 `Compile and assemble ssc.jar` failed with
+#
+#     java.io.IOException: Server returned HTTP response code: 502 for URL:
+#       https://repo1.maven.org/maven2/com/google/api/grpc/proto-google-common-protos/…jar
+#
+# Maven Central answered 502 once. The artifact was fine — measured immediately after, three
+# straight 200s of the same 2 648 945 bytes — but the job was already dead, and with it a tier that
+# had been running for half an hour. Nothing in this repo retried: there is no coursier retry
+# setting to turn on (its env vars are COURSIER_CACHE, _MIRRORS, _CREDENTIALS and friends — no
+# retry count; checked in the jar rather than assumed), so the retry has to live here.
+#
+# RETRIES ONLY THE TRANSPORT, never the build. A compile error, a failed test, a refusal — anything
+# whose output does not carry one of the network markers below — fails on the FIRST attempt and is
+# reported as it was. Retrying a build on any failure would triple the cost of every genuine red and
+# hide flaky tests behind a green, which is the opposite of what this repo's gates are for.
+#
+# The markers are transport-level and deliberately narrow: an HTTP 5xx from a repository, a reset or
+# timed-out connection, or coursier saying it could not download. A 404 is NOT here — a missing
+# artifact is a real error and retrying it just wastes ten minutes to say the same thing.
+set -uo pipefail
+
+attempts="${SSC_SBT_ATTEMPTS:-3}"
+delay="${SSC_SBT_RETRY_DELAY:-15}"
+log="$(mktemp "${TMPDIR:-/tmp}/sbt-retry.XXXXXX")"
+trap 'rm -f "$log"' EXIT HUP INT TERM
+
+transient() {
+  grep -qE 'Server returned HTTP response code: 5[0-9][0-9]|HTTP response code: 50[234]|Connection reset|SocketTimeoutException|Connection timed out|download error|[Ff]ailed to (fetch|download)|Remote host (terminated|closed)' "$1"
+}
+
+n=1
+while :; do
+  sbt "$@" 2>&1 | tee "$log"
+  rc="${PIPESTATUS[0]}"
+  [ "$rc" -eq 0 ] && exit 0
+  if [ "$n" -ge "$attempts" ] || ! transient "$log"; then
+    if [ "$n" -gt 1 ]; then
+      echo "sbt-retry-transient: giving up after $n attempt(s); the last failure is above." >&2
+    fi
+    exit "$rc"
+  fi
+  echo "sbt-retry-transient: attempt $n/$attempts died on a TRANSPORT error, not a build error:" >&2
+  grep -oE 'Server returned HTTP response code: [0-9]+ for URL: [^ ]+|Connection reset|SocketTimeoutException' "$log" | head -1 | sed 's/^/  /' >&2
+  echo "  retrying in ${delay}s. A compile or test failure would NOT be retried." >&2
+  sleep "$delay"
+  n=$((n + 1))
+done

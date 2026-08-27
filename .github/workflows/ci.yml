@@ -1295,7 +1295,7 @@ jobs:
       # defect now has a four-hour half-life instead of an indefinite one.
       - name: Run backendRust tests
         if: matrix.shard == 1
-        run: sbt -batch backendRust/test
+        run: scripts/sbt-retry-transient -batch backendRust/test
 
       # The std corpus through build-rust: 131 modules, ~5 minutes, so it belongs here rather than
       # on the push path. It asserts ONE thing — that no module moves from REFUSED to BADRUST, i.e.
@@ -1988,7 +1988,7 @@ jobs:
       # from the assembled jar to find them; without staging they fail with
       # "CompilerLoader: ssc.lib.path is not set".
       - name: Compile and assemble ssc.jar
-        run: sbt compile cli/assembly installBin
+        run: scripts/sbt-retry-transient compile cli/assembly installBin
 
       # Runs HERE, right after the build, because it needs compiled v2 classes and nothing
       # else. It is ~5 seconds. A method whose bytecode passes -XX:HugeMethodLimit (8000) is
@@ -2184,7 +2184,7 @@ jobs:
             ${{ runner.os }}-classes-v2-sbt-${{ hashFiles('**/build.sbt', '**/project/*.sbt', '**/project/build.properties') }}-
 
       - name: Compile and assemble ssc.jar
-        run: sbt compile cli/assembly installBin
+        run: scripts/sbt-retry-transient compile cli/assembly installBin
 
       # F4 default-front flip note, moved here with the gate (v2-f4-reflip, 2026-07-22). F is the
       # DEFAULT front since 56d7d705f (2026-07-26), so this budget is LIVE, not slack: the two
@@ -2311,7 +2311,7 @@ jobs:
       # Reduce still needs the tower: it rebuilds the sanitized sandbox and the slim standard
       # distribution, and the negative assertions run real programs through that launcher.
       - name: Compile and assemble ssc.jar
-        run: sbt compile cli/assembly installBin
+        run: scripts/sbt-retry-transient compile cli/assembly installBin
 
       # The property this whole job rests on, proven on THIS commit before the verdict is taken from
       # it: map+merge over N shards is byte-identical to one unsharded sweep. It runs here, and not
@@ -2527,7 +2527,7 @@ jobs:
         uses: sbt/setup-sbt@v1
 
       - name: Interpreter fast lane
-        run: sbt -batch backendInterpreter/testFast
+        run: scripts/sbt-retry-transient -batch backendInterpreter/testFast
 
   sbt-test:
     name: sbt test shard ${{ matrix.shard }}/4
@@ -2644,7 +2644,7 @@ jobs:
       # from the assembled jar to find them; without staging they fail with
       # "CompilerLoader: ssc.lib.path is not set".
       - name: Compile and assemble ssc.jar
-        run: sbt compile cli/assembly installBin
+        run: scripts/sbt-retry-transient compile cli/assembly installBin
 
       # The enumeration this needs is a by-product of the compile above, so the slice costs no extra
       # build. `--shard i/4` prints what it selected before running anything.
