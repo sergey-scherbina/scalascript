@@ -9851,14 +9851,15 @@ next failure once Emit is fixed). `bin/ssc run`/`--bytecode` green does NOT cove
 
 ## f-refuses-jvmvfsread-in-a-pattern — the message says F and the thrower is the reference lowerer
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      kind: bug
      area: front
      gate: tests/e2e/class-method-ctor-pattern-gate.sh
      reported-by: claude-code
      reported-at: 2026-08-27
-     confirmed: yes -->
+     confirmed: yes
+     fixed-in: 324699cc3 -->
 
 ### 2026-08-27, later — FIXED, and the registry was not late, it was NEVER FILLED
 
