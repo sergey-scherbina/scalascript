@@ -1,0 +1,11 @@
+slug: negtc-slim-std-root
+branch: feature/negtc-slim-std-root
+agent: claude-code
+started: 2026-08-27T12:53:58Z
+heartbeat: 2026-08-27T12:53:58Z
+status: claimed-before-planning
+items: negtc-frontend-ok-117-below-floor-200
+paths: file:tests/BUGS.md file:tests/e2e/v21-negative-toolchain-release-gate.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
