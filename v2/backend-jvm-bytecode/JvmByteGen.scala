@@ -169,16 +169,27 @@ object JvmByteGen:
       val s = tc.capDepth + extra
       (tc.targets.map { case (k, v) => (k + s) -> v }, tc.frameArity + s)
 
-  /** Methods per class before the emitter spills into a sibling.
+  /** Methods per class before the emitter spills into a sibling — the STARTING value, not a
+    *  guarantee. `emitProgram` halves it and re-emits when ASM still says the pool is full, so this
+    *  number decides how often that costs a second pass, not whether the program compiles.
     *
     *  A JVM constant pool holds 65535 entries and each method spends a name, a descriptor and a
     *  methodref, so ~29 000 methods is 60-90 k and `ClassTooLargeException` — measured, with the
     *  numbers and the whole table in `v2/BUGS.md scljet-jdbc-facade-bytecode-class-too-large`:
     *  `scljet-crud` emits at 13 672 methods, `scljet-hello` and `scljet-unique-index` throw at
-    *  ~29 460. 12 000 keeps every class comfortably below the row that is known to fit, and is low
-    *  enough that the corpus EXERCISES the spill rather than leaving it dead code for two examples.
+    *  ~29 460.
+    *
+    *  IT WAS 12 000 AND THAT STOPPED BEING ENOUGH. Measured 2026-08-27 on `scljet-hello`: 12 000
+    *  falls back, 10 000 compiles. The old number was chosen to sit "comfortably below the row that
+    *  is known to fit" and the corpus grew into it — a margin sized once decays at the rate work is
+    *  added to it. 6 000 is 40 % under the measured edge AND the retry below means the next program
+    *  to outgrow it costs one extra emission instead of the whole bytecode lane.
+    *
+    *  METHOD COUNT IS A PROXY. What overflows is the constant pool, and a class's share of it grows
+    *  with distinct strings and field refs too — which is why the number needs a retry behind it
+    *  rather than a better estimate.
     */
-  private val ClassChunk = 12000
+  private val ClassChunk = 6000
 
   /** `spill` is OFF for the JIT and ON for the whole-program lane, and that asymmetry is required.
     *  `emitUnit` names its class `ssc/gen/Entry` as well but returns a SINGLE `Array[Byte]`, so a
@@ -187,7 +198,7 @@ object JvmByteGen:
     *  it. A JIT unit compiles one `Lam` body and comes nowhere near 12 000 methods, but "it will not
     *  happen in practice" is not a guard; this is. */
   private final class Gen(val cw: ClassWriter, val sourceDebug: Option[JvmSourceDebug],
-                          val spill: Boolean = false):
+                          val spill: Boolean = false, val chunk: Int = ClassChunk):
     val pending = collection.mutable.Queue.empty[Pending]
     var lamIdx = 0
     def freshLam(): String = { lamIdx += 1; s"lam$$$lamIdx" }
@@ -216,7 +227,7 @@ object JvmByteGen:
       if !spill || !base.startsWith("lam$") then GEN
       else base.drop(4).toIntOption match
         case Some(n) =>
-          val bucket = (n - 1) / ClassChunk
+          val bucket = (n - 1) / chunk
           if bucket == 0 then GEN else s"$GEN$$$bucket"
         case None => GEN
     def writerFor(m: String): ClassWriter =
@@ -309,11 +320,32 @@ object JvmByteGen:
   private val genStats: Boolean =
     sys.env.get("SSC_GEN_STATS").exists(v => v != "" && v != "0" && v != "off")
 
+  /** RE-EMIT WITH A SMALLER CHUNK RATHER THAN HAND THE CALLER A FALLBACK. `ClassTooLargeException`
+    *  means one class's constant pool passed 65535 — halving the methods per class halves that
+    *  class's share, and the only cost is another pass over a program that was otherwise going to
+    *  lose the bytecode lane entirely.
+    *
+    *  ONLY THAT ONE EXCEPTION. `MethodTooLargeException` is a SINGLE method over 64 KB and no amount
+    *  of spilling moves it, so it propagates on the first pass and the caller's fallback handles it
+    *  as before — retrying it would just burn three emissions to reach the same place.
+    *
+    *  Four attempts: 6 000 → 3 000 → 1 500 → 750. The floor is deliberate; below it the class count
+    *  itself becomes the cost, and a program that still overflows at 750 methods a class is telling
+    *  us something this knob cannot fix.
+    */
   private def emitProgram(p: Program, sourceDebug: Option[JvmSourceDebug]): Emitted =
+    def attempt(chunk: Int, left: Int): Emitted =
+      try emitProgramWith(p, sourceDebug, chunk)
+      catch
+        case _: org.objectweb.asm.ClassTooLargeException if left > 0 && chunk > 750 =>
+          attempt(chunk / 2, left - 1)
+    attempt(ClassChunk, 3)
+
+  private def emitProgramWith(p: Program, sourceDebug: Option[JvmSourceDebug], chunk: Int): Emitted =
     val cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS)
     cw.visit(Opcodes.V17, Opcodes.ACC_PUBLIC, GEN, null, OBJ, null)
     sourceDebug.foreach(debug => cw.visitSource(debug.sourceFile, debug.smap))
-    val g = new Gen(cw, sourceDebug, spill = true)
+    val g = new Gen(cw, sourceDebug, spill = true, chunk = chunk)
     // Reported on BOTH exits via `finally` below. The ONLY run whose numbers matter is the one that
     // THROWS, and a stats line on the success path alone would print for exactly the programs that
     // do not need sizing.

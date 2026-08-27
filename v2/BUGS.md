@@ -9596,9 +9596,27 @@ next failure once Emit is fixed). `bin/ssc run`/`--bytecode` green does NOT cove
      fixed-in: abf9a4075
      gate: tests/e2e/bytecode-fallback-visible.sh -->
 
-**Status:** OPEN as a capacity gap — but **it stopped being invisible 2026-07-27** (opus,
-`v2-bytecode-lane-silent-downgrade`, `af4725ed9`). The v2 JVM bytecode backend still emits one
-monolithic `ssc/gen/Entry` and still cannot compile these programs; splitting it is v2 kernel work.
+**Status: FIXED, and this paragraph was stale for weeks.** It said "OPEN as a capacity gap … still
+emits one monolithic `ssc/gen/Entry` and still cannot compile these programs; splitting it is v2
+kernel work" while the header three lines above already said `status: fixed`. The split landed:
+`ssc/gen/Entry` spills into `Entry$1`, `Entry$2`, … Anyone reading the prose — as I did on
+2026-08-26 — concluded the fallback was permanent and started designing around it.
+
+**IT CAME BACK, and the number was why.** 2026-08-27, `examples/scljet-hello.ssc` fell back again
+with `ClassTooLargeException`. `ClassChunk` was 12 000 methods per class, chosen to sit "comfortably
+below the row that is known to fit"; the corpus grew into it. Measured on that program: 12 000 falls
+back, 10 000 compiles — the margin had decayed to nothing while nobody could see it, because
+`Validate`, the job that runs `bytecode-fallback-visible.sh`, had been reporting `cancelled` rather
+than a verdict.
+
+**TWO CHANGES, and the second is the one that matters.** `ClassChunk` drops to 6 000 (40 % under the
+measured edge), and `emitProgram` now HALVES it and re-emits on `ClassTooLargeException` — up to
+three retries, floor 750. So the constant is a starting point, not a promise: the next program to
+outgrow it costs one extra emission instead of the whole bytecode lane. Only that exception is
+retried; `MethodTooLargeException` is one method over 64 KB and no amount of spilling moves it.
+
+Verified: starting at 12 000 — the value that fell back — the program now compiles, because the
+retry reaches 6 000. `tests/e2e/bytecode-fallback-visible.sh` passes.
 
 **What changed, and why it mattered more than the gap itself.** The symptom this entry describes
 (`rc=1`, `Class too large`) had already vanished — not because the gap was fixed, but because a
