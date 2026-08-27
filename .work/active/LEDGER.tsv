@@ -1,2 +1,3 @@
-# generation: 2996
+# generation: 2997
 #slug	agent	started	items	paths
+front-cache-vs-nested-asm-threshold	claude-code	2026-08-27T17:35:41Z	front-ir-cache-switches-off-the-nested-f0-direct-asm-fast-path	file:v2/bin/ssc1-run-fsub.ssc0 file:v2/BUGS.md file:tests/e2e/v2-f-nested-bytecode-fast-path.sh
