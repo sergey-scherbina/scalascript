@@ -9,17 +9,17 @@ Newest first.
 
 ## ref-front-refuses-a-qualified-constructor-pattern — `case JsonValue.Str(v)` killed the whole file
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      kind: bug
      area: front
      gate: tests/e2e/ref-front-qualified-ctor-pattern-gate.sh
      reported-by: claude-code
      reported-at: 2026-08-27
-     confirmed: yes -->
+     confirmed: yes
+     fixed-in: 7e286c97f -->
 
-**Diagnosed and fixed 2026-08-27; the header flips in the follow-up commit that can name the SHA.**
-`parsePatAtom` keeps only the LAST segment of a qualified pattern, because
+**FIXED 2026-08-27 (`7e286c97f`).** `parsePatAtom` keeps only the LAST segment of a qualified pattern, because
 that is the arm tag the runtime matches on — a local `enum E { case A }` has always lowered
 `case E.A(n)` to `(arm A 1 …)`. Dropping the qualifier also dropped the one fact that separates
 `case JsonValue.Str(v)` from the typo `case Nope =>`: **the author named a namespace.** `ckCtorTag`
