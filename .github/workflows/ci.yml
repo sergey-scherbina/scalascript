@@ -2244,7 +2244,15 @@ jobs:
     # Dispatch-only, same as the map half above — and `!cancelled()` so a dead shard reads as a
     # failure with a message rather than a grey skip.
     if: github.event_name == 'workflow_dispatch' && !cancelled()
-    timeout-minutes: 40
+    # 75: measured 40.3 min over 35 steps on run 33046772911 against a cap of 40, and the job was
+    # CUT — so that is a FLOOR, not the cost, and this gate has been reporting `cancelled` rather
+    # than a verdict. The dominant step is `F does not answer differently from the reference front`
+    # at 19.1 min; `Compile and assemble ssc.jar` is 5.8.
+    #
+    # `cancelled` on the one job whose name says RELEASE GATE is the worst place for this failure
+    # mode: it reads as "superseded" and it is "no verdict", and a release question answered from it
+    # is answered from nothing.
+    timeout-minutes: 75
 
     steps:
       - name: Every shard must have reported
@@ -2534,7 +2542,13 @@ jobs:
         shard: [0, 1, 2, 3]
     # ~6 min compile + ~21 min of slice. 60 is a guard with headroom, NOT the operating point —
     # if a shard approaches it, read the per-suite cost rather than raising this.
-    timeout-minutes: 60
+    # 90, AND THE 75 BELOW WAS USELESS WITHOUT IT. `0efac4d61` raised the STEP cap for
+    # `Test via sbt` from 50 to 75 and left this JOB cap at 60 — a step cannot outlive its job, so
+    # the job killed the step at 60 every time and the step's number never applied. Measured on run
+    # 33046772911: shard 3/4 ran 06:41:23 -> 07:41:41, exactly 60 minutes, and reported `cancelled`.
+    # A job cap must sit ABOVE every step cap it contains, which is the rule the 75 was written
+    # against and the one this line was silently breaking.
+    timeout-minutes: 90
     steps:
       - name: Checkout
         uses: actions/checkout@v4
