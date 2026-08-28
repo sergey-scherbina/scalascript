@@ -1,3 +1,2 @@
-# generation: 3054
+# generation: 3055
 #slug	agent	started	items	paths
-registry-version-autogen	claude-code	2026-08-28T14:12:45Z	registry-version-autogen	scripts/generate-registry-plugin-entries .github/workflows/native-release.yml registry/packages.yaml BUGS.md
