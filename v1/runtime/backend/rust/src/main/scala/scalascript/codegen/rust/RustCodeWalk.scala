@@ -1929,6 +1929,15 @@ object RustCodeWalk:
     case m.Term.Select(_, m.Term.Name(n)) => Some(n)
     case _                                => None
 
+  /** The bare ctor name off a TYPE — either spelling, bare (`Element`) or qualified
+   *  (`Markup.Element`). The type-level twin of `ctorNameOf` above, for a typed match-arm bind
+   *  (`case e: Markup.Element =>` / `case e: Element =>`); see `renderMatch`'s own use for why the
+   *  qualifier text itself is never trusted as the owning enum's name. */
+  private def ctorNameOfType(t: m.Type): Option[String] = t match
+    case m.Type.Name(n)                  => Some(n)
+    case m.Type.Select(_, m.Type.Name(n)) => Some(n)
+    case _                                => None
+
   private def sectionAllTraits(s: ast.Section): List[m.Defn.Trait] =
     s.content.flatMap(contentAllTraits) ++ s.subsections.flatMap(sectionAllTraits)
 
@@ -4612,7 +4621,7 @@ object RustCodeWalk:
     case m.Term.Select(qual, m.Term.Name(meth))
         if isKnownVecReceiver(qual, ctx) && !isStringExpr(qual) &&
            Set("nonEmpty", "isEmpty", "head", "last", "tail", "size", "length",
-               "reverse", "sorted", "distinct").contains(meth) =>
+               "reverse", "sorted", "distinct", "mkString").contains(meth) =>
       renderTerm(qual, ctx).map { q =>
         meth match
           case "nonEmpty" => s"!$q.is_empty()"
@@ -4626,6 +4635,13 @@ object RustCodeWalk:
           case "reverse"  => s"{ let mut __v = $q.clone(); __v.reverse(); __v }"
           case "sorted"   => s"{ let mut __v = $q.clone(); __v.sort(); __v }"
           case "distinct" => s"{ let mut __v = $q.clone(); __v.dedup(); __v }"
+          // `xs.mkString` — the same call `renderMkString` already lowers WITH parens, spelled
+          // WITHOUT them (Scala elides `()` on a niladic method); it arrives as a bare
+          // `Term.Select`, never a `Term.Apply`, so `renderMkString`'s own dispatch case never saw
+          // it (`uniml/xml`'s `Doc.scala`'s `parseMarkup`: `...map(_.lexeme).mkString`). `String`
+          // has a real `Vec<String>::join`, so this joins with the EMPTY separator — the same
+          // answer `renderMkString(qual, Nil, ctx)` gives a zero-arg call.
+          case "mkString" => s"($q).iter().map(|__e| format!(\"{}\", __e)).collect::<Vec<String>>().join(\"\")"
           case _          => s"($q.len() as i64)"   // size / length
       }
     // `digits.nonEmpty` where `digits` is a bare NAME known only through `ctx.localStrings`
@@ -5200,6 +5216,87 @@ object RustCodeWalk:
         body <- renderVecIterBody(args.values.head, q, ctx, method = "filter")
       yield body
 
+    // xs.takeWhile(pf) / xs.dropWhile(pf) on a Vec — same shape as `.filter` immediately above,
+    // just a different Rust iterator method (`uniml/xml`'s `Doc.scala`'s `projectMarkup`, where
+    // the predicate is written as a `case`-based PARTIAL FUNCTION, not a plain lambda — handled the
+    // same way `.filter`'s own PartialFunction arg already is, by `renderVecIterBody`'s fallback
+    // arm). Only for Vec expressions: `isRangeExpr`'s OWN `takeWhile`/`dropWhile` case (see its
+    // comment) covers the range/iterator-chain shape separately.
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(qual, m.Term.Name(tw @ ("takeWhile" | "dropWhile"))), args
+    ) if args.values.size == 1 && !isOptionExpr(qual, ctx) && !isRangeExpr(qual) =>
+      for
+        q <- renderTerm(qual, ctx)
+        body <- renderVecIterBody(args.values.head, q, ctx, method = tw)
+      yield body
+
+    // xs.sortBy(key) on a Vec — same dispatch shape as `.filter`/`.takeWhile` above.
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(qual, m.Term.Name("sortBy")), args
+    ) if args.values.size == 1 && !isOptionExpr(qual, ctx) && !isRangeExpr(qual) =>
+      for
+        q <- renderTerm(qual, ctx)
+        body <- renderVecIterBody(args.values.head, q, ctx, method = "sortBy")
+      yield body
+
+    // xs.flatMap(f) on a Vec, where `f` is an OBJECT-QUALIFIED FUNCTION REFERENCE (eta-expansion,
+    // no call) — `uniml/xml`'s `Doc.scala`'s `unresolvedReferences`: `result.roots.flatMap(UniNode.
+    // sourceTokens)`. `UniNode` here names a MODULE, not a receiver VALUE: this backend renders an
+    // `object`'s members as plain top-level Rust functions (`qualifiedMemberName` — bare name
+    // unless it collides with another object's member of the same name), so there is no `.method()`
+    // to call the generic method-reference path (`renderVecIterBody`'s own, built for an actual
+    // receiver) would try to emit. Distinguished from a real receiver by Scala's own naming
+    // convention this corpus follows throughout (an object name is capitalised; a local/param
+    // never is) — the safest signal available without a full symbol table.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("flatMap")), args)
+        if args.values.sizeIs == 1 && isKnownVecReceiver(qual, ctx) =>
+      val argFn = args.values.head match
+        case m.Term.Select(m.Term.Name(obj), m.Term.Name(meth))
+            if obj.headOption.exists(_.isUpper) && !ctx.paramTypes.contains(obj) =>
+          Right(s"|__x| ${qualifiedMemberName(obj, meth)}(__x)")
+        case other => renderTerm(other, ctx)
+      for
+        q <- renderTerm(qual, ctx)
+        f <- argFn
+      yield s"$q.iter().cloned().flat_map($f).collect::<Vec<_>>()"
+
+    // xs.collect { case p if g => body; ... } — Scala's filter+map in one. Rust's `Iterator` has
+    // no equivalent of its own (`.collect()` on a Rust iterator is the SINK that builds a
+    // collection, an entirely different operation); `filter_map` is the direct translation, one
+    // arm at a time: a matching case's BODY becomes `Some(body)`, and a trailing `_ => None` arm
+    // covers whatever nothing else matched — `collect` is BY DEFINITION partial, so the source
+    // pattern set is almost never exhaustive on its own (`uniml/xml`'s `Doc.scala`'s
+    // `unresolvedReferences`). This does NOT reuse the general `pf: Term.PartialFunction` case a
+    // few hundred lines down: that one renders arm bodies AS-IS (right for `.map`/`.filter`, where
+    // the body already IS the result), and wrapping every arm here in `Some(...)` needs its own
+    // pass.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("collect")), args)
+        if args.values.sizeIs == 1 && (isKnownVecReceiver(qual, ctx) || isRangeExpr(qual)) =>
+      args.values.head match
+        case pf: m.Term.PartialFunction =>
+          val arms = pf.cases.map { c =>
+            val bodyCtx = enteringClosure(ctx, patBoundNames(c.pat) + "__c")
+            for
+              pat   <- renderPattern(c.pat, ctx)
+              guard <- c.cond match
+                         case Some(g) => renderTerm(g, bodyCtx).map(gr => s" if $gr")
+                         case None    => Right("")
+              bod   <- renderTerm(c.body, bodyCtx)
+            yield s"$pat$guard => Some($bod),"
+          }
+          val (errs, ok) = arms.partitionMap(identity)
+          if errs.nonEmpty then Left(errs.flatten)
+          else
+            renderTerm(qual, ctx).map { q =>
+              val arm = s"move |__c| match __c {\n${indent((ok :+ "_ => None,").mkString("\n"))}\n}"
+              s"$q.iter().cloned().filter_map($arm).collect::<Vec<_>>()"
+            }
+        case _ =>
+          Left(List(unsupported(
+            s"def `${ctx.defName}` calls `collect` with an argument that is not a `case`-based " +
+            s"partial function — only that form is lowered"
+          )))
+
     // Range chains: map on range/iterator → q.map(f)
     case m.Term.Apply.After_4_6_0(
         m.Term.Select(qual, m.Term.Name("map")),
@@ -5219,6 +5316,25 @@ object RustCodeWalk:
         case None => Left(List(unsupported(
           s"def `${ctx.defName}`: _tupleConcat args must be tuple literals for Rust backend"
         )))
+
+    // `expr.isInstanceOf[T]` — a Scala type test, lowered to Rust's `matches!` macro against a
+    // KNOWN ENUM VARIANT's tag (`e.children.exists(_.isInstanceOf[Markup.Element])`, `uniml/xml`'s
+    // `Doc.scala`'s `serializeNode`). No case existed here at all before; every user-code
+    // `isInstanceOf` refused outright. `ctorNameOfType` accepts either spelling (bare or
+    // object-qualified — see its own comment); a standalone struct (`isStruct`, no polymorphism to
+    // test) or an unknown type name still refuses, since there is no tag to match on.
+    case m.Term.ApplyType.After_4_6_0(m.Term.Select(qual, m.Term.Name("isInstanceOf")), argClause)
+        if argClause.values.sizeIs == 1 =>
+      val ty = argClause.values.head
+      ctorNameOfType(ty) match
+        case Some(ctorName) if ctx.ctorMap.get(ctorName).exists(!_.isStruct) =>
+          val ec  = ctx.ctorMap(ctorName)
+          val pat = if ec.fieldNames.isEmpty then s"${ec.enumName}::$ctorName" else s"${ec.enumName}::$ctorName { .. }"
+          renderTerm(qual, ctx).map(q => s"matches!($q, $pat)")
+        case _ =>
+          Left(List(unsupported(
+            s"def `${ctx.defName}` has an unsupported `isInstanceOf` type test: ${ty.syntax}"
+          )))
 
     // `summon[Trait[A]]` → resolve to the matching given-instance binding.
     // We resolve by the OUTER trait name (e.g. `Monoid` from `Monoid[Int]`).
@@ -6914,6 +7030,10 @@ object RustCodeWalk:
           // `&String == String` and did not compile (std/ui/form.ssc). A fix that lands on one of a
           // pair and not the other is how this stayed broken while `find` worked.
           case "filter"   => s"$q.iter().cloned().filter(|__f| { let $p0 = __f.clone(); $b }).collect::<Vec<_>>()"
+          // `takeWhile`/`dropWhile` receive the predicate a REFERENCE too, same as `filter` above —
+          // `Iterator::take_while`/`skip_while` have the identical signature shape.
+          case "takeWhile" => s"$q.iter().cloned().take_while(|__f| { let $p0 = __f.clone(); $b }).collect::<Vec<_>>()"
+          case "dropWhile" => s"$q.iter().cloned().skip_while(|__f| { let $p0 = __f.clone(); $b }).collect::<Vec<_>>()"
           case "foldLeft" => s"$q.iter().cloned().fold(${zero.getOrElse("0")}, |$p0, $p1| { $b })"
           case other      => s"$q.$other(|$p0| { $b })"
       }
@@ -6959,7 +7079,9 @@ object RustCodeWalk:
           case "find"     => s"$q.iter().cloned().find(|$findParam| ($closure)($findArg))"
           case "exists"   => s"$q.iter().cloned().any($closure)"
           case "forall"   => s"$q.iter().cloned().all($closure)"
-          case "filter"   => s"$q.iter().cloned().filter($closure).collect::<Vec<_>>()"
+          case "filter"    => s"$q.iter().cloned().filter($closure).collect::<Vec<_>>()"
+          case "takeWhile" => s"$q.iter().cloned().take_while($closure).collect::<Vec<_>>()"
+          case "dropWhile" => s"$q.iter().cloned().skip_while($closure).collect::<Vec<_>>()"
           case "foldLeft" => s"$q.iter().cloned().fold(${zero.getOrElse("0")}, $closure)"
           case other2     => s"$q.$other2($closure)"
       }
@@ -6991,7 +7113,15 @@ object RustCodeWalk:
         case "find"     => s"$q.iter().cloned().find(|__f| ($f)(__f.clone()))"
         case "exists"   => s"$q.iter().cloned().any($f)"
         case "forall"   => s"$q.iter().cloned().all($f)"
-        case "filter"   => s"$q.iter().cloned().filter($f).collect::<Vec<_>>()"
+        case "filter"    => s"$q.iter().cloned().filter($f).collect::<Vec<_>>()"
+        case "takeWhile" => s"$q.iter().cloned().take_while($f).collect::<Vec<_>>()"
+        case "dropWhile" => s"$q.iter().cloned().skip_while($f).collect::<Vec<_>>()"
+        // `.sortBy(key)` — sorts a CLONE of the receiver in place by the key function's result
+        // (`uniml/xml`'s `Doc.scala`'s `parseMarkup`: `...flatMap(...).sortBy(_.id)`), same
+        // clone-then-mutate shape `.sorted`/`.distinct` two cases below this whole match's OTHER
+        // dispatch site already use, for the same reason (a self-reassignment like `xs =
+        // xs.sortBy(...)` would otherwise try to sort a MOVED-FROM `xs`).
+        case "sortBy"   => s"{ let mut __v = ($q).clone(); __v.sort_by_key($f); __v }"
         case "foldLeft" => s"$q.iter().cloned().fold(${zero.getOrElse("0")}, $f)"
         case other2     => s"$q.$other2($f)"
       )
@@ -7021,7 +7151,9 @@ object RustCodeWalk:
       Right(method match
         case "foreach"  => s"$q.iter().cloned().for_each($closure);"
         case "map"      => s"$q.iter().cloned().map($closure).collect::<Vec<_>>()"
-        case "filter"   => s"$q.iter().cloned().filter($closure).collect::<Vec<_>>()"
+        case "filter"    => s"$q.iter().cloned().filter($closure).collect::<Vec<_>>()"
+        case "takeWhile" => s"$q.iter().cloned().take_while($closure).collect::<Vec<_>>()"
+        case "dropWhile" => s"$q.iter().cloned().skip_while($closure).collect::<Vec<_>>()"
         case "foldLeft" => s"$q.iter().cloned().fold(${zero.getOrElse("0")}, $closure)"
         case other2     => s"$q.$other2($closure)")
 
@@ -7030,7 +7162,9 @@ object RustCodeWalk:
       renderTerm(other, ctx).map(f => method match
         case "foreach"  => s"$q.iter().cloned().for_each($f);"
         case "map"      => s"$q.iter().cloned().map($f).collect::<Vec<_>>()"
-        case "filter"   => s"$q.iter().cloned().filter($f).collect::<Vec<_>>()"
+        case "filter"    => s"$q.iter().cloned().filter($f).collect::<Vec<_>>()"
+        case "takeWhile" => s"$q.iter().cloned().take_while($f).collect::<Vec<_>>()"
+        case "dropWhile" => s"$q.iter().cloned().skip_while($f).collect::<Vec<_>>()"
         case "foldLeft" => s"$q.iter().cloned().fold(${zero.getOrElse("0")}, $f)"
         case other2     => s"$q.$other2($f)"
       )
@@ -7851,16 +7985,36 @@ object RustCodeWalk:
       // (see its own comment) — only here the qualified type comes from a MATCH ARM's binder, not
       // a signature, so it is threaded into the ARM BODY's own Ctx rather than the def's.
       val bodyCtx = c.pat match
-        case m.Pat.Typed(m.Pat.Var(m.Term.Name(n)), m.Type.Select(m.Term.Name(enumName), m.Type.Name(ctorName)))
-            if ctx.ctorMap.get(ctorName).exists(_.fieldNames.nonEmpty) =>
+        // `case e: Markup.Element =>` (qualified) / `case e: Element =>` (bare) — the ENUM name
+        // used for `ctx.paramTypes`/`byRefMut` is the ctor's OWN registered owner (`ec.enumName`,
+        // e.g. `Node`), never trusted from a QUALIFIED pattern's qualifier text the way this case
+        // used to: `uniml/xml`'s `Doc.scala` writes `Markup.Element`, where `Markup` is the
+        // enclosing OBJECT, not the trait `Node` that `Element` actually extends — trusting
+        // "Markup" here sent every later `ctx.paramTypes`-keyed lookup to a name that is never in
+        // any of those tables. The BARE spelling had no case here at all before (only the
+        // qualified one did), so it never registered anything either.
+        //
+        // Also merges the bound name into `ctx.seqFields`/`ctx.mapFields` from the ctor's own
+        // known field types (`e.children` on `Markup.Element`'s `children: List[Node]` field) — a
+        // typed match-arm bind had never populated those tables before, so `e.children.isEmpty`
+        // fell to the by-name-only "collection member" refusal, unable to tell a `List` field from
+        // anything else.
+        case m.Pat.Typed(m.Pat.Var(m.Term.Name(n)), ty)
+            if ctorNameOfType(ty).flatMap(ctx.ctorMap.get).exists(_.fieldNames.nonEmpty) =>
+          val ctorName = ctorNameOfType(ty).get
+          val ec = ctx.ctorMap(ctorName)
+          val vecFields = ec.fieldNames.zip(ec.fieldTypes).collect { case (f, t) if t.startsWith("Vec<") => f }.toSet
+          val hmapFields = ec.fieldNames.zip(ec.fieldTypes).collect { case (f, t) if t.startsWith("std::collections::HashMap<") => f }.toSet
           ctx.copy(
-            paramTypes             = ctx.paramTypes + (n -> enumName),
+            paramTypes             = ctx.paramTypes + (n -> ec.enumName),
             destructuredCtorNames  = ctx.destructuredCtorNames + (n -> ctorName),
             // `renderPattern`'s twin case renders this pattern with `ref $n @ …` — a BORROW, not a
             // move — so `n` is `&Enum` here, and every read (`.clone()` above all — see that arm's
             // own comment) needs the SAME deref-on-read `ctx.byRefMut` already gives a lifted def's
             // captured `&mut` parameter, just non-mut.
-            byRefMut                = ctx.byRefMut + n
+            byRefMut                = ctx.byRefMut + n,
+            seqFields               = if vecFields.isEmpty then ctx.seqFields else ctx.seqFields + (n -> vecFields),
+            mapFields               = if hmapFields.isEmpty then ctx.mapFields else ctx.mapFields + (n -> hmapFields)
           )
         // `case Some(problem) => … problem.copy(…) …` (`TreeVm.scala`'s `step`) — `problem`'s type
         // is nowhere in this pattern's own syntax (unlike the `Typed` case above), only in the

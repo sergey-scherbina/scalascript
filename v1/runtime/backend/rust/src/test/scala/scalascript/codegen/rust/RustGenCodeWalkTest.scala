@@ -355,3 +355,97 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(g.contains("(n) << (10i64)") || g.contains("n << 10i64") || g.contains("<<"),
       s"`<<` did not lower:\n$g")
     assert(g.contains("|"), s"pattern alternative did not lower:\n$g")
+
+  test("a typed match-arm bind (`case e: Element =>`, BARE spelling) knows its own List fields"):
+    // `case e: Element =>` (unqualified — the QUALIFIED spelling, `case e: Wrap.Element =>`,
+    // already worked via a separate field-DESTRUCTURING mechanism that binds `children` directly
+    // and never reads `e.children` at all) never populated `ctx.seqFields` for the bound name `e`
+    // before this fix, so `e.children.isEmpty` (`Element.children: List[Node]`) fell to the
+    // by-name-only "collection member" refusal — the typed bind's OWN ctor is known (`ctorMap`),
+    // it just never got threaded through.
+    val src =
+      """```scalascript
+        |sealed trait Node
+        |case class Element(children: List[Node]) extends Node
+        |case class Text(chars: String) extends Node
+        |
+        |def render(n: Node): String =
+        |  n match
+        |    case e: Element => if e.children.isEmpty then "<empty/>" else "<full/>"
+        |    case Text(chars) => chars
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("e.children.is_empty()") || g.contains("children.is_empty()"),
+      s"typed-bind field isEmpty did not lower:\n$g")
+
+  test("`.isInstanceOf[T]` lowers to Rust's `matches!` against a known enum variant"):
+    val src =
+      """```scalascript
+        |sealed trait Node
+        |case class Element(children: List[Node]) extends Node
+        |case class Text(chars: String) extends Node
+        |
+        |def hasElementChild(children: List[Node]): Boolean =
+        |  children.exists(_.isInstanceOf[Element])
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("matches!(") && g.contains("Node::Element"), s"isInstanceOf did not lower:\n$g")
+
+  test("`.mkString` without parens on a Vec chain lowers"):
+    val src =
+      """```scalascript
+        |def joined(xs: List[String]): String = xs.map(s => s).mkString
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".join(\"\")"), s"no-paren mkString did not lower:\n$g")
+
+  test("`.collect { case p if g => body }` lowers to `filter_map`"):
+    val src =
+      """```scalascript
+        |case class Item(name: String, ok: Boolean)
+        |def bad(items: List[Item]): List[String] =
+        |  items.collect { case i if !i.ok => i.name }
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("filter_map") && g.contains("Some(") && g.contains("_ => None"),
+      s"collect(pf) did not lower:\n$g")
+
+  test("`.takeWhile { case ... }` (partial function) lowers to `take_while`"):
+    val src =
+      """```scalascript
+        |def prefix(xs: List[Long]): List[Long] =
+        |  xs.takeWhile {
+        |    case n if n > 0 => true
+        |    case _          => false
+        |  }
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("take_while"), s"takeWhile(pf) did not lower:\n$g")
+
+  test("`.sortBy(_.field)` lowers to `sort_by_key`"):
+    val src =
+      """```scalascript
+        |case class Item(id: Long)
+        |def ordered(xs: List[Item]): List[Item] = xs.sortBy(_.id)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("sort_by_key"), s"sortBy did not lower:\n$g")
+
+  test("`.flatMap(Obj.member)` — an object-qualified function reference — lowers"):
+    val src =
+      """```scalascript
+        |object Helper:
+        |  def dup(n: Long): List[Long] = List(n, n)
+        |
+        |def widen(xs: List[Long]): List[Long] = xs.flatMap(Helper.dup)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("flat_map"), s"flatMap(Obj.member) did not lower:\n$g")
+    assert(g.contains("dup("), s"the eta-expanded reference did not resolve to a call:\n$g")
