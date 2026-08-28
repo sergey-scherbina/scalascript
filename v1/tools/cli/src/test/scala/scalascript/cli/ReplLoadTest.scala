@@ -106,6 +106,42 @@ class ReplLoadTest extends AnyFunSuite:
     assert(Routes.matchRequest("POST", "/a").isEmpty,
       "POST /a should have been removed by second :load")
 
+  // `:load` reuses the SAME long-lived interpreter across calls (so REPL globals survive), unlike
+  // `run`/`emit`/`debug`/`:mount file.ssc`, which each build a fresh Interpreter(baseDir =
+  // Some(file/up)). That reuse meant a loaded file's OWN relative imports resolved against
+  // whatever directory the REPL happened to be LAUNCHED from — never against the file being
+  // loaded — the moment those two directories differ. Reproduced before the fix: `:load` a file
+  // in its own temp directory, importing a sibling file by a `./`-relative path; the sbt test
+  // runner's cwd is never that temp directory, so the old code failed every time, unconditionally.
+  test(":load — a file's own relative import resolves against ITS directory, not the REPL's launch dir"):
+    Routes.clear()
+    val interp = makeInterp()
+    val tmpDir = Files.createTempDirectory("repl-load-import-test")
+    Files.writeString(tmpDir.resolve("input.ssc"),
+      """|# input
+         |
+         |```scala
+         |def helper(): Int = 42
+         |```
+         |""".stripMargin)
+    val demo = tmpDir.resolve("demo.ssc")
+    Files.writeString(demo,
+      """|# demo
+         |
+         |[helper](./input.ssc)
+         |
+         |```scala
+         |route("GET", "/x") { _ => helper().toString }
+         |```
+         |""".stripMargin)
+    replHandleLoad(s":load ${demo.toAbsolutePath}", interp)
+    // A failed import throws INSIDE interp.run, before the route() call below it ever executes —
+    // so an unresolved import and a registered-route count of zero are the same observable fact
+    // `:load — non-existent file` already checks for a missing file.
+    assert(Routes.all.size == 1,
+      s"expected the route after helper() to register (import resolved), got ${Routes.all.size}")
+    assert(Routes.matchRequest("GET", "/x").isDefined)
+
   test(":load — non-existent file prints error, no route registered"):
     Routes.clear()
     val interp = makeInterp()

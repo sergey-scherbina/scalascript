@@ -812,7 +812,7 @@ private[interpreter] object StatRuntime:
    *  a reference that does not resolve to an existing std module stays a no-op, so
    *  ordinary Scala imports (`import scala.collection.*`) are unaffected. */
   private[interpreter] def runDottedModuleImports(imp: Import, interp: Interpreter): Unit =
-    val base = interp.baseDir.getOrElse(os.pwd)
+    val base = interp.effectiveBaseDir.getOrElse(os.pwd)
     def resolves(p: String): Boolean =
       try os.exists(scalascript.imports.ImportResolver.resolve(p, base, interp.moduleDeps, interp.lockPath))
       catch case _: Throwable => false

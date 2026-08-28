@@ -378,7 +378,7 @@ private[interpreter] object SectionRuntime:
 
   def runImport(imp: Content.Import, interp: Interpreter): Unit =
     import scalascript.parser.Parser
-    val base = interp.baseDir.getOrElse(os.pwd)
+    val base = interp.effectiveBaseDir.getOrElse(os.pwd)
     val resolvedPath =
       try scalascript.imports.ImportResolver.resolve(imp.path, base, interp.moduleDeps, interp.lockPath)
       catch case e: Throwable => throw InterpretError(s"Import ${imp.path}: ${e.getMessage}")

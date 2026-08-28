@@ -300,6 +300,12 @@ def replHandleLoad(cmd: String, interp: Interpreter): Unit =
   Routes.removeBySource(absPath)
   // Tag all route() calls inside with source + style="load"
   interp.setLoadingFile(Some(absPath))
+  // Resolve the file's OWN relative imports (`[x](./y.ssc)`, `import std.*`) against its own
+  // directory, not wherever the REPL happened to be launched from — the interpreter is long-lived
+  // and reused across loads, so its constructor `baseDir` cannot already be this. See
+  // `Interpreter.loadBaseDirOverride`'s comment: `:load subdir/demo.ssc` threw
+  // `Import not found: ./input.ssc` for a file that existed right beside demo.ssc before this.
+  interp.setLoadBaseDir(Some(os.Path(absPath) / os.up))
   try
     val contents = scala.io.Source.fromFile(absPath).mkString
     // Use run() rather than runSections() so that builtins and plugin
@@ -312,6 +318,7 @@ def replHandleLoad(cmd: String, interp: Interpreter): Unit =
       System.err.println(s"Error loading $file: ${e.getMessage}")
   finally
     interp.setLoadingFile(None)
+    interp.setLoadBaseDir(None)
   // Print registered routes from this file
   val registered = Routes.all.filter(_.source.contains(absPath))
   if registered.isEmpty then

@@ -374,6 +374,30 @@ class Interpreter(
   /** Set the `:load`-source hint so that `route()` calls inside the file
    *  record their origin file.  Call with `None` after the load completes. */
   def setLoadingFile(path: Option[String]): Unit = currentLoadingFile = path
+
+  // Phase 5 REPL, same shape as `currentLoadingFile` beside it and for the same reason: `:load`
+  // re-runs a file in the SAME long-lived interpreter instance (`ReplCommands.replHandleLoad`'s own
+  // doc: "so that all its globals and plugins are available") rather than a fresh child, so the
+  // constructor's `baseDir` — fixed at REPL STARTUP to wherever the shell happened to be — cannot
+  // reflect the loaded file's own directory. Every OTHER file-running command (`run`, `emit`,
+  // `debug`, `lock`, `:mount file.ssc`) constructs baseDir = Some(file / up); this is the one path
+  // that reuses an interpreter and therefore needed a settable override instead.
+  //
+  // MEASURED: `:load subdir/demo.ssc`, where demo.ssc imports `./input.ssc` sitting right beside
+  // it, failed with `Import not found: ./input.ssc` before this existed — the import resolved
+  // against the REPL's own launch directory, not demo.ssc's, and diverges from it as soon as they
+  // are not the same directory.
+  private[interpreter] var loadBaseDirOverride: Option[os.Path] = None
+
+  /** Set/clear the `:load`-scoped base-directory override. `effectiveBaseDir` prefers this over
+   *  the constructor's `baseDir`, so a file loaded into a long-lived interpreter resolves its own
+   *  relative imports against ITS directory rather than wherever the interpreter was created. */
+  def setLoadBaseDir(path: Option[os.Path]): Unit = loadBaseDirOverride = path
+
+  /** What `runImport`/`runDottedModuleImports` resolve relative imports against: the `:load`
+   *  override when one is active, else the constructor's `baseDir`. Both fall back to `os.pwd`
+   *  at the call site, unchanged — this only widens WHICH directory "the interpreter's own" means. */
+  private[interpreter] def effectiveBaseDir: Option[os.Path] = loadBaseDirOverride.orElse(baseDir)
   // Phase 2 DAP: debug hooks; None means no-op (normal run).
   private[interpreter] var debugHooks: Option[scalascript.interpreter.debug.DebugHooks] = None
   // Phase 2 DAP: document-level line offset of the current code block.
@@ -1532,7 +1556,7 @@ class Interpreter(
           .map(_.storageName)
           .getOrElse(fieldName)
       override def baseDirPath: Option[String] =
-        Interpreter.this.baseDir.map(_.toString)
+        Interpreter.this.effectiveBaseDir.map(_.toString)
       override def evalFileGetResult(absPath: String): Any =
         import scalascript.parser.Parser
         val path     = os.Path(absPath)
