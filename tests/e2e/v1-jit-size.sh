@@ -265,10 +265,23 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # rode along with it (`isOptionExpr`'s missing `Term.If` case, `withTupleStringLocals`). Verified
 # against a REAL `cargo build`, not just `--print-only` — this is the milestone that made the
 # 3 remaining `--print-only` diagnostics on `uniml/xml` go to 0. Same terms as both entries above.
+#
+# renderTerm 28756 -> 29696 (+940), from the FIRST round of REAL-`cargo-build`-driven fixes on
+# uniml/xml (55 -> 0 `--print-only` diagnostics does not mean 0 `cargo build` errors — this corpus
+# started that gate at 157): the `.startsWith(prefix, toffset)` two-arg overload, `StringBuilder` as
+# a PARAMETER type (not just a local), qualified `Markup.X(...)` CONSTRUCTION sharing the pattern
+# side's enum-name-from-qualifier-text bug, a chained `.append(a).append(b)` (flattened into one
+# statement sequence — `String::push`/`push_str` return `()`, not the receiver), a default-argument
+# fill for a bare self-method call, enum-variant field reads/`.copy` on a value never bound through
+# a `match` arm (`document.root`, a plain parameter), `Either`'s `.left` projection, `.getMessage`
+# on a reconstructed exception value, and an owner-qualified return-type table (`_ownedReturnTypes`)
+# for a qualified call whose bare name collides with several unrelated defs. Same terms as every
+# entry above — measured against `cargo build`, not shrunk back via extraction. 83 errors remain,
+# next round not yet started.
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-28756 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+29696 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

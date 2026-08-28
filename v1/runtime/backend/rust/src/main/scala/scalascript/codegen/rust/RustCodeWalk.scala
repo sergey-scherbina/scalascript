@@ -389,6 +389,14 @@ object RustCodeWalk:
     _returnTypes =
       (defReturnPairs ++ dispatchReturnPairs).groupMapReduce(_._1)(p => Set(p._2))(_ ++ _)
         .map { case (n, ts) => n -> (if ts.sizeIs == 1 then ts.head else "") }
+    // See `_ownedReturnTypes`'s own comment for why the bare-name table above cannot answer for a
+    // QUALIFIED call: no collision-collapsing needed here at all, since (owner, member) already
+    // disambiguates the way bare `name` alone cannot.
+    _ownedReturnTypes = defs.flatMap { d =>
+      _defOwners.get(d.pos.start).map { owner =>
+        (owner, d.name.value) -> d.decltpe.flatMap(ty => mapType(ty, d.name.value, userTypeNames).toOption).getOrElse("")
+      }
+    }.toMap
 
     // topVals must be collected after ctorMap so enum ctors are resolved correctly.
     // Given instances are injected as `let name = StructName;` bindings.
@@ -1339,6 +1347,17 @@ object RustCodeWalk:
 
   private var _paramTypes: Map[String, List[String]] = Map.empty
   private var _returnTypes: Map[String, String] = Map.empty
+
+  /** `(ownerName, memberName) -> mapped Rust return type` — the OWNER-QUALIFIED twin of
+   *  `_returnTypes` above, for a call whose CALLEE is itself qualified (`PureMarkupCodec.
+   *  parse(source)`, `uniml/xml`'s `Doc.scala`). `_returnTypes` is bare-name-keyed and collision-
+   *  safe (collapses to "no opinion" when more than one def shares a name) — the right answer for
+   *  an UNQUALIFIED call, but useless for `parse` specifically: this corpus alone has FOUR distinct
+   *  `def parse(...)`s (`MarkupCodec`'s abstract one, `PureMarkupCodec`'s override, `Xml.parse`,
+   *  `UniML.parse`), each with a different return type, so the bare table collapses to "" for the
+   *  name and a QUALIFIED caller has no way to ask "which one, specifically". Read by
+   *  `isEitherExpr`'s/`isOptionExpr`'s own qualified-call cases. */
+  private var _ownedReturnTypes: Map[(String, String), String] = Map.empty
   /** Extension member name -> (receiver param name, its declared type). Both halves of the lowering
    *  read it: the DEFINITION prepends the receiver to its parameter list, and a CALL `x.m(a)`
    *  becomes `m(x, a)`. (rust-extension-members-are-refused.) */
@@ -2085,6 +2104,39 @@ object RustCodeWalk:
     case m.Type.Select(_, m.Type.Name(n)) => Some(n)
     case _                                => None
 
+  /** The ctor/struct name of an EXPRESSION's static type, walking a field-projection chain —
+   *  `element.name.copy(...)` (`uniml/xml`'s `Doc.scala`'s `resolveElement`) needs `element.name`'s
+   *  type (`QName`), not just `element`'s own (`Element`), and `ctx.paramCtorNames` alone only
+   *  ever answers for a bare NAME. The base resolves via `paramCtorNames` exactly as a bare
+   *  receiver already does; each further `.field` step looks up that field's DECLARED Rust type in
+   *  the base's own `ctorMap` entry (`fieldTypes`, positional with `fieldNames`) and continues from
+   *  there — a plain struct/enum type name IS a `ctorMap` key, so this needs no separate table. */
+  /** The ctor/struct name of an `Either[L, R]`-typed expression's Left or Right side, read from
+   *  the RAW Scala type AST (never `_returnTypes`/`mapType`'s output — see the `renderMatch`
+   *  `Left`/`Right` bodyCtx case's own comment for why that source is wrong here: it collapses a
+   *  variant type argument to its owning enum). Only resolves a bare-name call's DECLARED return
+   *  type, the one shape this corpus's own `.left.map`/match-arm-typing call sites need. */
+  private def eitherSideCtorName(qual: m.Term, side: String, ctx: Ctx): Option[String] = qual match
+    case m.Term.Apply.After_4_6_0(m.Term.Name(fn), _) =>
+      _defBodies.get(fn).flatMap(_.decltpe).collect {
+        case m.Type.Apply.After_4_6_0(m.Type.Name("Either"), argT) if argT.values.sizeIs == 2 =>
+          if side == "left" then argT.values.head else argT.values(1)
+      }.flatMap(ctorNameOfType).filter(sn => ctx.ctorMap.contains(sn))
+    case _ => None
+
+  private def ctorNameOfExpr(t: m.Term, ctx: Ctx): Option[String] = t match
+    case m.Term.Name(n) => ctx.paramCtorNames.get(n)
+    case m.Term.Select(qual, m.Term.Name(field)) =>
+      for
+        qualCtor  <- ctorNameOfExpr(qual, ctx)
+        ec        <- ctx.ctorMap.get(qualCtor)
+        idx       =  ec.fieldNames.indexOf(field)
+        if idx >= 0
+        fieldType <- ec.fieldTypes.lift(idx)
+        if ctx.ctorMap.contains(fieldType)
+      yield fieldType
+    case _ => None
+
   private def sectionAllTraits(s: ast.Section): List[m.Defn.Trait] =
     s.content.flatMap(contentAllTraits) ++ s.subsections.flatMap(sectionAllTraits)
 
@@ -2815,6 +2867,14 @@ object RustCodeWalk:
       // Seeded with `stringParams` so a chain rooted in one (`value.drop(2).takeWhile(…)`) is
       // recognised too — see `collectLocalStrings`'s own comment.
       val lstrings = collectLocalStrings(d.body, stringParams) ++ stringParams ++ _moduleStrings
+      // Params DECLARED `StringBuilder` (`serializeNode(node, sb: StringBuilder, opts, depth)`,
+      // `uniml/xml`'s `Doc.scala`) — the parameter-side twin of `mapType`'s own new case for the
+      // bare type name: without this, `sb.append(...)` inside the BODY had no way to know `sb`
+      // was one (`collectLocalStringBuilders` only ever scanned local `val`/`var` bindings, never
+      // a def's own parameter list).
+      val stringBuilderParams = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
+        .collect { case p if p.decltpe.exists { case m.Type.Name("StringBuilder") => true; case _ => false } => p.name.value }
+        .toSet
       // Params declared `Any` hold a `crate::value::Value`. Read off the signature — the boundary
       // never guesses.
       val anyParams = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
@@ -2842,7 +2902,7 @@ object RustCodeWalk:
         }.toMap
       val ctx     = Ctx(intrinsics, userDefs, ctorMap, topVals, name, effectfulDefs, lseqs ++ paramSeqs ++ selfSeqFields, larrays, lstrings,
                         localSscChars = collectLocalSscChars(d.body),
-                        localStringBuilders = collectLocalStringBuilders(d.body),
+                        localStringBuilders = collectLocalStringBuilders(d.body) ++ stringBuilderParams,
                         localSets = collectLocalSets(d.body),
                         mapFields = collectMapFields(d, ctorMap),
                         seqFields = seqFieldsForDef,
@@ -3774,6 +3834,13 @@ object RustCodeWalk:
     case m.Type.Name("Double")  => Right("f64")
     case m.Type.Name("Float")   => Right("f64")
     case m.Type.Name("String")  => Right("String")
+    // `sb: StringBuilder` as a PARAMETER type (`uniml/xml`'s `Doc.scala`'s `serializeNode(node,
+    // sb: StringBuilder, opts, depth)`) — a Rust `String` already IS one (the constructor/`.append`
+    // cases elsewhere in this file say why), but `mapType` itself had no case for the bare type
+    // NAME at all, only for the CONSTRUCTOR expression — a StringBuilder-typed param fell through
+    // to `mapType`'s unknown-name `i64` default, and `sb.append(...)` then read as `.append` on an
+    // `i64` (`error[E0599]`), invisible to `--print-only` since the signature itself still "typed".
+    case m.Type.Name("StringBuilder") => Right("String")
     // std/ui opaque types map to their Rust runtime representations.
     case m.Type.Name("View")         => Right("crate::runtime::ui::View")
     case m.Type.Name("EventHandler") => Right("crate::value::Value")
@@ -4507,9 +4574,13 @@ object RustCodeWalk:
 
     // `sb.append(x)` on a known StringBuilder — `String::push_str(&str)` for a String-shaped `x`,
     // `String::push(char)` for a char-shaped one. Scala's `.append` is overloaded on the JVM side
-    // (`AnyRef`/`Char`/…) and returns the builder for chaining; nothing in this corpus chains
-    // (`sb.append(a).append(b)`), so the RETURN VALUE is dropped and this renders as a bare
-    // mutating statement, matching what `String::push`/`push_str` already return (`()`).
+    // (`AnyRef`/`Char`/…) and returns the builder for chaining — `sb.append('<').append(e.name.
+    // toXml)` (`uniml/xml`'s `Doc.scala`'s `serializeNode`) — and `String::push`/`push_str` return
+    // `()`, not the receiver, so a chain rendered as NESTED single expressions does not compile
+    // past the first link (`error[E0599]: no method named append found for unit type ()`). Every
+    // chain in this corpus is used as a bare STATEMENT (the final `Unit` result always discarded),
+    // so this flattens the WHOLE chain — walked via `isKnownStringBuilder`'s own matching case —
+    // into one `{ push; push_str; … }` sequence rather than nesting.
     //
     // The char case needs an EXPLICIT conversion, not a bare cast: `x` is either a `Lit.Char`
     // (already rendered by `renderTerm`'s own case as its i64 CODE POINT, `renderTerm`'s `Lit.Char`
@@ -4519,15 +4590,26 @@ object RustCodeWalk:
     // (theoretically impossible here, since every source is itself a valid `char`) invalid point.
     case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("append")), args)
         if isKnownStringBuilder(qual, ctx) && args.values.size == 1 =>
-      val arg = args.values.head
+      def flattenAppends(t: m.Term): (m.Term, List[m.Term]) = t match
+        case m.Term.Apply.After_4_6_0(m.Term.Select(inner, m.Term.Name("append")), innerArgs)
+            if innerArgs.values.sizeIs == 1 && isKnownStringBuilder(inner, ctx) =>
+          val (base, priorArgs) = flattenAppends(inner)
+          (base, priorArgs :+ innerArgs.values.head)
+        case _ => (t, Nil)
+      val (base, priorArgs) = flattenAppends(qual)
+      val allArgs = priorArgs :+ args.values.head
+      def pushStmt(q: String, arg: m.Term): Either[List[Diagnostic], String] =
+        renderTerm(arg, ctx).map { a =>
+          if arg.isInstanceOf[m.Lit.Char] || yieldsSscChar(arg, ctx) then
+            s"$q.push(char::from_u32(($a) as u32).unwrap_or('\\u{FFFD}'));"
+          else s"$q.push_str(&(${cloneIfMoved(arg, a, ctx)}));"
+        }
       for
-        q <- renderTerm(qual, ctx)
-        a <- renderTerm(arg, ctx)
-      yield
-        if isStringExpr(arg) then s"$q.push_str(&(${cloneIfMoved(arg, a, ctx)}))"
-        else if arg.isInstanceOf[m.Lit.Char] || yieldsSscChar(arg, ctx) then
-          s"$q.push(char::from_u32(($a) as u32).unwrap_or('\\u{FFFD}'))"
-        else s"$q.push_str(&(${cloneIfMoved(arg, a, ctx)}))"
+        q     <- renderTerm(base, ctx)
+        stmts <- allArgs.map(pushStmt(q, _)).partitionMap(identity) match
+          case (errs, _) if errs.nonEmpty => Left(errs.flatten)
+          case (_, oks)                   => Right(oks)
+      yield if stmts.sizeIs == 1 then stmts.head.stripSuffix(";") else s"{ ${stmts.mkString(" ")} }"
 
     // `r.open` where `r` was bound by `case r: VmInstruction.Reframe => …` (`preflight`,
     // `TreeVm.scala`) — `renderPattern`'s OWN `Pat.Typed`-to-a-variant case (see its comment)
@@ -4561,7 +4643,23 @@ object RustCodeWalk:
       val rendered = args.values.toList.map(renderTerm(_, ctx))
       val (errs, ok) = rendered.partitionMap(identity)
       if errs.nonEmpty then Left(errs.flatten)
-      else Right(s"self.${rustIdent(n)}(${ok.mkString(", ")})")
+      else
+        // `advance()` — Scala fills its own DEFAULT (`def advance(n: Int = 1)`); Rust has no
+        // default parameters, so the CALLEE's signature demands the argument regardless. The
+        // ordinary call path already fills omitted trailing defaults from `_defaultsMap` (a few
+        // hundred lines down); this arm bypasses that path entirely (it exists so the receiver can
+        // be added), so it needs its own copy of the same fill.
+        val filled = _defaultsMap.get(n) match
+          case Some(ds) if ok.size < ds.size && ds.drop(ok.size).forall(_.isDefined) =>
+            val fills = ds.drop(ok.size).flatten.map(renderTerm(_, ctx))
+            val (ferrs, fok) = fills.partitionMap(identity)
+            if ferrs.nonEmpty then None else Some(ok ++ fok)
+          case _ => Some(ok)
+        filled match
+          case Some(args2) => Right(s"self.${rustIdent(n)}(${args2.mkString(", ")})")
+          case None        => Left(List(unsupported(
+            s"def `${ctx.defName}` calls `self.$n(...)` with a default argument this lane could not render"
+          )))
 
     // A call to a def THIS lift lifted out of the enclosing body — `record(d)` inside `step`, or
     // `addTop(edge)` inside the lifted `attach`. Its captured names are not part of the Scala call
@@ -5086,6 +5184,11 @@ object RustCodeWalk:
     case m.Term.Select(qual, m.Term.Name("toMap")) if isKnownMapReceiver(qual, ctx) =>
       renderTerm(qual, ctx)
 
+    // `error.getMessage` (no parens) — see the WITH-parens case's own comment.
+    case m.Term.Select(qual, m.Term.Name("getMessage"))
+        if ctorNameOfExpr(qual, ctx).flatMap(ctx.ctorMap.get).exists(_.fieldNames.contains("message")) =>
+      renderTerm(qual, ctx).map(q => s"$q.message")
+
     case m.Term.Select(qual, m.Term.Name(field)) =>
       renderTerm(qual, ctx).map(q => selectOrNiladicCtor(qual, q, field, ctx))
     // A user effect op call `Eff.op(args)` → `_eff.op(args)` (tagless-final dispatch).
@@ -5162,6 +5265,21 @@ object RustCodeWalk:
           s"def `${ctx.defName}` has invalid `Right` constructor application"
         )))
 
+    // `either.left.map(f)` — Scala's LEFT-projection API (`PureMarkupCodec.parse(source).left.
+    // map(error => Diagnostic(...))`, `uniml/xml`'s `Doc.scala`'s `parseMarkup`): transform the
+    // `Left` value, pass a `Right` through unchanged — the mirror image of the ordinary (right-
+    // biased) `.map` case just below. This backend's own `Either` (`renderBuiltinEitherEnum`) has
+    // no `.left` FIELD of its own (Scala's `.left` is a zero-cost projection, not a real field on
+    // the JVM either) — `error[E0609]: no field left on type Either<…>` is what reached rustc.
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(m.Term.Select(qual, m.Term.Name("left")), m.Term.Name("map")),
+        args
+    ) if isEitherExpr(qual, ctx) && args.values.size == 1 =>
+      for
+        q <- renderTerm(qual, ctx)
+        f <- inlineArm(args.values.head, "v", ctx, eitherSideCtorName(qual, "left", ctx))
+      yield s"match $q { Either::Left(v) => Either::Left($f), Either::Right(v) => Either::Right(v) }"
+
     case m.Term.Apply.After_4_6_0(
         m.Term.Select(qual, m.Term.Name("map")),
         args
@@ -5213,9 +5331,17 @@ object RustCodeWalk:
     // Every argument must be a NAMED one (`field = value`) naming a real field of that struct —
     // Scala's own `.copy` accepts a positional form too, but nothing in this corpus writes one,
     // and refusing it here is safer than guessing a field/argument correspondence.
-    case m.Term.Apply.After_4_6_0(m.Term.Select(m.Term.Name(recv), m.Term.Name("copy")), args)
-        if ctx.paramCtorNames.get(recv).flatMap(ctx.ctorMap.get).exists(_.isStruct) =>
-      val ec = ctx.ctorMap(ctx.paramCtorNames(recv))
+    // `element.name.copy(namespace = ...)` (`uniml/xml`'s `Doc.scala`'s `resolveElement`) — the
+    // receiver is a FIELD PROJECTION (`element.name`), not a bare def parameter/match-arm binder,
+    // which `ctx.paramCtorNames` alone cannot resolve (it is keyed by NAME, and a projection has
+    // none). `ctorNameOfExpr` walks the projection: the base's own ctor name resolves via
+    // `paramCtorNames` exactly as before, and each further `.field` step looks up that field's
+    // DECLARED type in `ctorMap` — `element: Markup.Element` -> `.name` is declared `QName` ->
+    // `ctorMap("QName")` exists, so `element.name` resolves to `QName` the same way a bare `qname`
+    // parameter already would.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(recv, m.Term.Name("copy")), args)
+        if ctorNameOfExpr(recv, ctx).flatMap(ctx.ctorMap.get).exists(_.isStruct) =>
+      val ec = ctx.ctorMap(ctorNameOfExpr(recv, ctx).get)
       val named = args.values.toList.collect {
         case m.Term.Assign(m.Term.Name(field), value) if ec.fieldNames.contains(field) => field -> value
       }
@@ -5225,10 +5351,60 @@ object RustCodeWalk:
           s"`field = value` naming a real field — only that form is lowered"
         )))
       else
-        val rendered = named.map { (f, v) => renderTerm(v, ctx).map(vr => s"$f: ${cloneIfMoved(v, vr, ctx)}") }
-        val (errs, oks) = rendered.partitionMap(identity)
-        if errs.nonEmpty then Left(errs.flatten)
-        else Right(s"${ec.enumName} { ${oks.mkString(", ")}, ..${rustIdent(recv)}.clone() }")
+        for
+          recvR <- renderTerm(recv, ctx)
+          rendered = named.map { (f, v) => renderTerm(v, ctx).map(vr => s"$f: ${cloneIfMoved(v, vr, ctx)}") }
+          oks <- rendered.partitionMap(identity) match
+            case (errs, _) if errs.nonEmpty => Left(errs.flatten)
+            case (_, ok)                    => Right(ok)
+        // Unconditional `.clone()`, same as the bare-name shape this case used to be limited to:
+        // struct-update syntax (`..rest`) always needs OWNERSHIP of the "rest", and a projection
+        // receiver (`element.name`) has no `cloneIfMoved`-tracked multi-use history the way a
+        // bare local/param does, so trusting that heuristic here would be a guess this shape has
+        // not earned.
+        yield s"${ec.enumName} { ${oks.mkString(", ")}, ..($recvR).clone() }"
+
+    // `document.copy(root = ...)` (`uniml/xml`'s `Doc.scala`'s `projectMarkup`) — the SAME `.copy`
+    // over an ENUM VARIANT (`document: Markup.Doc`, `Doc` a case class extending the shared `Node`
+    // trait every one of `Markup`'s variants renders into) rather than a standalone struct. Rust's
+    // struct-update syntax (the case just above) needs FIELD ACCESS on `..base` to build the
+    // "rest", which an unmatched enum value does not support at all — the same wall
+    // `selectOrNiladicCtor`'s own enum-variant field-read case exists to cross. The fix is the same
+    // shape: a single-arm `match` that can only ever take the ONE branch the receiver's own
+    // resolved ctor already promises, extracting EVERY field (not just one), then rebuilding with
+    // the named overrides applied.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(recv, m.Term.Name("copy")), args)
+        if ctorNameOfExpr(recv, ctx).flatMap(ctx.ctorMap.get).exists(ec => !ec.isStruct) =>
+      val cn = ctorNameOfExpr(recv, ctx).get
+      val ec = ctx.ctorMap(cn)
+      val named = args.values.toList.collect {
+        case m.Term.Assign(m.Term.Name(field), value) if ec.fieldNames.contains(field) => field -> value
+      }
+      if named.size != args.values.size then
+        Left(List(unsupported(
+          s"def `${ctx.defName}` calls `${ec.enumName}::$cn.copy(...)` with an argument that is " +
+          s"not a `field = value` naming a real field — only that form is lowered"
+        )))
+      else
+        for
+          recvR <- renderTerm(recv, ctx)
+          rendered = named.map { (f, v) => renderTerm(v, ctx).map(vr => f -> cloneIfMoved(v, vr, ctx)) }
+          oks <- rendered.partitionMap(identity) match
+            case (errs, _) if errs.nonEmpty => Left(errs.flatten)
+            case (_, ok)                    => Right(ok)
+        yield
+          // Every field is bound bare (`root`, not a renamed `__copy_root`) — the OVERRIDE
+          // expressions were already rendered above, against the OUTER `ctx` and `$recvR`, never
+          // against this match's own bindings, so there is no shadowing risk a rename would guard
+          // against; it would only be a name this arm never actually reads.
+          val overrides = oks.toMap
+          val bindPat = ec.fieldNames.map(rustIdent).mkString(", ")
+          val fields = ec.fieldNames.map { f =>
+            overrides.get(f) match
+              case Some(v) => s"$f: $v"
+              case None    => s"$f: ${rustIdent(f)}.clone()"
+          }.mkString(", ")
+          s"(match &($recvR) { ${ec.enumName}::$cn { $bindPat, .. } => ${ec.enumName}::$cn { $fields }, _ => unreachable!() })"
 
     case m.Term.Apply.After_4_6_0(
       m.Term.Select(qual, m.Term.Name("updated")),
@@ -5581,6 +5757,17 @@ object RustCodeWalk:
         if args.values.isEmpty && isKnownMapReceiver(qual, ctx) =>
       renderTerm(qual, ctx)
 
+    // `error.getMessage` / `error.getMessage()` — the JVM `Throwable` accessor, over a case class
+    // that `extends RuntimeException(...)` and stores the text in a field literally named
+    // `message` (`ParseError(message: String, line: Int, column: Int) extends RuntimeException(…)`,
+    // `uniml/xml`'s `Doc.scala`) — this backend's OWN exception model discards the class identity
+    // at `throw` time (an exception here is just its message string), but `error` reaching THIS
+    // call site is a genuinely CONSTRUCTED value (from a `catch` rebuilding one, not a live panic
+    // payload), so it is a real struct with a real `message` field.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("getMessage")), args)
+        if args.values.isEmpty && ctorNameOfExpr(qual, ctx).flatMap(ctx.ctorMap.get).exists(_.fieldNames.contains("message")) =>
+      renderTerm(qual, ctx).map(q => s"$q.message")
+
     // `stack.remove(i)` over a KNOWN local `ArrayBuffer`/`ListBuffer` (`uniml/xml`'s `Doc.scala`'s
     // `validateNamespaces`: `stack.remove(stack.size - 1)`, a pop-from-the-end stack) — Scala's
     // `Buffer.remove(idx)` and Rust's `Vec::remove(idx)` have the IDENTICAL signature and
@@ -5892,6 +6079,18 @@ object RustCodeWalk:
         q   <- renderTerm(qual, ctx)
         key <- renderStrPatternArg(args.values.head, ctx)
       yield s"$q.contains_key($key)"
+
+    // `s.startsWith(prefix, toffset)` — the two-arg overload (`src.startsWith("<?xml", pos)`,
+    // `uniml/xml`'s `Doc.scala`'s hand-written XML scanner, checked from the current scan position
+    // throughout). Routed to a dedicated runtime helper rather than `&q[toffset..].starts_with(…)`
+    // inline — see `_str_starts_with_at`'s own comment for why a byte-offset slice is wrong here.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("startsWith")), args)
+        if args.values.size == 2 =>
+      for
+        q      <- renderTerm(qual, ctx)
+        prefix <- renderTerm(args.values.head, ctx)
+        at     <- renderTerm(args.values(1), ctx)
+      yield s"crate::runtime::_str_starts_with_at(&$q, &($prefix), $at)"
 
     // `(s: String).contains/startsWith/endsWith(pat)` — str predicates take a
     // Pattern (&str/char), not an owned String. Render the literal/expr bare/borrowed.
@@ -6711,6 +6910,13 @@ object RustCodeWalk:
         if n != "Some" && n != "List" && n != "Vec" && n != "Map"
         && n != "Vector" && n != "Seq" && n != "IndexedSeq" && n != "Iterable" =>
       defReturnsEither(n)
+    // `PureMarkupCodec.parse(source)` — a QUALIFIED call (`uniml/xml`'s `Doc.scala`'s
+    // `parseMarkup`, chained into `.left.map(...)`). The bare-name case just above cannot answer
+    // for `parse` at all: this corpus alone declares four of them with four different return
+    // types, so `defReturnsEither`'s underlying table has already collapsed to "no opinion" for
+    // the name — `_ownedReturnTypes` is keyed by (owner, member), which the qualifier settles.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(m.Term.Name(obj), m.Term.Name(mem)), _) =>
+      _ownedReturnTypes.get((obj, mem)).exists(_.startsWith("Either<"))
     case _ => false
 
   private def defReturnsString(name: String): Boolean =
@@ -6885,7 +7091,13 @@ object RustCodeWalk:
 
   private def isKnownStringBuilder(term: m.Term, ctx: Ctx): Boolean = term match
     case m.Term.Name(n) => ctx.localStringBuilders.contains(n)
-    case _               => false
+    // `sb.append('<').append(e.name.toXml)` — the SAME sequence-preserving-combinator idea
+    // `isKnownVecReceiver`/`rootedInSeq` already apply to `Vec`, for the chained-append shape
+    // `renderTerm`'s own `.append` case flattens (see its comment for why it must).
+    case m.Term.Apply.After_4_6_0(m.Term.Select(inner, m.Term.Name("append")), args)
+        if args.values.sizeIs == 1 =>
+      isKnownStringBuilder(inner, ctx)
+    case _ => false
 
   private def isKnownSetReceiver(term: m.Term, ctx: Ctx): Boolean = term match
     case m.Term.Name(n) => ctx.localSets.contains(n)
@@ -7276,8 +7488,17 @@ object RustCodeWalk:
           // unqualified path already knows whether a variant is a tuple or a struct, fills
           // defaulted fields, and boxes recursive ones. Duplicating that produced
           // `Content::Text(s)` for a STRUCT variant — E0533 — which is why this delegates.
+          // The qualifier is not always the ENUM's own name: `uniml/xml`'s `Doc.scala` nests every
+          // variant AND every standalone case class inside `object Markup:` and writes
+          // `Markup.Element(name, attrs)`/`Markup.XmlDecl(...)`, where `Markup` is the object, not
+          // `Node` (the trait `Element` extends) or a trait at all (`XmlDecl` is a standalone
+          // struct) — `_qualifiedCtors` (keyed by the trait's OWN name) never had this pair, so
+          // EVERY qualified construction in the file reached rustc as `cannot find value Markup in
+          // this scope` (the walker fell all the way through to treating `Markup` as a value to
+          // read, since nothing here recognised the qualified-constructor shape at all). Same
+          // fallback the pattern side already uses (`renderPattern`'s twin case, same comment).
           case m.Term.Select(m.Term.Name(enumName), m.Term.Name(ctorName))
-              if _qualifiedCtors.contains((enumName, ctorName)) =>
+              if _qualifiedCtors.contains((enumName, ctorName)) || ctx.ctorMap.contains(ctorName) =>
             renderTerm(m.Term.Apply.After_4_6_0(m.Term.Name(ctorName), m.Term.ArgClause(argTerms)), ctx)
           case m.Term.Select(qual, m.Term.Name(meth)) =>
             renderTerm(qual, ctx).map { q =>
@@ -7664,12 +7885,24 @@ object RustCodeWalk:
    *  `(move |p| { body })(v)`: the closure form defers `p`'s type, which rustc cannot
    *  infer inside a chained `match match match …` (E0282) — a `let` binding flows the
    *  type straight from `v`. A non-lambda arg (a function reference) keeps `(f)(v)`. */
-  private def inlineArm(arg: m.Term, v: String, ctx: Ctx): Either[List[Diagnostic], String] =
+  private def inlineArm(
+      arg: m.Term, v: String, ctx: Ctx,
+      // The bound param's own ctor name, when the CALLER already knows it (`.left.map(error =>
+      // error.getMessage)`, `uniml/xml`'s `Doc.scala`'s `parseMarkup` — `error`'s type is nowhere
+      // in this closure's own syntax, only in the Either's declared Left type at the CALL site
+      // that built this arm) — the same `ctx.paramCtorNames` table a def parameter or a
+      // `case Some(x)`/`case Right(x)` binder already populates, threaded here since this bind is
+      // neither of those.
+      knownCtor: Option[String] = None
+  ): Either[List[Diagnostic], String] =
     arg match
       case fn: m.Term.Function if fn.paramClause.values.sizeIs == 1 =>
         val raw = fn.paramClause.values.head.name.value
         val p   = if raw.isEmpty || raw == "_" then "_" else raw
-        val bodyCtx = enteringClosure(ctx, Set(p))
+        val bodyCtx0 = enteringClosure(ctx, Set(p))
+        val bodyCtx = knownCtor match
+          case Some(cn) => bodyCtx0.copy(paramCtorNames = bodyCtx0.paramCtorNames + (p -> cn))
+          case None     => bodyCtx0
         renderTerm(fn.body, bodyCtx).map(b => s"{ let $p = $v; $b }")
       // The PLACEHOLDER shorthand of the same one-arg lambda (`result.flatMap(_.register(adapter))`,
       // `Dialect.scala`'s `DialectRegistry.apply`) reaches here as a `Term.AnonymousFunction`, not a
@@ -8516,8 +8749,31 @@ object RustCodeWalk:
           val structName = subject match
             case m.Term.Apply.After_4_6_0(m.Term.Name(fn), _) =>
               _returnTypes.get(fn).collect { case s if s.startsWith("Option<") => s.stripPrefix("Option<").stripSuffix(">") }
-                .filter(sn => ctx.ctorMap.get(sn).exists(_.isStruct))
+                // NOT restricted to a standalone struct (dropped 2026-08-28): an ENUM VARIANT's
+                // fields need this table just as much (`selectOrNiladicCtor`'s own new
+                // match-and-extract case for a plain field read on one), and the two downstream
+                // consumers (`.copy`'s struct-update rendering, that field-read rendering) each
+                // already gate on `ec.isStruct`/`!ec.isStruct` themselves — this table only needs
+                // to say WHICH ctor, not which kind.
+                .filter(sn => ctx.ctorMap.contains(sn))
             case _ => None
+          (bound, structName) match
+            case (Some(n), Some(sn)) => ctx.copy(paramCtorNames = ctx.paramCtorNames + (n -> sn))
+            case _                   => ctx
+        // `case Right(document) => … document.root …` (`uniml/xml`'s `Doc.scala`'s `validate`) —
+        // the SAME gap as `Some(problem)` just above, for the OTHER two-case sum type: `document`'s
+        // type is nowhere in the pattern's own syntax, only in the SUBJECT's declared `Either<L,
+        // R>` return type. Read the RAW Scala type AST (`_defBodies`, not `_returnTypes`) and pick
+        // the first/second type argument for `Left`/`Right` — `_returnTypes` was tried first and is
+        // the WRONG source here: it holds the ALREADY-MAPPED Rust string, and `mapType` deliberately
+        // collapses a VARIANT type argument to its owning ENUM name (`Either[Diagnostic, Markup.
+        // Doc]` mapped to `"Either<Diagnostic, Node>"`, correctly — there is no independent Rust
+        // type for `Doc` alone) — exactly the fact this case needs to recover (`ctorNameOfType`
+        // reads the UNMAPPED AST, so it still says `Doc`).
+        case m.Pat.Extract.After_4_6_0(m.Term.Name(ctorName @ ("Left" | "Right")), argClause)
+            if argClause.values.sizeIs == 1 =>
+          val bound = argClause.values.headOption.collect { case m.Pat.Var(m.Term.Name(n)) => n }
+          val structName = eitherSideCtorName(subject, if ctorName == "Left" then "left" else "right", ctx)
           (bound, structName) match
             case (Some(n), Some(sn)) => ctx.copy(paramCtorNames = ctx.paramCtorNames + (n -> sn))
             case _                   => ctx
@@ -8941,7 +9197,7 @@ object RustCodeWalk:
    *  Written as a REPLACEMENT for the interpolation that was here rather than as a new match arm:
    *  `renderTerm` is one of the five frozen over-limit methods and v1-jit-size refuses any growth,
    *  and a call costs less bytecode at the call site than the interpolation it replaces. */
-  private def selectOrNiladicCtor(qual: m.Term, q: String, field: String, @annotation.unused ctx: Ctx): String =
+  private def selectOrNiladicCtor(qual: m.Term, q: String, field: String, ctx: Ctx): String =
     qual match
       case m.Term.Name(enumName)
           if _qualifiedCtors.get((enumName, field)).exists(_.fieldNames.isEmpty) =>
@@ -8965,6 +9221,21 @@ object RustCodeWalk:
       // node at all, because there is no argument list to build one from.
       case m.Term.Name(enumName) if _objectMembers.get(enumName).exists(_.contains(field)) =>
         s"${qualifiedMemberName(enumName, field)}()"
+      // `document.root` on a PLAIN PARAMETER declared `Markup.Doc` (`uniml/xml`'s `Doc.scala`'s
+      // `validate`/`resolveElement`/…, never bound through a `match` arm at all) — `Doc` is an
+      // ENUM VARIANT here (`Node::Doc { root, docType, … }`, a struct-style variant of the shared
+      // `Node` enum this backend renders every one of `Markup`'s variants into), and Rust has no
+      // unchecked `.field` access on an enum: `error[E0609]: no field root on type Node`. Every
+      // OTHER place this backend reads a variant's field is reached FROM inside a `match` arm,
+      // whose own pattern already destructures the field into a plain local (this file's several
+      // `bodyCtx`-threading fixes this session) — a bare parameter has no such arm, so this is the
+      // one remaining shape: a single-arm match that can only ever take the ONE branch the
+      // receiver's OWN declared/inferred type already promises, extracting just the one field.
+      case _ if ctorNameOfExpr(qual, ctx).flatMap(ctx.ctorMap.get).exists(ec => !ec.isStruct && ec.fieldNames.contains(field)) =>
+        val cn = ctorNameOfExpr(qual, ctx).get
+        val ec = ctx.ctorMap(cn)
+        val f  = rustIdent(field)
+        s"(match &$q { ${ec.enumName}::$cn { $f, .. } => $f.clone(), _ => unreachable!() })"
       case _ => s"$q.${rustIdent(field)}"
 
   /** A WILDCARD TAIL IS `..`, NOT `_ @ ..`. Rust requires a BINDING left of `@` — `x`, `mut x`,

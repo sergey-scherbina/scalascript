@@ -584,6 +584,80 @@ class RustGenCodeWalkTest extends AnyFunSuite:
       s"tuple-bound String param's nonEmpty did not lower:\n$g")
     assert(g.contains(".and_then("), s"Option.flatMap over an if/else-built local did not lower:\n$g")
 
+  test("`startsWith(prefix, toffset)` (two-arg) lowers to a Unicode-safe runtime helper"):
+    val src =
+      """```scalascript
+        |def isXmlDecl(src: String, pos: Long): Boolean = src.startsWith("<?xml", pos)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("crate::runtime::_str_starts_with_at("), s"two-arg startsWith did not lower:\n$g")
+
+  test("a chained `sb.append(a).append(b)` flattens into one statement sequence"):
+    val src =
+      """```scalascript
+        |def build(): String =
+        |  val sb = StringBuilder()
+        |  sb.append('<').append("tag").append('>')
+        |  sb.toString
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("sb.push(") && g.contains("sb.push_str("), s"chained append did not flatten:\n$g")
+    assert(!g.contains(").append("), s"a raw .append survived unlowered:\n$g")
+
+  test("a field read on a value typed as a SPECIFIC enum variant lowers via a single-arm match"):
+    // `document.root` where `document: Wrap.Doc` (object-namespaced, `uniml/xml`'s own spelling —
+    // a case class extending a shared sealed trait, reached via `case Right(document) => …`, never
+    // a `match` arm that itself DESTRUCTURES `Doc`'s own fields) — Rust has no unchecked `.field`
+    // access on an enum; this needs a match to extract the one field.
+    val src =
+      """```scalascript
+        |object Wrap:
+        |  sealed trait Node
+        |  case class Doc(root: Long, docType: Option[Long]) extends Node
+        |  case class Other(x: Long) extends Node
+        |
+        |def tryParse(x: Long): Either[Long, Wrap.Doc] = if x > 0 then Right(Wrap.Doc(x, None)) else Left(x)
+        |
+        |def readRoot(x: Long): Long = tryParse(x) match
+        |  case Left(e) => e
+        |  case Right(document) => document.root
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("match &") && g.contains("Node::Doc"), s"enum-variant field read did not lower:\n$g")
+
+  test("`.copy(field = value)` on a value typed as a SPECIFIC enum variant rebuilds via match"):
+    val src =
+      """```scalascript
+        |object Wrap:
+        |  sealed trait Node
+        |  case class Doc(root: Long, docType: Option[Long]) extends Node
+        |  case class Other(x: Long) extends Node
+        |
+        |def tryParse(x: Long): Either[Long, Wrap.Doc] = if x > 0 then Right(Wrap.Doc(x, None)) else Left(x)
+        |
+        |def withRoot(x: Long, n: Long): Long = tryParse(x) match
+        |  case Left(e) => e
+        |  case Right(document) => document.copy(root = n).root
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("match &") && g.contains("Node::Doc"), s"enum-variant .copy did not lower:\n$g")
+    assert(!g.contains("__copy_"), s"a dangling __copy_ binder leaked into the output:\n$g")
+
+  test("`either.left.map(f)` lowers, transforming Left and passing Right through"):
+    val src =
+      """```scalascript
+        |def tryParse(x: Long): Either[Long, String] = if x > 0 then Right(x.toString) else Left(x)
+        |def widen(x: Long): Either[String, String] = tryParse(x).left.map(n => n.toString)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("Either::Left(") && g.contains("Either::Right(v) => Either::Right(v)"),
+      s".left.map did not lower:\n$g")
+
   test("a positional ctor destructure (`case Ctor(a, b) =>`) types each field from the ctor"):
     // `case PI(target, data) => data.nonEmpty` (`uniml/xml`'s `Doc.scala`'s `serializeNode`,
     // shape simplified here) — `data`'s type comes from `PI`'s OWN declared field type

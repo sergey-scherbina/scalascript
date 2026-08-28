@@ -258,6 +258,26 @@
       |    _str_substring(s, from, units.len() as i64)
       |}
       |
+      |// `s.startsWith(prefix, toffset)` — the two-arg overload (`src.startsWith("<?xml", pos)`,
+      |// `uniml/xml`'s `Doc.scala`'s hand-written XML scanner, checked from the CURRENT scan
+      |// position throughout). Same UTF-16-code-unit basis as `_str_char_at`/`_str_substring` above
+      |// — a byte-offset `&s[at..]` slice (the obvious one-liner) panics on any non-ASCII input at
+      |// exactly the position this scanner cares about most, right after a multi-byte character.
+      |// Unlike `_str_substring`, an out-of-range `at` returns `false` rather than panicking: that
+      |// is the JVM's own `String.startsWith(prefix, toffset)` contract (negative or `> length`
+      |// answers false, never throws), and a scanner probing "am I at a marker" one code unit past
+      |// the end is ordinary, not exceptional.
+      |#[allow(dead_code)]
+      |pub fn _str_starts_with_at(s: &str, prefix: &str, at: i64) -> bool {
+      |    if at < 0 { return false; }
+      |    let units: Vec<u16> = s.encode_utf16().collect();
+      |    let start = at as usize;
+      |    if start > units.len() { return false; }
+      |    let prefix_units: Vec<u16> = prefix.encode_utf16().collect();
+      |    let end = start + prefix_units.len();
+      |    end <= units.len() && units[start..end] == prefix_units[..]
+      |}
+      |
       |#[allow(dead_code)]
       |pub fn _exists(path: &str) -> bool { std::path::Path::new(path).exists() }
       |
