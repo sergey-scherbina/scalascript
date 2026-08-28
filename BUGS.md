@@ -16,6 +16,52 @@ scripts/bugs-report --no-gate              # open entries with no regression gat
 
 Newest first.
 
+## repl-load-resolves-imports-against-the-launch-dir-not-the-loaded-file — `:load` broke a file's own relative imports
+
+<!-- status: open
+     lane: multi
+     kind: bug
+     area: build
+     gate: v1/tools/cli/src/test/scala/scalascript/cli/ReplLoadTest.scala
+     reported-by: claude-code
+     reported-at: 2026-08-28
+     confirmed: yes -->
+
+**Diagnosed and fixed 2026-08-28; the header flips in the follow-up commit that can name the SHA.**
+
+**Reported live:** `ssc repl`, then `:load ./demo.ssc`, threw `Error loading ./demo.ssc: Import
+not found: ./input.ssc` — with `input.ssc` sitting right beside `demo.ssc`.
+
+**REPRODUCED independent of the user's exact files**, to isolate the mechanism rather than guess
+at their directory layout: `:load subdir/demo.ssc`, where `demo.ssc` imports a sibling
+`./input.ssc` that genuinely exists, fails identically whenever the REPL's own launch directory is
+not `demo.ssc`'s directory.
+
+**THE CAUSE, found by comparing `:load` against every sibling command.** `run`, `emit`, `debug`,
+`lock`, and `:mount file.ssc` each construct a FRESH `Interpreter(baseDir = Some(file / up))` —
+grep confirms all five do this identically. `replHandleLoad` is the one exception, and
+deliberately so: its own doc comment says it reuses the SAME long-lived interpreter "so that all
+its globals and plugins are available" across repeated loads. That reuse means the interpreter's
+`baseDir` was fixed once, at REPL STARTUP, to wherever the shell happened to be — and could never
+become whichever file got `:load`ed minutes later.
+
+**FIX:** `Interpreter.loadBaseDirOverride` / `setLoadBaseDir` / `effectiveBaseDir` — the same shape
+as the existing `currentLoadingFile` / `setLoadingFile` beside it, which already solves the
+identical problem (a `:load`-scoped property on an otherwise-persistent interpreter) for route
+tagging. `replHandleLoad` sets it to the loaded file's directory before running, clears it in
+`finally`. `SectionRuntime.runImport`, `StatRuntime.runDottedModuleImports`, and
+`Interpreter.baseDirPath` (read by `http-plugin`'s own file-relative resolution — its comment
+already says "same as import resolution") all switch from `baseDir` to `effectiveBaseDir`.
+
+**NOT AFFECTED:** `:reload` delegates to `replHandleLoad` for load-style entries, so it inherits
+the fix with no changes of its own. `:mount file.ssc` was never affected — `mountFileAsRoute`
+already builds a fresh child interpreter with the correct `baseDir`, matching the other five
+commands; only `:load`'s reuse of one interpreter made this possible.
+
+**VERIFIED AS A GENUINE REGRESSION TEST**, not merely a passing one: stashed the fix (kept only the
+new test) and reran the suite — 12/13 passed, the new test failed with exactly `expected the route
+after helper() to register (import resolved), got 0`. Unstashed: 13/13.
+
 ## native-binary-missing-front-message-blamed-a-checkout-that-cannot-exist — an end-user error mentioned `scripts/sbtc`
 
 <!-- status: fixed
