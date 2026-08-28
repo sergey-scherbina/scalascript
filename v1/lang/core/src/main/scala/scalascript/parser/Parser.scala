@@ -1800,7 +1800,16 @@ object Parser:
               var ws = j
               while ws > 0 && (out.charAt(ws - 1).isLetterOrDigit || out.charAt(ws - 1) == '_') do ws -= 1
               val word = out.substring(ws, j + 1)
-              !preprocessListLiterals.scalaKeywords(word)
+              // `private[X]` / `protected[X]` is Scala's ACCESS QUALIFIER bracket — a third case
+              // this disambiguation didn't have a bucket for. `scalaKeywords` says "this keyword
+              // can precede `[` but the `[` never takes type params" (true for `else [1,2]`, a
+              // list literal) — but for private/protected the same shape means "pass this `[X]`
+              // through untouched", not "rewrite it as List(X)". Before this fix, `word` being a
+              // keyword forced `isTypeParam = false` unconditionally, so `private[uniml] def f = …`
+              // got rewritten to `private List(uniml) def f = …` and failed to parse ("illegal
+              // start of definition") — reproduced live on scalascript-uniml's Source.scala.
+              if word == "private" || word == "protected" then true
+              else !preprocessListLiterals.scalaKeywords(word)
             else if preprocessListLiterals.isOpChar(c) then
               // Operator char: type params attach without space (`list.++[A]`);
               // a space before `[` means the `[` starts a list literal (`xs ++ [item]`).
