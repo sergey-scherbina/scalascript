@@ -1,3 +1,2 @@
-# generation: 3058
+# generation: 3059
 #slug	agent	started	items	paths
-guarantee-release-version-bump	claude-code	2026-08-28T15:13:09Z	guarantee-release-version-bump	scripts/cut-release .github/workflows/native-release.yml build.sbt BUGS.md
