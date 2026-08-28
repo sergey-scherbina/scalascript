@@ -514,6 +514,11 @@ object RustCodeWalk:
     // `ctorMap` at all (`_mutableClassNames`'s own comment says why).
     val mutableClassFieldTypes: Map[String, Map[String, String]] =
       mutableClassOk.map(s => s.structName -> s.fieldNames.zip(s.fieldTypes).toMap).toMap
+    // Per mutable class, the fixed-point set of its OWN methods that actually write a field —
+    // `selfMethodMut`'s own comment has the full reasoning for why `&mut self` cannot just be
+    // every method uniformly.
+    val mutatingSelfMethods: Map[String, Set[String]] =
+      mutableClasses.map(c => c.name.value -> computeMutatingSelfMethods(c, mutableClassFieldTypes.getOrElse(c.name.value, Map.empty).keySet)).toMap
     val methodResults = methodDefs.map { d =>
       val owner = methodOwnerByPos(d.pos.start)
       val isMutableOwner = mutableClassNames.contains(owner)
@@ -589,7 +594,8 @@ object RustCodeWalk:
           // own comment says why `selfMethod`'s clone-alias mechanism is wrong for them.
           val fns =
             if mutableClassNames.contains(owner) then
-              ms.map { case (_, _, _, d, g) => selfMethodMut(g.render, d) }.mkString("\n")
+              val mutating = mutatingSelfMethods.getOrElse(owner, Set.empty)
+              ms.map { case (_, _, _, d, g) => selfMethodMut(g.render, d, mutating.contains(d.name.value)) }.mkString("\n")
             else
               ms.map { case (_, fields, siblings, d, g) => selfMethod(g.render, fields, siblings, d) }.mkString("\n")
           val tp = structTparams.getOrElse(owner, Nil)
@@ -2720,13 +2726,68 @@ object RustCodeWalk:
    *  alias-binding injection at all (unlike `selfMethod`'s `let f = self.f.clone();`): the body was
    *  already rendered with `Ctx.trueSelfFields`/`selfMethods` set (`renderDef`'s `trueSelf`), so
    *  every field read/write and every sibling-method call in `render` is ALREADY a literal
-   *  `self.name`/`self.name(...)` — this only has to add the receiver to the signature. */
-  private def selfMethodMut(render: String, d: m.Defn.Def): String =
+   *  `self.name`/`self.name(...)` — this only has to add the receiver to the signature.
+   *
+   *  `mutating`, not a constant `&mut self` for every method: `Parser`'s own `self.isNameStart
+   *  (self.cur())` (`readName`) is `error[E0499]: cannot borrow *self as mutable more than once at
+   *  a time` when BOTH `isNameStart` and `cur` take `&mut self` — the ARGUMENT call needs its own
+   *  borrow of `self` while the OUTER call's is still being formed, and two simultaneous `&mut`
+   *  borrows never coexist, not even nested ones for argument evaluation. `cur`/`isNameStart`/
+   *  `isNameChar`/… never WRITE a field at all; only a method that reads `&self` needs LESS than a
+   *  method that writes, so giving every method `&mut self` uniformly (this function's first cut)
+   *  was over-strict, not merely inefficient — it made this exact idiom (test a char via a helper,
+   *  then read it again for the branch) impossible to compile. `computeMutatingSelfMethods`'
+   *  fixed-point set is read here to answer just that; nothing else about this function changed. */
+  private def selfMethodMut(render: String, d: m.Defn.Def, mutating: Boolean): String =
+    val recv = if mutating then "&mut self" else "&self"
     val withSelf =
       if render.startsWith(s"pub fn ${rustIdent(d.name.value)}()")
-      then render.replaceFirst("""\(\)""", "(&mut self)")
-      else render.replaceFirst("""\(""", "(&mut self, ")
+      then render.replaceFirst("""\(\)""", s"($recv)")
+      else render.replaceFirst("""\(""", s"($recv, ")
     indent(withSelf) + "\n"
+
+  /** Fixed-point set of a mutable class's OWN methods that actually WRITE one of its fields,
+   *  directly or transitively (calling another method in this same set) — see `selfMethodMut`'s
+   *  own comment for why this distinction is load-bearing, not cosmetic. A method not in this set
+   *  gets `&self`; Rust's two-phase borrows then let a `&mut self` caller pass a `&self` method's
+   *  result as one of its OWN arguments without a borrow conflict. */
+  private def computeMutatingSelfMethods(c: m.Defn.Class, fieldNames: Set[String]): Set[String] =
+    val methods     = c.templ.body.stats.collect { case dd: m.Defn.Def => dd }
+    val methodNames = methods.map(_.name.value).toSet
+    val CompoundAssignOps = Set("+=", "-=", "*=", "/=", "%=")
+    def directlyMutates(body: m.Term): Boolean =
+      var found = false
+      def walk(t: m.Tree): Unit =
+        if !found then
+          t match
+            case m.Term.Assign(m.Term.Name(n), _) if fieldNames.contains(n) => found = true
+            case m.Term.ApplyInfix.After_4_6_0(m.Term.Name(n), m.Term.Name(op), _, _)
+                if fieldNames.contains(n) && CompoundAssignOps.contains(op) => found = true
+            case _ => t.children.foreach(walk)
+      walk(body)
+      found
+    def selfCallsOf(body: m.Term): Set[String] =
+      val calls = scala.collection.mutable.Set.empty[String]
+      def walk(t: m.Tree): Unit =
+        t match
+          case m.Term.Apply.After_4_6_0(m.Term.Name(n), _) if methodNames.contains(n) => calls += n
+          case m.Term.Name(n) if methodNames.contains(n)                              => calls += n
+          case _ => ()
+        t.children.foreach(walk)
+      walk(body)
+      calls.toSet
+    val callsByMethod = methods.map(d => d.name.value -> selfCallsOf(d.body)).toMap
+    var mutating = methods.filter(d => directlyMutates(d.body)).map(_.name.value).toSet
+    var changed  = true
+    while changed do
+      changed = false
+      methods.foreach { d =>
+        val n = d.name.value
+        if !mutating.contains(n) && callsByMethod.getOrElse(n, Set.empty).exists(mutating.contains) then
+          mutating += n
+          changed = true
+      }
+    mutating
 
   private def selfMethod(render: String, fields: List[String], siblings: Set[String], d: m.Defn.Def): String =
     val params  = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value).toSet

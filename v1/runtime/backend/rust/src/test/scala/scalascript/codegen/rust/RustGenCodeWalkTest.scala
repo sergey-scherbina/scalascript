@@ -562,6 +562,41 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(g.contains("Counter::new(\"x\".to_string()).run(n)"),
       s"construct-then-call chain did not render:\n$g")
 
+  test("a mutable class's non-writing methods render `&self`, not `&mut self`"):
+    // E0499 regression: `selfMethodMut` originally marked EVERY mutable-class method `&mut self`
+    // uniformly. `self.isNameStart(self.cur())` then failed to borrow-check (`cannot borrow
+    // *self as mutable more than once at a time`) because BOTH the outer call and the argument
+    // evaluation needed their own `&mut self` reservation — two-phase borrows only admit a
+    // NESTED read, not a nested write, during the outer call's argument evaluation. `cur` and
+    // `isNameStart` never write a field, so they must render `&self`; only `advance` (which
+    // does write `pos`) may render `&mut self`. Mirrors `uniml/xml`'s real
+    // `Parser.readName()`/`isNameStart(cur())` shape.
+    val src =
+      """```scalascript
+        |private final class Scanner(src: String):
+        |  private var pos = 0
+        |
+        |  private def cur(): Long = pos
+        |
+        |  private def isNameStart(c: Long): Boolean = c > 0
+        |
+        |  private def advance(): Unit =
+        |    pos += 1
+        |
+        |  def readName(): Boolean =
+        |    val ok = isNameStart(cur())
+        |    advance()
+        |    ok
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("pub fn cur(&self)"), s"non-writing method should render &self:\n$g")
+    assert(g.contains("pub fn is_name_start(&self,") || g.contains("pub fn isNameStart(&self,"),
+      s"non-writing method should render &self:\n$g")
+    assert(g.contains("pub fn advance(&mut self)"), s"field-writing method should render &mut self:\n$g")
+    assert(g.contains("pub fn read_name(&mut self)") || g.contains("pub fn readName(&mut self)"),
+      s"a method calling a &mut self method should itself render &mut self:\n$g")
+
   test("`Option[(String, X)]` built via an if/else chain is still recognised as an Option"):
     // `isOptionExpr` had no case for `Term.If` at all — `val digits = if ... then Some(...) else
     // if ... then Some(...) else None` (`uniml/xml`'s `Doc.scala`'s `numericReferenceValue`) never
