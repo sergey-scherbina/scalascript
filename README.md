@@ -1123,6 +1123,20 @@ It picks the archive for your platform (`ssc-linux-x86_64`, `ssc-macos-arm64`, `
 verifies the published `.sha256`, unpacks into `~/.local/lib/scalascript` and links
 `~/.local/bin/ssc`. `SSC_VERSION=0.1.1` pins a release, `PREFIX=/usr/local` moves the target.
 
+**macOS, if you downloaded the archive by hand instead of using the script above:** a browser
+download of `.tar.gz` from the Releases page carries `com.apple.quarantine`, and macOS refuses to
+run anything extracted from it — "cannot be opened" / "move to Trash", not the "Open Anyway" dialog
+older macOS versions showed. `curl`/`wget` (what the one-liner above uses) does not set that
+attribute, so `install.sh` is unaffected; this is only for a manual download. Clear it once:
+
+```bash
+xattr -dr com.apple.quarantine /path/to/downloaded/dir-or-file
+chmod +x ssc   # if you extracted the archive yourself
+```
+
+These binaries are not code-signed or notarized with an Apple Developer ID, which is what
+Gatekeeper is actually checking for and why the attribute has to be removed by hand.
+
 From a checkout, for contributors:
 
 ```bash
