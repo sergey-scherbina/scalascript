@@ -18,18 +18,17 @@ Newest first.
 
 ## repl-load-resolves-imports-against-the-launch-dir-not-the-loaded-file — `:load` broke a file's own relative imports
 
-<!-- status: open
+<!-- status: fixed
      lane: multi
      kind: bug
      area: build
      gate: v1/tools/cli/src/test/scala/scalascript/cli/ReplLoadTest.scala
      reported-by: claude-code
      reported-at: 2026-08-28
-     confirmed: yes -->
+     confirmed: yes
+     fixed-in: a01b406c6 -->
 
-**Diagnosed and fixed 2026-08-28; the header flips in the follow-up commit that can name the SHA.**
-
-**Reported live:** `ssc repl`, then `:load ./demo.ssc`, threw `Error loading ./demo.ssc: Import
+**FIXED 2026-08-28 (`a01b406c6`).** Reported live: `ssc repl`, then `:load ./demo.ssc`, threw `Error loading ./demo.ssc: Import
 not found: ./input.ssc` — with `input.ssc` sitting right beside `demo.ssc`.
 
 **REPRODUCED independent of the user's exact files**, to isolate the mechanism rather than guess
