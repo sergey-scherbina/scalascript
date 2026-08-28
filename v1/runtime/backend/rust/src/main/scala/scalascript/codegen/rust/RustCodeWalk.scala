@@ -286,10 +286,26 @@ object RustCodeWalk:
       // A parameter typed by the def's OWN type parameter is a `Value` here for the same reason it
       // is one in `renderParams`, and the two must agree: this map is what the call site coerces
       // against, so a signature saying `Value` while this said `i64` lifts nothing and rustc reports
-      // the argument instead. That is exactly what `ctxSignal(ctx, name, "")` did.
+      // the argument instead. That is exactly what `ctxSignal(ctx, name, "")` did. Same ONE
+      // exception `renderParams` carries too (see its own comment): a return type reusing the SAME
+      // parameter as an argument to a real generic struct keeps its real type here as well.
       val tps = d.paramClauseGroups.flatMap(_.tparamClause.values).map(_.name.value).toSet
+      def retReusesTparam(tn: String): Boolean = d.decltpe.exists {
+        case m.Type.Apply.After_4_6_0(m.Type.Name(retName), argClause) =>
+          ctorMap.get(retName).exists(_.isStruct) && argClause.values.exists {
+            case m.Type.Name(n) => n == tn
+            case _              => false
+          }
+        case _ => false
+      }
       d.name.value -> d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map { p =>
         p.decltpe match
+          // The exception resolves to the BARE parameter name directly, not through `mapType` —
+          // `userTypeNames` here is the module-wide set and does not carry this ONE def's own type
+          // parameter the way `renderParams`'s per-def `ctx.enumNames` (self-mapped in `renderDef`)
+          // does, so routing through `mapType` would silently fall to ITS OWN unknown-name default
+          // (`i64`) instead of matching what actually gets rendered.
+          case Some(m.Type.Name(tn)) if tps.contains(tn) && retReusesTparam(tn) => tn
           case Some(m.Type.Name(tn)) if tps.contains(tn) => "crate::value::Value"
           case other => other.flatMap(ty => mapType(ty, d.name.value, userTypeNames).toOption).getOrElse("")
       }
@@ -1853,6 +1869,15 @@ object RustCodeWalk:
         case m.Type.Name(n) => Some(n)
         case _              => None
     case _ => None
+
+  /** The bare ctor name off a `Pat.Extract`'s callee — either spelling, bare (`Reframe(...)`) or
+   *  qualified (`VmInstruction.Reframe(...)`). Scala's `|` pattern alternation can't bind a
+   *  variable inside itself (`Illegal variable in pattern alternative`), so a shape that needs to
+   *  accept both reads the callee generically and calls this instead. */
+  private def ctorNameOf(t: m.Term): Option[String] = t match
+    case m.Term.Name(n)                  => Some(n)
+    case m.Term.Select(_, m.Term.Name(n)) => Some(n)
+    case _                                => None
 
   private def sectionAllTraits(s: ast.Section): List[m.Defn.Trait] =
     s.content.flatMap(contentAllTraits) ++ s.subsections.flatMap(sectionAllTraits)
@@ -3572,9 +3597,26 @@ object RustCodeWalk:
     // lane already uses for "a value whose type this backend does not track", and the argument side
     // needs no new machinery: `needsAnyCoercion` lifts an argument at a `Value` parameter today.
     val tparamNames = d.paramClauseGroups.flatMap(_.tparamClause.values).map(_.name.value).toSet
+    // UNLESS the def's own RETURN type reuses that same type parameter as an argument to a real
+    // generic STRUCT already known to `ctorMap` — `ProcessBatch.value[A](value: A): ProcessBatch[A]`
+    // (`Processor.scala`'s companion factory): `value` flows straight into that struct's own
+    // `values: Vec<A>` field, which needs the REAL type parameter, not an opaque `Value` —
+    // `error[E0308]: expected type parameter A, found Value`. Scoped to a struct specifically
+    // (`isStruct`, not an enum variant) and to an EXACT name match in the return type's OWN
+    // argument list, so a def whose return type does not reuse the parameter this narrowly —
+    // `ctxSignal[T](ctx: Ctx, name: String, default: T): T`, a BARE `T` return, matches neither
+    // shape — keeps erasing exactly as before.
+    def retReusesTparam(tn: String): Boolean = d.decltpe.exists {
+      case m.Type.Apply.After_4_6_0(m.Type.Name(retName), argClause) =>
+        ctx.ctorMap.get(retName).exists(_.isStruct) && argClause.values.exists {
+          case m.Type.Name(n) => n == tn
+          case _              => false
+        }
+      case _ => false
+    }
     val rendered = recvParam ++ params.map { p =>
       p.decltpe match
-        case Some(m.Type.Name(tn)) if tparamNames.contains(tn) =>
+        case Some(m.Type.Name(tn)) if tparamNames.contains(tn) && !retReusesTparam(tn) =>
           Right(s"${p.name.value}: crate::value::Value")
         case Some(t) => mapType(t, ctx.defName, ctx.enumNames).map(r => s"${p.name.value}: ${paramType(r)}")
         case None    => Left(List(unsupported(
@@ -4647,6 +4689,33 @@ object RustCodeWalk:
         l <- inlineArm(args.values.head, "v", ctx)
         r <- inlineArm(args.values(1), "v", ctx)
       yield s"match $q { Either::Left(v) => $l, Either::Right(v) => $r }"
+
+    // `problem.copy(span = Some(input.token.span))` (`TreeVm.scala`'s `step`) — Scala's implicit
+    // case-class copy method, which Rust has no method for at all; the direct equivalent is
+    // struct-update syntax, `StructName { span: ..., ..problem.clone() }`. The missing part is
+    // WHICH struct name to write: `problem` here is a MATCH-ARM BINDER (from `Option[Diagnostic]`,
+    // not a def parameter or a field), so this reads `ctx.paramCtorNames`, which `renderMatch`'s
+    // own `case Some(x) =>` handling populates for exactly this shape (see its comment) the same
+    // way a def PARAMETER of a qualified variant type already populates it for `renderDef`.
+    // Every argument must be a NAMED one (`field = value`) naming a real field of that struct —
+    // Scala's own `.copy` accepts a positional form too, but nothing in this corpus writes one,
+    // and refusing it here is safer than guessing a field/argument correspondence.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(m.Term.Name(recv), m.Term.Name("copy")), args)
+        if ctx.paramCtorNames.get(recv).flatMap(ctx.ctorMap.get).exists(_.isStruct) =>
+      val ec = ctx.ctorMap(ctx.paramCtorNames(recv))
+      val named = args.values.toList.collect {
+        case m.Term.Assign(m.Term.Name(field), value) if ec.fieldNames.contains(field) => field -> value
+      }
+      if named.size != args.values.size then
+        Left(List(unsupported(
+          s"def `${ctx.defName}` calls `${ec.enumName}.copy(...)` with an argument that is not a " +
+          s"`field = value` naming a real field — only that form is lowered"
+        )))
+      else
+        val rendered = named.map { (f, v) => renderTerm(v, ctx).map(vr => s"$f: ${cloneIfMoved(v, vr, ctx)}") }
+        val (errs, oks) = rendered.partitionMap(identity)
+        if errs.nonEmpty then Left(errs.flatten)
+        else Right(s"${ec.enumName} { ${oks.mkString(", ")}, ..${rustIdent(recv)}.clone() }")
 
     case m.Term.Apply.After_4_6_0(
       m.Term.Select(qual, m.Term.Name("updated")),
@@ -7602,6 +7671,41 @@ object RustCodeWalk:
             // captured `&mut` parameter, just non-mut.
             byRefMut                = ctx.byRefMut + n
           )
+        // `case Some(problem) => … problem.copy(…) …` (`TreeVm.scala`'s `step`) — `problem`'s type
+        // is nowhere in this pattern's own syntax (unlike the `Typed` case above), only in the
+        // SUBJECT's declared return type, read the same way `_returnTypes` answers this question
+        // everywhere else in this file. `paramCtorNames`, not a new field: for a STANDALONE struct
+        // `ctorMap` is self-keyed (`structName -> EnumCtor(structName, …, isStruct = true)`), the
+        // same shape a def PARAMETER of a qualified type already populates this map with — so the
+        // `.copy(...)` case in `renderTerm` reads one table regardless of which of the two ways a
+        // binder learned its struct type.
+        case m.Pat.Extract.After_4_6_0(m.Term.Name("Some"), argClause) if argClause.values.sizeIs == 1 =>
+          val bound = argClause.values.headOption.collect { case m.Pat.Var(m.Term.Name(n)) => n }
+          val structName = subject match
+            case m.Term.Apply.After_4_6_0(m.Term.Name(fn), _) =>
+              _returnTypes.get(fn).collect { case s if s.startsWith("Option<") => s.stripPrefix("Option<").stripSuffix(">") }
+                .filter(sn => ctx.ctorMap.get(sn).exists(_.isStruct))
+            case _ => None
+          (bound, structName) match
+            case (Some(n), Some(sn)) => ctx.copy(paramCtorNames = ctx.paramCtorNames + (n -> sn))
+            case _                   => ctx
+        // `case instruction @ VmInstruction.Reframe(closeBefore, open, closeAfter, role) => …` —
+        // `renderPattern`'s twin case (its own comment has the full reasoning) renders this with
+        // `ref instruction @ … { ref closeBefore, … }`, a BORROW: `instruction` is `&VmInstruction`
+        // and every destructured field is a reference too (`role: &Option<String>`, not `Copy`).
+        // Every name this pattern binds needs the SAME deref-on-read `ctx.byRefMut` already gives —
+        // NOT just `instruction` itself, unlike the `Pat.Typed` case above: there, the destructured
+        // fields are only ever read through a METHOD CALL (`.iter()`, `.len()`), which autoderefs a
+        // reference for free, but here `role` is handed to `UniEdge(role, tokenNode)` — a
+        // CONSTRUCTOR argument position, which does not autoderef — so without this, `role` stays
+        // `&Option<String>` where the field wants an owned `Option<String>` (`error[E0308]`).
+        case m.Pat.Bind(m.Pat.Var(m.Term.Name(n)), m.Pat.Extract.After_4_6_0(callee, argClause))
+            if ctorNameOf(callee).exists(cn =>
+                 ctx.ctorMap.get(cn).exists(_.fieldNames.nonEmpty) &&
+                 argClause.values.sizeIs == ctx.ctorMap(cn).fieldNames.size &&
+                 argClause.values.forall { case m.Pat.Var(_) => true; case _ => false }) =>
+          val binderNames = argClause.values.collect { case m.Pat.Var(m.Term.Name(bn)) => bn }
+          ctx.copy(byRefMut = ctx.byRefMut ++ binderNames + n)
         case _ => ctx
       for
         pat   <- renderPattern(c.pat, ctx)
@@ -8029,11 +8133,35 @@ object RustCodeWalk:
           s"def `${ctx.defName}`: `Cons` pattern takes a head and a tail, got ${other.size}")))
     case m.Pat.Wildcard()           => Right("_")
     case m.Pat.Var(m.Term.Name(n))  => Right(n)
-    // `name @ Pattern` — `TreeVm.scala`'s `case instruction @ VmInstruction.Reframe(closeBefore,
-    // open, closeAfter, role) => …`, whose ARM BODY uses both the destructured fields AND the
-    // whole matched value (`reframeProblem(stack, instruction)` alongside `open.size`). Rust has
-    // the identical construct, spelled identically — this is a pure pass-through, not a new
-    // pattern shape to invent.
+    // `name @ Pattern(positional, binders)` over a WITH-FIELDS variant — `TreeVm.scala`'s `case
+    // instruction @ VmInstruction.Reframe(closeBefore, open, closeAfter, role) => …`, whose ARM
+    // BODY uses both the destructured fields (`closeBefore`, `open`, … — Scala binds these
+    // directly, positionally, no `instruction.` prefix needed) AND the whole matched value
+    // (`reframeProblem(stack, instruction)`). The plain pass-through just below handles the SHAPE
+    // fine — Rust has the identical `name @ Pattern` construct — but by VALUE: binding `instruction`
+    // to the whole value while ALSO moving `role` (an `Option<String>`, not `Copy`) out of it as
+    // one of the destructured fields makes `instruction` itself only PARTIALLY valid afterward —
+    // `error[E0382]: use of partially moved value`, on `instruction.clone()` a few lines later. SAME
+    // fix as `Pat.Typed`'s own with-fields-variant case just below (see its comment for the
+    // reasoning in full): `ref` on the whole binding and every field turns the pattern into a
+    // BORROW instead, which takes nothing. Scoped to the shape actually written here — every
+    // positional binder a bare name, matching the field COUNT — so anything more exotic (a nested
+    // sub-pattern, a literal) still falls to the plain pass-through below, unchanged.
+    case m.Pat.Bind(m.Pat.Var(m.Term.Name(n)), m.Pat.Extract.After_4_6_0(callee, argClause))
+        if ctorNameOf(callee).exists(cn =>
+             ctx.ctorMap.get(cn).exists(_.fieldNames.nonEmpty) &&
+             argClause.values.sizeIs == ctx.ctorMap(cn).fieldNames.size &&
+             argClause.values.forall { case m.Pat.Var(_) => true; case _ => false }) =>
+      val ctorName = ctorNameOf(callee).get
+      val ec = ctx.ctorMap(ctorName)
+      val binderNames = argClause.values.collect { case m.Pat.Var(m.Term.Name(bn)) => bn }
+      val fieldBinds = ec.fieldNames.zip(binderNames).map { case (f, bn) =>
+        if f == bn then s"ref $f" else s"$f: ref $bn"
+      }
+      val pathPart = if ec.isStruct then ctorName else s"${ec.enumName}::$ctorName"
+      Right(s"ref $n @ $pathPart { ${fieldBinds.mkString(", ")} }")
+    // `name @ Pattern` — the general pass-through for every OTHER shape (tuple ctor with no
+    // fields, a nested sub-pattern, …). Rust has the identical construct, spelled identically.
     case m.Pat.Bind(m.Pat.Var(m.Term.Name(n)), inner) =>
       renderPattern(inner, ctx).map(p => s"$n @ $p")
     case m.Lit.Int(n)               => Right(s"${n}i64")
