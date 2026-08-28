@@ -1,0 +1,11 @@
+slug: drop-standard-tier-prefix
+branch: feature/drop-standard-tier-prefix
+agent: claude-code
+started: 2026-08-28T08:57:05Z
+heartbeat: 2026-08-28T08:57:05Z
+status: claimed-before-planning
+items: BUGS:native-binary-missing-front-message-blamed-a-checkout-that-cannot-exist
+paths: file:.github/workflows/native-release.yml file:BUGS.md file:build.sbt file:scripts/native-release-qualify file:specs/arch-lib-path-resolution.md file:tests/e2e/native-release-qualification.sh file:tests/e2e/v21-native-entry-smoke.sh file:tests/e2e/v21-standard-tier-smoke.sh file:tests/e2e/v21-native-checker-smoke.sh file:tests/e2e/f-front-cache-gate.sh file:tests/e2e/f-output-agreement-gate.sh file:tests/e2e/ref-front-string-literal-gate.sh file:tests/e2e/single-line-extension-gate.sh file:tests/e2e/release-installer-launcher.sh file:v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala file:v1/tools/cli/src/main/scala/scalascript/cli/NativeImageInstallRoot.scala file:v1/tools/cli/src/test/scala/scalascript/cli/NativeImageInstallRootTest.scala
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
