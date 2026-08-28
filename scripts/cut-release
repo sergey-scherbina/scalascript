@@ -1,23 +1,41 @@
 #!/usr/bin/env bash
 #
-# cut-release <version> [--dry-run] — the ONE way to release: bump `ThisBuild / version` in
-# build.sbt and create the release tag in the SAME atomic step, so the two cannot drift apart.
+# cut-release <version> [--dry-run] — the ONE way to release. Makes the tag a fully
+# self-consistent snapshot (compiler version AND registry entries both already match it, in the
+# SAME commit the tag points at) and leaves `main` correctly resuming development afterward.
 #
-# WHY THIS EXISTS. Preparing v0.2.1, `ThisBuild / version` in build.sbt still read a prior
-# release's `-SNAPSHOT` — nobody had bumped it. Caught before tagging, not after: had the tag been
-# pushed as-is, `ssc --version` and every `.sscpkg` plugin manifest in that release would have
-# shipped the WRONG version string, and `registry/packages.yaml`'s freshly-fixed
-# `scripts/generate-registry-plugin-entries <tag>` (which derives the registry's advertised
-# version from the tag) would then have DISAGREED with what the shipped artifacts say about
-# themselves — the same "two independently-evolved copies of one number" shape as the URL bug this
-# whole release-plumbing pass started from (BUGS.md
-# `registry-packages-point-at-a-release-with-no-matching-asset`). A REMINDER to bump it manually
-# would be forgotten again; making the bump and the tag ONE COMMAND removes the chance to forget.
+# WHAT ONE RUN DOES, in order:
+#   1. Bump `ThisBuild / version` in build.sbt to <version>.
+#   2. Run `scripts/generate-registry-plugin-entries v<version>` — registry/packages.yaml's five
+#      plugin entries now advertise the SAME version this exact commit builds.
+#   3. Commit both together, push to main, tag, push the tag.
+#   4. Bump `ThisBuild / version` again, to the next patch's `-SNAPSHOT`, and push that as a
+#      separate, clearly-labeled commit — `main` never sits at a released version number with
+#      nothing after it.
 #
-# `.github/workflows/native-release.yml`'s `qualifier-contract` job also verifies this
-# independently (`ThisBuild / version` must equal the tag) — a safety net for a tag created by
-# hand instead of this script, not the primary guarantee. It runs first, so a mismatch fails in
-# seconds instead of after hours of native-image builds on three runners.
+# WHY STEP 2 HAPPENS **BEFORE** THE TAG, NOT AFTER. The first version of this script tagged with
+# build.sbt bumped but left `registry/packages.yaml` for `native-release.yml`'s `release` job to
+# commit to `main` AFTER the tag existed — which worked (nothing reads the registry file from the
+# tag; `ssc search`/`add`/`plugin install` read the GitHub Pages-served copy, rebuilt from
+# whatever `registry/packages.yaml` reads on `main` — `.github/workflows/pages.yml`'s
+# `paths: registry/packages.yaml` trigger), but left the tag itself an inconsistent snapshot for
+# no reason: nothing about the registry bump needs the build to have happened first — the entries
+# it writes are just `<id>-plugin.sscpkg` + the tag string, both known upfront. Asked directly why
+# not do it before tagging instead: no good reason. Doing it here means one fewer moving part in
+# CI (`native-release.yml`'s `release` job no longer pushes to `main` at all), no push-race window
+# between "the release job's checkout of main" and "someone else moving main", and a `git show
+# <tag>:registry/packages.yaml` that actually reflects what that tag shipped.
+#
+# WHY STEP 4 EXISTS. Preparing v0.2.1, `ThisBuild / version` still read a PRIOR release's
+# `-SNAPSHOT` — nobody had bumped it forward after that release, so it silently described nothing
+# real for however long main sat that way (BUGS.md `native-release-version-not-bumped-before-tag`).
+# Bumping forward immediately after tagging is what step 1's guarantee needs on the OTHER side: a
+# tag can only stay meaningful if the version *after* it starts moving again right away.
+#
+# `.github/workflows/native-release.yml`'s `qualifier-contract` job independently verifies
+# `ThisBuild / version` equals the tag being released — a safety net for a tag created by hand
+# instead of via this script, not the primary guarantee. It runs first (everything else `needs:`
+# it), so a mismatch fails in seconds instead of after hours of native-image builds.
 #
 # WHAT THIS DOES NOT DO: it does not run this repo's board-claim machinery (a release is not
 # BUGS.md-tracked "feature work" — nothing here touches project source), so it makes its own
@@ -49,10 +67,14 @@ if [[ -z "$version" ]]; then
   usage
   exit 2
 fi
-if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+if ! [[ "$version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
   echo "cut-release: '$version' is not X.Y.Z" >&2
   exit 2
 fi
+major="${BASH_REMATCH[1]}"
+minor="${BASH_REMATCH[2]}"
+patch="${BASH_REMATCH[3]}"
+next_snapshot="${major}.${minor}.$((patch + 1))-SNAPSHOT"
 tag="v$version"
 
 MAIN=$(git worktree list | head -1 | awk '{print $1}')
@@ -66,7 +88,8 @@ if git -C "$MAIN" rev-parse -q --verify "refs/tags/$tag" >/dev/null 2>&1 \
 fi
 
 if [[ "$dry_run" == 1 ]]; then
-  echo "would: bump ThisBuild / version to \"$version\" in build.sbt, commit, push to main, create and push tag $tag"
+  echo "would: bump build.sbt + registry/packages.yaml to \"$version\", commit, push to main,"
+  echo "       tag $tag, push tag, then bump build.sbt to \"$next_snapshot\" and push that too"
   exit 0
 fi
 
@@ -79,32 +102,38 @@ git -C "$MAIN" worktree add -q "$wt" origin/main
 cleanup() { git -C "$MAIN" worktree remove --force "$wt" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 
-sed -i.bak -E "s/^(ThisBuild \/ version[[:space:]]*:=[[:space:]]*)\"[^\"]+\"/\1\"$version\"/" "$wt/build.sbt"
-rm -f "$wt/build.sbt.bak"
-if ! grep -qE "^ThisBuild / version[[:space:]]*:=[[:space:]]*\"$version\"" "$wt/build.sbt"; then
-  echo "cut-release: failed to rewrite build.sbt's version line — no 'ThisBuild / version := \"...\"' found?" >&2
-  exit 1
-fi
+bump_version() {
+  local target="$1"
+  sed -i.bak -E "s/^(ThisBuild \/ version[[:space:]]*:=[[:space:]]*)\"[^\"]+\"/\1\"$target\"/" "$wt/build.sbt"
+  rm -f "$wt/build.sbt.bak"
+  if ! grep -qE "^ThisBuild / version[[:space:]]*:=[[:space:]]*\"$target\"" "$wt/build.sbt"; then
+    echo "cut-release: failed to rewrite build.sbt's version line to \"$target\" — no 'ThisBuild / version := \"...\"' found?" >&2
+    exit 1
+  fi
+}
 
-# `git commit` with nothing staged exits nonzero — harmless in general, but WRONG here: if
-# build.sbt's version already reads "$version" (e.g. bumped by an earlier, unpushed run of this
-# same script), skipping the commit is correct and the tag should still be created against
+bump_version "$version"
+( cd "$wt" && python3 scripts/generate-registry-plugin-entries "$tag" )
+
+# `git commit` with nothing staged exits nonzero — harmless in general, but WRONG here: if both
+# files already read the target version (e.g. an earlier, unpushed run of this same script left
+# them there), skipping the commit is correct and the tag should still be created against
 # whatever main already has.
-bumped=0
-if ! git -C "$wt" diff --quiet -- build.sbt; then
-  bumped=1
-  git -C "$wt" add build.sbt
-  git -C "$wt" commit -q -m "release: bump version to $version"
+if ! git -C "$wt" diff --quiet -- build.sbt registry/packages.yaml; then
+  git -C "$wt" add build.sbt registry/packages.yaml
+  git -C "$wt" commit -q -m "release: cut $tag"
   git -C "$wt" push -q origin HEAD:main
 fi
 git -C "$wt" tag "$tag"
 git -C "$wt" push -q origin "$tag"
 
-if [[ "$bumped" == 1 ]]; then
-  echo "cut-release: pushed the version-bump commit and tag $tag to origin"
-else
-  echo "cut-release: pushed tag $tag to origin (build.sbt already read \"$version\")"
-fi
+bump_version "$next_snapshot"
+git -C "$wt" add build.sbt
+git -C "$wt" commit -q -m "release: resume development at $next_snapshot"
+git -C "$wt" push -q origin HEAD:main
+
+echo "cut-release: pushed $tag (a fully self-consistent snapshot: build.sbt and"
+echo "  registry/packages.yaml both already say \"$version\") and resumed main at $next_snapshot"
 echo "  .github/workflows/native-release.yml will run now — watch it at:"
 # Plain bash parameter expansion, not a regex sed: `+?` (non-greedy) is a GNU-only ERE extension
 # and silently errors on BSD sed (macOS) — caught by testing this against a real, non-GitHub

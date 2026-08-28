@@ -139,6 +139,36 @@ no-gnu-only-shell-constructs.sh` PASSED (does not happen to cover this specific 
 which is exactly why testing the real behavior mattered more than trusting the gate). Workflow
 YAML re-validated with Ruby's `Psych`.
 
+**FOLLOW-UP 2026-08-28: moved the registry-version bump from AFTER the tag to BEFORE it, so the
+tag is a fully self-consistent snapshot instead of merely a correct-once-CI-catches-up one.**
+The first version of this fix (see the entry below) had `native-release.yml`'s `release` job
+commit `registry/packages.yaml`'s bump to `main` AFTER the tag already existed and the release was
+already published — which worked (nothing reads the registry file from the git tag; the served
+copy comes from GitHub Pages, rebuilt by `.github/workflows/pages.yml`'s own
+`paths: registry/packages.yaml` trigger on that same push), but left `git show <tag>:registry/
+packages.yaml` showing stale entries for no real reason, and needed an extra CI checkout-of-`main`
++ push with its own race window. Asked directly why not write the registry entries before tagging
+instead: nothing about them depends on the build having happened — `scripts/
+generate-registry-plugin-entries` only ever needed the tag string and the five known plugin ids,
+both known upfront.
+
+`scripts/cut-release` now does the whole release-prep lifecycle in one run: bump `build.sbt` AND
+run the registry generator, commit BOTH together, push, tag, push the tag — then bump `build.sbt`
+again to the next patch's `-SNAPSHOT` and push that as a separate commit, so `main` never sits at
+a released version number with nothing after it (closing the exact gap this entry opened with, on
+the other side of the tag). `native-release.yml`'s `release` job no longer pushes to `main` at
+all — one less moving part. `qualifier-contract` gained a matching `--check`-mode verification
+step (`scripts/generate-registry-plugin-entries "$GITHUB_REF_NAME" --check`) beside the existing
+version-match gate, so a tag not cut via the script still fails fast if its registry entries
+disagree.
+
+Verified in the same disposable sandbox as above, extended: `cut-release` run for real against a
+throwaway origin, then confirmed via `git show <tag>:build.sbt` and `git show
+<tag>:registry/packages.yaml` that BOTH already read the released version at the tagged commit
+(not a later one), that `main`'s new HEAD reads the next `-SNAPSHOT`, and that
+`generate-registry-plugin-entries <tag> --check` passes when run against a checkout of that exact
+tag and correctly refuses (exit 1) against a mismatched one.
+
 ## registry-packages-point-at-a-release-with-no-matching-asset — every registry entry's url 404s
 
 <!-- status: open
