@@ -449,3 +449,55 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(g.contains("flat_map"), s"flatMap(Obj.member) did not lower:\n$g")
     assert(g.contains("dup("), s"the eta-expanded reference did not resolve to a call:\n$g")
+
+  test("ListBuffer.empty + += + .toList lowers to a mutable Vec"):
+    val src =
+      """```scalascript
+        |def build(n: Long): List[Long] =
+        |  val buf = scala.collection.mutable.ListBuffer.empty[Long]
+        |  buf += n
+        |  buf += n + 1
+        |  buf.toList
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("let mut buf") && g.contains("Vec::new()"), s"ListBuffer ctor did not lower:\n$g")
+    assert(g.contains("buf.push("), s"+= did not lower to .push:\n$g")
+
+  test("LinkedHashMap.empty + subscript-assign + .toMap lowers to a mutable HashMap"):
+    val src =
+      """```scalascript
+        |def build(k: String, v: String): Map[String, String] =
+        |  val m = scala.collection.mutable.LinkedHashMap.empty[String, String]
+        |  m(k) = v
+        |  m.toMap
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("let mut m") && g.contains("HashMap::new()"), s"LinkedHashMap ctor did not lower:\n$g")
+    assert(g.contains("m.insert("), s"subscript-assign did not lower to .insert:\n$g")
+
+  test("Vector.newBuilder + += + .result() lowers to a mutable Vec"):
+    val src =
+      """```scalascript
+        |def build(n: Long): Vector[Long] =
+        |  val b = Vector.newBuilder[Long]
+        |  b += n
+        |  b.result()
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("let mut b") && g.contains("Vec::new()"), s"Vector.newBuilder did not lower:\n$g")
+    assert(g.contains("b.push("), s"+= did not lower to .push:\n$g")
+
+  test("bare ArrayBuffer(...) constructor lowers to a mutable Vec literal"):
+    val src =
+      """```scalascript
+        |import scala.collection.mutable.ArrayBuffer
+        |def build(n: Long): List[Long] =
+        |  val stack = ArrayBuffer(n, n + 1)
+        |  stack.toList
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("vec!["), s"ArrayBuffer ctor did not lower:\n$g")

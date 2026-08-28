@@ -2820,7 +2820,7 @@ object RustCodeWalk:
           case m.Term.ApplyType.After_4_6_0(m.Term.Name(n), _) => n
           case m.Term.Select(_, m.Term.Name(n)) => n   // a method call: `.split(...)` / `.toList(...)`
           case _ => ""
-        if nm == "Array" then Some(true)
+        if nm == "Array" || nm == "ArrayBuffer" then Some(true)
         else if nm == "Vector" || nm == "List" || SeqMethods.contains(nm) then Some(false)
         // A call to a def DECLARED to return a list. `def rowsOf(s: String): List[String]` says so
         // in its signature, and the fact was being dropped: the local bound to `rowsOf(x)` was not
@@ -2832,6 +2832,14 @@ object RustCodeWalk:
         else None
       // No-arg seq conversions: `e.toList` / `e.toArray`.
       case m.Term.Select(_, m.Term.Name(n)) if SeqMethods.contains(n) => Some(false)
+      // `scala.collection.mutable.ListBuffer.empty[T]` / `ArrayBuffer.empty[T]` / `Vector.
+      // newBuilder[T]` — mutable-buffer ctors, all rendered as a Rust `Vec` (see `renderTerm`'s
+      // matching cases, and `isEmptyCtorNamed`'s own comment for why the qualifier chain doesn't
+      // matter). ARRAY-shaped (`Some(true)`, needing `let mut`): a `Vec` that receives `.push`
+      // mutations needs the same binding `Array`/`ArrayBuffer` already do above.
+      case t if isEmptyCtorNamed(t, "ListBuffer") || isEmptyCtorNamed(t, "ArrayBuffer") => Some(true)
+      case m.Term.ApplyType.After_4_6_0(m.Term.Select(m.Term.Name("Vector"), m.Term.Name("newBuilder")), _) =>
+        Some(true)
       // `val stack = state.stack` — a local bound to a Vec-typed FIELD is a Vec, the second
       // spelling of the defect `collectLocalMaps` already fixes for `Map` (`val drafts =
       // f.drafts`): without it `stack.nonEmpty`/`.last`/`.dropRight` inside `TreeVm.scala`'s
@@ -3011,6 +3019,20 @@ object RustCodeWalk:
     case m.Term.Apply.After_4_6_0(m.Term.Name(n), args) if args.values.size == 1 &&
       (ctx.localSeqs.contains(n) ||
        ctx.topVals.exists { case (vn, init) => vn == n && init.startsWith("vec![") }) =>
+      Some((n, args.values.head))
+    case _ => None
+
+  /** `m(k) = v` over a KNOWN local Map — the twin of `asSeqIndexTarget` just above, for a
+   *  receiver tracked in `ctx.localMaps` instead of `ctx.localSeqs`. Scala desugars BOTH `a(i) =
+   *  x` and `m(k) = v` to the identical `Term.Assign(Term.Apply(receiver, List(arg)), rhs)` shape
+   *  — only the RECEIVER's own tracked kind tells them apart (`uniml/xml`'s `Doc.scala`'s
+   *  `readPseudoAttrs`: `m(name) = value`, the first local Map this lane ever saw mutated via
+   *  subscript-assign — before this, `asSeqIndexTarget` correctly said "not an array" and the
+   *  generic assign path underneath tried to render the LHS as a plain expression, which is not
+   *  what an assignment target is). */
+  private def asMapIndexTarget(t: m.Term, ctx: Ctx): Option[(String, m.Term)] = t match
+    case m.Term.Apply.After_4_6_0(m.Term.Name(n), args)
+        if args.values.size == 1 && ctx.localMaps.contains(n) =>
       Some((n, args.values.head))
     case _ => None
 
@@ -4190,6 +4212,33 @@ object RustCodeWalk:
     case m.Term.Select(m.Term.Name("Map"), m.Term.Name("empty")) =>
       Right("std::collections::HashMap::new()")
 
+    // `scala.collection.mutable.ListBuffer.empty[T]` / bare `ListBuffer.empty[T]` (`uniml/xml`'s
+    // `Doc.scala`'s `parseDoc`/`readAttrs`/`readContent`) and `scala.collection.mutable.
+    // ArrayBuffer.empty[T]` — a Rust `Vec` already IS a growable buffer (`.push` mutates in
+    // place), so this needs no runtime type of its own, same reasoning as `StringBuilder` above.
+    // `isEmptyCtorNamed` accepts either spelling regardless of how deep the qualifier chain runs
+    // (see its own comment).
+    case t if isEmptyCtorNamed(t, "ListBuffer") || isEmptyCtorNamed(t, "ArrayBuffer") =>
+      Right("Vec::new()")
+    // `scala.collection.mutable.LinkedHashMap.empty[K, V]` (`uniml/xml`'s `Doc.scala`'s
+    // `readPseudoAttrs`) — same reasoning: a Rust `HashMap` mutates in place. Insertion order is
+    // NOT preserved (`std::collections::HashMap` has none), the same simplification this backend
+    // already makes for `Set` (see `renderStruct`'s own comment on that): the caller here only
+    // ever reads by KEY (`.getOrElse`/`.get`), never iterates in declaration order.
+    case t if isEmptyCtorNamed(t, "LinkedHashMap") =>
+      Right("std::collections::HashMap::new()")
+    // `Vector.newBuilder[T]` (`uniml/xml`'s `Doc.scala`'s `validateNamespaces`) — Scala's builder
+    // pattern (`+=` to accumulate, `.result()` to finish); a Rust `Vec` already supports both
+    // halves directly (`.push`, and `.result()` lowers to identity — see its own case below).
+    case m.Term.ApplyType.After_4_6_0(m.Term.Select(m.Term.Name("Vector"), m.Term.Name("newBuilder")), _) =>
+      Right("Vec::new()")
+    // `ArrayBuffer(a, b, ...)` (bare, imported — `uniml/xml`'s `Doc.scala`'s `validateNamespaces`:
+    // `ArrayBuffer((root, Map(...)))`) — a growable Vec seeded with initial elements.
+    case m.Term.Apply.After_4_6_0(m.Term.Name("ArrayBuffer"), args) =>
+      args.values.toList.map(renderTerm(_, ctx)).partitionMap(identity) match
+        case (errs, _) if errs.nonEmpty => Left(errs.flatten)
+        case (_, ok)                    => Right(s"vec![${ok.mkString(", ")}]")
+
     // `StringBuilder(n)` / `StringBuilder()` (`XmlEscape.scala`'s `escape`/`escapeText`/
     // `escapeAttr`, `PureMarkupCodec.scala`'s `serialize`) — a Rust `String` already IS a
     // StringBuilder (growable, `.push`/`.push_str` mutate in place), so the type only exists here
@@ -4321,10 +4370,17 @@ object RustCodeWalk:
             r <- renderTerm(a.rhs, ctx)
           yield s"$n[($i) as usize] = $r"
         case None =>
-          for
-            l <- renderTerm(a.lhs, ctx)
-            r <- renderTerm(a.rhs, ctx)
-          yield s"$l = $r"
+          asMapIndexTarget(a.lhs, ctx) match
+            case Some((n, key)) =>
+              for
+                k <- renderTerm(key, ctx)
+                r <- renderTerm(a.rhs, ctx)
+              yield s"$n.${insertOwning(k, r)};"
+            case None =>
+              for
+                l <- renderTerm(a.lhs, ctx)
+                r <- renderTerm(a.rhs, ctx)
+              yield s"$l = $r"
 
     // `subject match { case … => …; … }` — Rust `match` expression.
     case mt: m.Term.Match =>
@@ -4755,6 +4811,15 @@ object RustCodeWalk:
     case m.Term.Select(qual, m.Term.Name(field))
         if _zeroArgDefNames.contains(field) && !ctx.ctorMap.values.exists(_.fieldNames.contains(field)) =>
       renderTerm(qual, ctx).map(q => s"$q.${rustIdent(field)}()")
+
+    // `m.toMap` (no parens — Scala elides `()` on a niladic method) over a KNOWN local Map
+    // (`uniml/xml`'s `Doc.scala`'s `readPseudoAttrs`) — this lane already renders every `Map` as a
+    // Rust `HashMap`, so there is no separate conversion step; identity. Placed here, ahead of the
+    // catch-all field-access fallback two lines down, for the same reason `.mkString`'s own
+    // no-paren case had to move (see ITS comment): a case added downstream of a total fallback is
+    // dead code (`-Werror` unreachable-case is what caught this one too).
+    case m.Term.Select(qual, m.Term.Name("toMap")) if isKnownMapReceiver(qual, ctx) =>
+      renderTerm(qual, ctx)
 
     case m.Term.Select(qual, m.Term.Name(field)) =>
       renderTerm(qual, ctx).map(q => selectOrNiladicCtor(qual, q, field, ctx))
@@ -5238,6 +5303,17 @@ object RustCodeWalk:
         q <- renderTerm(qual, ctx)
         body <- renderVecIterBody(args.values.head, q, ctx, method = "sortBy")
       yield body
+
+    // `builder.result()` — finishes a `Vector.newBuilder[T]` (`uniml/xml`'s `Doc.scala`'s
+    // `validateNamespaces`: `diagnostics.result()`). The Rust `Vec` this lane already renders the
+    // builder AS (see its constructor case) needs no separate finishing step, so this is identity.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("result")), args)
+        if args.values.isEmpty && isKnownVecReceiver(qual, ctx) =>
+      renderTerm(qual, ctx)
+
+    case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("toMap")), args)
+        if args.values.isEmpty && isKnownMapReceiver(qual, ctx) =>
+      renderTerm(qual, ctx)
 
     // xs.flatMap(f) on a Vec, where `f` is an OBJECT-QUALIFIED FUNCTION REFERENCE (eta-expansion,
     // no call) — `uniml/xml`'s `Doc.scala`'s `unresolvedReferences`: `result.roots.flatMap(UniNode.
@@ -5986,6 +6062,19 @@ object RustCodeWalk:
         l <- renderTerm(lhs, ctx)
         r <- renderTerm(rargs.values.head, ctx)
       yield s"[&($l)[..], &[$r][..]].concat()"
+
+    // `buf += x` over a KNOWN local Vec (`ListBuffer`/`ArrayBuffer`/`Vector.newBuilder`, all
+    // rendered as a `Vec` — see their constructor cases and `isEmptyCtorNamed`'s own comment) —
+    // Scala's builder/buffer `+=` is a real MUTATING method, not compound-assignment sugar, and
+    // Rust's `Vec` has no `+=` of its own (`renderInfix`'s literal `$l += $r` would emit invalid
+    // syntax); `.push` is the direct translation. `uniml/xml`'s `Doc.scala`'s `parseDoc`
+    // (`preRoot += readComment()`) and `validateNamespaces` (`diagnostics += …`, several times).
+    case m.Term.ApplyInfix.After_4_6_0(lhs, m.Term.Name("+="), _, rargs)
+        if rargs.values.size == 1 && isKnownVecReceiver(lhs, ctx) =>
+      for
+        l <- renderTerm(lhs, ctx)
+        r <- renderTerm(rargs.values.head, ctx)
+      yield s"$l.push($r);"
 
     // Infix operators: arithmetic, comparison, boolean.
     case infix @ m.Term.ApplyInfix.After_4_6_0(_, _, _, _) =>
@@ -8223,6 +8312,10 @@ object RustCodeWalk:
       case _                                                     => false
     def isMap(rhs: m.Term): Boolean = rhs match
       case m.Term.Apply.After_4_6_0(fn, _) if isMapCtorFn(fn) => true
+      // `scala.collection.mutable.LinkedHashMap.empty[K, V]` (`uniml/xml`'s `Doc.scala`'s
+      // `readPseudoAttrs`) — see `isEmptyCtorNamed`'s own comment for why the qualifier chain
+      // doesn't matter.
+      case t if isEmptyCtorNamed(t, "LinkedHashMap")          => true
       case m.Term.Name(n)                                     => maps.contains(n)
       case ifx: m.Term.If                                     => isMap(ifx.thenp) || isMap(ifx.elsep)
       // `m.getOrElse(key, <map>)` — the DEFAULT is the LAST argument, and in a well-typed program
@@ -8301,6 +8394,21 @@ object RustCodeWalk:
     case m.Term.Name("Map")                                  => true
     case m.Term.ApplyType.After_4_6_0(m.Term.Name("Map"), _) => true
     case _                                                   => false
+
+  /** True for `<qualifier>.<name>.empty[...]` regardless of how deeply-qualified the path before
+   *  `<name>` runs — `scala.collection.mutable.ListBuffer.empty[Markup.Node]` (fully-qualified,
+   *  `uniml/xml`'s `Doc.scala` spells every mutable-collection ctor this way) and a bare
+   *  `ListBuffer.empty[T]` (imported unqualified) both end in `Term.Select(_, Term.Name(name))`
+   *  immediately before `.empty`. Shared by `collectLocalSeqs`/`collectLocalMaps` (deciding
+   *  whether a LOCAL is one of these) and their matching `renderTerm` constructor cases (deciding
+   *  what the EXPRESSION itself lowers to). */
+  private def isEmptyCtorNamed(t: m.Term, name: String): Boolean = t match
+    case m.Term.ApplyType.After_4_6_0(m.Term.Select(qual, m.Term.Name("empty")), _) =>
+      qual match
+        case m.Term.Name(n)                   => n == name
+        case m.Term.Select(_, m.Term.Name(n)) => n == name
+        case _                                => false
+    case _ => false
 
   /** Render an `element(…)` attribute map (`Map[String, Any]` literal) into a
    *  `HashMap<String, String>`, coercing each value with `_ui_attr(...)` so mixed
@@ -8722,8 +8830,12 @@ object RustCodeWalk:
     pats match
       case List(m.Pat.Var(m.Term.Name(name))) =>
         // collection-rust-array: a `val a = Array(...)` local must bind `let mut` so `a(i)=x` stores.
-        // Same reason for `val sb = StringBuilder(...)`: `.append(...)` needs `&mut self`.
-        val kw = if mutable || ctx.localArrays.contains(name) || ctx.localStringBuilders.contains(name)
+        // Same reason for `val sb = StringBuilder(...)`: `.append(...)` needs `&mut self`. And for
+        // `val m = scala.collection.mutable.LinkedHashMap.empty[...]`: `m(k) = v` needs
+        // `HashMap::insert`, which is `&mut self` too (`uniml/xml`'s `Doc.scala`'s
+        // `readPseudoAttrs`, the first local Map this lane ever saw MUTATED via subscript-assign).
+        val kw = if mutable || ctx.localArrays.contains(name) || ctx.localStringBuilders.contains(name) ||
+                    ctx.localMaps.contains(name)
                  then "let mut" else "let"
         val annotated: Either[List[Diagnostic], String] = decltpe match
           case None    => Right("")
