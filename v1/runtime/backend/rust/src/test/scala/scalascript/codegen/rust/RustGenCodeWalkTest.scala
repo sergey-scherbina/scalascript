@@ -526,6 +526,64 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(g.contains(".remove(("), s".remove did not lower:\n$g")
 
+  test("a genuinely mutable class (`class`, not `case class`) renders as struct + &mut self impl"):
+    // `private final class Counter(label: String): private var count = 0; ...` (a MINIMAL stand-in
+    // for `uniml/xml`'s `Doc.scala`'s hand-written recursive-descent `Parser` — a real stateful OOP
+    // class, ~18 methods, none of it constructor-param data). Verified end-to-end via a real `cargo
+    // build` on this exact shape before landing (see the commit message); this test pins the
+    // generated TEXT shape so a regression here is caught without needing rustc.
+    val src =
+      """```scalascript
+        |private final class Counter(label: String):
+        |  private var count = 0
+        |
+        |  private def bump(): Unit =
+        |    count += 1
+        |
+        |  def run(n: Long): Long =
+        |    var i = 0L
+        |    while i < n do
+        |      bump()
+        |      i += 1
+        |    count
+        |
+        |def useIt(n: Long): Long =
+        |  Counter("x").run(n)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("pub struct Counter") && g.contains("pub count: i64"),
+      s"mutable-class struct did not render:\n$g")
+    assert(g.contains("fn new(label: String) -> Counter"), s"::new ctor did not render:\n$g")
+    assert(g.contains("pub fn bump(&mut self)") && g.contains("self.count += 1"),
+      s"self-field write did not render:\n$g")
+    assert(g.contains("pub fn run(&mut self, n: i64)") && g.contains("self.bump()"),
+      s"self-method call did not render:\n$g")
+    assert(g.contains("Counter::new(\"x\".to_string()).run(n)"),
+      s"construct-then-call chain did not render:\n$g")
+
+  test("`Option[(String, X)]` built via an if/else chain is still recognised as an Option"):
+    // `isOptionExpr` had no case for `Term.If` at all — `val digits = if ... then Some(...) else
+    // if ... then Some(...) else None` (`uniml/xml`'s `Doc.scala`'s `numericReferenceValue`) never
+    // registered as an Option anywhere downstream, so `digits.flatMap { case (value, radix) => … }`
+    // took no Option-aware path and the tuple-bound `value`'s String-ness (from the ORIGINAL `->`
+    // construction) never reached the closure body at all.
+    val src =
+      """```scalascript
+        |def parseIt(reference: String): Option[Long] =
+        |  val digits =
+        |    if reference.startsWith("&#x") then Some(reference.substring(3, reference.length - 1) -> 16L)
+        |    else None
+        |  digits.flatMap { case (value, radix) =>
+        |    if value.nonEmpty then Some(radix) else None
+        |  }
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("value.is_empty()") || g.contains("!value.is_empty()"),
+      s"tuple-bound String param's nonEmpty did not lower:\n$g")
+    assert(g.contains(".and_then("), s"Option.flatMap over an if/else-built local did not lower:\n$g")
+
   test("a positional ctor destructure (`case Ctor(a, b) =>`) types each field from the ctor"):
     // `case PI(target, data) => data.nonEmpty` (`uniml/xml`'s `Doc.scala`'s `serializeNode`,
     // shape simplified here) — `data`'s type comes from `PI`'s OWN declared field type

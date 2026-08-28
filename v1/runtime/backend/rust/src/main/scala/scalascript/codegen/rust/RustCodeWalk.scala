@@ -154,6 +154,11 @@ object RustCodeWalk:
     val enums             = collectEnums(module)
     val traitEnums        = collectSealedTraitEnums(module)
     val standaloneCases   = collectStandaloneCaseClasses(module, traitEnums)
+    val mutableClasses    = collectMutableClasses(module)
+    val mutableClassNames = mutableClasses.map(_.name.value).toSet
+    _mutableClassNames    = mutableClassNames
+    _mutableClassMethods  = mutableClasses.map(c =>
+      c.name.value -> c.templ.body.stats.collect { case dd: m.Defn.Def => dd.name.value }.toSet).toMap
     // Scala-3 `enum` CASES (`enum VmInstruction: case Emit(role: Option[String] = None)`,
     // `dialect/Literal.scala`'s actual spelling) were MISSING from this collection entirely — only
     // a standalone case class and a sealed-trait's case classes fed it, so `Emit()`'s own default
@@ -202,15 +207,27 @@ object RustCodeWalk:
     // cannot say which class a def came from — that ambiguity is what `collectExternClasses` already
     // solves the same way.
     val methodOwnerByPos: Map[Int, String] =
-      standaloneCases.flatMap { c =>
+      (standaloneCases ++ mutableClasses).flatMap { c =>
         c.templ.body.stats.collect { case dd: m.Defn.Def if !isExternBody(dd.body) =>
           dd.pos.start -> c.name.value
         }
       }.toMap
+    // For a `case class`, FIELDS are the constructor params — there is no other kind. For a
+    // MUTABLE class, they are the constructor params PLUS every body-level `private var`/`val`
+    // (`Parser`'s `pos`/`line`/`col`, declared and mutated INSIDE the body, not passed in) — see
+    // `collectMutableClasses`'s own comment for why that is the one genuinely new field shape here.
     val classFieldNames: Map[String, List[String]] =
-      standaloneCases.map(c => c.name.value -> c.ctor.paramClauses.flatMap(_.values).map(_.name.value).toList).toMap
+      standaloneCases.map(c => c.name.value -> c.ctor.paramClauses.flatMap(_.values).map(_.name.value).toList).toMap ++
+      mutableClasses.map { c =>
+        val ctorNames = c.ctor.paramClauses.flatMap(_.values).map(_.name.value)
+        val varNames  = c.templ.body.stats.collect {
+          case v: m.Defn.Var => v.pats.collect { case m.Pat.Var(m.Term.Name(n)) => n }
+          case v: m.Defn.Val => v.pats.collect { case m.Pat.Var(m.Term.Name(n)) => n }
+        }.flatten
+        c.name.value -> (ctorNames ++ varNames).toList
+      }.toMap
     val classMethodNames: Map[String, Set[String]] =
-      standaloneCases.map(c =>
+      (standaloneCases ++ mutableClasses).map(c =>
         c.name.value -> c.templ.body.stats.collect { case dd: m.Defn.Def => dd.name.value }.toSet).toMap
     // struct name -> its OWN ZERO-ARG method names (`TreeVm.start`/`.step`/`.stop`) — the other
     // half of the same call-site fix `_zeroArgDefNames` exists for: `val vm = TreeVm(limits); vm.
@@ -281,8 +298,13 @@ object RustCodeWalk:
       enums.map(e => renderEnum(e, userTypeNames)) ++
       traitEnums.map { case SealedTraitEnum(t, caseClasses) => renderTraitEnum(t, caseClasses, userTypeNames) }
     val structRendered    = standaloneCases.map(c => renderStruct(c, userTypeNames))
+    // NOT folded into `ctorMap` below with the rest of `structOk` — see `_mutableClassNames`'s own
+    // comment for why a mutable class's construction cannot go through the ordinary case-class
+    // constructor path at all.
+    val mutableClassRendered = mutableClasses.map(c => renderMutableClass(c, userTypeNames))
     val (enumErrs, enumOk)     = enumRendered.partitionMap(identity)
     val (structErrs, structOk) = structRendered.partitionMap(identity)
+    val (mutableClassErrs, mutableClassOk) = mutableClassRendered.partitionMap(identity)
     // owner name -> its OWN type params — used both by a METHOD's own rendering (`renderDef`'s
     // `ownTparams`, so `ProcessBatch.map`'s `A`/`B` resolve instead of falling to `i64`) and by the
     // companion `impl` block assembled later (so `impl ProcessBatch` gets its `<A>`).
@@ -479,11 +501,21 @@ object RustCodeWalk:
     val (methodDefs, freeDefs) = defsToRender.partition(d => methodOwnerByPos.contains(d.pos.start))
     val results = freeDefs.map(renderDef(_, intrinsics, userDefs, ctorMap, topVals, effectfulDefs, rustFnNamesInBlocks))
     val (errors, ok) = results.partitionMap(identity)
+    // Field name -> Rust type, for a MUTABLE class's own method — the twin of `ctorMap`'s role for
+    // a case-class method just below, kept separate because a mutable class's struct is NOT in
+    // `ctorMap` at all (`_mutableClassNames`'s own comment says why).
+    val mutableClassFieldTypes: Map[String, Map[String, String]] =
+      mutableClassOk.map(s => s.structName -> s.fieldNames.zip(s.fieldTypes).toMap).toMap
     val methodResults = methodDefs.map { d =>
       val owner = methodOwnerByPos(d.pos.start)
-      val ownFieldTypes = ctorMap.get(owner).map(ec => ec.fieldNames.zip(ec.fieldTypes).toMap).getOrElse(Map.empty)
+      val isMutableOwner = mutableClassNames.contains(owner)
+      val ownFieldTypes =
+        if isMutableOwner then mutableClassFieldTypes.getOrElse(owner, Map.empty)
+        else ctorMap.get(owner).map(ec => ec.fieldNames.zip(ec.fieldTypes).toMap).getOrElse(Map.empty)
       renderDef(d, intrinsics, userDefs, ctorMap, topVals, effectfulDefs, rustFnNamesInBlocks, ownFieldTypes,
-                structTparams.getOrElse(owner, Nil))
+                structTparams.getOrElse(owner, Nil),
+                ownMethodNames = if isMutableOwner then classMethodNames.getOrElse(owner, Set.empty) else Set.empty,
+                trueSelf = isMutableOwner)
         .map(g => (owner, classFieldNames.getOrElse(owner, Nil), classMethodNames.getOrElse(owner, Set.empty), d, g))
     }
     val (methodErrors, methodOk) = methodResults.partitionMap(identity)
@@ -537,7 +569,7 @@ object RustCodeWalk:
     // The `matches` refusal that used to live here is gone: the lane now depends on `regex` and
     // lowers `s.matches(p)` to `_str_matches` (see `applyNonListCtor`). The dependency is added only
     // for a program that uses it, the way `ureq` and `tokio` already are.
-    val allErrs = extensionErrs ++ overloadErrs ++ enumErrs.flatten ++ structErrs.flatten ++ errors.flatten ++ methodErrors.flatten ++ externErrs ++ dispatchTraitErrs.flatten ++ dispatchImplErrs.flatten
+    val allErrs = extensionErrs ++ overloadErrs ++ enumErrs.flatten ++ structErrs.flatten ++ mutableClassErrs.flatten ++ errors.flatten ++ methodErrors.flatten ++ externErrs ++ dispatchTraitErrs.flatten ++ dispatchImplErrs.flatten
     if allErrs.nonEmpty then Left(allErrs)
     else
       // One `impl` per owner, members in source order. Emitted next to the struct rather than among
@@ -545,7 +577,13 @@ object RustCodeWalk:
       // declaring the same member name stops colliding.
       val implBlock =
         methodOk.groupBy(_._1).toList.sortBy(_._1).map { case (owner, ms) =>
-          val fns = ms.map { case (_, fields, siblings, d, g) => selfMethod(g.render, fields, siblings, d) }.mkString("\n")
+          // A MUTABLE class's methods take `&mut self` with no alias injection — `selfMethodMut`'s
+          // own comment says why `selfMethod`'s clone-alias mechanism is wrong for them.
+          val fns =
+            if mutableClassNames.contains(owner) then
+              ms.map { case (_, _, _, d, g) => selfMethodMut(g.render, d) }.mkString("\n")
+            else
+              ms.map { case (_, fields, siblings, d, g) => selfMethod(g.render, fields, siblings, d) }.mkString("\n")
           val tp = structTparams.getOrElse(owner, Nil)
           // `: Clone` on each param in the IMPL header (not the struct header — the struct itself
           // needs no bound, only code that CALLS `.clone()` on an `A`-typed field does) — every
@@ -557,7 +595,7 @@ object RustCodeWalk:
           val useTpDecl  = if tp.isEmpty then "" else tp.mkString("<", ", ", ">")
           s"impl$implTpDecl $owner$useTpDecl {\n$fns}\n"
         }.mkString
-      val enumBlock = structOk.map(_.render).mkString + enumOk.map(_.render).mkString + implBlock +
+      val enumBlock = structOk.map(_.render).mkString + mutableClassOk.map(_.render).mkString + enumOk.map(_.render).mkString + implBlock +
         dispatchTraitOk.mkString + dispatchImplOk.mkString
       // Render given instances as Rust structs + impls, emitted before the defs.
       val ctx0 = Ctx(intrinsics, userDefs, ctorMap, topVals, "<given>", effectfulDefs)
@@ -1331,6 +1369,21 @@ object RustCodeWalk:
    *  the other one's collision. */
   private var _qualifiedCtors: Map[(String, String), EnumCtor] = Map.empty
 
+  /** Names of every genuinely mutable class this module declares (`collectMutableClasses`'s own
+   *  comment has the full reasoning) — read at a CONSTRUCTOR call site (`Parser(src)` -> `Parser::
+   *  new(src)`, `renderTerm`'s matching case) to route around `ctorMap`'s struct-literal
+   *  construction entirely: a mutable class's fields are NOT all constructor arguments (`pos`/
+   *  `line`/`col` have no argument at all — they are the class's own internal state), so the
+   *  ordinary case-class constructor path would build the wrong thing even if this name were
+   *  registered there. */
+  private var _mutableClassNames: Set[String] = Set.empty
+
+  /** mutable-class name -> its OWN method names — the call-site twin of `_mutableClassNames`:
+   *  `Parser(src).parseDoc()`'s `.parseDoc()` half needs to know `parseDoc` is one of THIS
+   *  specific class's methods (not an intrinsic, not some unrelated def sharing the name) before
+   *  it can pass the receiver through unchanged and append the call. */
+  private var _mutableClassMethods: Map[String, Set[String]] = Map.empty
+
   /** topval name -> its owning companion object's name, `None` for one declared outside any object.
    *  Set once per module by `collectTopVals`'s own `descend`. Two DIFFERENT companion objects are
    *  free to each declare their own topval under the SAME bare name (`TreeVm.scala`'s `object
@@ -1571,6 +1624,19 @@ object RustCodeWalk:
     module.sections.flatMap(sectionClasses)
       .filter(c => isCaseClass(c) && !traitCaseNames.contains(c.name.value))
 
+  /** A plain (non-`case`) `class` with a genuinely mutable body — `private final class
+   *  Parser(src: String): private var pos = 0 ...` (`uniml/xml`'s `Doc.scala`, the hand-written
+   *  recursive-descent XML parser). Every OTHER class shape this backend renders (a standalone
+   *  `case class`, a sealed-trait variant) is immutable DATA whose only fields are constructor
+   *  params; this is the first (and, in this corpus, only) genuinely STATEFUL OOP class — `pos`/
+   *  `line`/`col` are declared and mutated INSIDE the body, not passed in, and nearly every one of
+   *  its ~18 methods both reads and writes them across calls to each other. `renderMutableClass`
+   *  is the matching renderer; `Ctx.trueSelfFields`/`selfMethods` are how a method body sees them
+   *  as `self.field`/`self.method(...)` rather than the read-only `let f = self.f.clone();` alias
+   *  `selfMethod` gives a case class (wrong here — a clone never writes back). */
+  private def collectMutableClasses(module: ast.Module): List[m.Defn.Class] =
+    module.sections.flatMap(sectionClasses).filterNot(isCaseClass)
+
   /** The value a `throw` actually carries: an exception on this target IS its message.
    *
    *  Lifted out of `renderTerm` rather than inlined, because that method is one of the frozen
@@ -1688,6 +1754,87 @@ object RustCodeWalk:
            |pub struct $name$tparamRs$body
            |$structDebug$lift""".stripMargin
       Right(GeneratedStruct(render, name, ok.map(_._1), ok.map(_._2), tparams))
+
+  /** Struct + `::new(...)` constructor for a genuinely mutable class — see `collectMutableClasses`'
+   *  own comment for what this is and why it needs its own renderer rather than reusing
+   *  `renderStruct`. Its FIELDS are the constructor params (as `renderStruct` already handles)
+   *  PLUS every `private var`/`val` the body declares — `case class` has no such body-level field
+   *  to begin with, so this is the one genuinely new piece: each needs a TYPE (its own annotation,
+   *  or inferred from a literal initializer — `Parser`'s `pos`/`line`/`col` are all `= 0`/`= 1`,
+   *  never annotated) and the initializer itself, both folded into `::new(...)`'s body. The
+   *  METHODS themselves still render through the ordinary `renderDef` -> `methodOwnerByPos` path
+   *  (see `walk()`'s own use of `mutableClassNames`); this function only builds the struct shell
+   *  and its constructor. */
+  private def renderMutableClass(
+      c: m.Defn.Class, typeNames: Set[String]
+  ): Either[List[Diagnostic], GeneratedStruct] =
+    val name = c.name.value
+    val ctorParams = c.ctor.paramClauses.flatMap(_.values).toList
+    val ctorFieldsR = ctorParams.map { p =>
+      p.decltpe match
+        case Some(t) => mapType(t, s"class $name", typeNames, inField = true).map(r => (p.name.value, r))
+        case None    => Left(List(unsupported(
+          s"class `$name` constructor param `${p.name.value}` has no type annotation"
+        )))
+    }
+    // A literal's type, for a field with no annotation (`private var pos = 0`) — the only shape
+    // this corpus's one mutable class actually needs; anything else refuses by name below rather
+    // than guessing.
+    def literalType(t: m.Term): Option[String] = t match
+      case _: m.Lit.Int | _: m.Lit.Long     => Some("i64")
+      case _: m.Lit.Double | _: m.Lit.Float => Some("f64")
+      case _: m.Lit.Boolean                 => Some("bool")
+      case _: m.Lit.String                  => Some("String")
+      case _                                => None
+    val fieldStats = c.templ.body.stats.collect {
+      case v: m.Defn.Var => (v.pats, v.decltpe, Some(v.body))
+      case v: m.Defn.Val => (v.pats, v.decltpe, Some(v.rhs))
+    }
+    // A minimal Ctx — every field this corpus's one mutable class declares initializes to a plain
+    // literal, so nothing here needs the enclosing module's intrinsics/userDefs/ctorMap.
+    val initCtx = Ctx(Map.empty, Set.empty, Map.empty, Nil, name)
+    val varFieldsR = fieldStats.map {
+      case (List(m.Pat.Var(m.Term.Name(n))), decltpe, Some(rhs)) =>
+        val tyE: Either[List[Diagnostic], String] = decltpe match
+          case Some(t) => mapType(t, s"class $name", typeNames, inField = true)
+          case None    => literalType(rhs).toRight(List(unsupported(
+            s"class `$name` field `$n` has no type annotation and its initializer is not a " +
+            s"plain literal — this lane cannot infer its type"
+          )))
+        for
+          ty   <- tyE
+          init <- renderTerm(rhs, initCtx)
+        yield (n, ty, init)
+      case (List(m.Pat.Var(m.Term.Name(n))), _, None) =>
+        Left(List(unsupported(s"class `$name` field `$n` has no initializer")))
+      case _ =>
+        Left(List(unsupported(s"class `$name` has a field binding this lane does not lower")))
+    }
+    val (ctorErrs, ctorOk) = ctorFieldsR.partitionMap(identity)
+    val (varErrs, varOk)   = varFieldsR.partitionMap(identity)
+    if ctorErrs.nonEmpty || varErrs.nonEmpty then Left(ctorErrs.flatten ++ varErrs.flatten)
+    else
+      val allNames = ctorOk.map(_._1) ++ varOk.map(_._1)
+      val allTypes = ctorOk.map(_._2) ++ varOk.map(_._2)
+      val fieldsText = (ctorOk.map((n, t) => (n, t)) ++ varOk.map((n, t, _) => (n, t)))
+        .map((n, t) => s"    pub ${rustIdent(n)}: $t").mkString(",\n")
+      val structBody = if allNames.isEmpty then ";" else s""" {
+                                                             |$fieldsText,
+                                                             |}""".stripMargin
+      val newParams = ctorOk.map((n, t) => s"${rustIdent(n)}: $t").mkString(", ")
+      val newFields = (ctorOk.map((n, _) => rustIdent(n)) ++ varOk.map((n, _, init) => s"${rustIdent(n)}: $init"))
+        .mkString(", ")
+      val render =
+        s"""#[allow(dead_code)]
+           |pub struct $name$structBody
+           |
+           |impl $name {
+           |    fn new($newParams) -> $name {
+           |        $name { $newFields }
+           |    }
+           |}
+           |""".stripMargin
+      Right(GeneratedStruct(render, name, allNames, allTypes, Nil))
 
   /** A minimal `Debug` for an enum that cannot derive one.
    *
@@ -2402,7 +2549,19 @@ object RustCodeWalk:
       // `.empty[T]` syntax and only this table tells them apart. Appended at the END of the field
       // list for the reason `localStringBuilders`'s own comment records (a positional `Ctx(...)`
       // call site elsewhere in this file breaks on any other insertion point).
-      localSets: Set[String] = Set.empty
+      localSets: Set[String] = Set.empty,
+      // A method of a genuinely mutable class — see `renderDef`'s own `trueSelf` parameter for the
+      // full reasoning (the EXISTING `selfFields`/`selfMethod` clone-alias mechanism is wrong for
+      // shared mutable state). `trueSelfFields`: a bare name in this set renders as `self.name`
+      // (`bareNameOrNiladicCtor`). `selfMethods`: a bare CALL to a name in this set renders as
+      // `self.name(...)`. Both empty for every OTHER def (free function or case-class method), so
+      // neither changes anything about the mechanism they sit beside.
+      trueSelfFields: Set[String] = Set.empty,
+      selfMethods: Set[String] = Set.empty,
+      // Local name -> which positions of its `Option[(A, B)]` are known Strings — see
+      // `collectLocalTupleStringPositions`'s own comment. Read by `tupleStringPositions` at a
+      // `.foreach`/`.flatMap` dispatch site to type a `case (a, b) => …` closure's own binders.
+      localTupleStringPos: Map[String, Set[Int]] = Map.empty
   ):
     def enumNames: Set[String] = ctorMap.values.map(_.enumName).toSet
     @annotation.unused def topValNames: Set[String] = topVals.map(_._1).toSet
@@ -2505,6 +2664,18 @@ object RustCodeWalk:
    *
    *  Only what the body USES is bound: everything else would warn on every method that ignores a
    *  field, and the unused-closure case would not even compile. */
+  /** The `&mut self` twin of `selfMethod` just below, for a genuinely mutable class — no
+   *  alias-binding injection at all (unlike `selfMethod`'s `let f = self.f.clone();`): the body was
+   *  already rendered with `Ctx.trueSelfFields`/`selfMethods` set (`renderDef`'s `trueSelf`), so
+   *  every field read/write and every sibling-method call in `render` is ALREADY a literal
+   *  `self.name`/`self.name(...)` — this only has to add the receiver to the signature. */
+  private def selfMethodMut(render: String, d: m.Defn.Def): String =
+    val withSelf =
+      if render.startsWith(s"pub fn ${rustIdent(d.name.value)}()")
+      then render.replaceFirst("""\(\)""", "(&mut self)")
+      else render.replaceFirst("""\(""", "(&mut self, ")
+    indent(withSelf) + "\n"
+
   private def selfMethod(render: String, fields: List[String], siblings: Set[String], d: m.Defn.Def): String =
     val params  = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value).toSet
     val usedF   = fields.filter(f => !params.contains(f) && readsName(d.body, f))
@@ -2581,7 +2752,18 @@ object RustCodeWalk:
       // this, `A`/`B` fell to `mapType`'s generic-type-parameter default of `i64`, and `f: A => B`
       // signed as `impl Fn(i64) -> i64`, which does not typecheck against `values.map(f)` at all —
       // `error[E0277]: expected a FnMut(A) closure`.
-      ownTparams: List[String] = Nil
+      ownTparams: List[String] = Nil,
+      // A method of a genuinely MUTABLE class (`private final class Parser(src: String): private
+      // var pos = 0 ...`, `uniml/xml`'s `Doc.scala`) — `ownFieldTypes`'s clone-alias mechanism
+      // (`selfMethod`, see its own comment) reads each field ONCE into a local at method entry,
+      // which is right for a case class's immutable data but silently WRONG here: `pos += 1`
+      // mutates the LOCAL clone, never `self.pos`, and every sibling method call sees stale state.
+      // `trueSelf`, when set, skips that alias entirely — `ownFieldTypes`' names instead render as
+      // literal `self.name` at every occurrence (`Ctx.trueSelfFields`, read by
+      // `bareNameOrNiladicCtor`) and `ownMethodNames` names render calls as `self.name(...)`
+      // (`Ctx.selfMethods`) — true shared mutable state instead of a snapshot.
+      ownMethodNames: Set[String] = Set.empty,
+      trueSelf: Boolean = false
   ): Either[List[Diagnostic], GeneratedDef] =
     // SITE 1 — the definition. `object Tool: def text` emits as `fn Tool_text`, which is also what
     // makes the overloading refusal go away: that check groups on `GeneratedDef.name`, so two
@@ -2692,6 +2874,9 @@ object RustCodeWalk:
                               case _ => false
                             } => p.name.value }.toSet,
                         selfFields = ownFieldTypes.keySet,
+                        trueSelfFields = if trueSelf then ownFieldTypes.keySet else Set.empty,
+                        selfMethods    = if trueSelf then ownMethodNames else Set.empty,
+                        localTupleStringPos = collectLocalTupleStringPositions(d.body),
                         paramTypes = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).flatMap { p =>
                           p.decltpe.flatMap(t => mapType(t, name, ctorMap.values.map(_.enumName).toSet).toOption)
                             .map(p.name.value -> _)
@@ -3219,6 +3404,42 @@ object RustCodeWalk:
       t.children.foreach(walk)
     walk(body)
     strs.toSet
+
+  /** Local val/var names bound to `Option[(String, X)]` (or `(X, String)`), by tuple POSITION —
+   *  a chained-arm partner to `collectLocalStrings`: `val digits = if ... then Some(reference.
+   *  substring(...) -> 16) else ... else None` (`uniml/xml`'s `Doc.scala`'s
+   *  `numericReferenceValue`) binds a String at tuple position 0, but nothing DESTRUCTURING
+   *  `digits` later (`digits.flatMap { case (value, radix) => value.nonEmpty }`) had any way to
+   *  learn that — the fact lived only in the ORIGINAL `->` construction, not in `digits` itself.
+   *  Narrow and syntactic on purpose, matching `collectLocalStrings`'s own `isStr`: recognises
+   *  `Some(a -> b)` (optionally nested in an if/else chain) and reports which of `a`/`b` is a
+   *  known String, by the same literal/`.toString`/`.substring`/etc. rules `isStr` uses. */
+  private def collectLocalTupleStringPositions(body: m.Term): Map[String, Set[Int]] =
+    val out = scala.collection.mutable.Map.empty[String, Set[Int]]
+    def isStr(t: m.Term): Boolean = t match
+      case m.Lit.String(_)                            => true
+      case m.Term.Interpolate(m.Term.Name("s"), _, _) => true
+      case m.Term.Select(_, m.Term.Name("toString" | "trim" | "mkString")) => true
+      case m.Term.Apply.After_4_6_0(m.Term.Select(_, m.Term.Name("toString" | "trim" | "mkString" | "substring")), _) => true
+      case _ => false
+    def positions(t: m.Term): Set[Int] = t match
+      case m.Term.Apply.After_4_6_0(m.Term.Name("Some"), args) if args.values.sizeIs == 1 =>
+        positions(args.values.head)
+      case m.Term.ApplyInfix.After_4_6_0(l, m.Term.Name("->"), _, r) if r.values.sizeIs == 1 =>
+        (if isStr(l) then Set(0) else Set.empty[Int]) ++ (if isStr(r.values.head) then Set(1) else Set.empty[Int])
+      case ifx: m.Term.If => positions(ifx.thenp) ++ positions(ifx.elsep)
+      case _              => Set.empty
+    def walk(t: m.Tree): Unit =
+      t match
+        case v: m.Defn.Val => v.pats match
+          case List(m.Pat.Var(m.Term.Name(n))) =>
+            val ps = positions(v.rhs)
+            if ps.nonEmpty then out(n) = ps
+          case _ => ()
+        case _ => ()
+      t.children.foreach(walk)
+    walk(body)
+    out.toMap
 
   /** Local val/var names bound to an Option-producing expression.
    *
@@ -4331,6 +4552,17 @@ object RustCodeWalk:
     // `diagCount < limits.maxDiagnostics` on a `&mut i64` is E0308, not autoderef.
     case m.Term.Name(n) if ctx.byRefMut.contains(n) => Right(s"(*$n)")
 
+    // `advance()` called bare from inside another method of the SAME mutable class (`readName()`
+    // calling `advance()`, `uniml/xml`'s `Doc.scala`'s `Parser`) — Scala elides the `self.`/`this.`
+    // receiver here exactly as it does for a field read (`Ctx.trueSelfFields`'s own comment); the
+    // ordinary call machinery below has no notion of an implicit receiver at all, so this renders
+    // it explicitly before falling through to that.
+    case m.Term.Apply.After_4_6_0(m.Term.Name(n), args) if ctx.selfMethods.contains(n) =>
+      val rendered = args.values.toList.map(renderTerm(_, ctx))
+      val (errs, ok) = rendered.partitionMap(identity)
+      if errs.nonEmpty then Left(errs.flatten)
+      else Right(s"self.${rustIdent(n)}(${ok.mkString(", ")})")
+
     // A call to a def THIS lift lifted out of the enclosing body — `record(d)` inside `step`, or
     // `addTop(edge)` inside the lifted `attach`. Its captured names are not part of the Scala call
     // the user wrote, so they are appended here rather than reaching this shape through the
@@ -5194,9 +5426,10 @@ object RustCodeWalk:
     case m.Term.Apply.After_4_6_0(
         m.Term.Select(qual, m.Term.Name("foreach")), args
     ) if args.values.size == 1 =>
+      val enriched = withTupleStringLocals(args.values.head, qual, ctx)
       for
-        q <- renderTerm(qual, ctx)
-        body <- renderVecIterBody(args.values.head, q, ctx, method = "foreach")
+        q <- renderTerm(qual, enriched)
+        body <- renderVecIterBody(args.values.head, q, enriched, method = "foreach")
       yield body
 
     // xs.map(f) → xs.iter().cloned().map(move |p| body).collect::<Vec<_>>()
@@ -5542,9 +5775,10 @@ object RustCodeWalk:
         m.Term.Select(qual, m.Term.Name("flatMap")),
         args
     ) if isOptionExpr(qual, ctx) && args.values.size == 1 =>
+      val enriched = withTupleStringLocals(args.values.head, qual, ctx)
       for
-        q <- renderTerm(qual, ctx)
-        f <- renderTerm(args.values.head, ctx)
+        q <- renderTerm(qual, enriched)
+        f <- renderTerm(args.values.head, enriched)
       yield s"$q.and_then($f)"
 
     case m.Term.Apply.After_4_6_0(
@@ -5868,6 +6102,34 @@ object RustCodeWalk:
       namedCtorAsPositional(n, args.values.toList, ctx) match
         case Some(desugared) => renderTerm(desugared, ctx)
         case None            => renderNamedCtor(n, args.values.toList, ctx)
+
+    // `Parser(src)` — construction of a genuinely MUTABLE class (`_mutableClassNames`'s own
+    // comment). Routed to `ClassName::new(...)`, never the ordinary case-class struct-literal
+    // path just above: this name is deliberately absent from `ctorMap`, since a mutable class's
+    // fields are not all constructor arguments (`pos`/`line`/`col` have none at all — they are
+    // the class's own internal state, initialized by `::new`'s own body, not the caller's args).
+    case m.Term.Apply.After_4_6_0(m.Term.Name(n), args) if _mutableClassNames.contains(n) =>
+      val rendered = args.values.toList.map(renderTerm(_, ctx))
+      val (errs, ok) = rendered.partitionMap(identity)
+      if errs.nonEmpty then Left(errs.flatten)
+      else Right(s"$n::new(${ok.mkString(", ")})")
+
+    // `Parser(src).parseDoc()` — a method call chained directly off a mutable-class CONSTRUCTION
+    // (the one shape this corpus's `PureMarkupCodec.parse` actually writes: build, then call
+    // straight through, never stored in a local first). `qual` renders via the case just above
+    // (`Parser::new(src)`); this only has to recognise `parseDoc` as one of `Parser`'s OWN methods
+    // before appending the call — `qualifiedName(fn)` below has no case for a `Term.Select` whose
+    // qualifier is itself a call, so the generic path never reaches this shape at all.
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(qual @ m.Term.Apply.After_4_6_0(m.Term.Name(cls), _), m.Term.Name(meth)),
+        args
+    ) if _mutableClassMethods.get(cls).exists(_.contains(meth)) =>
+      for
+        q <- renderTerm(qual, ctx)
+        argsR <- args.values.toList.map(renderTerm(_, ctx)).partitionMap(identity) match
+          case (errs, _) if errs.nonEmpty => Left(errs.flatten)
+          case (_, ok)                    => Right(ok)
+      yield s"$q.${rustIdent(meth)}(${argsR.mkString(", ")})"
 
     // Application — intrinsic, user-defined fn, or unsupported.
     case m.Term.Apply.After_4_6_0(fn, args) =>
@@ -6629,6 +6891,40 @@ object RustCodeWalk:
     case m.Term.Name(n) => ctx.localSets.contains(n)
     case _               => false
 
+  /** Which POSITIONS of `qual`'s `Option[(A, B)]` are known Strings — either a bare local name
+   *  (`ctx.localTupleStringPos`, from `collectLocalTupleStringPositions`) or a direct call to a
+   *  def whose DECLARED return type is `Option<(...)>` (`_returnTypes`, the same table
+   *  `defReturnsString` reads for the non-tuple case). Used at a `.foreach`/`.flatMap` dispatch
+   *  site to type a `case (a, b) => …` closure's own binders — see `withTupleStringLocals`. */
+  private def tupleStringPositions(qual: m.Term, ctx: Ctx): Set[Int] = qual match
+    case m.Term.Name(n) => ctx.localTupleStringPos.getOrElse(n, Set.empty)
+    case m.Term.Apply.After_4_6_0(m.Term.Name(fn), _) =>
+      _returnTypes.get(fn) match
+        case Some(t) if t.startsWith("Option<(") && t.endsWith(")>") =>
+          t.stripPrefix("Option<(").stripSuffix(")>").split(",").map(_.trim).zipWithIndex
+            .collect { case ("String", i) => i }.toSet
+        case _ => Set.empty
+    case _ => Set.empty
+
+  /** Widen `ctx.localStrings` with a tuple-destructuring `case (a, b) => …` closure ARG's own
+   *  bound names, at whichever POSITIONS `tupleStringPositions(qual, ctx)` says are known
+   *  Strings — a single-case partial function only (`namespaceDeclaration(attribute).foreach {
+   *  case (prefix, uri) => … }`, `digits.flatMap { case (value, radix) => … }`, both
+   *  `uniml/xml`'s `Doc.scala`); anything else is returned unchanged. */
+  private def withTupleStringLocals(pfArg: m.Term, qual: m.Term, ctx: Ctx): Ctx = pfArg match
+    case pf: m.Term.PartialFunction if pf.cases.sizeIs == 1 =>
+      pf.cases.head.pat match
+        case m.Pat.Tuple(elems) =>
+          val positions = tupleStringPositions(qual, ctx)
+          if positions.isEmpty then ctx
+          else
+            val names = elems.zipWithIndex.collect {
+              case (m.Pat.Var(m.Term.Name(n)), i) if positions.contains(i) => n
+            }
+            if names.isEmpty then ctx else ctx.copy(localStrings = ctx.localStrings ++ names)
+        case _ => ctx
+    case _ => ctx
+
   private def isKnownVecReceiver(term: m.Term, ctx: Ctx): Boolean = term match
     case m.Term.Name(n) => ctx.localSeqs.contains(n) || ctx.localArrays.contains(n)
     case m.Term.Apply.After_4_6_0(m.Term.Name("List" | "Vector" | "Array"), _) => true
@@ -6716,6 +7012,15 @@ object RustCodeWalk:
       }
     // A NAME bound to any of the above. The pre-pass records it; see `collectLocalOptions`.
     case m.Term.Name(n) => ctx.localOptions.contains(n)
+    // `val digits = if reference.startsWith("&#x") then Some(...) else if ... then Some(...) else
+    // None` (`uniml/xml`'s `Doc.scala`'s `numericReferenceValue`) — an if/else CHAIN whose every
+    // branch produces an Option is itself one, the same shape `collectLocalStrings`'s `isStr`
+    // already recurses through for a String-producing chain. No case existed here for `Term.If`
+    // at all before, so `digits` never entered `collectLocalOptions`' set and `digits.flatMap
+    // {...}` — genuinely an `Option.flatMap`, not a List one — took no Option-aware lowering path
+    // at all: the receiver never registered as an Option anywhere downstream, including at the
+    // tuple-bound closure param typing `withTupleStringLocals` depends on.
+    case ifx: m.Term.If => isOptionExpr(ifx.thenp, ctx) || isOptionExpr(ifx.elsep, ctx)
     case _ => false
 
   /** Best-effort check that a term is a range or Source expression.
@@ -8605,6 +8910,12 @@ object RustCodeWalk:
    *
    *  Replaces the `Right(n)` that was here rather than adding an arm — `renderTerm` is frozen. */
   private def bareNameOrNiladicCtor(n: String, ctx: Ctx): String =
+    if ctx.trueSelfFields.contains(n) then s"self.${rustIdent(n)}" else
+    // `cur` (`private def cur: Char = ...`, `uniml/xml`'s `Doc.scala`'s `Parser`) — a Scala
+    // PARAMETERLESS method, called with no `()` at the use site, reaches here as a bare name
+    // exactly like a field read does (no `Term.Apply` at all); the guarded `Term.Apply` case for a
+    // self-method CALL (this function's neighbour a few hundred lines up) never sees this shape.
+    if ctx.selfMethods.contains(n) then s"self.${rustIdent(n)}()" else
     ctx.ctorMap.get(n) match
       case Some(c) if c.fieldNames.isEmpty && !c.isStruct => s"${c.enumName}::$n"
       // `Nil` in an EXPRESSION — `loop(source, offset, Nil)` — emitted the bare word and rustc said

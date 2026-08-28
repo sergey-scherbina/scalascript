@@ -257,10 +257,18 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # `.add`/`.remove`/`.reverseIterator.foreach`. Same terms as the entry above: each arm is a genuine
 # lowering gap this session's own `--print-only` diagnostic count and `cargo build` caught, not a
 # refactor, and "split it up" still does not apply for the reason recorded there.
+#
+# renderTerm 27888 -> 28756 (+868), from landing MUTABLE-CLASS support (a plain, non-`case` Scala
+# `class` with genuinely mutated body-level `var` fields, rendered as a Rust struct + `&mut self`
+# impl — `uniml/xml`'s `Doc.scala`'s hand-written recursive-descent `Parser`, the first class this
+# backend ever compiled of that shape) plus the tuple-bound-closure-param String-typing batch that
+# rode along with it (`isOptionExpr`'s missing `Term.If` case, `withTupleStringLocals`). Verified
+# against a REAL `cargo build`, not just `--print-only` — this is the milestone that made the
+# 3 remaining `--print-only` diagnostics on `uniml/xml` go to 0. Same terms as both entries above.
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-27888 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+28756 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF
