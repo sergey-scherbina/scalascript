@@ -1,3 +1,2 @@
-# generation: 3015
+# generation: 3016
 #slug	agent	started	items	paths
-jvm-release-archive	claude-code	2026-08-28T02:09:50Z	jvm-release-archive	file:.github/workflows/native-release.yml file:scripts/native-release-publish file:tests/e2e/native-release-publication.sh file:README.md file:BUGS.md file:install.sh
