@@ -85,7 +85,7 @@ above confirmed with a real `.sscpkg`.
 
 ## native-release-version-not-bumped-before-tag — build.sbt still read a prior release's -SNAPSHOT while prepping v0.2.1
 
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      kind: bug
      area: build
@@ -93,9 +93,9 @@ above confirmed with a real `.sscpkg`.
      reported-by: claude-code
      reported-at: 2026-08-28
      confirmed: yes
-     fixed-in: - -->
+     fixed-in: c7766571c -->
 
-**FIXED 2026-08-28.** Preparing to cut v0.2.1 (to make the previous entry's registry URLs
+**FIXED 2026-08-28 (`c7766571c`).** Preparing to cut v0.2.1 (to make the previous entry's registry URLs
 actually resolve), `ThisBuild / version` in `build.sbt` still read `"0.2.0-SNAPSHOT"` — a prior
 release's placeholder, never bumped. Had a tag been pushed as-is: `ssc --version` would have
 reported the wrong version on every downloaded binary, every `.sscpkg` plugin manifest would have
