@@ -278,6 +278,24 @@
       |    end <= units.len() && units[start..end] == prefix_units[..]
       |}
       |
+      |// `s.indexOf(needle, fromIndex)` — the two-arg overload (`input.indexOf("?>", index + 5)`,
+      |// `input.indexOf(';', cursor + 1)`, `uniml/xml`'s `Doc.scala`'s hand-written XML scanner) —
+      |// same UTF-16-code-unit basis as `_str_starts_with_at` above, and the same reason: a byte
+      |// offset diverges from Scala's own answer on any non-ASCII prefix. Slices to the UTF-16
+      |// boundary first (lossy — the same tradeoff `_str_substring` already makes) so the search
+      |// itself can use `str::find` and the surrounding OFFSET stays exact.
+      |#[allow(dead_code)]
+      |pub fn _str_index_of_from(s: &str, needle: &str, from: i64) -> i64 {
+      |    if from < 0 { return -1; }
+      |    let units: Vec<u16> = s.encode_utf16().collect();
+      |    let start = (from as usize).min(units.len());
+      |    let suffix = String::from_utf16_lossy(&units[start..]);
+      |    match suffix.find(needle) {
+      |        Some(byte_idx) => (start + suffix[..byte_idx].encode_utf16().count()) as i64,
+      |        None => -1,
+      |    }
+      |}
+      |
       |#[allow(dead_code)]
       |pub fn _exists(path: &str) -> bool { std::path::Path::new(path).exists() }
       |

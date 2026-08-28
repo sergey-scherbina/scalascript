@@ -5184,6 +5184,23 @@ object RustCodeWalk:
     case m.Term.Select(qual, m.Term.Name("toMap")) if isKnownMapReceiver(qual, ctx) =>
       renderTerm(qual, ctx)
 
+    // `bindings.get` / `bindings.contains` used AS A VALUE (eta-expansion, no call — `attribute.
+    // name.prefix.flatMap(bindings.get)`, `uniml/xml`'s `Doc.scala`'s `validateNamespaces`) over a
+    // KNOWN local Map — the SAME method-reference rewrite `renderVecIterBody`'s own method-ref arm
+    // already does for a Vec-combinator argument (`names.find(byName.contains)`'s own comment),
+    // needed here too since this shape reaches plain `renderTerm`, not that function: `Option.
+    // flatMap`'s dispatch case renders its argument directly. Without this, the bare select fell to
+    // the generic field-access fallback (`bindings.get`, not a call at all) and `error[E0615]:
+    // attempted to take value of method get` was rustc reading the WRONG half of that back.
+    case m.Term.Select(qual, m.Term.Name(meth @ ("get" | "contains"))) if isKnownMapReceiver(qual, ctx) =>
+      // `String`, not `&String`: this is handed to `Option::flatMap`/`.find`-shaped callers, whose
+      // own closure signature takes the element BY VALUE (`FnOnce(T) -> ...`) — the receiver's own
+      // `.get`/`.contains_key` still needs only a borrow of it, taken inside.
+      renderTerm(qual, ctx).map { q =>
+        if meth == "contains" then s"(|__k: String| $q.contains_key(&__k))"
+        else s"(|__k: String| $q.get(&__k).cloned())"
+      }
+
     // `error.getMessage` (no parens) — see the WITH-parens case's own comment.
     case m.Term.Select(qual, m.Term.Name("getMessage"))
         if ctorNameOfExpr(qual, ctx).flatMap(ctx.ctorMap.get).exists(_.fieldNames.contains("message")) =>
@@ -5651,6 +5668,35 @@ object RustCodeWalk:
         body <- renderVecIterBody(args.values.head, q, ctx, method = "find", elemType = elementTypeOf(qual, ctx))
       yield body
 
+    // `s.forall(p)` / `s.exists(p)` on a STRING receiver (`digits.forall(isHexDigit)`, `uniml/xml`'s
+    // `Doc.scala`) — the general Vec-shaped case just below has no receiver-type guard at all, so a
+    // String reached `renderVecIterBody`'s `.iter().cloned()` shape, and `String` has no `.iter()`
+    // (`error[E0599]`). `.chars()` is the direct equivalent; each `char` is converted to the `i64`
+    // code point every predicate on this lane already expects (this backend's own SscChar
+    // convention), so a bare method-reference predicate (`isHexDigit`, not `c => isHexDigit(c)`)
+    // renders unchanged and still type-checks.
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(qual, m.Term.Name(meth @ ("exists" | "forall"))), args
+    ) if args.values.size == 1 &&
+        (isStringExpr(qual) || (qual match { case m.Term.Name(n) => ctx.localStrings.contains(n); case _ => false })) =>
+      val rustMeth = if meth == "forall" then "all" else "any"
+      for
+        q    <- renderTerm(qual, ctx)
+        pred <- renderTerm(args.values.head, ctx)
+      yield s"$q.chars().$rustMeth(|__ch| ($pred)((__ch as u32) as i64))"
+
+    // `opt.forall(p)` — true for `None`, `p(x)` for `Some(x)` (Scala's own contract); Rust's
+    // `Option` has no `.forall` at all, `.map_or(true, p)` is the exact equivalent, and this is the
+    // one Option-returning combinator this corpus's `numericReferenceValue` calls with a bare
+    // predicate REFERENCE (`.forall(isLegalXmlCodePoint)`), which renders unchanged here too.
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(qual, m.Term.Name("forall")), args
+    ) if args.values.size == 1 && isOptionExpr(qual, ctx) =>
+      for
+        q    <- renderTerm(qual, ctx)
+        pred <- renderTerm(args.values.head, ctx)
+      yield s"$q.map_or(true, $pred)"
+
     // xs.exists(p) / xs.forall(p) → any / all. Named by the refusal before this arm existed, which
     // is how they were found rather than guessed.
     case m.Term.Apply.After_4_6_0(
@@ -5704,6 +5750,25 @@ object RustCodeWalk:
         v <- renderTerm(args.values.head, ctx)
       yield s"{ let __h: &str = &$q; let __n: &str = &$v; " +
             "__h.find(__n).map(|__b| __h[..__b].encode_utf16().count() as i64).unwrap_or(-1) }"
+
+    // `s.indexOf(needle, fromIndex)` — the two-arg overload (`input.indexOf("?>", index + 5)`,
+    // `input.indexOf(';', cursor + 1)`, `uniml/xml`'s `Doc.scala`) — routed to a dedicated runtime
+    // helper for the same Unicode-safety reason `_str_starts_with_at` was. The needle is either a
+    // `String` or a `Char` (an `i64` code point on this lane's own SscChar convention); a char
+    // needle is turned into a one-character `&str` before the shared helper ever sees it, rather
+    // than teaching the helper two needle shapes.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("indexOf")), args)
+        if args.values.size == 2 &&
+          (isStringExpr(qual) || (qual match { case m.Term.Name(n) => ctx.localStrings.contains(n); case _ => false })) =>
+      val needleArg = args.values.head
+      for
+        q  <- renderTerm(qual, ctx)
+        at <- renderTerm(args.values(1), ctx)
+        needle <-
+          if needleArg.isInstanceOf[m.Lit.Char] || yieldsSscChar(needleArg, ctx) then
+            renderTerm(needleArg, ctx).map(n => s"char::from_u32(($n) as u32).unwrap_or('\\u{FFFD}').to_string()")
+          else renderTerm(needleArg, ctx)
+      yield s"crate::runtime::_str_index_of_from(&$q, &($needle), $at)"
 
     case m.Term.Apply.After_4_6_0(
         m.Term.Select(qual, m.Term.Name("indexOf")), args
@@ -6084,6 +6149,26 @@ object RustCodeWalk:
     // `uniml/xml`'s `Doc.scala`'s hand-written XML scanner, checked from the current scan position
     // throughout). Routed to a dedicated runtime helper rather than `&q[toffset..].starts_with(…)`
     // inline — see `_str_starts_with_at`'s own comment for why a byte-offset slice is wrong here.
+    // `Integer.parseInt(s, radix)` (`uniml/xml`'s `Doc.scala`'s `numericReferenceValue`) — the
+    // Java static parser this corpus's hex/decimal reference-value reader writes; `i64::
+    // from_str_radix` is the direct Rust equivalent. Malformed input answers `0`, matching this
+    // codegen's own established convention for a fallible numeric parse (`_to_int`'s own comment).
+    case m.Term.Apply.After_4_6_0(m.Term.Select(m.Term.Name("Integer"), m.Term.Name("parseInt")), args)
+        if args.values.size == 2 =>
+      for
+        s     <- renderTerm(args.values.head, ctx)
+        radix <- renderTerm(args.values(1), ctx)
+      yield s"i64::from_str_radix(&($s), ($radix) as u32).unwrap_or(0)"
+
+    // `math.max(a, b)` (`uniml/xml`'s `Doc.scala`'s `validatePi`) — the Scala `scala.math` package
+    // object; `i64`/`f64` both carry `.max`/`.min` inherently in Rust, so this is a pure rename.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(m.Term.Name("math"), m.Term.Name(meth @ ("max" | "min"))), args)
+        if args.values.size == 2 =>
+      for
+        a <- renderTerm(args.values.head, ctx)
+        b <- renderTerm(args.values(1), ctx)
+      yield s"($a).$meth($b)"
+
     case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("startsWith")), args)
         if args.values.size == 2 =>
       for
@@ -9012,6 +9097,16 @@ object RustCodeWalk:
       t match
         case v: m.Defn.Val => v.pats match
           case List(m.Pat.Var(m.Term.Name(n))) => if isMapType(v.decltpe) || isMap(v.rhs) then maps += n
+          case _                               => ()
+        // `var bindings = inherited` (`uniml/xml`'s `Doc.scala`'s `validateNamespaces`/
+        // `resolveElement`, reassigned later via `bindings = bindings.updated(...)`) — this walk
+        // had a `Defn.Val` case but no `Defn.Var` one at all, unlike `collectLocalSeqs`/
+        // `collectLocalStrings` (both handle Val AND Var): a Map-typed local declared MUTABLE was
+        // never recorded, so `bindings.contains(...)` took the STRING-predicate lowering (same
+        // method name, no receiver-type guard there) and `bindings.get` used as a bare VALUE
+        // (`.flatMap(bindings.get)`) fell to plain field access — `error[E0615]`.
+        case v: m.Defn.Var => v.pats match
+          case List(m.Pat.Var(m.Term.Name(n))) => if isMapType(v.decltpe) || isMap(v.body) then maps += n
           case _                               => ()
         case _ => ()
       t.children.foreach(walk)

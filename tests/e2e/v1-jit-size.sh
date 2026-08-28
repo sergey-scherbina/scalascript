@@ -278,10 +278,20 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # for a qualified call whose bare name collides with several unrelated defs. Same terms as every
 # entry above — measured against `cargo build`, not shrunk back via extraction. 83 errors remain,
 # next round not yet started.
+#
+# renderTerm 29696 -> 30632 (+936), from the SECOND round of `cargo-build`-driven fixes on
+# uniml/xml (83 -> 70): `.forall`/`.exists` on a String (`.chars()`, not the Vec-shaped `.iter()`
+# the general case assumed), `Option.forall` (`.map_or(true, p)`, Rust has no `.forall` at all),
+# the `.indexOf(needle, fromIndex)` two-arg overload (a new runtime helper, `_str_index_of_from`,
+# same Unicode-safety reason as `_str_starts_with_at`), `Integer.parseInt`/`math.max`, and a Map
+# method (`.get`/`.contains`) used AS A VALUE (eta-expansion) over a KNOWN map — plus one fix
+# outside `renderTerm` itself: `collectLocalMaps`'s walk had a `Defn.Val` case but no `Defn.Var`
+# one, so a Map-typed local declared MUTABLE (`var bindings = inherited`, reassigned later) was
+# never tracked at all. Same terms as every entry above. 70 errors remain.
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-29696 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+30632 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

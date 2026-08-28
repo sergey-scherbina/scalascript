@@ -658,6 +658,61 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(g.contains("Either::Left(") && g.contains("Either::Right(v) => Either::Right(v)"),
       s".left.map did not lower:\n$g")
 
+  test("`s.forall(p)` / `s.exists(p)` on a String lower via `.chars()`"):
+    val src =
+      """```scalascript
+        |def isHexDigit(c: Long): Boolean = c >= 48
+        |def allHex(s: String): Boolean = s.forall(isHexDigit)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".chars().all("), s"String.forall did not lower:\n$g")
+
+  test("`opt.forall(p)` lowers to `.map_or(true, p)`"):
+    val src =
+      """```scalascript
+        |def isLegal(n: Long): Boolean = n >= 0
+        |def parseIt(s: String): Option[Long] = if s.nonEmpty then Some(s.length) else None
+        |def check(s: String): Boolean = parseIt(s).forall(isLegal)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".map_or(true, "), s"Option.forall did not lower:\n$g")
+
+  test("`s.indexOf(needle, fromIndex)` (two-arg, String or Char needle) lowers"):
+    val src =
+      """```scalascript
+        |def findTag(s: String, from: Long): Long = s.indexOf("?>", from)
+        |def findChar(s: String, from: Long): Long = s.indexOf(';', from)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("crate::runtime::_str_index_of_from("), s"two-arg indexOf did not lower:\n$g")
+
+  test("a Map-typed `var` (not just `val`) is tracked, so `.get`/`.contains` lower correctly"):
+    // `var bindings = inherited` (`uniml/xml`'s `Doc.scala`'s `validateNamespaces`/
+    // `resolveElement`) — `collectLocalMaps`'s walk had a `Defn.Val` case but no `Defn.Var` one.
+    val src =
+      """```scalascript
+        |def useIt(inherited: Map[String, String], key: String): Option[String] =
+        |  var bindings = inherited
+        |  Some(key).flatMap(bindings.get)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("bindings.get(&__k)"), s"Map var's .get-as-value did not lower:\n$g")
+
+  test("`Integer.parseInt(s, radix)` and `math.max(a, b)` lower"):
+    val src =
+      """```scalascript
+        |def parseHex(s: String): Long = Integer.parseInt(s, 16)
+        |def clampLow(n: Long): Long = math.max(1, n)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("i64::from_str_radix("), s"Integer.parseInt did not lower:\n$g")
+    assert(g.contains(").max("), s"math.max did not lower:\n$g")
+
   test("a positional ctor destructure (`case Ctor(a, b) =>`) types each field from the ctor"):
     // `case PI(target, data) => data.nonEmpty` (`uniml/xml`'s `Doc.scala`'s `serializeNode`,
     // shape simplified here) — `data`'s type comes from `PI`'s OWN declared field type
