@@ -2179,6 +2179,38 @@ lazy val cli = project
           |    _SSC_CDS_DG="${_SSC_CDS_DG//[^0-9a-zA-Z]/}"
           |  fi
           |  if mkdir -p "$_SSC_CACHE" 2>/dev/null; then
+          |    # UNBOUNDED GROWTH: one archive per distinct .build-digest, never cleaned up — left
+          |    # alone, a machine with months of rebuilds accumulates thousands of 12-14MB files with
+          |    # no eviction, and a stale/corrupted one among them produces a confusing failure
+          |    # unrelated to any code change (once seen: a well-formed cached registry.yaml parsing
+          |    # to empty, because the CDS archive underneath was bad — nothing to do with the registry
+          |    # code at all). Prune opportunistically: at most once a day (a marker file gates it),
+          |    # in the BACKGROUND so it never adds latency here, keeping the 15 most recently
+          |    # modified archives and deleting the rest. Portable (no GNU-only xargs -r/find flags):
+          |    # this repo's launchers run on macOS's BSD toolchain too.
+          |    _SSC_PRUNE_MARK="$_SSC_CACHE/.last-prune"
+          |    _SSC_NOW="$(date +%s 2>/dev/null || echo 0)"
+          |    _SSC_LAST_PRUNE=0
+          |    # `$(<file 2>/dev/null)` is NOT the fast-read form with a redirect tacked on — bash
+          |    # only recognizes `$(<file)` verbatim, so the trailing `2>/dev/null` turns this into an
+          |    # ordinary command substitution (stdin from the file, running an empty command whose fd
+          |    # 2 goes to /dev/null), which always reads as "". Silent, so the marker looked like it
+          |    # was never written and this block re-pruned on every single invocation instead of once
+          |    # a day. Guard with `-r` instead.
+          |    [[ -r "$_SSC_PRUNE_MARK" ]] && _SSC_LAST_PRUNE="$(<"$_SSC_PRUNE_MARK")"
+          |    _SSC_LAST_PRUNE="${_SSC_LAST_PRUNE//[^0-9]/}"
+          |    [[ -z "$_SSC_LAST_PRUNE" ]] && _SSC_LAST_PRUNE=0
+          |    if [[ "$_SSC_NOW" -gt 0 && $(( _SSC_NOW - _SSC_LAST_PRUNE )) -gt 86400 ]]; then
+          |      echo "$_SSC_NOW" > "$_SSC_PRUNE_MARK" 2>/dev/null
+          |      ( _SSC_OLD_JSA="$(ls -t "$_SSC_CACHE"/ssc-*.jsa 2>/dev/null | tail -n +16)"
+          |        if [[ -n "$_SSC_OLD_JSA" ]]; then
+          |          printf '%s\n' "$_SSC_OLD_JSA" | while IFS= read -r _SSC_STALE_JSA; do
+          |            rm -f "$_SSC_STALE_JSA"
+          |          done
+          |        fi
+          |      ) &
+          |      disown 2>/dev/null || true
+          |    fi
           |    _SSC_CDS_ARGS=(-XX:+IgnoreUnrecognizedVMOptions \
           |                   -XX:+AutoCreateSharedArchive \
           |                   -XX:SharedArchiveFile="$_SSC_CACHE/ssc-$_SSC_CDS_DG.jsa" \

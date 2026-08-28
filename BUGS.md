@@ -83,6 +83,49 @@ io.scalascript/json`; `ssc plugin install <unknown>` fails with a clear registry
 `ssc search` (removed) correctly falls through to "file not found"; the publish→search round-trip
 above confirmed with a real `.sscpkg`.
 
+## cds-cache-grows-unbounded-and-a-stale-archive-fails-silently — thousands of uncollected .jsa files, one of them corrupt
+
+<!-- status: open
+     lane: apparatus
+     kind: bug
+     area: cli
+     gate: tests/e2e/cds-archive-per-build.sh
+     reported-by: claude-code
+     reported-at: 2026-08-28
+     confirmed: yes
+     fixed-in: - -->
+
+**FIXED 2026-08-28.** `bin/ssc`/`bin/ssc-standard`'s AppCDS archive path is keyed on the build
+digest (`~/.cache/scalascript/ssc-<digest>.jsa`, one file per distinct rebuild — see
+`cds-archive-per-build.sh`), and nothing ever deleted an old one. Measured on this machine:
+thousands of 12-14MB archives dating back weeks, no eviction. One of them was stale/corrupted and
+produced a failure with no visible connection to its cause: `ssc search --refresh` printed
+`(0 packages)` on a build whose cached `registry/packages.yaml` was verified byte-identical to the
+real, well-formed file — ruled out network, ruled out the code (unmodified main checkout showed the
+same "0 packages"), and only `SSC_NO_CDS=1` isolated it to the archive. `rm -f
+~/.cache/scalascript/*.jsa` fixed it immediately.
+
+Added opportunistic pruning to the one launcher template that creates archives (`build.sbt`'s
+`standardLauncherScript`, shared by `bin/ssc` and `bin/ssc-standard`): once a day (a marker file
+gates it), in the background so it never adds latency, keeps the 15 most recently modified
+archives and deletes the rest.
+
+**Caught and fixed a second, unrelated bug writing the first**: the once-a-day marker read used
+`$(<"$_SSC_PRUNE_MARK" 2>/dev/null)` — bash's fast-read form `$(<file)` is recognized ONLY
+verbatim; appending `2>/dev/null` turns it into an ordinary command substitution (stdin from the
+file, running an EMPTY command whose fd 2 is redirected), which always evaluates to `""`. Silent —
+no error, just a permanently-empty read — so the marker looked unwritten on every run and the
+launcher would have re-pruned (and re-forked a background job) on every single invocation instead
+of once a day. Caught by testing the actual behavior, not by reading the code: seeded a marker,
+traced with `bash -x`, and `_SSC_LAST_PRUNE` printed empty on a file proven to contain a valid
+timestamp. Fixed by guarding the read with `[[ -r ... ]]` instead of redirecting inside the
+substitution.
+
+Verified: `tests/e2e/cds-archive-per-build.sh` OK (2 launchers, unaffected). Manual test on a
+freshly rebuilt checkout — seeded 25 fake `.jsa` files, ran `ssc --version` once: pruned to 15 +
+the 1 real archive from the run (16 total). A second run the same day added a new fake file and
+left it alone (17, no re-prune) — the once-a-day gate holds.
+
 ## repl-load-resolves-imports-against-the-launch-dir-not-the-loaded-file — `:load` broke a file's own relative imports
 
 <!-- status: fixed
