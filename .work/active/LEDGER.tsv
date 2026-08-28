@@ -1,3 +1,4 @@
-# generation: 3062
+# generation: 3063
 #slug	agent	started	items	paths
 ssc-new-improvements	claude-code	2026-08-28T18:37:43Z	ssc-new-improvements	v1/tools/cli/src/main/scala/scalascript/cli/NewProject.scala v1/tools/cli/src/main/scala/scalascript/cli/Main.scala v1/tools/cli/src/test/scala/scalascript/cli/NewProjectTest.scala v1/tools/cli/src/main/resources/templates/app/README.md v1/tools/cli/src/main/resources/templates/app/template-files.txt v1/tools/cli/src/main/resources/templates/lib/README.md v1/tools/cli/src/main/resources/templates/lib/template-files.txt v1/tools/cli/src/main/resources/templates/dsl/README.md v1/tools/cli/src/main/resources/templates/dsl/template-files.txt v1/tools/cli/src/main/resources/templates/web-app/README.md v1/tools/cli/src/main/resources/templates/web-app/template-files.txt v1/tools/cli/src/main/resources/templates/wasm-app/README.md v1/tools/cli/src/main/resources/templates/wasm-app/template-files.txt BUGS.md
+ssc-new-close	claude-code	2026-08-28T18:59:54Z	ssc-new-close	BUGS.md
