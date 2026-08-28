@@ -85,7 +85,7 @@ above confirmed with a real `.sscpkg`.
 
 ## cds-cache-grows-unbounded-and-a-stale-archive-fails-silently — thousands of uncollected .jsa files, one of them corrupt
 
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      kind: bug
      area: cli
@@ -93,9 +93,9 @@ above confirmed with a real `.sscpkg`.
      reported-by: claude-code
      reported-at: 2026-08-28
      confirmed: yes
-     fixed-in: - -->
+     fixed-in: a33eadc29 -->
 
-**FIXED 2026-08-28.** `bin/ssc`/`bin/ssc-standard`'s AppCDS archive path is keyed on the build
+**FIXED 2026-08-28 (`a33eadc29`).** `bin/ssc`/`bin/ssc-standard`'s AppCDS archive path is keyed on the build
 digest (`~/.cache/scalascript/ssc-<digest>.jsa`, one file per distinct rebuild — see
 `cds-archive-per-build.sh`), and nothing ever deleted an old one. Measured on this machine:
 thousands of 12-14MB archives dating back weeks, no eviction. One of them was stale/corrupted and
