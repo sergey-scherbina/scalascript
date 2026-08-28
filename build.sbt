@@ -2037,6 +2037,12 @@ lazy val cli = project
         // it; it depends only on ssc.ControlRunFailure, which the standard tier already catches.
         "scalascript/cli/CliFailure",
         "scalascript/cli/RunNativeV2",
+        // Was reachable only from the rare `ssc.lib.path`-unset throw branch, so its absence here
+        // was dormant under a JVM launcher (which always sets the property) until
+        // `resolveUnderLib`/`isLibShaped`/`rootAbove` (specs/arch-lib-path-resolution.md) made
+        // RunNativeV2/NativeJvmArtifact call into it on every native-front resolution, not just
+        // the failure path — surfaced as NoClassDefFoundError on the very first `bin/ssc` run.
+        "scalascript/cli/NativeImageInstallRoot",
         "scalascript/cli/NativeManifest",
         "scalascript/cli/NativeSourceManifest",
         "scalascript/cli/NativeStructuralFrontend",

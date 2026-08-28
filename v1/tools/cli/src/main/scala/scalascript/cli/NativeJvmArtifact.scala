@@ -125,7 +125,7 @@ private[cli] object NativeJvmArtifact:
       compilation.program,
       compilation.config,
       compilation.sourceUnits,
-      new File(installRoot, "bin/lib/standard/jars"),
+      NativeImageInstallRoot.resolveUnderLib(installRoot, "standard/jars"),
       out)
     println(s"JVM artifact written to ${out.getPath}")
 

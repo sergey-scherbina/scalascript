@@ -919,8 +919,8 @@ object RunNativeV2:
     val installRoot = Option(System.getProperty("ssc.lib.path")).map(new java.io.File(_)).getOrElse {
       throw new IllegalStateException(NativeImageInstallRoot.MissingInstallRootMessage)
     }
-    val standardBase = new java.io.File(installRoot, "bin/lib/standard/native-front")
-    val legacyBase = new java.io.File(installRoot, "bin/lib/native-front")
+    val standardBase = NativeImageInstallRoot.resolveUnderLib(installRoot, "standard/native-front")
+    val legacyBase = NativeImageInstallRoot.resolveUnderLib(installRoot, "native-front")
     val base = if standardBase.isDirectory then standardBase else legacyBase
     val useF = frontIsF
     val defaultRunner = new java.io.File(base, "tower/bin/ssc1-run.ssc0")
@@ -937,7 +937,17 @@ object RunNativeV2:
       if !f.isFile then throw new IllegalStateException(
         s"SSC_FRONT=F requested but F source is not staged at ${f.getPath}; run scripts/sbtc \"installBin\"")
     }
-    NativeFrontLayout(runner, checker, stdRoot, installRoot, fsubSrc, fsubIr, defaultRunner)
+    // `NativeSourceClosure`'s bare repo-relative import fallback and the tower's own `--lib-root`
+    // flag both want "the root", not the lib dir `ssc.lib.path` may now BE (specs/arch-lib-path-
+    // resolution.md) — recover it only when this run actually resolved via the lib-dir shape; a
+    // ROOT-shaped `ssc.lib.path` (the checkout's JVM launcher, unaffected by any of this) passes
+    // through unchanged, exactly as before.
+    val towerRoot =
+      if NativeImageInstallRoot.isLibShaped(installRoot, "standard/native-front") ||
+         NativeImageInstallRoot.isLibShaped(installRoot, "native-front")
+      then NativeImageInstallRoot.rootAbove(installRoot)
+      else installRoot
+    NativeFrontLayout(runner, checker, stdRoot, towerRoot, fsubSrc, fsubIr, defaultRunner)
 
   /** Where the pre-lowered front lives, keyed on the CONTENT of everything that determines it.
    *

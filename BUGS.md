@@ -118,9 +118,24 @@ Release therefore ships only `<artifact-id>.tar.gz` + `.sha256` per platform (pl
 `scripts/native-release-qualify`'s `direct-binary-*` checks and `scripts/native-release-publish`'s
 bare-file entry in `expected_names`/`assets` were removed to match — both scripts now qualify and
 publish an archive-only release. `tests/e2e/native-release-qualification.sh` (68→64 cases) and
-`tests/e2e/native-release-publication.sh` (asset count 11→8) updated and green. The message
-itself stays, unchanged, for the one path that still can produce it: `SSC_LIB_PATH` pointed at a
-layout someone assembled by hand without `bin/lib/standard/native-front` beside the binary.
+`tests/e2e/native-release-publication.sh` (asset count 11→8) updated and green.
+
+**SECOND FOLLOW-UP 2026-08-28: the message's remaining path (a hand-assembled `SSC_LIB_PATH`
+layout) was itself standing on an inconsistent convention** — `NativeImageInstallRoot` required
+`bin/lib/standard/native-front` even for the archive, which has no `bin/ssc` launcher to justify
+the `bin/` nesting, while a SEPARATE, unrelated `lib/ssc-plugin-host.jar` sat one level up from
+that — two different "where do assets live relative to the binary" answers for two files shipped
+in the SAME archive, discovered while explaining this exact layout to a user testing the local
+build. Full design and rationale in `specs/arch-lib-path-resolution.md`; summary: `discoverLib`
+now finds a plain `lib/` directory next to the binary or one level above it (covering `ssc` +
+`lib/*`, `bin/ssc` + `lib/*`, and the checkout's own `bin/ssc` + `bin/lib/*`, in that precedence
+order), and the archive ships `lib/standard/native-front/` — no `bin/` in the archive at all. The
+checkout's own `bin/` tree is untouched, and every OTHER `ssc.lib.path` consumer
+(`ImportResolver`, `JarCommands`, `CompilerLoader`, `JvmGen`/`SparkGen`, `PluginManifest`,
+`InstallCommands`'s launcher templates) deliberately keeps its older, separate ROOT-based
+convention — see the spec's §1 for why unifying those too was assessed and rejected. The message
+now says "no lib/ directory ... next to itself, or one level above itself" instead of naming
+`bin/lib/standard/native-front` specifically, matching the new discovery shape.
 
 ## native-image-has-no-http-url-protocol — the published native binary cannot make ANY network request
 

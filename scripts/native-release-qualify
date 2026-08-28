@@ -172,19 +172,17 @@ def allowed_file(path: str) -> bool:
         "ssc",
         "lib/ssc-plugin-host.jar",
         "README.md",
-    } or path.startswith("bin/lib/standard/native-front/")
+    } or path.startswith("lib/standard/native-front/")
 
 
 def allowed_directory(path: str) -> bool:
     fixed = {
         "",
         "lib",
-        "bin",
-        "bin/lib",
-        "bin/lib/standard",
-        "bin/lib/standard/native-front",
+        "lib/standard",
+        "lib/standard/native-front",
     }
-    return path in fixed or path.startswith("bin/lib/standard/native-front/")
+    return path in fixed or path.startswith("lib/standard/native-front/")
 
 
 try:
@@ -250,16 +248,16 @@ require_file() {
 require_file ssc
 require_file lib/ssc-plugin-host.jar
 require_file README.md
-require_file bin/lib/standard/native-front/MANIFEST.sha256
-require_file bin/lib/standard/native-front/tower/bin/fsub.ssc
-require_file bin/lib/standard/native-front/tower/bin/ssc1-run-fsub.ssc0
-require_file bin/lib/standard/native-front/tower/bin/ssc1-run.ssc0
-require_file bin/lib/standard/native-front/tower/bin/ssc1-check-run.ssc0
-require_file bin/lib/standard/native-front/runtime/std/index.ssc
+require_file lib/standard/native-front/MANIFEST.sha256
+require_file lib/standard/native-front/tower/bin/fsub.ssc
+require_file lib/standard/native-front/tower/bin/ssc1-run-fsub.ssc0
+require_file lib/standard/native-front/tower/bin/ssc1-run.ssc0
+require_file lib/standard/native-front/tower/bin/ssc1-check-run.ssc0
+require_file lib/standard/native-front/runtime/std/index.ssc
 
 SSC_EXE="$EXTRACTED/ssc"
 PLUGIN_HOST="$EXTRACTED/lib/ssc-plugin-host.jar"
-FRONT_ROOT="$EXTRACTED/bin/lib/standard/native-front"
+FRONT_ROOT="$EXTRACTED/lib/standard/native-front"
 if [[ ! -x $SSC_EXE ]]; then
   fail_check archive-ssc-executable 'ssc with at least one executable bit' 'ssc is not executable'
 fi

@@ -326,15 +326,15 @@ files = {
     "lib/ssc-plugin-host.jar": plugin_jar(),
 }
 for relative, content in front.items():
-    files[f"bin/lib/standard/native-front/{relative}"] = content
-files["bin/lib/standard/native-front/MANIFEST.sha256"] = manifest
+    files[f"lib/standard/native-front/{relative}"] = content
+files["lib/standard/native-front/MANIFEST.sha256"] = manifest
 
 if case == "missing-readme":
     files.pop("README.md")
 if case == "missing-plugin":
     files.pop("lib/ssc-plugin-host.jar")
 if case == "missing-manifest":
-    files.pop("bin/lib/standard/native-front/MANIFEST.sha256")
+    files.pop("lib/standard/native-front/MANIFEST.sha256")
 
 if case == "bad-archive":
     with open(archive, "wb") as stream:
@@ -370,7 +370,7 @@ else:
         elif case == "absolute":
             add_regular("/absolute", b"absolute\n")
         elif case in ("symlink", "hardlink", "device"):
-            entry = tarfile.TarInfo(f"bin/lib/standard/native-front/{case}")
+            entry = tarfile.TarInfo(f"lib/standard/native-front/{case}")
             entry.mtime = 0
             if case == "symlink":
                 entry.type = tarfile.SYMTYPE

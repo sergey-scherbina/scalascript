@@ -171,7 +171,7 @@ jobs:
           ARTIFACT_ID: ${{ matrix.artifact_id }}
         run: |
           set -euo pipefail
-          mkdir -p dist/archive/lib dist/archive/bin/lib/standard
+          mkdir -p dist/archive/lib
 
           native_binary=v1/tools/cli/target/graalvm-native-image/scalascript-cli
           test -x "$native_binary"
@@ -188,9 +188,12 @@ jobs:
           cp "${plugin_hosts[0]}" dist/archive/lib/ssc-plugin-host.jar
           test -s dist/archive/lib/ssc-plugin-host.jar
 
+          # The checkout's own tree keeps the front at bin/lib/standard/native-front (unchanged —
+          # see specs/arch-lib-path-resolution.md), but the archive ships it flat, straight under
+          # lib/, so ssc.lib.path discovery (NativeImageInstallRoot) finds a plain lib/ beside the
+          # binary with no forced bin/ nesting.
           test -d bin/lib/standard/native-front
-          cp -R bin/lib/standard/native-front \
-            dist/archive/bin/lib/standard/native-front
+          cp -R bin/lib/standard/native-front dist/archive/lib/standard/native-front
           cp README.md dist/archive/README.md
 
       - name: Manifest and compress release payload
@@ -198,7 +201,7 @@ jobs:
           ARTIFACT_ID: ${{ matrix.artifact_id }}
         run: |
           set -euo pipefail
-          front=dist/archive/bin/lib/standard/native-front
+          front=dist/archive/lib/standard/native-front
           python3 - "$front" <<'PY'
           import hashlib
           import os
@@ -230,7 +233,7 @@ jobs:
 
           archive="dist/$ARTIFACT_ID.tar.gz"
           COPYFILE_DISABLE=1 tar -czf "$archive" -C dist/archive \
-            ssc lib bin README.md
+            ssc lib README.md
           if command -v sha256sum >/dev/null 2>&1; then
             digest=$(sha256sum "$archive" | awk '{print $1}')
           else
