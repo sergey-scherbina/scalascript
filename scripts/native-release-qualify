@@ -172,7 +172,7 @@ def allowed_file(path: str) -> bool:
         "ssc",
         "lib/ssc-plugin-host.jar",
         "README.md",
-    } or path.startswith("lib/standard/native-front/")
+    } or path.startswith("lib/standard/native-front/") or path.startswith("lib/std/")
 
 
 def allowed_directory(path: str) -> bool:
@@ -181,8 +181,13 @@ def allowed_directory(path: str) -> bool:
         "lib",
         "lib/standard",
         "lib/standard/native-front",
+        "lib/std",
     }
-    return path in fixed or path.startswith("lib/standard/native-front/")
+    return (
+        path in fixed
+        or path.startswith("lib/standard/native-front/")
+        or path.startswith("lib/std/")
+    )
 
 
 try:
@@ -253,11 +258,13 @@ require_file lib/standard/native-front/tower/bin/fsub.ssc
 require_file lib/standard/native-front/tower/bin/ssc1-run-fsub.ssc0
 require_file lib/standard/native-front/tower/bin/ssc1-run.ssc0
 require_file lib/standard/native-front/tower/bin/ssc1-check-run.ssc0
-require_file lib/standard/native-front/runtime/std/index.ssc
+require_file lib/std/MANIFEST.sha256
+require_file lib/std/index.ssc
 
 SSC_EXE="$EXTRACTED/ssc"
 PLUGIN_HOST="$EXTRACTED/lib/ssc-plugin-host.jar"
 FRONT_ROOT="$EXTRACTED/lib/standard/native-front"
+STD_ROOT="$EXTRACTED/lib/std"
 if [[ ! -x $SSC_EXE ]]; then
   fail_check archive-ssc-executable 'ssc with at least one executable bit' 'ssc is not executable'
 fi
@@ -265,14 +272,12 @@ if [[ ! -s $PLUGIN_HOST ]]; then
   fail_check archive-plugin-host 'a non-empty lib/ssc-plugin-host.jar' 'plugin host is empty'
 fi
 
-"$PYTHON" - "$FRONT_ROOT" <<'PY'
+"$PYTHON" - "$FRONT_ROOT" "$STD_ROOT" <<'PY'
 import hashlib
 import os
 import re
 import sys
 
-root = os.path.realpath(sys.argv[1])
-manifest_path = os.path.join(root, "MANIFEST.sha256")
 line_pattern = re.compile(r"^([0-9a-f]{64})  ([^\r\n]+)$")
 
 
@@ -285,79 +290,87 @@ def fail(check: str, expected: str, actual: str) -> None:
     raise SystemExit(1)
 
 
-try:
-    with open(manifest_path, "rb") as stream:
-        raw_manifest = stream.read()
-except OSError as error:
-    fail("frontend-manifest-read", "readable manifest bytes", str(error))
-try:
-    manifest_text = raw_manifest.decode("utf-8")
-except UnicodeDecodeError as error:
-    fail("frontend-manifest-format", "UTF-8 text", str(error))
-if not manifest_text.endswith("\n"):
-    fail("frontend-manifest-format", "a final newline", repr(raw_manifest[-80:]))
+def verify_one(root_arg):
+    root = os.path.realpath(root_arg)
+    manifest_path = os.path.join(root, "MANIFEST.sha256")
 
-declared: dict[str, str] = {}
-declared_order: list[str] = []
-for number, line in enumerate(manifest_text.splitlines(), start=1):
-    match = line_pattern.fullmatch(line)
-    if not match:
-        fail(
-            "frontend-manifest-format",
-            "<64 lowercase hex>  <canonical relative path>",
-            f"line {number}: {line!r}",
-        )
-    digest, relative = match.groups()
-    parts = relative.split("/")
-    if (
-        relative.startswith("/")
-        or relative == "MANIFEST.sha256"
-        or any(part in ("", ".", "..") for part in parts)
-    ):
-        fail("frontend-manifest-path", "a canonical relative data-file path", relative)
-    if relative in declared:
-        fail("frontend-manifest-duplicate", "each path exactly once", relative)
-    declared[relative] = digest
-    declared_order.append(relative)
-
-if declared_order != sorted(declared_order):
-    fail(
-        "frontend-manifest-order",
-        "paths sorted bytewise",
-        "\n".join(declared_order),
-    )
-
-actual_files: list[str] = []
-for directory, directories, files in os.walk(root):
-    directories.sort()
-    files.sort()
-    for name in files:
-        absolute = os.path.join(directory, name)
-        relative = os.path.relpath(absolute, root).replace(os.sep, "/")
-        if relative != "MANIFEST.sha256":
-            actual_files.append(relative)
-actual_files.sort()
-
-declared_files = sorted(declared)
-if declared_files != actual_files:
-    fail(
-        "frontend-manifest-files",
-        "\n".join(declared_files),
-        "\n".join(actual_files),
-    )
-
-for relative in declared_files:
     try:
-        digest = hashlib.sha256()
-        with open(os.path.join(root, *relative.split("/")), "rb") as stream:
-            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-                digest.update(chunk)
+        with open(manifest_path, "rb") as stream:
+            raw_manifest = stream.read()
     except OSError as error:
-        fail("frontend-file-read", f"readable bytes for {relative}", str(error))
-    actual = digest.hexdigest()
-    expected = declared[relative]
-    if actual != expected:
-        fail("frontend-manifest-digest", f"{expected}  {relative}", f"{actual}  {relative}")
+        fail("frontend-manifest-read", "readable manifest bytes", str(error))
+    try:
+        manifest_text = raw_manifest.decode("utf-8")
+    except UnicodeDecodeError as error:
+        fail("frontend-manifest-format", "UTF-8 text", str(error))
+    if not manifest_text.endswith("\n"):
+        fail("frontend-manifest-format", "a final newline", repr(raw_manifest[-80:]))
+
+    declared: dict[str, str] = {}
+    declared_order: list[str] = []
+    for number, line in enumerate(manifest_text.splitlines(), start=1):
+        match = line_pattern.fullmatch(line)
+        if not match:
+            fail(
+                "frontend-manifest-format",
+                "<64 lowercase hex>  <canonical relative path>",
+                f"line {number}: {line!r}",
+            )
+        digest, relative = match.groups()
+        parts = relative.split("/")
+        if (
+            relative.startswith("/")
+            or relative == "MANIFEST.sha256"
+            or any(part in ("", ".", "..") for part in parts)
+        ):
+            fail("frontend-manifest-path", "a canonical relative data-file path", relative)
+        if relative in declared:
+            fail("frontend-manifest-duplicate", "each path exactly once", relative)
+        declared[relative] = digest
+        declared_order.append(relative)
+
+    if declared_order != sorted(declared_order):
+        fail(
+            "frontend-manifest-order",
+            "paths sorted bytewise",
+            "\n".join(declared_order),
+        )
+
+    actual_files: list[str] = []
+    for directory, directories, files in os.walk(root):
+        directories.sort()
+        files.sort()
+        for name in files:
+            absolute = os.path.join(directory, name)
+            relative = os.path.relpath(absolute, root).replace(os.sep, "/")
+            if relative != "MANIFEST.sha256":
+                actual_files.append(relative)
+    actual_files.sort()
+
+    declared_files = sorted(declared)
+    if declared_files != actual_files:
+        fail(
+            "frontend-manifest-files",
+            "\n".join(declared_files),
+            "\n".join(actual_files),
+        )
+
+    for relative in declared_files:
+        try:
+            digest = hashlib.sha256()
+            with open(os.path.join(root, *relative.split("/")), "rb") as stream:
+                for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                    digest.update(chunk)
+        except OSError as error:
+            fail("frontend-file-read", f"readable bytes for {relative}", str(error))
+        actual = digest.hexdigest()
+        expected = declared[relative]
+        if actual != expected:
+            fail("frontend-manifest-digest", f"{expected}  {relative}", f"{actual}  {relative}")
+
+
+for root_arg in sys.argv[1:]:
+    verify_one(root_arg)
 PY
 
 "$PYTHON" - "$PLUGIN_HOST" <<'PY'

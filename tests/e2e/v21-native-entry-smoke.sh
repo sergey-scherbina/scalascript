@@ -44,7 +44,7 @@ trap 'ec=$?; printf "v21-native-entry-smoke: FAILED at line %s (exit %s): %s\n" 
   echo 'v21-native-entry-smoke: staged native frontend missing' >&2
   exit 2
 }
-[[ -f "$ROOT/bin/lib/native-front/runtime/std/os.ssc" ]] || {
+[[ -f "$ROOT/bin/lib/std/os.ssc" ]] || {
   echo 'v21-native-entry-smoke: staged std modules missing' >&2
   exit 2
 }

@@ -927,12 +927,20 @@ object RunNativeV2:
     val runnerName = if useF then "ssc1-run-fsub.ssc0" else "ssc1-run.ssc0"
     val runner  = new java.io.File(base, s"tower/bin/$runnerName")
     val checker = new java.io.File(base, "tower/bin/ssc1-check-run.ssc0")
-    val stdRoot = new java.io.File(base, "runtime")
+    // std/ ships as a single top-level lib/std/, independent of which native-front tier `base`
+    // resolved to and never duplicated per tier (specs/arch-lib-path-resolution.md §6) — so it is
+    // resolved against installRoot directly, not against base. `NativeSourceClosure` wants the
+    // PARENT of `std/` (it appends "std/…" itself), so `stdRoot` is `stdDir`'s parent, not `stdDir`.
+    val stdDir = NativeImageInstallRoot.resolveUnderLib(installRoot, "std")
+    val stdRoot = stdDir.getParentFile
     val fsubSrc = if useF then Some(new java.io.File(base, "tower/bin/fsub.ssc")) else None
     val fsubIr = fsubSrc.flatMap(f => fsubIrCache(f, runner, new java.io.File(base, "tower/lib/ssc1-lower.ssc0")))
-    if !runner.isFile || !defaultRunner.isFile || !checker.isFile || !stdRoot.isDirectory then
+    if !runner.isFile || !defaultRunner.isFile || !checker.isFile then
       throw new IllegalStateException(
         s"native frontend resources are not staged under ${base.getPath}; run scripts/sbtc \"installBin\"")
+    if !stdDir.isDirectory then
+      throw new IllegalStateException(
+        s"native standard library is not staged at ${stdDir.getPath}; run scripts/sbtc \"installBin\"")
     fsubSrc.foreach { f =>
       if !f.isFile then throw new IllegalStateException(
         s"SSC_FRONT=F requested but F source is not staged at ${f.getPath}; run scripts/sbtc \"installBin\"")

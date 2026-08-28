@@ -205,3 +205,34 @@ sharing it will not show up by re-reading the file you already fixed.
   a `std/…`-importing script.
 - `scripts/smoke-ci`: 99/116 green on the first full run (the `Main.scala` near-miss above, §4),
   116/116 green after the fix.
+
+## 6. `std/` ships as its own top-level `lib/std/`, separate from the compiler front
+
+Before this section, the staged `.ssc` standard library sat at `lib/standard/native-front/runtime/
+std/` — nested three levels inside the self-hosted compiler's own directory, and physically
+duplicated (byte-identical) at `lib/native-front/runtime/std/` too, because `build.sbt` staged the
+whole native-front tree once per tier (`standard/` and the legacy no-prefix copy) and `std/` rode
+along both times for free. Asked directly why a *library* lived nested inside a *compiler*'s own
+directory: it never needed to. `RunNativeV2.nativeFrontLayout`'s `stdRoot` and `build.sbt`'s
+staging destination now point at `lib/std/` directly — one copy, independent of which native-front
+tier resolved, resolved via `NativeImageInstallRoot.resolveUnderLib(installRoot, "std")` exactly
+like every other `lib/`-relative asset (§1).
+
+`runtime/` itself was a pure empty-wrapper directory (it held nothing but `std/`), so it is gone
+entirely, not just relocated — there is no `lib/standard/native-front/runtime/` anymore.
+
+`RunNativeV2.nativeFrontLayout` now resolves `stdRoot` as the PARENT of wherever `resolveUnderLib`
+found `std/` (not `std/` itself — `NativeSourceClosure`'s import resolution appends `"std/…"`
+itself), so the same dual-shape backward compatibility from §2b applies here too.
+
+The release archive, `scripts/native-release-qualify`'s allowlist/required-file list/manifest
+verification (now TWO manifests — `lib/standard/native-front/MANIFEST.sha256` for the tower,
+`lib/std/MANIFEST.sha256` for the library — verified independently), and
+`tests/e2e/native-release-qualification.sh`'s fixture generator were all split to match: the
+fixture now builds two separate trees with two separate manifests instead of one combined tree.
+
+Verified: `tests/e2e/native-release-qualification.sh` 64/64 green (fixture split into independent
+front/std trees + manifests). `scripts/smoke-ci` 116/116 green. Manually rebuilt
+`ssc-macos-arm64` + assembled archive on the new layout (`lib/std/*.ssc` at the top level,
+`lib/standard/native-front/` containing only `tower/`): `std/json.ssc` resolution and network
+(`search --refresh`) both verified end-to-end.

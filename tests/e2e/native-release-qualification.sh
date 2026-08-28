@@ -285,40 +285,50 @@ printf '\\n' >&2
 exit 64
 """.encode()
 
+def make_manifest(source: dict[str, bytes], digest_override: dict[str, str] | None = None) -> bytes:
+    overrides = digest_override or {}
+    lines = []
+    for relative in sorted(source):
+        digest = overrides.get(relative, hashlib.sha256(source[relative]).hexdigest())
+        lines.append(f"{digest}  {relative}\n")
+    if case == "manifest-duplicate":
+        lines.append(lines[0])
+    elif case == "manifest-unsorted":
+        lines.reverse()
+    elif case == "manifest-unsafe-path":
+        digest = lines[0].split("  ", 1)[0]
+        lines[0] = f"{digest}  ../escape\n"
+    result = "".join(lines).encode()
+    if case == "bad-manifest-format":
+        result = b"not a sha manifest\n"
+    return result
+
+
+# lib/standard/native-front/ (tower only — std/ ships as its own separate root+manifest,
+# specs/arch-lib-path-resolution.md §6) and lib/std/ each carry their own MANIFEST.sha256.
 front = {
     "tower/bin/fsub.ssc": b"fsub\n",
     "tower/bin/ssc1-run-fsub.ssc0": b"run-fsub\n",
     "tower/bin/ssc1-run.ssc0": b"run\n",
     "tower/bin/ssc1-check-run.ssc0": b"check\n",
-    "runtime/std/index.ssc": b"index\n",
-    "runtime/std/unused-by-probe.ssc": b"manifest-must-still-cover-me\n",
 }
-manifest_source = dict(front)
-
+front_manifest_source = dict(front)
 if case == "missing-anchor":
     front.pop("tower/bin/fsub.ssc")
-    manifest_source.pop("tower/bin/fsub.ssc")
-if case == "missing-manifest-file":
-    front.pop("runtime/std/unused-by-probe.ssc")
-if case == "manifest-omits-file":
-    manifest_source.pop("runtime/std/unused-by-probe.ssc")
+    front_manifest_source.pop("tower/bin/fsub.ssc")
+front_manifest = make_manifest(front_manifest_source)
 
-manifest_lines = []
-for relative in sorted(manifest_source):
-    digest = hashlib.sha256(manifest_source[relative]).hexdigest()
-    if case == "wrong-manifest-digest" and relative == "runtime/std/index.ssc":
-        digest = "0" * 64
-    manifest_lines.append(f"{digest}  {relative}\n")
-if case == "manifest-duplicate":
-    manifest_lines.append(manifest_lines[0])
-elif case == "manifest-unsorted":
-    manifest_lines.reverse()
-elif case == "manifest-unsafe-path":
-    digest = manifest_lines[0].split("  ", 1)[0]
-    manifest_lines[0] = f"{digest}  ../escape\n"
-manifest = "".join(manifest_lines).encode()
-if case == "bad-manifest-format":
-    manifest = b"not a sha manifest\n"
+std = {
+    "index.ssc": b"index\n",
+    "unused-by-probe.ssc": b"manifest-must-still-cover-me\n",
+}
+std_manifest_source = dict(std)
+if case == "missing-manifest-file":
+    std.pop("unused-by-probe.ssc")
+if case == "manifest-omits-file":
+    std_manifest_source.pop("unused-by-probe.ssc")
+std_digest_override = {"index.ssc": "0" * 64} if case == "wrong-manifest-digest" else None
+std_manifest = make_manifest(std_manifest_source, std_digest_override)
 
 files = {
     "ssc": stub,
@@ -327,14 +337,17 @@ files = {
 }
 for relative, content in front.items():
     files[f"lib/standard/native-front/{relative}"] = content
-files["lib/standard/native-front/MANIFEST.sha256"] = manifest
+files["lib/standard/native-front/MANIFEST.sha256"] = front_manifest
+for relative, content in std.items():
+    files[f"lib/std/{relative}"] = content
+files["lib/std/MANIFEST.sha256"] = std_manifest
 
 if case == "missing-readme":
     files.pop("README.md")
 if case == "missing-plugin":
     files.pop("lib/ssc-plugin-host.jar")
 if case == "missing-manifest":
-    files.pop("lib/standard/native-front/MANIFEST.sha256")
+    files.pop("lib/std/MANIFEST.sha256")
 
 if case == "bad-archive":
     with open(archive, "wb") as stream:
@@ -353,7 +366,7 @@ else:
                 mode = 0o644
             elif case == "manifest-unreadable" and name.endswith("/MANIFEST.sha256"):
                 mode = 0o000
-            elif case == "frontend-unreadable" and name.endswith("/runtime/std/index.ssc"):
+            elif case == "frontend-unreadable" and name == "lib/std/index.ssc":
                 mode = 0o000
             else:
                 mode = 0o755 if name == "ssc" else 0o644

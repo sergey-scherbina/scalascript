@@ -2538,10 +2538,14 @@ lazy val cli = project
       // behind, and none of them holds a `.ssc` — so left pointing at the old directory this
       // glob would match ZERO files and stage an EMPTY standard library, with no compile
       // error anywhere to say so. The count assertion below exists because of that failure
-      // mode. Staged destination is unchanged (`runtime/std/`) — installed layout is a
-      // separate contract from source layout. See specs/std-to-repo-root.md.
+      // mode. See specs/std-to-repo-root.md.
+      //
+      // Staged to `bin/lib/std/` DIRECTLY — a single top-level copy, not nested under
+      // `native-front/` and not duplicated per tier (specs/arch-lib-path-resolution.md §6).
+      // `RunNativeV2.nativeFrontLayout` reads it via `resolveUnderLib(installRoot, "std")`,
+      // independent of which native-front tier (`standard/` or legacy) it also resolved.
       val stdSourceRoot = root / "std"
-      val stagedStdRoot = nativeFrontDir / "runtime" / "std"
+      val stagedStdRoot = libDir / "std"
       val nativeStdFiles = (stdSourceRoot ** "*.ssc").get.filter(_.isFile)
       // Scala 2.12 here — build.sbt is the sbt build definition, not project source.
       //
@@ -2566,7 +2570,7 @@ lazy val cli = project
       }
       // SclJet is a first-class standalone library at the repo-root `scljet/`
       // (NOT under v1/runtime/plugins — the compat symlink was dropped). Stage it
-      // directly from there into `runtime/std/scljet/`, so the native front
+      // directly from there into `bin/lib/std/scljet/`, so the native front
       // resolves `std/scljet/…` from real files. See
       // specs/scljet-standalone-library.md.
       val scljetSourceRoot = root / "scljet"
@@ -2578,9 +2582,10 @@ lazy val cli = project
         IO.createDirectory(dest.getParentFile)
         IO.copyFile(src, dest)
       }
-      log.info(s"bin/lib/native-front/    (${nativeTowerFiles.size} tower files, ${nativeStdFiles.size + scljetStdFiles.size} std modules)")
+      log.info(s"bin/lib/native-front/    (${nativeTowerFiles.size} tower files)")
+      log.info(s"bin/lib/std/              (${nativeStdFiles.size + scljetStdFiles.size} std modules)")
       IO.copyDirectory(nativeFrontDir, standardDir / "native-front", overwrite = true)
-      log.info(s"bin/lib/standard/native-front/ (${nativeTowerFiles.size} tower files, ${nativeStdFiles.size} std modules)")
+      log.info(s"bin/lib/standard/native-front/ (${nativeTowerFiles.size} tower files)")
 
       // Package and install standard-library plugins as .sscpkg archives.
       // NOTE: sbt task-macro prevents dynamic .value in a loop, so this list

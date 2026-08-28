@@ -194,6 +194,12 @@ jobs:
           # binary with no forced bin/ nesting.
           test -d bin/lib/standard/native-front
           cp -R bin/lib/standard/native-front dist/archive/lib/standard/native-front
+
+          # std/ ships as its own top-level lib/std/ — a single copy, not nested under
+          # native-front and not duplicated per tier (specs/arch-lib-path-resolution.md §6).
+          test -d bin/lib/std
+          cp -R bin/lib/std dist/archive/lib/std
+
           cp README.md dist/archive/README.md
 
       - name: Manifest and compress release payload
@@ -202,33 +208,38 @@ jobs:
         run: |
           set -euo pipefail
           front=dist/archive/lib/standard/native-front
-          python3 - "$front" <<'PY'
+          std=dist/archive/lib/std
+          python3 - "$front" "$std" <<'PY'
           import hashlib
           import os
           import sys
 
-          root = os.path.realpath(sys.argv[1])
-          manifest = os.path.join(root, "MANIFEST.sha256")
-          if os.path.lexists(manifest):
-              os.remove(manifest)
+          def manifest_one(root):
+              root = os.path.realpath(root)
+              manifest = os.path.join(root, "MANIFEST.sha256")
+              if os.path.lexists(manifest):
+                  os.remove(manifest)
 
-          paths = []
-          for directory, directories, files in os.walk(root):
-              directories.sort()
-              files.sort()
-              for name in files:
-                  absolute = os.path.join(directory, name)
-                  if os.path.islink(absolute):
-                      raise SystemExit(f"native-front manifest refuses symlink: {absolute}")
-                  paths.append(os.path.relpath(absolute, root).replace(os.sep, "/"))
+              paths = []
+              for directory, directories, files in os.walk(root):
+                  directories.sort()
+                  files.sort()
+                  for name in files:
+                      absolute = os.path.join(directory, name)
+                      if os.path.islink(absolute):
+                          raise SystemExit(f"manifest refuses symlink: {absolute}")
+                      paths.append(os.path.relpath(absolute, root).replace(os.sep, "/"))
 
-          with open(manifest, "w", encoding="utf-8", newline="\n") as output:
-              for relative in sorted(paths):
-                  digest = hashlib.sha256()
-                  with open(os.path.join(root, *relative.split("/")), "rb") as stream:
-                      for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-                          digest.update(chunk)
-                  output.write(f"{digest.hexdigest()}  {relative}\n")
+              with open(manifest, "w", encoding="utf-8", newline="\n") as output:
+                  for relative in sorted(paths):
+                      digest = hashlib.sha256()
+                      with open(os.path.join(root, *relative.split("/")), "rb") as stream:
+                          for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                              digest.update(chunk)
+                      output.write(f"{digest.hexdigest()}  {relative}\n")
+
+          for root in sys.argv[1:]:
+              manifest_one(root)
           PY
 
           archive="dist/$ARTIFACT_ID.tar.gz"

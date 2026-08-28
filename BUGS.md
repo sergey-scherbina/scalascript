@@ -158,6 +158,20 @@ in `specs/arch-lib-path-resolution.md` §1 and §4. Verified: `NativeImageInstal
 `compile-jvm --bytecode` (exercises `CompilerLoader` directly), `scripts/smoke-ci` 116/116 green
 (after the `Main.scala` fix; 99/116 before it, isolated and understood before landing).
 
+**FOURTH FOLLOW-UP 2026-08-28: `std/` pulled out of `native-front` entirely, into its own
+top-level `lib/std/`.** Asked directly why a copy of the standard library lived nested three
+levels inside the self-hosted compiler's own directory (`lib/standard/native-front/runtime/
+std/`) — it never needed to; `runtime/` held nothing else, and the identical tree was ALSO
+duplicated byte-for-byte at the legacy `lib/native-front/runtime/std/` for no reason a reader could
+see. `build.sbt` now stages `std/` straight into `lib/std/` (a single copy, independent of which
+native-front tier resolves), `RunNativeV2.nativeFrontLayout`'s `stdRoot` resolves it via
+`NativeImageInstallRoot.resolveUnderLib(installRoot, "std")` like every other `lib/`-relative
+asset, and the empty `runtime/` wrapper is gone. Full detail in
+`specs/arch-lib-path-resolution.md` §6. Verified: `tests/e2e/native-release-qualification.sh`
+64/64 (fixture split into independent front/std trees with independent manifests),
+`scripts/smoke-ci` 116/116, manual rebuild of `ssc-macos-arm64` on the new archive layout
+(`std/json.ssc` resolution + network both confirmed end-to-end).
+
 ## native-image-has-no-http-url-protocol — the published native binary cannot make ANY network request
 
 <!-- status: fixed
