@@ -161,6 +161,30 @@ object RustCodeWalk:
     // (once the zero-arg call site above started asking) correctly reported "not every field has a
     // default" about a field that plainly does.
     val enumCaseDefaults = enums.flatMap(e => e.templ.body.stats.collect { case c: m.Defn.EnumCase => c })
+    // `_variantOwner`'s OWN comment (further down, where it is set again from the fully-built
+    // `ctorMap`) says it must be populated "before `_returnTypes`, because a return type may name
+    // a variant" — true, but incomplete: `renderStruct`/`renderEnum`/`renderTraitEnum` run BEFORE
+    // that later assignment even executes (they are what BUILDS `ctorMap` in the first place), so a
+    // STRUCT FIELD naming another enum's specific variant — `Markup.Doc` inside `case class
+    // XmlMarkupProjection(document: Option[Markup.Doc], …)` (`uniml/xml`'s own dependency,
+    // `markup/Markup.scala` — `Doc` extends the sealed trait `Node`) — asked `mapType` this
+    // question while `_variantOwner` was still EMPTY. Nothing in `uniml/core` ever had one enum's
+    // variant sit inside ANOTHER type's FIELD declaration (only in a def's own parameter/return,
+    // which — unlike a struct/enum field — renders after `ctorMap` exists), so this ordering gap
+    // was never reached before. Computed directly from the AST here (available before either
+    // render pass runs) rather than waiting for `ctorMap`; the later assignment still runs
+    // afterward and stays authoritative for everything rendered after THIS point, including a
+    // synthesized built-in `Either`'s own `Left`/`Right`, which this early pass cannot see (nothing
+    // constructs it until `enumRendered` below).
+    _variantOwner =
+      traitEnums.flatMap { case SealedTraitEnum(t, caseClasses) =>
+        caseClasses.map(_.name.value -> t.name.value)
+      }.toMap ++
+      enums.flatMap { e =>
+        val caseNames = e.templ.body.stats.collect { case c: m.Defn.EnumCase => c.name.value } ++
+          e.templ.body.stats.collect { case c: m.Defn.RepeatedEnumCase => c.cases.map(_.value) }.flatten
+        caseNames.map(_ -> e.name.value)
+      }.toMap
     _ctorDefaults = (standaloneCases ++ traitEnums.flatMap(_.caseClasses)).map { c =>
       c.name.value -> c.ctor.paramClauses.flatMap(_.values).map(_.default).toList
     }.toMap ++ enumCaseDefaults.map { c =>
