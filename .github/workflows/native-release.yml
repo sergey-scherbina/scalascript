@@ -379,9 +379,88 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  plugin-packages:
+    name: Build registry plugin packages
+    needs: qualifier-contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+
+    # registry/packages.yaml advertises io.scalascript/{json,http,streams,actors,sql} as
+    # installable packages, but until this job existed no GitHub Release ever attached a
+    # `.sscpkg` for any of them — every entry's `github:` URL pointed at a release with no
+    # matching asset, so `ssc add`/`ssc plugin install` on any of the five 404'd
+    # (BUGS.md `install-channels-are-fiction`'s sibling: the channel now exists, but was never
+    # loaded). These are the SAME five plugins `cli/installBin` already stages as essential —
+    # `sbt <x>Plugin/packagePlugin` alone (not the full installBin tree) is the minimal build for
+    # each. A SEPARATE artifact from the native/JVM archives on purpose: `release` attaches these
+    # with a plain `gh release upload` after the archives are published, rather than folding them
+    # into `native-release-publish`'s strict archive-only asset-set validator (`scripts/
+    # native-release-publish`, `tests/e2e/native-release-publication.sh`) — that validator's
+    # contract is deliberately narrow (native + JVM archives only) and well-tested against exactly
+    # that set; widening it to a different asset shape (`.sscpkg`, no matching `.tar.gz` sibling)
+    # would touch its every assertion for a category of asset it was never meant to gate.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Setup JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21.0.9'
+
+      - name: Setup sbt
+        uses: sbt/setup-sbt@f6db8ab474efba716fc7f04441ab33714e4825af # v1
+
+      - name: Cache Coursier/sbt
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/coursier
+            ~/.ivy2/cache
+            ~/.sbt
+          key: ${{ runner.os }}-release-sbt-${{ hashFiles('**/build.sbt', '**/project/*.sbt', '**/project/build.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-release-sbt-
+
+      - name: Package the five registry plugins
+        run: |
+          sbt jsonPlugin/packagePlugin httpPlugin/packagePlugin streamsPlugin/packagePlugin \
+              actorsPlugin/packagePlugin sqlPlugin/packagePlugin
+
+      - name: Collect packages and checksums
+        run: |
+          set -euo pipefail
+          mkdir -p dist-plugins
+          for pkg in json http streams actors sql; do
+            src="v1/runtime/plugins/${pkg}-plugin/target/${pkg}-plugin.sscpkg"
+            test -s "$src"
+            cp "$src" "dist-plugins/${pkg}-plugin.sscpkg"
+            (cd dist-plugins && sha256sum "${pkg}-plugin.sscpkg" > "${pkg}-plugin.sscpkg.sha256")
+          done
+          ls -la dist-plugins
+
+      - name: Upload plugin packages
+        # Named WITHOUT the `ssc-` prefix, deliberately: `release`'s archive-download step below
+        # matches `pattern: ssc-*` with `merge-multiple: true` to gather every native/JVM archive
+        # into one `dist/` directory for `native-release-publish`'s strict asset-set validator.
+        # `ssc-plugin-packages` would match that pattern too and land its `.sscpkg` files in the
+        # SAME directory, which the validator would then refuse as an unrecognized asset — exactly
+        # the coupling the job comment above explains this artifact avoids.
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: registry-plugin-packages
+          path: dist-plugins/*
+          if-no-files-found: error
+          retention-days: 30
+
   release:
     name: Publish qualified tag
-    needs: [native-image, jvm-archive]
+    needs: [native-image, jvm-archive, plugin-packages]
     if: >-
       github.event_name == 'push' &&
       github.ref_type == 'tag' &&
@@ -404,6 +483,12 @@ jobs:
           path: dist
           merge-multiple: true
 
+      - name: Download registry plugin packages
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: registry-plugin-packages
+          path: dist-plugins
+
       - name: Validate and publish fresh GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -411,3 +496,16 @@ jobs:
           GH_PROMPT_DISABLED: '1'
         run: |
           scripts/native-release-publish "$GITHUB_REF_NAME" dist
+
+      # A second, separate `gh` call, deliberately AFTER the release is created above: uploading
+      # here means these assets can never influence whether a release is created at all, only what
+      # gets attached to one `native-release-publish` already validated and approved. If this step
+      # fails, the release still exists with its native/JVM archives — a missing plugin package is
+      # recoverable with a follow-up `gh release upload`, not a reason to have refused the release.
+      - name: Attach registry plugin packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh release upload "$GITHUB_REF_NAME" dist-plugins/*.sscpkg dist-plugins/*.sscpkg.sha256

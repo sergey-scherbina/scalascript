@@ -83,6 +83,66 @@ io.scalascript/json`; `ssc plugin install <unknown>` fails with a clear registry
 `ssc search` (removed) correctly falls through to "file not found"; the publish→search round-trip
 above confirmed with a real `.sscpkg`.
 
+## registry-packages-point-at-a-release-with-no-matching-asset — every registry entry's url 404s
+
+<!-- status: open
+     lane: apparatus
+     kind: bug
+     area: build
+     gate: tests/e2e/native-release-publication.sh
+     reported-by: claude-code
+     reported-at: 2026-08-28
+     confirmed: yes
+     fixed-in: - -->
+
+**IN PROGRESS 2026-08-28 — infrastructure landed, release not yet cut (see the last section
+below); this entry stays open until a real `v0.2.1` release makes these URLs actually resolve.**
+All five entries in `registry/packages.yaml` (`io.scalascript/json`,
+`http`, `streams`, `actors`, `sql`) had `url: "github:scalascript/scalascript@v1.0.0"` — a
+nonexistent repository (the real one is `sergey-scherbina/scalascript`, confirmed via `git remote
+-v`) and a nonexistent tag (`git tag -l` shows only `v0.1.0`, `v0.1.1`, `v0.2.0`). `ssc search`
+found these packages; `ssc add`/`ssc plugin install` on any of them would 404. Related to, but a
+different mechanism than, `install-channels-are-fiction` (that entry was about the docs pointing
+at install methods that couldn't work; this is the registry's own advertised catalog pointing at a
+release that was never real).
+
+**Fixing the URL string alone was not enough to make these actually installable** — verified by
+checking, not assumed: no GitHub Release in this repo has ever attached a `.sscpkg` asset for any
+of these five packages (`grep -rn sscpkg .github/workflows/*.yml` before this fix: zero hits
+outside the already-staged `bin/lib/compiler/plugins/` tree). Pointing the URL at a real repo/tag
+would only trade a "repository not found" error for an "asset not found" one.
+
+Fixed both halves:
+- `registry/packages.yaml`: `url` now points at `github:sergey-scherbina/scalascript@v0.2.1#<id>-plugin.sscpkg`
+  (the next release tag), and each entry gained `kind: plugin` — these are installed `.sscpkg`
+  compiler plugins (`scalascript.std.{json,http,streams,actors,sql}`, the same five `installBin`
+  already stages as essential), not source-only libraries.
+- `.github/workflows/native-release.yml`: new `plugin-packages` job builds the five `.sscpkg` via
+  `sbt <x>Plugin/packagePlugin` (the minimal build for each — not the full `installBin` tree) and
+  uploads them as a `registry-plugin-packages` artifact (named WITHOUT the `ssc-` prefix
+  deliberately, so it does not collide with `release`'s `pattern: ssc-*` merge-download for the
+  native/JVM archives). `release` downloads it separately and attaches the five `.sscpkg` +
+  `.sha256` files via a plain `gh release upload`, AFTER `scripts/native-release-publish` has
+  already validated and created the release — a missing/broken plugin package can never block or
+  corrupt the native/JVM release the way a change to `native-release-publish`'s own strict
+  asset-set validator could have.
+
+Verified locally, not just by reading the YAML: built all five `.sscpkg` (`sbt jsonPlugin/
+packagePlugin ...`), ran the exact `dist-plugins/` collection shell logic the new CI step runs,
+and confirmed the resulting filenames (`json-plugin.sscpkg`, …) match every `url:` in
+`registry/packages.yaml` exactly. `tests/e2e/native-release-publication.sh` (40 cases) and
+`tests/e2e/native-release-qualification.sh` (64 cases) both still pass unchanged — this work
+deliberately did not touch `scripts/native-release-publish`'s validator. `scripts/smoke-ci`
+116/116 on a freshly rebuilt checkout. Workflow YAML validated with a real YAML parser (Ruby's
+`Psych`, since no Python YAML module was available in this environment).
+
+**NOT YET DONE, deliberately**: no release has actually been cut. The `plugin-packages` job and
+the `registry-plugin-packages` upload/attach steps have never run on GitHub — they can only be
+verified for real by pushing a `v0.2.1` tag, which is a public, visible action outside this
+change's scope. Until that release is cut, `registry/packages.yaml`'s URLs still won't resolve —
+they now point at a *specific, real, currently-nonexistent* release tag rather than a permanently
+fictional one, which is the honest state to ship until that tag is pushed.
+
 ## cds-cache-grows-unbounded-and-a-stale-archive-fails-silently — thousands of uncollected .jsa files, one of them corrupt
 
 <!-- status: fixed

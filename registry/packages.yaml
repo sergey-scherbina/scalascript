@@ -4,14 +4,21 @@
 # Submit a PR adding your package to this list.
 # CI runs: schema validation + `ssc check` on each entry.
 #
+# `kind: plugin` entries (json/http/streams/actors/sql below) are installed .sscpkg compiler
+# plugins, not source-only libraries — their `url` points at a GitHub Release asset, published by
+# `.github/workflows/native-release.yml`'s `plugin-packages` job (see BUGS.md
+# `install-channels-are-fiction`'s follow-up: these five entries pointed at a nonexistent
+# `scalascript/scalascript@v1.0.0` release with no matching asset until this fix).
+#
 # See specs/arch-registry.md for the full schema specification.
 
 - name: io.scalascript/json
   version: 1.0.0
+  kind: plugin
   description: "Built-in JSON encoding/decoding for ScalaScript"
   keywords: [json, serialization, codec, parsing]
   backends: [jvm, js]
-  url: "github:scalascript/scalascript@v1.0.0"
+  url: "github:sergey-scherbina/scalascript@v0.2.1#json-plugin.sscpkg"
   license: Apache-2.0
   author: "ScalaScript Team"
   homepage: "https://scalascript.io/packages/json"
@@ -19,10 +26,11 @@
 
 - name: io.scalascript/http
   version: 1.0.0
+  kind: plugin
   description: "HTTP client and server primitives for ScalaScript"
   keywords: [http, web, client, server, rest]
   backends: [jvm, js]
-  url: "github:scalascript/scalascript@v1.0.0"
+  url: "github:sergey-scherbina/scalascript@v0.2.1#http-plugin.sscpkg"
   license: Apache-2.0
   author: "ScalaScript Team"
   homepage: "https://scalascript.io/packages/http"
@@ -30,10 +38,11 @@
 
 - name: io.scalascript/streams
   version: 1.0.0
+  kind: plugin
   description: "Lazy reactive streams and async pipelines for ScalaScript"
   keywords: [streams, reactive, async, pipeline, source, sink]
   backends: [jvm, js]
-  url: "github:scalascript/scalascript@v1.0.0"
+  url: "github:sergey-scherbina/scalascript@v0.2.1#streams-plugin.sscpkg"
   license: Apache-2.0
   author: "ScalaScript Team"
   homepage: "https://scalascript.io/packages/streams"
@@ -41,10 +50,11 @@
 
 - name: io.scalascript/actors
   version: 1.0.0
+  kind: plugin
   description: "Lightweight actor model for concurrent ScalaScript programs"
   keywords: [actors, concurrency, async, mailbox]
   backends: [jvm, js]
-  url: "github:scalascript/scalascript@v1.0.0"
+  url: "github:sergey-scherbina/scalascript@v0.2.1#actors-plugin.sscpkg"
   license: Apache-2.0
   author: "ScalaScript Team"
   homepage: "https://scalascript.io/packages/actors"
@@ -52,10 +62,11 @@
 
 - name: io.scalascript/sql
   version: 1.0.0
+  kind: plugin
   description: "SQL database access (PostgreSQL, SQLite) for ScalaScript"
   keywords: [sql, database, postgresql, sqlite, jdbc]
   backends: [jvm]
-  url: "github:scalascript/scalascript@v1.0.0"
+  url: "github:sergey-scherbina/scalascript@v0.2.1#sql-plugin.sscpkg"
   license: Apache-2.0
   author: "ScalaScript Team"
   homepage: "https://scalascript.io/packages/sql"
