@@ -5,7 +5,7 @@ started: 2026-08-28T02:09:50Z
 heartbeat: 2026-08-28T02:09:50Z
 status: claimed-before-planning
 items: jvm-release-archive
-paths: file:.github/workflows/native-release.yml file:scripts/native-release-publish file:tests/e2e/native-release-publication.sh file:README.md file:BUGS.md
+paths: file:.github/workflows/native-release.yml file:scripts/native-release-publish file:tests/e2e/native-release-publication.sh file:README.md file:BUGS.md file:install.sh
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
