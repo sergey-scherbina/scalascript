@@ -1,4 +1,70 @@
-# Cross-module bugs
+## native-image-has-no-http-url-protocol — the published native binary cannot make ANY network request
+
+<!-- status: open
+     lane: multi
+     kind: bug
+     area: build
+     gate: none
+     reported-by: claude-code
+     reported-at: 2026-08-28
+     confirmed: yes -->
+
+**`ssc search`, `ssc add`, `ssc info <name>` — the whole plugin/package registry — is dead in
+every published native binary, silently.** A user downloaded v0.1.1, ran `ssc search --refresh`,
+and got:
+
+```
+Fetching registry... (0 packages)
+Registry is empty or could not be fetched.  Try --refresh.
+```
+
+**REPRODUCED and ISOLATED, not guessed**, on the actual released `ssc-macos-arm64` binary against
+three registry sources:
+
+| source | native binary | `bin/ssc-tools` (JVM) |
+|---|---|---|
+| `https://sergey-scherbina.github.io/scalascript/packages.yaml` (the real one) | 0 packages | 5 packages |
+| `http://127.0.0.1:8123/packages.yaml` (local, no TLS at all) | 0 packages | — |
+| `file:///…/packages.yaml` | **5 packages** | — |
+
+Plain `http://` fails identically to `https://`, so this is not a TLS/certificate problem — the
+native image has NO URL-protocol handler for `http`/`https` at all. `file://` and the JVM launcher
+both work, isolating the defect to `native-image` specifically.
+
+**THE CAUSE, read from the build rather than guessed:** `graalVMNativeImageOptions` in `build.sbt`
+(~line 2692) passes `--no-fallback`, two `--initialize-at-build-time` flags, the reflection/resource
+config files, exception reporting and a heap size — and nothing that enables a URL protocol.
+GraalVM's `native-image` does not bundle HTTP(S) support unless told to
+(`--enable-url-protocols=http,https` or the newer per-protocol flags); every `HttpURLConnection`
+call in the image throws immediately.
+
+**WHY NOTHING CAUGHT IT.** `RegistryClient.fetchYaml` wraps the fetch in `Try{…}.toOption.flatten`
+(`v1/lang/core/.../imports/RegistryClient.scala:102-113`), so the actual exception — whatever
+GraalVM throws for an unsupported protocol — is swallowed before it reaches a log or a message; the
+caller only ever sees an empty list, indistinguishable from a slow network or a genuinely offline
+run. And no gate exercises it: `ci.yml`'s smoke/Validate run against the JVM-launched checkout
+build, never the native image, and `native-release.yml`'s own qualification
+(`scripts/native-release-qualify`) checks `--version`, `run --v2`/`--v1`, the `--bytecode` refusal
+and a compare-first self-test — no network command is in that list. `RELEASE-0.1.1.md`'s own
+"Verified here, locally" table has no `search` row either.
+
+**SHIPPED IN v0.1.0 AND v0.1.1, on the evidence available** (the build.sbt flags have not changed
+between them), **and WILL SHIP IN v0.2.0** unless fixed before the tag: `8f0c1f1c3`'s native-image
+build inherits the same `graalVMNativeImageOptions`.
+
+**WORKAROUND, for anyone hitting this before it is fixed:** point `--registry` at a `file://` copy
+(`curl` the registry once, then `ssc search --registry file:///path/to/packages.yaml`), or use the
+JVM launcher (`ssc-tools`) from a checkout instead of the native binary.
+
+**NOT FIXED HERE.** Adding `--enable-url-protocols=http,https` (exact flag name depends on the
+pinned GraalVM version, `21.0.9` per `native-release.yml`) is the obvious next step, but HTTPS
+specifically may also need the image to bundle a trust store — GraalVM does not always carry the
+JDK's `cacerts` into the image by default, and that has to be verified against an actual rebuild
+and a live `https://` fetch, not assumed from the flag existing. This also needs its own
+qualification-gate row (`scripts/native-release-qualify` or a new `tests/e2e/*.sh`) so the fix
+cannot silently regress the way the original gap went unnoticed for three releases.
+
+
 
 Per-module bug files live in the modules — see `specs/work-tracking-layout.md` for the
 layout and `specs/bugs-index.md` for the entry format. **This file holds only entries that
