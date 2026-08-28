@@ -466,6 +466,44 @@ class CapabilityCheckTest extends AnyFunSuite:
       case _ => false
     }, s"expected Unsupported(Markup, js) for xml interpolator on incapable backend, got: $diags")
 
+  // `uniml/xml`'s own `DialectAdapter.aliases: Set[String] = Set("xml", "application/xml",
+  // "text/xml")` — an ordinary string literal that happens to END in the four characters `xml"`,
+  // which is exactly the shape the OLD `\bxml"[^"]` pattern could not tell apart from a real `xml
+  // "..."` interpolator use. False Feature.Markup detection here refused the whole module on
+  // every backend, none of which has ever declared that feature — from source that never uses
+  // the interpolator at all.
+  test("detect — a plain string literal ending in 'xml\"' does NOT falsely detect Feature.Markup"):
+    val m = moduleOf("""val aliases: List[String] = List("xml", "application/xml", "text/xml")""")
+    assert(!CapabilityCheck.detect(m).contains(Feature.Markup),
+      s"a plain string literal must not trigger the xml interpolator detector, got: ${CapabilityCheck.detect(m)}")
+
+  // `MarkupCodec.scala`'s own doc comment, verbatim: prose describing the feature, not code that
+  // uses it — the second false-positive shape the old pattern could not tell apart from real use.
+  test("detect — a doc comment mentioning the xml interpolator does NOT falsely detect Feature.Markup"):
+    val m = moduleOf(
+      """|/** Backends that don't ship a codec cannot use xml"..." or xml fenced blocks. */
+         |def f(): Int = 1""".stripMargin)
+    assert(!CapabilityCheck.detect(m).contains(Feature.Markup),
+      s"a doc comment must not trigger the xml interpolator detector, got: ${CapabilityCheck.detect(m)}")
+
+  // `stripComments` itself, found while chasing the two false positives above: it built the
+  // stripped text with `sb.append(src, start, i)`, which LOOKS like `java.lang.StringBuilder`'s
+  // substring-append overload `append(CharSequence, int, int)` but `scala.collection.mutable.
+  // StringBuilder` has no matching 3-arg overload — Scala 3 silently AUTO-TUPLES the three
+  // arguments into `append((src, start, i))` instead of refusing to compile, appending that
+  // TUPLE's `.toString`: the entire original source plus two integers, once per string literal.
+  // No compile error anywhere; a module with several string literals could balloon to ~90x its
+  // own size and every downstream regex-based check would then be scanning that, not the source.
+  test("stripComments never grows its input — regression for the append(src, start, i) auto-tupling bug"):
+    val src =
+      """|def f(): String = "a"
+         |def g(): String = "dialect name '$duplicate' is already registered"
+         |def h(): String = "another string" + "and one more"
+         |""".stripMargin
+    val out = CapabilityCheck.stripComments(src)
+    assert(out.length <= src.length, s"stripComments must never grow its input: in=${src.length} out=${out.length}")
+    assert(out == src, s"no comments here, so output must equal input verbatim, got: $out")
+
   // ── v1.56 — Feature.Xslt gating ─────────────────────────────────────────
 
   /** Module that calls `.transform(` on a Markup.Doc value. */
