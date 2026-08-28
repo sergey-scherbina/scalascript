@@ -85,7 +85,7 @@ above confirmed with a real `.sscpkg`.
 
 ## ssc-new-help-scaffolds-a-project-named-help — plus an sbt-by-default scaffold and a digit-leading-name compile break
 
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      kind: bug
      area: cli
@@ -93,9 +93,9 @@ above confirmed with a real `.sscpkg`.
      reported-by: user
      reported-at: 2026-08-28
      confirmed: yes
-     fixed-in: - -->
+     fixed-in: 9edc953ce -->
 
-**FIXED 2026-08-28.** Three separate defects found reviewing `ssc new`, all in the same command:
+**FIXED 2026-08-28 (`9edc953ce`).** Three separate defects found reviewing `ssc new`, all in the same command:
 
 1. **`ssc new --help` scaffolded a project literally named `help`.** `NewCmd.run`'s arg parser had
    no case for `--help`/`-h` at all — `args match { case name :: rest => ... }` treated `--help`
