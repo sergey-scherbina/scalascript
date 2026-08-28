@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 ROOT=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)
-CHECK_RUN="$ROOT/bin/lib/native-front/tower/bin/ssc1-check-run.ssc0"
+CHECK_RUN="$ROOT/bin/lib/native-front/bin/ssc1-check-run.ssc0"
 CP="$ROOT/bin/lib/jars/*"
 
 [[ -f "$CHECK_RUN" ]] || {

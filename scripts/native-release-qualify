@@ -252,10 +252,10 @@ require_file ssc
 require_file lib/ssc-plugin-host.jar
 require_file README.md
 require_file lib/native-front/MANIFEST.sha256
-require_file lib/native-front/tower/bin/fsub.ssc
-require_file lib/native-front/tower/bin/ssc1-run-fsub.ssc0
-require_file lib/native-front/tower/bin/ssc1-run.ssc0
-require_file lib/native-front/tower/bin/ssc1-check-run.ssc0
+require_file lib/native-front/bin/fsub.ssc
+require_file lib/native-front/bin/ssc1-run-fsub.ssc0
+require_file lib/native-front/bin/ssc1-run.ssc0
+require_file lib/native-front/bin/ssc1-check-run.ssc0
 require_file lib/std/MANIFEST.sha256
 require_file lib/std/index.ssc
 

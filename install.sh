@@ -156,7 +156,7 @@ echo ""
 # affect the staged toolchain". Locally nothing did. This is that same key, one directory up.
 #
 # COPIED, NEVER HARD-LINKED, and that is deliberate: the tower `.ssc0` files under
-# `bin/lib/*/native-front/tower/` are READ AT RUNTIME, and editing a staged copy is the standard
+# `bin/lib/native-front/` are READ AT RUNTIME, and editing a staged copy is the standard
 # way to iterate on the front without a rebuild — I did it twice today. Under hard links that would
 # silently rewrite the shared cache for every other worktree. A 176 MB copy costs seconds against a
 # build that costs minutes.
@@ -186,7 +186,7 @@ _cache_entry=""
 # `cp -Rc` asks APFS to CLONE (copy-on-write) instead of duplicating 176 MB. Not for speed — plain
 # `cp -R` of `bin/lib` measures 0.37 s here and the clone 0.06 s, both irrelevant — but for DISK:
 # there are 92 worktrees on this host and every one of them holds a private copy of the same bytes.
-# It must stay a COPY and never a symlink: `bin/lib/*/native-front/tower/` is read at runtime and
+# It must stay a COPY and never a symlink: `bin/lib/native-front/` is read at runtime and
 # editing a staged copy is a normal thing to do here (see the note further up), so a shared symlink
 # would let one agent's experiment change what every other agent runs. Falls back to `cp -R` when
 # the filesystem cannot clone, so this is a saving where available and a no-op where not.

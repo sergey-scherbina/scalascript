@@ -40,7 +40,7 @@ trap 'ec=$?; printf "v21-native-entry-smoke: FAILED at line %s (exit %s): %s\n" 
   echo 'v21-native-entry-smoke: staged standard launcher missing' >&2
   exit 2
 }
-[[ -f "$ROOT/bin/lib/native-front/tower/bin/ssc1-run.ssc0" ]] || {
+[[ -f "$ROOT/bin/lib/native-front/bin/ssc1-run.ssc0" ]] || {
   echo 'v21-native-entry-smoke: staged native frontend missing' >&2
   exit 2
 }

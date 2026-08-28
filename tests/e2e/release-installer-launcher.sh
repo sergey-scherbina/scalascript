@@ -38,7 +38,7 @@ mkdir -p "$FAKE_BIN" "$SERVE"
 # the assertions below can tell "the launcher ran the unpacked binary" from "the launcher ran
 # something".
 stage="$TMP/stage"
-mkdir -p "$stage/lib" "$stage/bin/lib/native-front/tower/bin"
+mkdir -p "$stage/lib" "$stage/bin/lib/native-front/bin"
 cat > "$stage/ssc" <<'FAKE_SSC'
 #!/usr/bin/env sh
 # RESOLVE LIKE THE REAL BINARY DOES, and that means FOLLOWING THE SYMLINK. `NativeImageInstallRoot`
@@ -63,7 +63,7 @@ echo "root=$self argv=$*"
 FAKE_SSC
 chmod +x "$stage/ssc"
 : > "$stage/lib/ssc-plugin-host.jar"
-: > "$stage/bin/lib/native-front/tower/bin/fsub.ssc"
+: > "$stage/bin/lib/native-front/bin/fsub.ssc"
 printf 'README\n' > "$stage/README.md"
 
 archive="$SERVE/ssc-fake.tar.gz"

@@ -190,6 +190,25 @@ detail in `specs/arch-lib-path-resolution.md` §7. Verified: `NativeImageInstall
 resolution, `search --refresh`, and the missing-`lib/` error message on a bare-binary copy all
 reconfirmed end-to-end.
 
+**SIXTH FOLLOW-UP 2026-08-28: `native-front`'s internal `tower/` nesting dropped too — it named
+nothing `native-front` didn't already name.** `lib/native-front/tower/{bin,lib}/…` carried a
+redundant segment: both `native-front` and `tower` refer to the same self-hosted compiler, so
+`RunNativeV2`, `build.sbt`'s staging map, and every e2e gate that hardcoded a staged path all had
+to spell out `tower/` for no distinction it drew. Now `lib/native-front/{bin,lib}/…` directly.
+
+**Found in the same pass, exposed (not caused) by this change: `tests/e2e/v21-standard-tier-smoke.sh`
+had silently been broken by the FIFTH follow-up above and no gate caught it**, because the checkout
+running it still had a stale `bin/lib/standard/native-front/` left over from before that landing —
+it was never rebuilt clean, so the assertion kept finding a directory that current `build.sbt` no
+longer produces. A fresh `install.sh --dev` reproduced the failure directly. Fixed to assert the
+shared `bin/lib/native-front/bin/ssc1-run.ssc0` (native-front is common to both launcher tiers, not
+tier-specific — §7), matching what §7 should have updated it to already.
+
+Full detail in `specs/arch-lib-path-resolution.md` §8. Verified: `NativeImageInstallRootTest`
+14/14, `scripts/smoke-ci` 116/116 on a freshly rebuilt checkout, manual rebuild of
+`ssc-macos-arm64` + archive (`lib/native-front/{bin,lib}`, no `tower/`): a `std/json`-importing
+example ran correctly end-to-end.
+
 ## native-image-has-no-http-url-protocol — the published native binary cannot make ANY network request
 
 <!-- status: fixed

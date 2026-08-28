@@ -307,15 +307,15 @@ def make_manifest(source: dict[str, bytes], digest_override: dict[str, str] | No
 # lib/native-front/ (tower only — std/ ships as its own separate root+manifest,
 # specs/arch-lib-path-resolution.md §6) and lib/std/ each carry their own MANIFEST.sha256.
 front = {
-    "tower/bin/fsub.ssc": b"fsub\n",
-    "tower/bin/ssc1-run-fsub.ssc0": b"run-fsub\n",
-    "tower/bin/ssc1-run.ssc0": b"run\n",
-    "tower/bin/ssc1-check-run.ssc0": b"check\n",
+    "bin/fsub.ssc": b"fsub\n",
+    "bin/ssc1-run-fsub.ssc0": b"run-fsub\n",
+    "bin/ssc1-run.ssc0": b"run\n",
+    "bin/ssc1-check-run.ssc0": b"check\n",
 }
 front_manifest_source = dict(front)
 if case == "missing-anchor":
-    front.pop("tower/bin/fsub.ssc")
-    front_manifest_source.pop("tower/bin/fsub.ssc")
+    front.pop("bin/fsub.ssc")
+    front_manifest_source.pop("bin/fsub.ssc")
 front_manifest = make_manifest(front_manifest_source)
 
 std = {

@@ -166,7 +166,7 @@ included_case packaged-markdown-resource v1/tools/cli/src/main/resources/templat
 
 # THE DEFAULT FRONT. `specs/` is on the exclusion list because it holds ~420 `.md` documents, and
 # for eight days that swallowed `specs/v2.2-p6.5-fsub.ssc` with them -- the F front, which
-# `install.sh` stages verbatim into `bin/lib/*/native-front/tower/bin/fsub.ssc`. Measured: appending
+# `install.sh` stages verbatim into `bin/lib/native-front/bin/fsub.ssc`. Measured: appending
 # a line to the front left the digest unchanged, so smoke-ci's staleness refusal could not see a
 # change to the compiler EVERY default-lane check runs, and an edited F reported green as the old F.
 # This case is here rather than in the entry because the exclusion is by DIRECTORY and the file is a

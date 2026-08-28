@@ -902,7 +902,7 @@ object RunNativeV2:
       defaultRunner: java.io.File)
 
   /** F4 front swap — FLIPPED (2026-07-23, Sergiy). The self-hosting subset compiler F
-   *  (specs/v2.2-p6.5-fsub.ssc, staged as tower/bin/fsub.ssc, run via tower/bin/ssc1-run-fsub.ssc0) is
+   *  (specs/v2.2-p6.5-fsub.ssc, staged as bin/fsub.ssc, run via bin/ssc1-run-fsub.ssc0) is
    *  now the DEFAULT native lowerer; `SSC_FRONT=legacy` is the escape hatch back to the untyped
    *  ssc1-front+ssc1-lower runner ssc1-run.ssc0 (kept as the F4a delegate-fallback `defaultRunner`, so F
    *  is never-worse-than-legacy). `SSC_FRONT=F`/`fsub` still select F (backward compatible). The checker
@@ -924,18 +924,18 @@ object RunNativeV2:
     // lib-path-resolution.md §7).
     val base = NativeImageInstallRoot.resolveUnderLib(installRoot, "native-front")
     val useF = frontIsF
-    val defaultRunner = new java.io.File(base, "tower/bin/ssc1-run.ssc0")
+    val defaultRunner = new java.io.File(base, "bin/ssc1-run.ssc0")
     val runnerName = if useF then "ssc1-run-fsub.ssc0" else "ssc1-run.ssc0"
-    val runner  = new java.io.File(base, s"tower/bin/$runnerName")
-    val checker = new java.io.File(base, "tower/bin/ssc1-check-run.ssc0")
+    val runner  = new java.io.File(base, s"bin/$runnerName")
+    val checker = new java.io.File(base, "bin/ssc1-check-run.ssc0")
     // std/ ships as a single top-level lib/std/, independent of which native-front tier `base`
     // resolved to and never duplicated per tier (specs/arch-lib-path-resolution.md §6) — so it is
     // resolved against installRoot directly, not against base. `NativeSourceClosure` wants the
     // PARENT of `std/` (it appends "std/…" itself), so `stdRoot` is `stdDir`'s parent, not `stdDir`.
     val stdDir = NativeImageInstallRoot.resolveUnderLib(installRoot, "std")
     val stdRoot = stdDir.getParentFile
-    val fsubSrc = if useF then Some(new java.io.File(base, "tower/bin/fsub.ssc")) else None
-    val fsubIr = fsubSrc.flatMap(f => fsubIrCache(f, runner, new java.io.File(base, "tower/lib/ssc1-lower.ssc0")))
+    val fsubSrc = if useF then Some(new java.io.File(base, "bin/fsub.ssc")) else None
+    val fsubIr = fsubSrc.flatMap(f => fsubIrCache(f, runner, new java.io.File(base, "lib/ssc1-lower.ssc0")))
     if !runner.isFile || !defaultRunner.isFile || !checker.isFile then
       throw new IllegalStateException(
         s"native frontend resources are not staged under ${base.getPath}; run scripts/sbtc \"installBin\"")

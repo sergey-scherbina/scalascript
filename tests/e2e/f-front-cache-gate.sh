@@ -96,7 +96,7 @@ fi
 
 # `install.sh --dev` stages the front into ONE tree now (specs/arch-lib-path-resolution.md §7 —
 # no more "standard" tier duplicate for `RunNativeV2.nativeFrontLayout` to prefer).
-staged="$ROOT/bin/lib/native-front/tower/bin/fsub.ssc"
+staged="$ROOT/bin/lib/native-front/bin/fsub.ssc"
 if [[ -f "$staged" ]]; then
   cp "$staged" "$sandbox/fsub.orig"
   printf '\n// f-front-cache-gate probe\n' >> "$staged"

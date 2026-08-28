@@ -53,7 +53,7 @@ ssc_usable_or_skip ref-front-string-literal-gate "$ssc"
 # never as a defect in the code being measured.
 front_src="$ROOT/v2/lib/ssc1-front.ssc0"
 front_staged=""
-for c in "$(dirname -- "$ssc")/lib/native-front/tower/lib/ssc1-front.ssc0"; do
+for c in "$(dirname -- "$ssc")/lib/native-front/lib/ssc1-front.ssc0"; do
   [[ -r "$c" ]] && { front_staged="$c"; break; }
 done
 if [[ -n "$front_staged" && -r "$front_src" ]]; then

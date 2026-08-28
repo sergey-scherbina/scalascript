@@ -273,3 +273,36 @@ full, untruncated `f-output-agreement-gate.sh` run — 351 measured, 308 agree, 
 `ssc`, `lib/native-front/`, `lib/std/`, `lib/ssc-plugin-host.jar` — no `standard/` anywhere;
 `std/json.ssc` resolution, `search --refresh`, and the missing-`lib/` error message on a bare-binary
 copy all reconfirmed end-to-end.
+
+## 8. `native-front` drops its internal `tower/` nesting
+
+Before this section, `native-front` staged its contents one level deeper than necessary:
+`lib/native-front/tower/{bin,lib}/…`. The `tower/` level named nothing that `native-front` didn't
+already name — both refer to the same self-hosted compiler — so every consumer (`RunNativeV2`,
+`build.sbt`'s staging map, and every e2e gate that hardcoded a staged path) carried the redundant
+segment for no reason a reader could point to.
+
+`RunNativeV2.nativeFrontLayout` now reads `bin/…`/`lib/…` directly under `base`
+(`resolveUnderLib(installRoot, "native-front")`, unchanged from §7) instead of `tower/bin/…`/
+`tower/lib/…`; `build.sbt`'s `nativeTowerFiles` staging map destinations were shortened to match.
+Every e2e gate and the release qualifier (`scripts/native-release-qualify`'s `require_file` lines)
+that named a `tower/bin/…`/`tower/lib/…` path were updated to drop the segment — the release
+archive's `allowed_file`/`allowed_directory` checks already matched on the `lib/native-front/`
+prefix generically, so they needed no change.
+
+**Found and fixed in the same pass, not by this change but exposed by rebuilding after it:**
+`tests/e2e/v21-standard-tier-smoke.sh` had never been updated for §7 — it still asserted
+`$ROOT/bin/lib/standard/native-front/tower/bin/ssc1-run.ssc0`, a path `build.sbt` stopped producing
+when the `standard/` prefix was dropped. It passed anyway on every prior run only because the
+checkout's `bin/lib/standard/native-front/` was a stale leftover from before that landing — never
+rebuilt clean. A fresh `install.sh --dev` reproduced the failure directly (`REAL_EXIT=1`, no such
+path). Fixed to assert the shared `$ROOT/bin/lib/native-front/bin/ssc1-run.ssc0` instead, since
+native-front is common to both launcher tiers (§7).
+
+Verified: `NativeImageInstallRootTest` 14/14 (unaffected — it asserts `native-front`'s own
+presence, not its internal shape). `scripts/smoke-ci` 116/116 on a freshly rebuilt checkout (a
+first run flagged `smoke-budget-derivation` as stale because a fix landed after the prior build —
+rebuilt and reran clean, per the standing lesson that a background gate measures the tree it was
+built from, not the one on disk). Manually rebuilt `ssc-macos-arm64` + assembled archive: `find
+lib/native-front` shows exactly `lib/native-front/{bin,lib}`, no `tower/`; a `std/json`-importing
+example ran correctly end-to-end against the rebuilt binary.
