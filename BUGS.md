@@ -18,7 +18,7 @@ Newest first.
 
 ## plugin-cli-two-disjoint-registries-and-a-blind-plugin-list — `ssc plugin list` said "(no plugins installed)" while plugins ran
 
-<!-- status: open
+<!-- status: fixed
      lane: multi
      kind: bug
      area: cli
@@ -26,10 +26,9 @@ Newest first.
      reported-by: user
      reported-at: 2026-08-28
      confirmed: yes
-     fixed-in: - -->
+     fixed-in: b04ecd237 -->
 
-**FIXED 2026-08-28 (landing SHA follows in a same-day follow-up commit, per the board's
-`fixed-in` convention — specs/bugs-index.md).** Reported live: `ssc plugin list` printed `(no plugins installed)` on a
+**FIXED 2026-08-28 (`b04ecd237`).** Reported live: `ssc plugin list` printed `(no plugins installed)` on a
 build where http-plugin/json-plugin/etc. were demonstrably active (a script importing `std/http`
 worked). Asked why, and separately "what is `ssc search` even searching?" — both questions traced
 to the same root: three disjoint "where do plugins live" directories (`lib/compiler/plugins/`
