@@ -236,10 +236,21 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # The two NEW entries are frontend emitters, not the INT hot path; they are frozen with that as the
 # measured reason rather than fixed here. `handleActorOp` is UNCHANGED at 28036 — see the nested-jar
 # note below for why it briefly looked as though it had gone away.
+#
+# renderTerm 20673 -> 23885 (+3212), from three commits hardening the uniml/core rust-backend target
+# (6bde8ac02, afdfc01b2 — dyn-dispatch trait support for `DialectAdapter`/`Processor` plus ~a dozen
+# follow-on arms: `.copy()` -> struct-update syntax, `Set + elem`/`Map ++ Map` idioms, a zero-arg
+# trait/struct method call recognised without parens, `Some(x.field)`/tuple-literal clone-insertion,
+# the Either-combinator placeholder-lambda shape). RAISED, NOT REVERTED, on the same terms as every
+# entry above: by this gate's own definition growth is a regression, so the number is bumped OUT
+# LOUD rather than silently, and per the note above ("split it up" does not work here — the cost is
+# `Ctx.copy(...)` call sites × field count, not the arm count) no attempt was made to shrink it back
+# down by extraction; each new arm is a genuine `error[E0xxx]` this repo's own `cargo build` caught,
+# not a refactor. `uniml/core` went from 64 cargo errors to 0 across the three commits.
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-20673 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+23885 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF
