@@ -1,0 +1,11 @@
+slug: unify-plugin-registry
+branch: feature/unify-plugin-registry
+agent: claude-code
+started: 2026-08-28T11:04:31Z
+heartbeat: 2026-08-28T11:04:31Z
+status: claimed-before-planning
+items: unify-plugin-registry
+paths: v1/lang/core/src/main/scala/scalascript/imports/RegistryEntry.scala v1/lang/core/src/main/scala/scalascript/imports/RegistryClient.scala v1/lang/core/src/main/scala/scalascript/imports/ImportResolver.scala v1/lang/core/src/main/scala/scalascript/compiler/plugin/RemoteRegistry.scala v1/lang/core/src/main/scala/scalascript/compiler/plugin/RemotePluginInstaller.scala v1/lang/core/src/main/scala/scalascript/compiler/plugin/LocalRegistry.scala v1/lang/core/src/test/scala/scalascript/compiler/plugin/LocalRegistryTest.scala v1/lang/core/src/test/scala/scalascript/compiler/plugin/RemoteRegistryTest.scala v1/lang/core/src/test/scala/scalascript/imports/RegistrySchemaTest.scala v1/lang/core/src/test/scala/scalascript/imports/RegistryClientTest.scala v1/tools/cli/src/main/scala/scalascript/cli/PluginCommands.scala v1/tools/cli/src/main/scala/scalascript/cli/LockCommands.scala v1/tools/cli/src/main/resources/META-INF/services/scalascript.cli.CliCommand docs/user-guide.md BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
