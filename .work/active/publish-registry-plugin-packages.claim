@@ -1,0 +1,11 @@
+slug: publish-registry-plugin-packages
+branch: feature/publish-registry-plugin-packages
+agent: claude-code
+started: 2026-08-28T12:26:33Z
+heartbeat: 2026-08-28T12:26:33Z
+status: claimed-before-planning
+items: publish-registry-plugin-packages
+paths: .github/workflows/native-release.yml registry/packages.yaml BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement

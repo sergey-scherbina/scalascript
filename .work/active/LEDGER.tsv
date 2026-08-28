@@ -1,2 +1,3 @@
-# generation: 3051
+# generation: 3052
 #slug	agent	started	items	paths
+publish-registry-plugin-packages	claude-code	2026-08-28T12:26:33Z	publish-registry-plugin-packages	.github/workflows/native-release.yml registry/packages.yaml BUGS.md
