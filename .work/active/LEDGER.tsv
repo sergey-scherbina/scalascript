@@ -1,2 +1,3 @@
-# generation: 3023
+# generation: 3024
 #slug	agent	started	items	paths
+drop-bare-native-binary	claude-code	2026-08-28T05:16:51Z	BUGS:native-binary-missing-front-message-blamed-a-checkout-that-cannot-exist	file:.github/workflows/native-release.yml file:scripts/native-release-publish file:scripts/native-release-qualify file:tests/e2e/native-release-publication.sh file:tests/e2e/native-release-qualification.sh file:README.md file:install.sh file:BUGS.md

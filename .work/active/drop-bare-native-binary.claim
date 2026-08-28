@@ -1,0 +1,11 @@
+slug: drop-bare-native-binary
+branch: feature/drop-bare-native-binary
+agent: claude-code
+started: 2026-08-28T05:16:51Z
+heartbeat: 2026-08-28T05:16:51Z
+status: claimed-before-planning
+items: BUGS:native-binary-missing-front-message-blamed-a-checkout-that-cannot-exist
+paths: file:.github/workflows/native-release.yml file:scripts/native-release-publish file:scripts/native-release-qualify file:tests/e2e/native-release-publication.sh file:tests/e2e/native-release-qualification.sh file:README.md file:install.sh file:BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
