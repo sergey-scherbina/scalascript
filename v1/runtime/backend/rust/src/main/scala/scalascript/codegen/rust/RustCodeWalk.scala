@@ -2349,7 +2349,17 @@ object RustCodeWalk:
       // to test — `error[E0599]: no method named flatMap found for enum Either` was really "this
       // lane didn't know it WAS one". Populated once, by `renderVecIterBody`'s `foldLeft` arm, from
       // whether the ZERO value it was handed is itself `isEitherExpr`.
-      eitherLocals: Set[String] = Set.empty
+      eitherLocals: Set[String] = Set.empty,
+      // Local val/var names bound to `StringBuilder(...)` — a Rust `String` already IS one
+      // (`.push`/`.push_str` mutate in place), so this drives the SAME `let` -> `let mut` upgrade
+      // `localArrays` does for a `Vec`, and lets `.append(...)`/`.toString` recognise the receiver.
+      // Appended at the END of the field list on purpose: `Ctx(...)` has many POSITIONAL call
+      // sites throughout this file, and inserting a field in the MIDDLE shifts every argument
+      // after it — measured immediately: `localStringBuilders = ...` first landed between
+      // `localArrays` and `localStrings`, and `scalac` refused every positional `Ctx(...)` call in
+      // the file with "already instantiated" (a positional argument now landing on this new named
+      // parameter's position, colliding with the named one).
+      localStringBuilders: Set[String] = Set.empty
   ):
     def enumNames: Set[String] = ctorMap.values.map(_.enumName).toSet
     @annotation.unused def topValNames: Set[String] = topVals.map(_._1).toSet
@@ -2605,6 +2615,7 @@ object RustCodeWalk:
         }.toMap
       val ctx     = Ctx(intrinsics, userDefs, ctorMap, topVals, name, effectfulDefs, lseqs ++ paramSeqs ++ selfSeqFields, larrays, lstrings,
                         localSscChars = collectLocalSscChars(d.body),
+                        localStringBuilders = collectLocalStringBuilders(d.body),
                         mapFields = collectMapFields(d, ctorMap),
                         seqFields = seqFieldsForDef,
                         localMaps = collectLocalMaps(d, collectMapFields(d, ctorMap)) ++ selfMapFields,
@@ -2818,17 +2829,27 @@ object RustCodeWalk:
         if SeqPreserving.contains(n) || SeqMethods.contains(n) => rootedInSeq(q)
       case m.Term.Select(q, m.Term.Name(n)) if SeqPreserving.contains(n) => rootedInSeq(q)
       case _ => false
-    def record(n: String, rhs: m.Term): Unit =
-      seqCtor(rhs) match
+    // The DECLARED type, checked before the rhs shape at all: `var elements: Vector[String] =
+    // Vector.empty` (`XmlDialect.scala`'s `XmlScanner.scan`) has an rhs `seqCtor`/`rootedInSeq`
+    // both miss — `.empty` is neither a `SeqMethods` conversion nor a `List(...)`/`Vector(...)`
+    // literal call, so a seq-typed local initialized empty was never recorded, and every
+    // `elements.nonEmpty`/`.last`/`.dropRight` on it fell to the no-paren-member refusal. An
+    // explicit `Vector[T]`/`List[T]`/`Array[T]` annotation is the one signal that can't be wrong.
+    def declIsSeq(t: m.Type): Option[Boolean] = t match
+      case m.Type.Apply.After_4_6_0(m.Type.Name("Array"), _) => Some(true)
+      case m.Type.Apply.After_4_6_0(m.Type.Name("Vector" | "List" | "Seq" | "IndexedSeq"), _) => Some(false)
+      case _ => None
+    def record(n: String, rhs: m.Term, decltpe: Option[m.Type]): Unit =
+      (decltpe.flatMap(declIsSeq) orElse seqCtor(rhs)) match
         case Some(isArr) => seqs += n; if isArr then arrays += n
         case None        => if rootedInSeq(rhs) then seqs += n
     def walk(t: m.Tree): Unit =
       t match
         case v: m.Defn.Val => v.pats match
-          case List(m.Pat.Var(m.Term.Name(n))) => record(n, v.rhs)
+          case List(m.Pat.Var(m.Term.Name(n))) => record(n, v.rhs, v.decltpe)
           case _                               => ()
         case v: m.Defn.Var => v.pats match
-          case List(m.Pat.Var(m.Term.Name(n))) => record(n, v.body)
+          case List(m.Pat.Var(m.Term.Name(n))) => record(n, v.body, v.decltpe)
           case _                               => ()
         case _ => ()
       t.children.foreach(walk)
@@ -3010,6 +3031,27 @@ object RustCodeWalk:
         v.pats.collect { case m.Pat.Var(m.Term.Name(n)) => n }
     }.flatten.toSet
 
+  /** Local val/var names bound to `StringBuilder(...)` — see `Ctx.localStringBuilders`. Same
+   *  narrow, syntactic discipline as `collectLocalSscChars`: only the DIRECT constructor call is
+   *  tracked, not a wider "might be a StringBuilder" heuristic. */
+  private def collectLocalStringBuilders(body: m.Term): Set[String] =
+    val names = scala.collection.mutable.Set.empty[String]
+    def isStringBuilderCtor(rhs: m.Term): Boolean = rhs match
+      case m.Term.Apply.After_4_6_0(m.Term.Name("StringBuilder"), _) => true
+      case _ => false
+    def walk(t: m.Tree): Unit =
+      t match
+        case v: m.Defn.Val => v.pats match
+          case List(m.Pat.Var(m.Term.Name(n))) if isStringBuilderCtor(v.rhs) => names += n
+          case _ => ()
+        case v: m.Defn.Var => v.pats match
+          case List(m.Pat.Var(m.Term.Name(n))) if isStringBuilderCtor(v.body) => names += n
+          case _ => ()
+        case _ => ()
+      t.children.foreach(walk)
+    walk(body)
+    names.toSet
+
   /** Local val/var names bound directly to `<recv>.charAt(i)` — see `Ctx.localSscChars`. Narrow
    *  and syntactic on purpose, mirroring `yieldsSscChar` itself: `.charAt()` is the only thing
    *  that produces an `SscChar`, so a binding is only tracked when its rhs IS that call, not any
@@ -3038,7 +3080,7 @@ object RustCodeWalk:
       case m.Lit.String(_)                            => true
       case m.Term.Interpolate(m.Term.Name("s"), _, _) => true
       case m.Term.Select(_, m.Term.Name("toString" | "trim" | "mkString")) => true
-      case m.Term.Apply.After_4_6_0(m.Term.Select(_, m.Term.Name("toString" | "trim" | "mkString")), _) => true
+      case m.Term.Apply.After_4_6_0(m.Term.Select(_, m.Term.Name("toString" | "trim" | "mkString" | "substring")), _) => true
       case m.Term.Name(n)                             => strs.contains(n)
       case ifx: m.Term.If                             => isStr(ifx.thenp) || isStr(ifx.elsep)
       case m.Term.ApplyInfix.After_4_6_0(l, m.Term.Name("+"), _, args) =>
@@ -4089,6 +4131,42 @@ object RustCodeWalk:
     case m.Term.Select(m.Term.Name("Map"), m.Term.Name("empty")) =>
       Right("std::collections::HashMap::new()")
 
+    // `StringBuilder(n)` / `StringBuilder()` (`XmlEscape.scala`'s `escape`/`escapeText`/
+    // `escapeAttr`, `PureMarkupCodec.scala`'s `serialize`) — a Rust `String` already IS a
+    // StringBuilder (growable, `.push`/`.push_str` mutate in place), so the type only exists here
+    // as a capacity hint. `n` is a byte-count in Scala too, so `as usize` is the direct cast, not
+    // a narrowing one. The `.append(...)`/`.toString` call sites are separate cases below/already
+    // covered (`.toString`'s existing generic `format!("{}", …)` arm works unchanged once the
+    // receiver already IS a `String`).
+    case m.Term.Apply.After_4_6_0(m.Term.Name("StringBuilder"), args) if args.values.isEmpty =>
+      Right("String::new()")
+    case m.Term.Apply.After_4_6_0(m.Term.Name("StringBuilder"), args) if args.values.size == 1 =>
+      renderTerm(args.values.head, ctx).map(n => s"String::with_capacity(($n) as usize)")
+
+    // `sb.append(x)` on a known StringBuilder — `String::push_str(&str)` for a String-shaped `x`,
+    // `String::push(char)` for a char-shaped one. Scala's `.append` is overloaded on the JVM side
+    // (`AnyRef`/`Char`/…) and returns the builder for chaining; nothing in this corpus chains
+    // (`sb.append(a).append(b)`), so the RETURN VALUE is dropped and this renders as a bare
+    // mutating statement, matching what `String::push`/`push_str` already return (`()`).
+    //
+    // The char case needs an EXPLICIT conversion, not a bare cast: `x` is either a `Lit.Char`
+    // (already rendered by `renderTerm`'s own case as its i64 CODE POINT, `renderTerm`'s `Lit.Char`
+    // arm) or a name `yieldsSscChar` recognises — either way the value in hand is an `i64` code
+    // point, and `as char` on an integer is not a legal Rust cast at all (E0605); `char::from_u32`
+    // is the real conversion, with the Unicode replacement character as the fallback for a
+    // (theoretically impossible here, since every source is itself a valid `char`) invalid point.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("append")), args)
+        if isKnownStringBuilder(qual, ctx) && args.values.size == 1 =>
+      val arg = args.values.head
+      for
+        q <- renderTerm(qual, ctx)
+        a <- renderTerm(arg, ctx)
+      yield
+        if isStringExpr(arg) then s"$q.push_str(&(${cloneIfMoved(arg, a, ctx)}))"
+        else if arg.isInstanceOf[m.Lit.Char] || yieldsSscChar(arg, ctx) then
+          s"$q.push(char::from_u32(($a) as u32).unwrap_or('\\u{FFFD}'))"
+        else s"$q.push_str(&(${cloneIfMoved(arg, a, ctx)}))"
+
     // `r.open` where `r` was bound by `case r: VmInstruction.Reframe => …` (`preflight`,
     // `TreeVm.scala`) — `renderPattern`'s OWN `Pat.Typed`-to-a-variant case (see its comment)
     // rewrites that ARM'S PATTERN into `r @ VmInstruction::Reframe { open, closeBefore, … }`,
@@ -4500,8 +4578,23 @@ object RustCodeWalk:
           case "distinct" => s"{ let mut __v = $q.clone(); __v.dedup(); __v }"
           case _          => s"($q.len() as i64)"   // size / length
       }
+    // `digits.nonEmpty` where `digits` is a bare NAME known only through `ctx.localStrings`
+    // (`val digits = inner.substring(2)`, `PureMarkupCodec.scala`'s `isNumericReferenceBody`) —
+    // `isStringExpr` is a pure SYNTACTIC check with no `ctx` parameter at all, so it has no case
+    // for a bare name and never sees what `ctx.localStrings` already knows. Checked here instead
+    // of widening `isStringExpr` itself (17 call sites, several of them recursive) — this is the
+    // one site the gap was actually reported from.
     case m.Term.Select(qual, m.Term.Name(meth))
-        if isStringExpr(qual) && Set("nonEmpty", "isEmpty").contains(meth) =>
+        if (isStringExpr(qual) || (qual match { case m.Term.Name(n) => ctx.localStrings.contains(n); case _ => false })) &&
+           Set("nonEmpty", "isEmpty").contains(meth) =>
+      renderTerm(qual, ctx).map(q => if meth == "isEmpty" then s"$q.is_empty()" else s"!$q.is_empty()")
+
+    // `elements.nonEmpty` / `elements.isEmpty` (`XmlDialect.scala`'s `XmlScanner.scan`, `var
+    // elements: Vector[String]`) — the STRING-receiver case just above never claims a known Vec,
+    // and nothing else in this file lowered `.nonEmpty`/`.isEmpty` for one at all; `Vec` has both
+    // as real methods (`is_empty`), so this is the same `!q.is_empty()`/`q.is_empty()` shape.
+    case m.Term.Select(qual, m.Term.Name(meth))
+        if isKnownVecReceiver(qual, ctx) && Set("nonEmpty", "isEmpty").contains(meth) =>
       renderTerm(qual, ctx).map(q => if meth == "isEmpty" then s"$q.is_empty()" else s"!$q.is_empty()")
 
     // `_.isEmpty` — the placeholder shorthand (`closeBefore.exists(_.isEmpty)`) reaches here BEFORE
@@ -6175,6 +6268,10 @@ object RustCodeWalk:
     case m.Term.Name(n) => ctx.localMaps.contains(n)
     case _               => false
 
+  private def isKnownStringBuilder(term: m.Term, ctx: Ctx): Boolean = term match
+    case m.Term.Name(n) => ctx.localStringBuilders.contains(n)
+    case _               => false
+
   private def isKnownVecReceiver(term: m.Term, ctx: Ctx): Boolean = term match
     case m.Term.Name(n) => ctx.localSeqs.contains(n) || ctx.localArrays.contains(n)
     case m.Term.Apply.After_4_6_0(m.Term.Name("List" | "Vector" | "Array"), _) => true
@@ -7713,6 +7810,15 @@ object RustCodeWalk:
           (bound, structName) match
             case (Some(n), Some(sn)) => ctx.copy(paramCtorNames = ctx.paramCtorNames + (n -> sn))
             case _                   => ctx
+        // `s.charAt(i) match { case '&' => …; case c => sb.append(c) }` (`XmlEscape.scala`) — the
+        // subject is unwrapped to `i64` via `.0` above (see that unwrap's own comment) so the
+        // literal arms can be plain `i64`, but that leaves the bind-all arm's own `c` looking like
+        // an ordinary `i64` to everything downstream — including the NEW `.append` case, which
+        // needs to render a char differently from a string. Tracked the same way `collectLocalSscChars`
+        // tracks a `val` bound directly from `.charAt(i)`: `c` goes in `localSscChars` for the
+        // REST OF THIS ARM's body only, so `yieldsSscChar(c, ctx)` answers correctly there.
+        case m.Pat.Var(m.Term.Name(n)) if yieldsSscChar(subject, ctx) =>
+          ctx.copy(localSscChars = ctx.localSscChars + n)
         // `case instruction @ VmInstruction.Reframe(closeBefore, open, closeAfter, role) => …` —
         // `renderPattern`'s twin case (its own comment has the full reasoning) renders this with
         // `ref instruction @ … { ref closeBefore, … }`, a BORROW: `instruction` is `&VmInstruction`
@@ -7782,6 +7888,12 @@ object RustCodeWalk:
         if hasStringPat    then s"($s0).as_str()"
         else if hasListPat then s"($s0).as_slice()"
         else if hasFieldDestructurePat then s"($s0).clone()"
+        // `s.charAt(i) match { case '&' => … }` — `.charAt()` yields `SscChar`, a newtype over
+        // `i64` (see `yieldsSscChar`'s own comment), and a Rust pattern can't match a bare `i64`
+        // literal against a struct. Unwrapped here so `renderPattern`'s `Lit.Char` case (which
+        // renders a char literal the SAME way `renderTerm`'s own does, as its code point) can stay
+        // a plain `i64` literal and know nothing about `SscChar` at all.
+        else if yieldsSscChar(subject, ctx) then s"($s0).0"
         else s0
       if errs.nonEmpty then Left(errs.flatten)
       else
@@ -8190,6 +8302,14 @@ object RustCodeWalk:
       renderPattern(inner, ctx).map(p => s"$n @ $p")
     case m.Lit.Int(n)               => Right(s"${n}i64")
     case m.Lit.Long(n)              => Right(s"${n}i64")
+    // `s.charAt(i) match { case '&' => … }` (`XmlEscape.scala`'s `escape`/`escapeText`/
+    // `escapeAttr`) — no case here at all before this, so a Char pattern refused outright. Same
+    // code-point-as-i64 spelling `renderTerm`'s OWN `Lit.Char` case already uses for a bare char
+    // literal in expression position (`'['` -> `91i64`) — the two have to agree, because
+    // `renderMatch`'s own subject rendering unwraps a `SscChar`-producing subject
+    // (`.charAt(i)`) to its bare `i64` via `.0` (see that unwrap's own comment) specifically so
+    // patterns here can be plain `i64` literals instead of needing to know about `SscChar` at all.
+    case m.Lit.Char(c)              => Right(s"${c.toInt}i64")
     case m.Lit.Double(d)            => Right(s"${d}f64")
     case m.Lit.Boolean(b)           => Right(b.toString)
     case m.Lit.String(s)            => Right("\"" + escapeRustString(s) + "\"")
@@ -8352,7 +8472,9 @@ object RustCodeWalk:
     pats match
       case List(m.Pat.Var(m.Term.Name(name))) =>
         // collection-rust-array: a `val a = Array(...)` local must bind `let mut` so `a(i)=x` stores.
-        val kw = if mutable || ctx.localArrays.contains(name) then "let mut" else "let"
+        // Same reason for `val sb = StringBuilder(...)`: `.append(...)` needs `&mut self`.
+        val kw = if mutable || ctx.localArrays.contains(name) || ctx.localStringBuilders.contains(name)
+                 then "let mut" else "let"
         val annotated: Either[List[Diagnostic], String] = decltpe match
           case None    => Right("")
           case Some(t) => mapType(t, ctx.defName, ctx.enumNames).map { r =>

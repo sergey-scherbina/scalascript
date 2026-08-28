@@ -99,6 +99,23 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(g.contains(".first().cloned()"), s"headOption did not lower:\n$g")
     assert(!g.contains(".headOption"), s"headOption survived as a field access:\n$g")
 
+  test("a declared-Vector local initialized via `.empty` is still a known seq"):
+    // `var elements: Vector[String] = Vector.empty` (uniml's `XmlScanner.scan`) has an rhs neither
+    // `seqCtor` nor `rootedInSeq` recognise — `.empty` is not a `SeqMethods` conversion or a
+    // `List(...)`/`Vector(...)` literal call — so the local was never recorded as a seq and
+    // `elements.nonEmpty` fell to the no-paren-member refusal. The DECLARED type settles it.
+    val src =
+      """```scalascript
+        |def main(): Unit =
+        |  var elements: Vector[String] = Vector.empty
+        |  elements = elements :+ "a"
+        |  println(elements.nonEmpty)
+        |main()
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("!elements.is_empty()"), s"nonEmpty did not lower:\n$g")
+
   test("Failed: an unlowered no-paren member on a List is refused, not emitted as a field"):
     // The half that matters more than `headOption` itself: the by-name refusal already existed
     // for method CALLS and could not reach a select, so the NEXT unlowered member would have
@@ -118,16 +135,20 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     }, s"expected a named refusal, got: $ds")
 
   test("Failed: param with a non-primitive type yields a structured diagnostic"):
-    // R.2 accepts primitives, enums, function types, and List/Vec (with
+    // R.2 accepts primitives, enums, function types, and List/Vec/Set/Map (with
     // type args).  A truly-out-of-scope type still surfaces a diagnostic.
+    // `Set[Long]` USED to be that example; it stopped being out-of-scope once `mapType`
+    // learned to lower `Set` alongside `List`/`Vec` (see that case's own comment) — this
+    // test kept asserting a premise the code had already moved past. `java.time.Instant`
+    // has no case anywhere in `mapType` and is not expected to grow one.
     val src =
       """```scalascript
-        |def greet(items: Set[Long]): Unit = println("len")
+        |def greet(items: java.time.Instant): Unit = println("len")
         |```
         |""".stripMargin
     val ds = diagnostics(src)
     assert(ds.exists {
-      case Diagnostic.Generic(m, _) => m.contains("greet") && m.contains("Set")
+      case Diagnostic.Generic(m, _) => m.contains("greet") && m.contains("Instant")
       case _                        => false
     }, s"diags: $ds")
 
