@@ -1,4 +1,3 @@
-# generation: 3021
+# generation: 3022
 #slug	agent	started	items	paths
-native-binary-missing-front-message	claude-code	2026-08-28T02:24:31Z	native-binary-missing-front-message	file:v1/tools/cli/src/main/scala/scalascript/cli/NativeImageInstallRoot.scala file:v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala file:v1/tools/cli/src/main/scala/scalascript/cli/NativeJvmArtifact.scala file:v1/tools/cli/src/test/scala/scalascript/cli/NativeImageInstallRootTest.scala file:BUGS.md file:build.sbt file:tests/e2e/native-release-qualification.sh file:scripts/native-release-qualify
 repl-load-import-base-dir	claude-code	2026-08-28T02:46:26Z	repl-load-import-base-dir	file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/Interpreter.scala file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/SectionRuntime.scala file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/StatRuntime.scala file:v1/tools/cli/src/main/scala/scalascript/cli/ReplCommands.scala file:v1/tools/cli/src/test/scala/scalascript/cli/ReplLoadTest.scala file:BUGS.md
