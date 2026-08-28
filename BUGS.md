@@ -18,16 +18,17 @@ Newest first.
 
 ## native-binary-missing-front-message-blamed-a-checkout-that-cannot-exist — an end-user error mentioned `scripts/sbtc`
 
-<!-- status: open
+<!-- status: fixed
      lane: multi
      kind: bug
      area: build
      gate: v1/tools/cli/src/test/scala/scalascript/cli/NativeImageInstallRootTest.scala
      reported-by: claude-code
      reported-at: 2026-08-28
-     confirmed: yes -->
+     confirmed: yes
+     fixed-in: b45192115 -->
 
-**Diagnosed and fixed 2026-08-28; the header flips in the follow-up commit that can name the SHA.** Reported live: `./ssc-macos-arm64 ./hello.ssc` threw
+**FIXED 2026-08-28 (`b45192115`).** Reported live: `./ssc-macos-arm64 ./hello.ssc` threw
 
 ```
 Exception in thread "main" java.lang.IllegalStateException: native frontend requires a staged
@@ -63,17 +64,17 @@ Verified: `NativeImageInstallRootTest` asserts the message names `ssc-<platform>
 
 ## native-image-has-no-http-url-protocol — the published native binary cannot make ANY network request
 
-<!-- status: open
+<!-- status: fixed
      lane: multi
      kind: bug
      area: build
      gate: scripts/native-release-qualify
      reported-by: claude-code
      reported-at: 2026-08-28
-     confirmed: yes -->
+     confirmed: yes
+     fixed-in: b45192115 -->
 
-**Diagnosed and fixed 2026-08-28; the header flips in the follow-up commit that can name the SHA.**
-`graalVMNativeImageOptions` (`build.sbt`) now includes
+**FIXED 2026-08-28 (`b45192115`).** `graalVMNativeImageOptions` (`build.sbt`) now includes
 `--enable-url-protocols=http,https`.
 
 **VERIFIED ON THE REAL PRODUCT, both directions, not on a minimal reproducer alone.** A full
