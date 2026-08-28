@@ -2010,7 +2010,7 @@ lazy val cli = project
       val compilerDir  = libDir / "compiler" / "jars"
       val plugDir      = libDir / "compiler" / "plugins"
       val availableDir = libDir / "compiler" / "plugin-available"
-      val nativeFrontDir = libDir / "native-front"
+      val nativeFrontDir = libDir / "tower"
       IO.delete(runtimeDir);  IO.createDirectory(runtimeDir)
       IO.delete(standardDir); IO.createDirectory(standardRuntimeDir)
       IO.delete(providersDir); IO.createDirectory(providersDir)
@@ -2040,7 +2040,7 @@ lazy val cli = project
         // Was reachable only from the rare `ssc.lib.path`-unset throw branch, so its absence here
         // was dormant under a JVM launcher (which always sets the property) until
         // `resolveUnderLib`/`isLibShaped`/`rootAbove` (specs/arch-lib-path-resolution.md) made
-        // RunNativeV2/NativeJvmArtifact call into it on every native-front resolution, not just
+        // RunNativeV2/NativeJvmArtifact call into it on every tower resolution, not just
         // the failure path — surfaced as NoClassDefFoundError on the very first `bin/ssc` run.
         "scalascript/cli/NativeImageInstallRoot",
         "scalascript/cli/NativeManifest",
@@ -2541,9 +2541,9 @@ lazy val cli = project
       // mode. See specs/std-to-repo-root.md.
       //
       // Staged to `bin/lib/std/` DIRECTLY — a single top-level copy, not nested under
-      // `native-front/` and not duplicated per tier (specs/arch-lib-path-resolution.md §6).
+      // `tower/` and not duplicated per tier (specs/arch-lib-path-resolution.md §6).
       // `RunNativeV2.nativeFrontLayout` reads it via `resolveUnderLib(installRoot, "std")`,
-      // independent of which native-front tier (`standard/` or legacy) it also resolved.
+      // independent of the self-hosted compiler tower it also resolved.
       val stdSourceRoot = root / "std"
       val stagedStdRoot = libDir / "std"
       val nativeStdFiles = (stdSourceRoot ** "*.ssc").get.filter(_.isFile)
@@ -2582,12 +2582,10 @@ lazy val cli = project
         IO.createDirectory(dest.getParentFile)
         IO.copyFile(src, dest)
       }
-      log.info(s"bin/lib/native-front/    (${nativeTowerFiles.size} tower files)")
-      log.info(s"bin/lib/std/              (${nativeStdFiles.size + scljetStdFiles.size} std modules)")
-      // bin/lib/native-front/ is the ONE copy — no more bin/lib/standard/native-front/ duplicate.
-      // `standardBase`/`legacyBase` in NativeImageInstallRoot never actually preferred the
-      // "standard" copy for a real reason; it was checked FIRST and always existed, so the
-      // "legacy" no-prefix copy (this one) was dead weight, byte-identical, staged for nothing.
+      log.info(s"bin/lib/tower/ (${nativeTowerFiles.size} tower files)")
+      log.info(s"bin/lib/std/   (${nativeStdFiles.size + scljetStdFiles.size} std modules)")
+      // bin/lib/tower/ is the self-hosted compiler tower — one copy, shared by both launcher
+      // tiers, named for what it is rather than "native-front" (specs/arch-lib-path-resolution.md §9).
       // See specs/arch-lib-path-resolution.md §7.
 
       // Package and install standard-library plugins as .sscpkg archives.

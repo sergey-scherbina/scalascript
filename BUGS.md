@@ -209,6 +209,21 @@ Full detail in `specs/arch-lib-path-resolution.md` §8. Verified: `NativeImageIn
 `ssc-macos-arm64` + archive (`lib/native-front/{bin,lib}`, no `tower/`): a `std/json`-importing
 example ran correctly end-to-end.
 
+**SEVENTH FOLLOW-UP 2026-08-28: `native-front` renamed to `tower`.** Asked directly for a
+shorter, meaningful name: `front` alone was rejected — the tower's own front-end component is
+`ssc1-front.ssc0`, staged directly inside it, so `lib/front/` would nest "front" inside "front".
+`tower` was already the term used everywhere else in the codebase (`RunNativeV2`'s `towerRoot`,
+doc comments describing "the self-hosted compiler tower") — the staged directory was the one
+place still spelling it `native-front`. `NativeImageInstallRoot.FrontMarker` is now
+`Paths.get("tower")`; every consumer, e2e gate, the release workflow, and
+`scripts/native-release-qualify` updated to `lib/tower/…`. `scripts/native-front-corpus` (an
+unrelated script name) and dated historical BUGS.md/SPRINT.md entries were deliberately left
+alone. Full detail in `specs/arch-lib-path-resolution.md` §9. Verified:
+`NativeImageInstallRootTest` 14/14, `tests/e2e/native-release-qualification.sh` 64/64,
+`scripts/smoke-ci` 116/116 on a freshly rebuilt checkout, manual rebuild of `ssc-macos-arm64` +
+archive (`lib/tower/{bin,lib}`, `lib/std/`, `lib/ssc-plugin-host.jar`): a `std/json`-importing
+example ran correctly end-to-end.
+
 ## native-image-has-no-http-url-protocol — the published native binary cannot make ANY network request
 
 <!-- status: fixed

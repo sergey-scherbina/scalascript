@@ -394,7 +394,7 @@ bin/ssc info --execution-plan --bytecode
 
 Its classpath is only `bin/lib/standard/ssc.jar` plus the explicit JAR allowlist
 under `bin/lib/standard/jars/`; its self-hosted compiler tower lives at
-`bin/lib/native-front/` (shared with `ssc-tools`, not tier-specific) and the
+`bin/lib/tower/` (shared with `ssc-tools`, not tier-specific) and the
 staged std library lives separately at `bin/lib/std/`. The entry JAR itself is
 class-filtered, so it
 does not retain dormant compatibility command references. A standard request

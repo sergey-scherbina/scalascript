@@ -31,8 +31,8 @@ class V2RunArgvCliTest extends AnyFunSuite:
     // staged installation", which is a harness gap, not a product defect. CI stages the
     // tree in the same step that assembles the jar (ci.yml: `cli/assembly installBin`).
     val root = stagedRoot(jar)
-    if !os.exists(root / "bin" / "lib" / "native-front") then
-      cancel(s"staged bin/lib/native-front not found under $root - run `sbt installBin` first")
+    if !os.exists(root / "bin" / "lib" / "tower") then
+      cancel(s"staged bin/lib/tower not found under $root - run `sbt installBin` first")
     val cmd: Seq[os.Shellable] = Seq[os.Shellable](
       "java", s"-Dssc.lib.path=$root", "-jar", jar.toString) ++
       args.map(a => a: os.Shellable)

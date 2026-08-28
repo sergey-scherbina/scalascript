@@ -53,7 +53,7 @@ ssc_usable_or_skip single-line-extension-gate "$ssc"
 # open for four days on a measurement of code its own fix had replaced.
 front_src="$ROOT/v2/lib/ssc1-front.ssc0"
 front_staged=""
-for c in "$(dirname -- "$ssc")/lib/native-front/lib/ssc1-front.ssc0"; do
+for c in "$(dirname -- "$ssc")/lib/tower/lib/ssc1-front.ssc0"; do
   [[ -r "$c" ]] && { front_staged="$c"; break; }
 done
 if [[ -n "$front_staged" && -r "$front_src" ]]; then

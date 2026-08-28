@@ -32,8 +32,8 @@ class V2CaseClassMethodCliTest extends AnyFunSuite:
     // gap, not a product defect. CI stages the tree in the same step that
     // assembles the jar (ci.yml: `cli/assembly installBin`).
     val root = stagedRoot(jar)
-    if !os.exists(root / "bin" / "lib" / "native-front") then
-      cancel(s"staged bin/lib/native-front not found under $root - run `sbt installBin` first")
+    if !os.exists(root / "bin" / "lib" / "tower") then
+      cancel(s"staged bin/lib/tower not found under $root - run `sbt installBin` first")
     // AND THE PLUGIN JARS, for the same reason the property above is here: this harness
     // approximates `bin/ssc`, and every part of that launcher it leaves out is a failure it will
     // report as a product defect. `bin/ssc` runs

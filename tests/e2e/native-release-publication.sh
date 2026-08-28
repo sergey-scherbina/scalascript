@@ -15,7 +15,7 @@ artifact_ids=(
 )
 # Every id (native or ssc-jvm) contributes only an archive + checksum pair. A native id used to
 # also carry a bare executable beside its archive; it was dropped from the release entirely — it
-# could never run standalone (it needs lib/native-front staged next to it, which only
+# could never run standalone (it needs lib/tower staged next to it, which only
 # the archive provides), so it was a trap, not a channel
 # (BUGS.md native-binary-missing-front-message-blamed-a-checkout-that-cannot-exist).
 archive_ids=("${artifact_ids[@]}" ssc-jvm)

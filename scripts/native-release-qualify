@@ -172,7 +172,7 @@ def allowed_file(path: str) -> bool:
         "ssc",
         "lib/ssc-plugin-host.jar",
         "README.md",
-    } or path.startswith("lib/native-front/") or path.startswith("lib/std/")
+    } or path.startswith("lib/tower/") or path.startswith("lib/std/")
 
 
 def allowed_directory(path: str) -> bool:
@@ -183,7 +183,7 @@ def allowed_directory(path: str) -> bool:
     }
     return (
         path in fixed
-        or path.startswith("lib/native-front/")
+        or path.startswith("lib/tower/")
         or path.startswith("lib/std/")
     )
 
@@ -251,17 +251,17 @@ require_file() {
 require_file ssc
 require_file lib/ssc-plugin-host.jar
 require_file README.md
-require_file lib/native-front/MANIFEST.sha256
-require_file lib/native-front/bin/fsub.ssc
-require_file lib/native-front/bin/ssc1-run-fsub.ssc0
-require_file lib/native-front/bin/ssc1-run.ssc0
-require_file lib/native-front/bin/ssc1-check-run.ssc0
+require_file lib/tower/MANIFEST.sha256
+require_file lib/tower/bin/fsub.ssc
+require_file lib/tower/bin/ssc1-run-fsub.ssc0
+require_file lib/tower/bin/ssc1-run.ssc0
+require_file lib/tower/bin/ssc1-check-run.ssc0
 require_file lib/std/MANIFEST.sha256
 require_file lib/std/index.ssc
 
 SSC_EXE="$EXTRACTED/ssc"
 PLUGIN_HOST="$EXTRACTED/lib/ssc-plugin-host.jar"
-FRONT_ROOT="$EXTRACTED/lib/native-front"
+FRONT_ROOT="$EXTRACTED/lib/tower"
 STD_ROOT="$EXTRACTED/lib/std"
 if [[ ! -x $SSC_EXE ]]; then
   fail_check archive-ssc-executable 'ssc with at least one executable bit' 'ssc is not executable'

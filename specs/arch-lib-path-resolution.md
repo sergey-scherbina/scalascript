@@ -306,3 +306,32 @@ rebuilt and reran clean, per the standing lesson that a background gate measures
 built from, not the one on disk). Manually rebuilt `ssc-macos-arm64` + assembled archive: `find
 lib/native-front` shows exactly `lib/native-front/{bin,lib}`, no `tower/`; a `std/json`-importing
 example ran correctly end-to-end against the rebuilt binary.
+
+## 9. `native-front` renamed to `tower`
+
+Asked directly whether the directory could be named more simply: `front` alone was rejected
+first — the tower's own front-end component is `ssc1-front.ssc0`, staged directly inside it, so a
+top-level `lib/front/` would nest "front" inside "front". `tower` was already the established
+term for this component everywhere else in the codebase — `RunNativeV2`'s `towerRoot`, doc
+comments describing "the self-hosted compiler tower", `NativeFrontLayout`'s F-tower prose — the
+staged directory was the one place still spelling it `native-front`.
+
+`NativeImageInstallRoot.FrontMarker` (the "one directory every layout is guaranteed to carry" used
+to confirm a candidate `lib/` is a real install — §2) is now `Paths.get("tower")`. `RunNativeV2`
+resolves it via `resolveUnderLib(installRoot, "tower")` / `isLibShaped(installRoot, "tower")`,
+unchanged in shape from §7 — only the string changed. `build.sbt`'s staging destination
+(`nativeFrontDir`, kept as the internal variable name — only the disk path moved) is `libDir /
+"tower"`. Every e2e gate, the release workflow, and `scripts/native-release-qualify` that named
+`lib/native-front/…` were updated to `lib/tower/…`; the qualifier's `allowed_file`/
+`allowed_directory` checks already matched by prefix, so needed no change beyond the prefix
+string itself.
+
+Left alone, deliberately: `scripts/native-front-corpus` (an unrelated script name — a corpus
+runner, not the staged directory) and every dated BUGS.md/SPRINT.md entry describing a specific
+historical incident, which are records of what was true when written, not living documentation.
+
+Verified: `NativeImageInstallRootTest` 14/14 (its `createLayout` fixture and every suffix argument
+updated to `"tower"` to match `FrontMarker`), `tests/e2e/native-release-qualification.sh` 64/64,
+`scripts/smoke-ci` 116/116 on a freshly rebuilt checkout. Manually rebuilt `ssc-macos-arm64` +
+assembled archive: `lib/tower/{bin,lib}`, `lib/std/`, `lib/ssc-plugin-host.jar` at the top level;
+a `std/json`-importing example ran correctly end-to-end.

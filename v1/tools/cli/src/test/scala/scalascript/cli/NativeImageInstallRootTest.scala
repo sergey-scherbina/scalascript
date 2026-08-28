@@ -7,7 +7,7 @@ import org.scalatest.funsuite.AnyFunSuite
 class NativeImageInstallRootTest extends AnyFunSuite:
 
   private def createLayout(lib: Path, executable: Path): Unit =
-    Files.createDirectories(lib.resolve("native-front"))
+    Files.createDirectories(lib.resolve("tower"))
     Files.createDirectories(executable.getParent)
     Files.writeString(executable, "native executable")
 
@@ -174,27 +174,27 @@ class NativeImageInstallRootTest extends AnyFunSuite:
   test("resolveUnderLib prefers the direct lib/-dir shape over the bin/lib ROOT shape"):
     val sandbox = Files.createTempDirectory("ssc-resolve-lib-shaped-")
     try
-      Files.createDirectories(sandbox.resolve("native-front"))
-      val resolved = NativeImageInstallRoot.resolveUnderLib(sandbox.toFile, "native-front")
-      assert(resolved.toPath == sandbox.resolve("native-front"))
+      Files.createDirectories(sandbox.resolve("tower"))
+      val resolved = NativeImageInstallRoot.resolveUnderLib(sandbox.toFile, "tower")
+      assert(resolved.toPath == sandbox.resolve("tower"))
     finally os.remove.all(os.Path(sandbox))
 
   test("resolveUnderLib falls back to the bin/lib ROOT shape when there is no direct lib/ dir"):
     val sandbox = Files.createTempDirectory("ssc-resolve-root-shaped-")
     try
-      Files.createDirectories(sandbox.resolve("bin/lib/native-front"))
-      val resolved = NativeImageInstallRoot.resolveUnderLib(sandbox.toFile, "native-front")
-      assert(resolved.toPath == sandbox.resolve("bin/lib/native-front"))
+      Files.createDirectories(sandbox.resolve("bin/lib/tower"))
+      val resolved = NativeImageInstallRoot.resolveUnderLib(sandbox.toFile, "tower")
+      assert(resolved.toPath == sandbox.resolve("bin/lib/tower"))
     finally os.remove.all(os.Path(sandbox))
 
   test("isLibShaped agrees with which shape resolveUnderLib actually took"):
     val libShaped = Files.createTempDirectory("ssc-shape-lib-")
     val rootShaped = Files.createTempDirectory("ssc-shape-root-")
     try
-      Files.createDirectories(libShaped.resolve("native-front"))
-      Files.createDirectories(rootShaped.resolve("bin/lib/native-front"))
-      assert(NativeImageInstallRoot.isLibShaped(libShaped.toFile, "native-front"))
-      assert(!NativeImageInstallRoot.isLibShaped(rootShaped.toFile, "native-front"))
+      Files.createDirectories(libShaped.resolve("tower"))
+      Files.createDirectories(rootShaped.resolve("bin/lib/tower"))
+      assert(NativeImageInstallRoot.isLibShaped(libShaped.toFile, "tower"))
+      assert(!NativeImageInstallRoot.isLibShaped(rootShaped.toFile, "tower"))
     finally
       os.remove.all(os.Path(libShaped))
       os.remove.all(os.Path(rootShaped))

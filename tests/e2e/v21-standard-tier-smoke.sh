@@ -10,9 +10,9 @@ trap 'rm -rf "$sandbox"' EXIT HUP INT TERM
 
 [[ -x "$ROOT/bin/ssc" && -x "$ROOT/bin/ssc-standard" && -x "$ROOT/bin/ssc-tools" ]]
 [[ -f "$STANDARD/ssc.jar" && -d "$STANDARD/jars" ]]
-# native-front is not tier-specific: it ships once, shared by both launcher tiers, at
-# bin/lib/native-front/ — not nested under bin/lib/standard/ (specs/arch-lib-path-resolution.md §7).
-[[ -f "$ROOT/bin/lib/native-front/bin/ssc1-run.ssc0" ]]
+# The compiler tower is not tier-specific: it ships once, shared by both launcher tiers, at
+# bin/lib/tower/ — not nested under bin/lib/standard/ (specs/arch-lib-path-resolution.md §7, §9).
+[[ -f "$ROOT/bin/lib/tower/bin/ssc1-run.ssc0" ]]
 for launcher in "$ROOT/bin/ssc" "$ROOT/bin/ssc-standard"; do
   grep -F 'lib/standard/jars/*' "$launcher" >/dev/null
   grep -F 'scalascript.cli.StandardMain' "$launcher" >/dev/null

@@ -184,9 +184,9 @@ found by diffing the file against a reconstruction built edit-by-edit.
 Two things make that cheap to avoid:
 
 - **Count the parens of any line you touch** before building.
-- **The tower is READ AT RUN TIME from `bin/lib/native-front/tower/`**, so a candidate can be tested
-  by writing it into BOTH `bin/lib/native-front/tower/bin/ssc1-run.ssc0` and
-  `bin/lib/standard/native-front/tower/bin/ssc1-run.ssc0` and re-running — seconds instead of a
-  ~7-minute rebuild per iteration. Note that `git stash` of `v2/` does NOT revert those copies, and
-  a real `./install.sh --dev` overwrites them from source, so the final verification must be a
-  genuine rebuild.
+- **The tower is READ AT RUN TIME from `bin/lib/tower/`** (one copy, shared by both launcher
+  tiers — specs/arch-lib-path-resolution.md §7, §9), so a candidate can be tested by writing it
+  directly into `bin/lib/tower/bin/ssc1-run.ssc0` and re-running — seconds instead of a ~7-minute
+  rebuild per iteration. Note that `git stash` of `v2/` does NOT revert that copy, and a real
+  `./install.sh --dev` overwrites it from source, so the final verification must be a genuine
+  rebuild.

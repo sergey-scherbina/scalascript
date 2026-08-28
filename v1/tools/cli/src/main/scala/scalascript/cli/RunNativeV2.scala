@@ -919,16 +919,16 @@ object RunNativeV2:
     val installRoot = Option(System.getProperty("ssc.lib.path")).map(new java.io.File(_)).getOrElse {
       throw new IllegalStateException(NativeImageInstallRoot.MissingInstallRootMessage)
     }
-    // No more "standard" tier vs "legacy" no-prefix duplicate — native-front ships as ONE copy at
-    // lib/native-front/, resolved the same way as every other lib/-relative asset (specs/arch-
-    // lib-path-resolution.md §7).
-    val base = NativeImageInstallRoot.resolveUnderLib(installRoot, "native-front")
+    // No more "standard" tier vs "legacy" no-prefix duplicate, and no more "native-front" name —
+    // the self-hosted compiler ships as ONE copy at lib/tower/, resolved the same way as every
+    // other lib/-relative asset (specs/arch-lib-path-resolution.md §7, §9).
+    val base = NativeImageInstallRoot.resolveUnderLib(installRoot, "tower")
     val useF = frontIsF
     val defaultRunner = new java.io.File(base, "bin/ssc1-run.ssc0")
     val runnerName = if useF then "ssc1-run-fsub.ssc0" else "ssc1-run.ssc0"
     val runner  = new java.io.File(base, s"bin/$runnerName")
     val checker = new java.io.File(base, "bin/ssc1-check-run.ssc0")
-    // std/ ships as a single top-level lib/std/, independent of which native-front tier `base`
+    // std/ ships as a single top-level lib/std/, independent of the compiler tower `base`
     // resolved to and never duplicated per tier (specs/arch-lib-path-resolution.md §6) — so it is
     // resolved against installRoot directly, not against base. `NativeSourceClosure` wants the
     // PARENT of `std/` (it appends "std/…" itself), so `stdRoot` is `stdDir`'s parent, not `stdDir`.
@@ -953,7 +953,7 @@ object RunNativeV2:
     // (only from a hand-set `SSC_LIB_PATH` still using the pre-unification convention) passes
     // through unchanged instead.
     val towerRoot =
-      if NativeImageInstallRoot.isLibShaped(installRoot, "native-front")
+      if NativeImageInstallRoot.isLibShaped(installRoot, "tower")
       then NativeImageInstallRoot.rootAbove(installRoot)
       else installRoot
     NativeFrontLayout(runner, checker, stdRoot, towerRoot, fsubSrc, fsubIr, defaultRunner)

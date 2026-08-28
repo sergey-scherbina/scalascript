@@ -304,7 +304,7 @@ def make_manifest(source: dict[str, bytes], digest_override: dict[str, str] | No
     return result
 
 
-# lib/native-front/ (tower only — std/ ships as its own separate root+manifest,
+# lib/tower/ (tower only — std/ ships as its own separate root+manifest,
 # specs/arch-lib-path-resolution.md §6) and lib/std/ each carry their own MANIFEST.sha256.
 front = {
     "bin/fsub.ssc": b"fsub\n",
@@ -336,8 +336,8 @@ files = {
     "lib/ssc-plugin-host.jar": plugin_jar(),
 }
 for relative, content in front.items():
-    files[f"lib/native-front/{relative}"] = content
-files["lib/native-front/MANIFEST.sha256"] = front_manifest
+    files[f"lib/tower/{relative}"] = content
+files["lib/tower/MANIFEST.sha256"] = front_manifest
 for relative, content in std.items():
     files[f"lib/std/{relative}"] = content
 files["lib/std/MANIFEST.sha256"] = std_manifest
@@ -383,7 +383,7 @@ else:
         elif case == "absolute":
             add_regular("/absolute", b"absolute\n")
         elif case in ("symlink", "hardlink", "device"):
-            entry = tarfile.TarInfo(f"lib/native-front/{case}")
+            entry = tarfile.TarInfo(f"lib/tower/{case}")
             entry.mtime = 0
             if case == "symlink":
                 entry.type = tarfile.SYMTYPE

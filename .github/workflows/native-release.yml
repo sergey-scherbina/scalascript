@@ -188,15 +188,15 @@ jobs:
           cp "${plugin_hosts[0]}" dist/archive/lib/ssc-plugin-host.jar
           test -s dist/archive/lib/ssc-plugin-host.jar
 
-          # The checkout's own bin/lib/native-front (no tier prefix — specs/arch-lib-path-
-          # resolution.md §7) is copied straight into the archive's lib/, so ssc.lib.path
-          # discovery (NativeImageInstallRoot) finds a plain lib/ beside the binary with no
-          # forced bin/ nesting.
-          test -d bin/lib/native-front
-          cp -R bin/lib/native-front dist/archive/lib/native-front
+          # The checkout's own bin/lib/tower (no tier prefix, no "native-front" name — specs/
+          # arch-lib-path-resolution.md §7, §9) is copied straight into the archive's lib/, so
+          # ssc.lib.path discovery (NativeImageInstallRoot) finds a plain lib/ beside the binary
+          # with no forced bin/ nesting.
+          test -d bin/lib/tower
+          cp -R bin/lib/tower dist/archive/lib/tower
 
           # std/ ships as its own top-level lib/std/ — a single copy, not nested under
-          # native-front and not duplicated per tier (specs/arch-lib-path-resolution.md §6).
+          # tower/ and not duplicated per tier (specs/arch-lib-path-resolution.md §6).
           test -d bin/lib/std
           cp -R bin/lib/std dist/archive/lib/std
 
@@ -207,7 +207,7 @@ jobs:
           ARTIFACT_ID: ${{ matrix.artifact_id }}
         run: |
           set -euo pipefail
-          front=dist/archive/lib/native-front
+          front=dist/archive/lib/tower
           std=dist/archive/lib/std
           python3 - "$front" "$std" <<'PY'
           import hashlib
@@ -266,7 +266,7 @@ jobs:
 
           # A native image with a captured checkout root must fail here. Hide the staged
           # frontend and std/ before execution.
-          mv bin/lib/native-front "$RUNNER_TEMP/hidden-native-front"
+          mv bin/lib/tower "$RUNNER_TEMP/hidden-tower"
           mv bin/lib/std "$RUNNER_TEMP/hidden-std"
 
           cd "$isolated"
