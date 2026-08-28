@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+#
+# cut-release <version> [--dry-run] — the ONE way to release: bump `ThisBuild / version` in
+# build.sbt and create the release tag in the SAME atomic step, so the two cannot drift apart.
+#
+# WHY THIS EXISTS. Preparing v0.2.1, `ThisBuild / version` in build.sbt still read a prior
+# release's `-SNAPSHOT` — nobody had bumped it. Caught before tagging, not after: had the tag been
+# pushed as-is, `ssc --version` and every `.sscpkg` plugin manifest in that release would have
+# shipped the WRONG version string, and `registry/packages.yaml`'s freshly-fixed
+# `scripts/generate-registry-plugin-entries <tag>` (which derives the registry's advertised
+# version from the tag) would then have DISAGREED with what the shipped artifacts say about
+# themselves — the same "two independently-evolved copies of one number" shape as the URL bug this
+# whole release-plumbing pass started from (BUGS.md
+# `registry-packages-point-at-a-release-with-no-matching-asset`). A REMINDER to bump it manually
+# would be forgotten again; making the bump and the tag ONE COMMAND removes the chance to forget.
+#
+# `.github/workflows/native-release.yml`'s `qualifier-contract` job also verifies this
+# independently (`ThisBuild / version` must equal the tag) — a safety net for a tag created by
+# hand instead of this script, not the primary guarantee. It runs first, so a mismatch fails in
+# seconds instead of after hours of native-image builds on three runners.
+#
+# WHAT THIS DOES NOT DO: it does not run this repo's board-claim machinery (a release is not
+# BUGS.md-tracked "feature work" — nothing here touches project source), so it makes its own
+# throwaway worktree rather than going through `scripts/new-worktree`. The pre-commit hook that
+# refuses a non-coordination commit in the SHARED checkout would otherwise refuse the `build.sbt`
+# bump there.
+set -euo pipefail
+
+usage() {
+  echo "usage: scripts/cut-release <version> [--dry-run]   e.g. scripts/cut-release 0.2.1" >&2
+}
+
+version=""
+dry_run=0
+for arg in "$@"; do
+  case "$arg" in
+    --dry-run) dry_run=1 ;;
+    --*) echo "cut-release: unknown flag '$arg'" >&2; usage; exit 2 ;;
+    *)
+      if [[ -n "$version" ]]; then
+        echo "cut-release: unexpected extra argument '$arg'" >&2; usage; exit 2
+      fi
+      version="$arg"
+      ;;
+  esac
+done
+
+if [[ -z "$version" ]]; then
+  usage
+  exit 2
+fi
+if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "cut-release: '$version' is not X.Y.Z" >&2
+  exit 2
+fi
+tag="v$version"
+
+MAIN=$(git worktree list | head -1 | awk '{print $1}')
+
+git -C "$MAIN" fetch -q origin
+
+if git -C "$MAIN" rev-parse -q --verify "refs/tags/$tag" >/dev/null 2>&1 \
+   || git -C "$MAIN" ls-remote --exit-code --tags origin "$tag" >/dev/null 2>&1; then
+  echo "cut-release: tag $tag already exists (locally or on origin)" >&2
+  exit 1
+fi
+
+if [[ "$dry_run" == 1 ]]; then
+  echo "would: bump ThisBuild / version to \"$version\" in build.sbt, commit, push to main, create and push tag $tag"
+  exit 0
+fi
+
+wt="$(dirname "$MAIN")/$(basename "$MAIN")-wt-cut-release-${version}"
+if [[ -e "$wt" ]]; then
+  echo "cut-release: $wt already exists — a previous cut-release did not clean up? remove it (git worktree remove) first" >&2
+  exit 1
+fi
+git -C "$MAIN" worktree add -q "$wt" origin/main
+cleanup() { git -C "$MAIN" worktree remove --force "$wt" >/dev/null 2>&1 || true; }
+trap cleanup EXIT
+
+sed -i.bak -E "s/^(ThisBuild \/ version[[:space:]]*:=[[:space:]]*)\"[^\"]+\"/\1\"$version\"/" "$wt/build.sbt"
+rm -f "$wt/build.sbt.bak"
+if ! grep -qE "^ThisBuild / version[[:space:]]*:=[[:space:]]*\"$version\"" "$wt/build.sbt"; then
+  echo "cut-release: failed to rewrite build.sbt's version line — no 'ThisBuild / version := \"...\"' found?" >&2
+  exit 1
+fi
+
+# `git commit` with nothing staged exits nonzero — harmless in general, but WRONG here: if
+# build.sbt's version already reads "$version" (e.g. bumped by an earlier, unpushed run of this
+# same script), skipping the commit is correct and the tag should still be created against
+# whatever main already has.
+bumped=0
+if ! git -C "$wt" diff --quiet -- build.sbt; then
+  bumped=1
+  git -C "$wt" add build.sbt
+  git -C "$wt" commit -q -m "release: bump version to $version"
+  git -C "$wt" push -q origin HEAD:main
+fi
+git -C "$wt" tag "$tag"
+git -C "$wt" push -q origin "$tag"
+
+if [[ "$bumped" == 1 ]]; then
+  echo "cut-release: pushed the version-bump commit and tag $tag to origin"
+else
+  echo "cut-release: pushed tag $tag to origin (build.sbt already read \"$version\")"
+fi
+echo "  .github/workflows/native-release.yml will run now — watch it at:"
+# Plain bash parameter expansion, not a regex sed: `+?` (non-greedy) is a GNU-only ERE extension
+# and silently errors on BSD sed (macOS) — caught by testing this against a real, non-GitHub
+# remote URL, not by reading the pattern.
+origin_url="$(git -C "$wt" remote get-url origin)"
+repo_path="${origin_url#*github.com[:/]}"
+repo_path="${repo_path%.git}"
+echo "  https://github.com/$repo_path/actions"

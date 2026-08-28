@@ -32,6 +32,31 @@ jobs:
       - name: Run controlled publication mutations
         run: tests/e2e/native-release-publication.sh
 
+      # A SAFETY NET, not the primary guarantee — the primary one is that `scripts/cut-release`
+      # bumps `ThisBuild / version` and creates the tag in the SAME atomic step, so the two cannot
+      # drift by construction. This exists for the case that guarantee did not cover: someone
+      # (or some OTHER automation) creates the tag by hand. It runs FIRST, in the job every other
+      # job `needs:`, so a forgotten bump fails in seconds — not after hours of native-image builds
+      # on three runners (BUGS.md `native-release-version-not-bumped-before-tag`: the v0.2.1 prep
+      # for this exact release caught `ThisBuild / version` still reading a prior release's
+      # -SNAPSHOT, which `ssc --version` and every `.sscpkg` manifest would have shipped verbatim).
+      - name: Verify build.sbt version matches the release tag
+        if: github.ref_type == 'tag'
+        run: |
+          set -euo pipefail
+          expected="${GITHUB_REF_NAME#v}"
+          actual=$(sed -nE 's/^ThisBuild \/ version[[:space:]]*:=[[:space:]]*"([^"]+)".*/\1/p' build.sbt | head -1)
+          if [[ -z "$actual" ]]; then
+            echo "could not find 'ThisBuild / version := \"...\"' in build.sbt" >&2
+            exit 1
+          fi
+          if [[ "$actual" != "$expected" ]]; then
+            echo "release version mismatch: build.sbt says '$actual', tag '$GITHUB_REF_NAME' expects '$expected'." >&2
+            echo "This tag was not cut with scripts/cut-release — bump build.sbt and re-tag." >&2
+            exit 1
+          fi
+          echo "build.sbt version ($actual) matches tag ($GITHUB_REF_NAME)"
+
   native-image:
     name: Qualify ${{ matrix.artifact_id }} on ${{ matrix.runner }}
     needs: qualifier-contract

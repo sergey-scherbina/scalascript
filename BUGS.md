@@ -83,6 +83,62 @@ io.scalascript/json`; `ssc plugin install <unknown>` fails with a clear registry
 `ssc search` (removed) correctly falls through to "file not found"; the publish→search round-trip
 above confirmed with a real `.sscpkg`.
 
+## native-release-version-not-bumped-before-tag — build.sbt still read a prior release's -SNAPSHOT while prepping v0.2.1
+
+<!-- status: open
+     lane: apparatus
+     kind: bug
+     area: build
+     gate: .github/workflows/native-release.yml
+     reported-by: claude-code
+     reported-at: 2026-08-28
+     confirmed: yes
+     fixed-in: - -->
+
+**FIXED 2026-08-28.** Preparing to cut v0.2.1 (to make the previous entry's registry URLs
+actually resolve), `ThisBuild / version` in `build.sbt` still read `"0.2.0-SNAPSHOT"` — a prior
+release's placeholder, never bumped. Had a tag been pushed as-is: `ssc --version` would have
+reported the wrong version on every downloaded binary, every `.sscpkg` plugin manifest would have
+embedded it too, and `registry/packages.yaml` (whose `version:`/`url:` `scripts/
+generate-registry-plugin-entries` derives from the TAG, not from `build.sbt`) would then have
+DISAGREED with what the shipped artifacts say about themselves — the identical "two
+independently-evolved copies of one number" shape as the URL bug in the entry below, just one
+field over. Confirmed this was a *repeating* gap, not new: `git log -p -- build.sbt` shows
+`ThisBuild / version` was bumped by hand before v0.1.0 (`0.1.0-SNAPSHOT` → `0.1.0`) but nothing
+enforced doing it again for v0.2.0 or v0.2.1.
+
+A written reminder would be forgotten the same way again. Fixed by removing the chance to forget:
+
+- New `scripts/cut-release <version>` bumps `ThisBuild / version`, commits, pushes to `main`,
+  creates the tag, and pushes it — ONE command, so the two cannot drift apart by construction.
+  Makes its own throwaway worktree (git branches off `origin/main` directly) rather than
+  committing in the shared checkout, since a release is not board-tracked "feature work" the
+  pre-commit hook's `.work/`-only exception would otherwise refuse there. Handles the edge case
+  where `build.sbt` already reads the target version (a prior unpushed run, or a hand-applied
+  bump) by skipping the now-empty commit and still creating the tag.
+- `.github/workflows/native-release.yml`'s `qualifier-contract` job — the one every other job
+  `needs:`, so this runs FIRST — independently verifies `ThisBuild / version` equals the tag being
+  released and refuses the whole run in seconds if not. A safety net for a tag created by hand
+  instead of via the script, not the primary guarantee.
+
+**Caught a real portability bug testing the tool being built to prevent the ORIGINAL mistake** —
+`cut-release`'s final "watch the run" URL used `sed -E 's#...+?...#...#'` (a non-greedy quantifier)
+to pull `owner/repo` from the git remote URL. `+?` is a GNU/PCRE-only ERE extension; BSD `sed`
+(macOS, where this was developed) errors on it outright — `RE error: repetition-operator operand
+invalid`. Caught by running the script for real against a URL, not by reading the pattern; fixed
+by replacing the regex with plain bash parameter expansion (`${url#*github.com[:/]}`), which needs
+no regex engine to agree with at all.
+
+Verified against a fully local, disposable environment — never touched the real GitHub
+repository: a `git clone --bare` of this repo as a throwaway "origin", cloned again as a working
+copy, `scripts/cut-release` run for real against it. Confirmed: normal bump-and-tag; refusal on an
+already-existing tag; refusal on a malformed version; the already-bumped edge case (skips the
+empty commit, tags anyway); `--dry-run` touches nothing; the CI gate's shell logic matches and
+mismatches correctly by hand-editing a scratch `build.sbt` copy. `tests/e2e/
+no-gnu-only-shell-constructs.sh` PASSED (does not happen to cover this specific `-E` `+?` case,
+which is exactly why testing the real behavior mattered more than trusting the gate). Workflow
+YAML re-validated with Ruby's `Psych`.
+
 ## registry-packages-point-at-a-release-with-no-matching-asset — every registry entry's url 404s
 
 <!-- status: open
