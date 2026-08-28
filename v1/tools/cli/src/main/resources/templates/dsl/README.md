@@ -2,7 +2,8 @@
 
 ScalaScript DSL starter.
 
+## Run
+
 ```bash
-sbt compile
-ssc run examples/example.ssc
-```
+${runCmd}
+```${sbtSection}

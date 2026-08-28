@@ -1496,20 +1496,32 @@ final class NewCmd extends CliCommand:
   def name = "new"
   override def summary = "Scaffold a new project (e.g. --template plugin)"
   override def category = "Build, bundle & package"
+
+  private def usage: String =
+    "Usage: ssc new <name> [--template " + NewProject.Templates.toList.sorted.mkString("|") + "]" +
+    " [--sbt] [--output-dir <dir>]\n" +
+    "  --sbt   include build.sbt + project/ (off by default; always on for --template plugin)"
+
   def run(args: List[String]): Unit =
-    args match
-      case name :: rest =>
-        try
-          val opts = NewProject.parseOptions(rest)
-          val dir = NewProject.create(name, opts.template, opts.outputDir)
-          println(s"Created ${opts.template} project: $dir")
-        catch
-          case e: Exception =>
-            System.err.println(s"ssc new: ${e.getMessage}")
-            System.exit(1)
-      case Nil =>
-        System.err.println("Usage: ssc new <name> [--template app|lib|plugin|dsl|web-app|wasm-app] [--output-dir <dir>]")
-        System.exit(1)
+    // Checked BEFORE the name::rest match below: without this, `ssc new --help` treated "--help"
+    // itself as the project name and silently created a directory called `help` — a plain flag,
+    // not an error, so it never hit the `case Nil =>` usage branch either.
+    if args.exists(a => a == "--help" || a == "-h") then
+      println(usage)
+    else
+      args match
+        case name :: rest =>
+          try
+            val opts = NewProject.parseOptions(rest)
+            val dir = NewProject.create(name, opts.template, opts.outputDir, opts.sbt)
+            println(s"Created ${opts.template} project: $dir")
+          catch
+            case e: Exception =>
+              System.err.println(s"ssc new: ${e.getMessage}")
+              System.exit(1)
+        case Nil =>
+          System.err.println(usage)
+          System.exit(1)
 
 /** Find the "project" `.ssc` file for the current directory.
  *  Prefers a file whose stem matches the directory name (`myapp/myapp.ssc`);

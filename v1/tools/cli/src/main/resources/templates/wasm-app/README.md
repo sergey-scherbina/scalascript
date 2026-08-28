@@ -2,7 +2,8 @@
 
 ScalaScript WASM starter.
 
+## Build
+
 ```bash
-sbt compile
-ssc compile-wasm src/main/scalascript/Main.ssc
-```
+${runCmd}
+```${sbtSection}

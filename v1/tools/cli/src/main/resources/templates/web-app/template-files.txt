@@ -1,6 +1,6 @@
 README.md
 gitignore -> .gitignore
-build.sbt
-project/build.properties
-project/plugins.sbt
+sbt:build.sbt
+sbt:project/build.properties
+sbt:project/plugins.sbt
 src/main/scalascript/App.ssc

@@ -83,6 +83,65 @@ io.scalascript/json`; `ssc plugin install <unknown>` fails with a clear registry
 `ssc search` (removed) correctly falls through to "file not found"; the publish→search round-trip
 above confirmed with a real `.sscpkg`.
 
+## ssc-new-help-scaffolds-a-project-named-help — plus an sbt-by-default scaffold and a digit-leading-name compile break
+
+<!-- status: open
+     lane: apparatus
+     kind: bug
+     area: cli
+     gate: v1/tools/cli/src/test/scala/scalascript/cli/NewProjectTest.scala
+     reported-by: user
+     reported-at: 2026-08-28
+     confirmed: yes
+     fixed-in: - -->
+
+**FIXED 2026-08-28.** Three separate defects found reviewing `ssc new`, all in the same command:
+
+1. **`ssc new --help` scaffolded a project literally named `help`.** `NewCmd.run`'s arg parser had
+   no case for `--help`/`-h` at all — `args match { case name :: rest => ... }` treated `--help`
+   as the project NAME, silently creating a directory called `help` in the CURRENT directory
+   (reproduced once against this very repo checkout: `ssc new --help` created `./help/`). Fixed by
+   checking for `--help`/`-h` anywhere in `args` before the name/rest match, printing usage and
+   returning instead.
+
+2. **Every one of the five non-plugin templates (`app`, `lib`, `dsl`, `web-app`, `wasm-app`)
+   scaffolded `build.sbt` + `project/` unconditionally**, even though every one of their `.ssc`
+   entry files runs directly via plain `ssc run`/`ssc check`/`ssc emit-spa`/`ssc compile-wasm` —
+   verified live, not assumed (`ssc run demo/src/main/scalascript/Main.ssc` → `Hello from Demo`,
+   no sbt involved). sbt is now opt-in via `--sbt`; `NewProject.templateFiles` reads a new `sbt:`
+   line prefix in each template's `template-files.txt` manifest to decide which files to skip.
+   `--template plugin` is the one exception — its intrinsics are a real JAR needing an actual JVM
+   compile, so it always includes sbt regardless of the flag (`NewProject.AlwaysSbt`). Each
+   template's `README.md` now documents whichever command actually applies
+   (`${runCmd}`/`${sbtSection}` template variables), instead of unconditionally showing `sbt
+   sscRun`/`sbt compile` even when neither file exists.
+
+3. **A project name starting with a digit produced Scala/Java source that cannot even parse.**
+   `ssc new 123plugin --template plugin` rendered `package com.example.123plugin` and `class
+   123plugin extends Backend` — no identifier segment may start with a digit, in either language.
+   Reproduced against the REAL compiler, both directions, not assumed from reading the grammar:
+   hand-wrote the pre-fix output and ran `scala-cli compile` against it with this repo's own
+   `scalascript-backend-spi`/`ir` jars on the classpath — 2 real syntax errors ("Invalid literal
+   number", "an identifier expected, but integer literal found"); the FIXED generator's output
+   compiled clean (exit 0) under the identical command. Fixed in `NewProject.variables`: both the
+   package-segment derivation and the Pascal-case class-name derivation now prepend `_` to any
+   segment that starts with a digit — two independent code paths from the same raw `name`, so the
+   class-name fix could not be skipped once the package fix was written (caught by testing the
+   actual rendered `.scala`, not by re-deriving the same oversight a second time).
+
+Also, while validating template selection: an unknown `--template bogus` used to leak
+`create`'s resource-lookup failure verbatim (`template resource not found:
+templates/bogus/template-files.txt`). `NewProject.Templates` is now the one source of truth both
+`parseOptions` and `create` validate against, refusing with the real template list instead.
+
+Verified: `NewProjectTest` 10/10 (rewritten for the new default: no sbt files unless `--sbt`;
+added coverage for `--sbt` across every non-plugin template, the digit-leading-name fix on the
+`plugin` template specifically, and the unknown-template refusal at both `parseOptions` and
+`create`). Live, on a freshly rebuilt checkout: `ssc new --help` prints usage and creates nothing;
+`ssc new demo` scaffolds only `README.md`/`.gitignore`/`Main.ssc` and runs directly; `ssc new demo
+--sbt` adds `build.sbt`+`project/`; `ssc new demo2 --template bogus` refuses with the real
+template list; the digit-leading-name compile round-trip above. `scripts/smoke-ci` 116/116.
+
 ## native-release-version-not-bumped-before-tag — build.sbt still read a prior release's -SNAPSHOT while prepping v0.2.1
 
 <!-- status: fixed

@@ -2,10 +2,10 @@
 
 ScalaScript library starter.
 
-## Build
+## Check
 
 ```bash
-sbt compile
+${runCmd}
 ```
 
 Consumers can import source modules directly while packaged library archives
@@ -13,4 +13,4 @@ are under active development:
 
 ```markdown
 [${Name}](./src/main/scalascript/${Name}.ssc)
-```
+```${sbtSection}
