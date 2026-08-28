@@ -1,2 +1,3 @@
-# generation: 3065
+# generation: 3066
 #slug	agent	started	items	paths
+aggregation-algebra-spec	claude-code	2026-08-28T19:31:11Z	aggregation-algebra-spec	specs/aggregation-algebra.md v2/BUGS.md v1/runtime/backend/interpreter/BUGS.md
