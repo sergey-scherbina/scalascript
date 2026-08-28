@@ -5,7 +5,7 @@ started: 2026-08-28T02:24:31Z
 heartbeat: 2026-08-28T02:24:31Z
 status: claimed-before-planning
 items: native-binary-missing-front-message
-paths: file:v1/tools/cli/src/main/scala/scalascript/cli/NativeImageInstallRoot.scala file:v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala file:v1/tools/cli/src/main/scala/scalascript/cli/NativeJvmArtifact.scala file:v1/tools/cli/src/test/scala/scalascript/cli/NativeImageInstallRootTest.scala file:BUGS.md
+paths: file:v1/tools/cli/src/main/scala/scalascript/cli/NativeImageInstallRoot.scala file:v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala file:v1/tools/cli/src/main/scala/scalascript/cli/NativeJvmArtifact.scala file:v1/tools/cli/src/test/scala/scalascript/cli/NativeImageInstallRootTest.scala file:BUGS.md file:build.sbt file:tests/e2e/native-release-qualification.sh
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+next: add a search/network qualification row for the http-url-protocol fix
