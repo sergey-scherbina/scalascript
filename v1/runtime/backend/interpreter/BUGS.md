@@ -7,6 +7,67 @@ grepping for status.
 
 Newest first.
 
+## point-free-class-method-never-eta-expands-on-int — `obj.method` under `--v1` fails differently, same given-vs-class shape
+
+<!-- status: open
+     lane: int
+     kind: bug
+     area: runtime
+     gate: none
+     reported-by: claude-code
+     reported-at: 2026-08-28
+     confirmed: yes
+     fixed-in: - -->
+
+Companion to `v2/BUGS.md`'s `point-free-class-method-never-eta-expands-on-native` — same repro,
+found on the SAME code (drafting `specs/aggregation-algebra.md`), but a genuinely different root
+cause in this lane's own dispatch path. Do not assume the v2 fix covers this; fix independently.
+
+Repro (`--v1` flag, i.e. `bin/ssc-tools run --v1 <file>.ssc`):
+
+```scalascript
+class ConstMonoid(z: Int):
+  def empty: Int = z
+  def combine(a: Int, b: Int): Int = a + b
+
+def main(): Unit =
+  val cm = ConstMonoid(0)
+  println(List(1,2,3).foldLeft(cm.empty)(cm.combine))
+```
+
+Fails with `missing argument for parameter 'a'` (not `expected N, got M` — the native/v2 lane's
+wording; this lane's failure mode is different because the underlying mechanism is different).
+The same two workarounds from the v2 entry apply here too (a `given ... with` instance works; an
+explicit lambda `(a, b) => cm.combine(a, b)` works).
+
+**Root cause:**
+
+1. A bare selection (`Term.Select`, no call) unconditionally dispatches with zero args —
+   `EvalRuntime.scala:4045-4055` calls `DispatchRuntime.dispatch(qualV, method, Nil, env, interp)`
+   with no eta-expansion attempt at this callsite, for ANY receiver.
+2. For a real `class` instance (`Value.InstanceV`), this reaches `dispatchOrdinaryInstance`
+   (`DispatchRuntime.scala:3357-3373`), which calls `pickArity(typeMethodMap, name, ..., argc=0)`
+   (`DispatchRuntime.scala:3484-3490`). `pickArity`'s fallback
+   (`map.getOrElse(name + "#" + argc, f)`) finds no `combine#0` entry and falls back to `f` — the
+   REAL 2-arg closure — then unconditionally invokes it via `invokeTypeMethod`
+   (`DispatchRuntime.scala:3369`/`3557-3562`) → `CallRuntime.callTypeMethod`'s `applyDefaults`
+   path (`CallRuntime.scala:940`), which throws "missing argument for parameter 'a'" because no
+   default exists for `a`.
+3. For a `given ... with` instance, the method is instead stored as a plain field
+   (`Value.FunV`) directly inside `Value.InstanceV`'s fields map (`GivenRuntime.scala:241-253`).
+   Because `interp.typeMethods` has no entry for that dynamically-generated given-instance type
+   name, dispatch falls through to `dispatchInstanceAfterMethods`
+   (`DispatchRuntime.scala:3564-3596`) instead, whose no-arg branch correctly returns the raw
+   multi-param `FunV` unevaluated (`case v => Pure(v)`, `DispatchRuntime.scala:3596`) — proper
+   eta-expansion, by construction of how a given-instance happens to store its methods, not by a
+   designed-and-tested eta path.
+
+Fix shape: `dispatchOrdinaryInstance`/`pickArity` need an explicit "resolved arity doesn't fit
+zero args → return the unapplied closure" branch, analogous to what
+`dispatchInstanceAfterMethods`'s field-lookup path already does for given-instance `FunV`s. No
+test anywhere in this module covers point-free access to a plain class's own instance method —
+untested gap, not a regression.
+
 ## bugs-index-gate-reads-prose-for-a-stale-open-entry-not-the-header — 18 entries carry a fix sha and read as open
 
 <!-- status: open

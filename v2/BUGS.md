@@ -7,6 +7,82 @@ grepping for status.
 
 Newest first.
 
+## point-free-class-method-never-eta-expands-on-native — `obj.method` passed bare always calls it with zero args
+
+<!-- status: open
+     lane: native
+     kind: bug
+     area: runtime
+     gate: none
+     reported-by: claude-code
+     reported-at: 2026-08-28
+     confirmed: yes
+     fixed-in: - -->
+
+Found while drafting `specs/aggregation-algebra.md` (a `Monoid`/`Aggregator` composition example
+passed `m.combine` point-free to `foldLeft`, where `m`'s runtime value was a plain `class`
+instance). Minimized past the original repro shape — no generics, no trait needed:
+
+```scalascript
+class ConstMonoid(z: Int):
+  def empty: Int = z
+  def combine(a: Int, b: Int): Int = a + b
+
+def main(): Unit =
+  val cm = ConstMonoid(0)
+  println(List(1,2,3).foldLeft(cm.empty)(cm.combine))
+```
+
+`bin/ssc-tools run` (the default `native` lane — `RunCmd` executes `.ssc` via the v2 VM by
+default) throws `ConstMonoid.combine: expected 2 argument(s), got 0` instead of eta-expanding
+`cm.combine` into a 2-argument function value. Not arity-specific either — a 1-arg instance
+method point-free fails the same way (`expected 1 argument(s), got 0`). **Every plain `class`
+instance's own methods are affected, unconditionally, whenever referenced point-free** — this is
+not a narrow edge case.
+
+**Two independent workarounds, both explaining the root cause once found:**
+- A `given ... with` instance in the same position works fine (`given foo: Monoid[Int] with ...`,
+  then `foo.combine` point-free eta-expands correctly).
+- An explicit lambda `(a, b) => cm.combine(a, b)` works fine even with a plain `class` instance.
+
+**Root cause, found by tracing (not guessed):**
+
+1. The front lowers a bare selection `m.combine` and an applied `m.combine()` to
+   byte-identical Core IR (`(prim __method__ (lit "combine") (lit m))`, no trailing args) —
+   already documented at `v2/BUGS.md`'s own
+   `v2-native-front...bogusmethod...`-shaped entries. Whether this call/eta-expand is
+   entirely the runtime dispatcher's job, based on `margs.isEmpty`.
+2. `__method__` dispatch enters `methodDispatch1` (`v2/src/Runtime.scala:2145`). For a `DataV`
+   (class-instance) receiver, the tagged-method-by-bare-name arm at
+   `v2/src/Runtime.scala:2158-2163` matches whenever a method of that NAME exists on the tag —
+   **regardless of whether `margs` (here: `Nil`) actually satisfies the method's real arity** —
+   and unconditionally invokes it (`.get(value :: args)`). There is no analog of the
+   `margs.isEmpty && fn.arity > 0 → eta-expand` guard that the parallel method-OBJECT arm already
+   has at `v2/src/Runtime.scala:3073` (that guard is why `given ... with` — represented as a
+   `ForeignV(Map[String, ClosV])`, not `DataV` — works).
+3. The `__regmethod__`-built closure's own arity check
+   (`v2/src/Runtime.scala:1977-1982`, `if args.length != fn.arity then sys.error(...)`) is what
+   actually throws — with `fn.arity = 3` (self+a+b) and `args.length = 1` (just the receiver),
+   producing exactly the observed message.
+4. **A correct fix needs two changes, not one.** (a) Guard the arm at `Runtime.scala:2158-2163`
+   so it only invokes when `margs` actually fits the resolved arity — mirroring line 3073's
+   pattern — otherwise falling through to eta-expansion. (b) The only generic eta-expansion
+   fallback that currently exists (`Runtime.scala:3195-3211`, added in `691334d4e` for the
+   `list.exists(lc.contains)` shape) is **hardcoded to arity 1** — reusing it as-is for a 2-arg
+   method like `combine` would silently produce a WRONG closure, not just avoid the crash. A
+   correct fix needs an arity-generic eta-closure builder (arity taken from the resolved
+   `#<arity>` registry key), not a reuse of the existing arity-1 fallback.
+
+**Also affects the `int` lane (`--v1`), via unrelated code with the same shape** — see
+`v1/runtime/backend/interpreter/BUGS.md` `point-free-class-method-never-eta-expands-on-int` for
+that lane's own root cause (different file, different failure message, same given-vs-class
+asymmetry). Fix independently; do not assume one fix covers both lanes.
+
+No test anywhere (v1 or v2) covers point-free access to a plain class's own instance method —
+`MethodDispatchFailClosedTest` covers the closure/list-predicate eta-expansion path this bug's own
+fallback (§4b above) was built for, not a user-defined class's method. This is an untested gap,
+not a regression of a covered case.
+
 ## ref-front-refuses-a-qualified-constructor-pattern — `case JsonValue.Str(v)` killed the whole file
 
 <!-- status: fixed
