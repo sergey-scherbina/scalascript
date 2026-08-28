@@ -309,6 +309,23 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(g.contains("r.complete"), s"struct field read after a name-colliding call did not lower:\n$g")
 
+  test("a dispatch trait's default method reads a SIBLING abstract member bare, as `self.member()`"):
+    // `trait MarkupCodec: def id: String; def validate(...) = throw …(s"…codec '$id'")`
+    // (`uniml/xml`'s `Doc.scala`) — Scala's implicit `this.id` inside a trait DEFAULT method,
+    // referencing another (abstract) member of the SAME trait with no `this.`/`self.` prefix. The
+    // default body's own `Ctx` carried no `selfMethods` at all, so `id` fell to the bare-name
+    // fallback and rustc said `cannot find value id in this scope` — a name one member declares,
+    // unreachable from the very next member's own default body.
+    val src =
+      """```scalascript
+        |trait Codec:
+        |  def id: String
+        |  def describe(): String = "codec: " + id
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("self.id()"), s"sibling abstract member read bare should become self.id():\n$g")
+
   test("a STRING-preserving chain rooted in a String param is still known to be a String"):
     // `value.drop(2).takeWhile(pred)` (`uniml/xml`'s `Doc.scala`'s `validatePi`, `value: String`)
     // is a String at every step, but `collectLocalStrings` only recognised `.toString`/`.trim`/

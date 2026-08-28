@@ -1967,8 +1967,18 @@ object RustCodeWalk:
         bodyOpt  <- mem.default match
           case None => Right(None)
           case Some(body) =>
+            // `validate`'s own default body reads `id` bare (`s"…codec '$id'"`) — Scala's implicit
+            // `this.id` for a SIBLING trait member (`def id: String`, itself abstract, no default
+            // of its own). Every trait member here renders `fn _(&self, …)`, so `self.id()` is the
+            // real call; without this, `id` reached `bareNameOrNiladicCtor`'s bare-name fallback
+            // (this bodyCtx has no `selfMethods` at all) and rustc said "cannot find value id in
+            // this scope" for a name that names a real member two lines above it. Excludes THIS
+            // member's own param names first — a param happening to share a name with a sibling
+            // member must stay the param, never get rewritten into a spurious self-call.
+            val ownParamNames = mem.params.map(_._1).toSet
             val bodyCtx = Ctx(intrinsics, userDefs, ctorMap, topVals, defLabel, effectfulDefs,
-              paramTypes = mem.params.map(_._1).zip(paramsRs).toMap)
+              paramTypes = mem.params.map(_._1).zip(paramsRs).toMap,
+              selfMethods = dt.members.map(_.name).toSet -- ownParamNames)
             renderTerm(body, bodyCtx).map(Some(_))
       yield
         val plist = mem.params.map(_._1).zip(paramsRs).map((n, t) => s"$n: ${paramType(t)}").mkString(", ")
