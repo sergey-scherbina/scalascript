@@ -1,0 +1,11 @@
+slug: rename-native-front-to-tower
+branch: feature/rename-native-front-to-tower
+agent: claude-code
+started: 2026-08-28T10:38:30Z
+heartbeat: 2026-08-28T10:38:30Z
+status: claimed-before-planning
+items: rename-native-front-to-tower
+paths: build.sbt v1/tools/cli/src/main/scala/scalascript/cli/NativeImageInstallRoot.scala v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala v1/tools/cli/src/test/scala/scalascript/cli/NativeImageInstallRootTest.scala v1/tools/cli/src/test/scala/scalascript/cli/V2RunArgvCliTest.scala v1/tools/cli/src/test/scala/scalascript/cli/V2ActorCliTest.scala v1/tools/cli/src/test/scala/scalascript/cli/V2CaseClassMethodCliTest.scala tests/e2e/v21-native-entry-smoke.sh tests/e2e/native-release-qualification.sh tests/e2e/v21-slim-distribution-gate.sh tests/e2e/native-release-publication.sh tests/e2e/release-installer-launcher.sh tests/e2e/ref-front-string-literal-gate.sh tests/e2e/v21-native-checker-smoke.sh tests/e2e/f-front-cache-gate.sh tests/e2e/launcher-digest-gate.sh tests/e2e/f-output-agreement-gate.sh tests/e2e/v21-standard-tier-smoke.sh tests/e2e/single-line-extension-gate.sh releases/install.sh install.sh .github/workflows/native-release.yml scripts/native-release-qualify docs/user-guide.md specs/arch-lib-path-resolution.md specs/native-package-namespace.md specs/v2.1-toolchain-independence.md BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
