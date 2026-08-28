@@ -1,3 +1,3 @@
-# generation: 3047
+# generation: 3048
 #slug	agent	started	items	paths
-cds-cache-eviction	claude-code	2026-08-28T12:08:25Z	cds-cache-eviction	build.sbt BUGS.md
+cds-cache-eviction	claude-code	2026-08-28T12:08:25Z	cds-cache-eviction	build.sbt BUGS.md bin/ssc

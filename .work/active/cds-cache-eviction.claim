@@ -5,7 +5,7 @@ started: 2026-08-28T12:08:25Z
 heartbeat: 2026-08-28T12:08:25Z
 status: claimed-before-planning
 items: cds-cache-eviction
-paths: build.sbt BUGS.md
+paths: build.sbt BUGS.md bin/ssc
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
