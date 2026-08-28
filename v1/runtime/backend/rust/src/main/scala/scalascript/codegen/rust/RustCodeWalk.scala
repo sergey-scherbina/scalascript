@@ -1567,6 +1567,14 @@ object RustCodeWalk:
     case m.Term.New(m.Init.After_4_6_0(_, _, List(m.Term.ArgClause(List(arg), _)))) => arg
     case m.Term.Apply.After_4_6_0(m.Term.Name(n), m.Term.ArgClause(List(arg), _))
         if ctx.ctorMap.contains(n) => arg
+    // `throw UnsupportedOperationException(msg)` — a STANDARD-LIBRARY exception built WITHOUT
+    // `new` (Scala 3 allows omitting it), so neither case above matches: it is not a `Term.New`,
+    // and its name is not in `ctorMap` (this crate never defines `UnsupportedOperationException`
+    // as a case class). Recognised by naming convention rather than an exhaustive list, matching
+    // this whole function's own premise (the comment on its caller: "an exception is its message")
+    // — a standard exception the walker has never heard of still carries only a message here.
+    case m.Term.Apply.After_4_6_0(m.Term.Name(n), m.Term.ArgClause(List(arg), _))
+        if n.endsWith("Exception") && !ctx.ctorMap.contains(n) => arg
     case other => other
 
   private def renderStruct(
@@ -3610,6 +3618,15 @@ object RustCodeWalk:
     // per-variant Rust type to select INTO (a case becomes an enum constructor, not its own type),
     // so — exactly like the bare-name case above — the answer is just the owning enum's type.
     case m.Type.Select(_, m.Type.Name(n)) if _variantOwner.contains(n) => Right(_variantOwner(n))
+    // A user type (struct or sealed-trait enum) referenced QUALIFIED — `Markup.Node` /
+    // `Markup.Attr` (`uniml/xml`'s `Doc.scala`), where `Markup` is the enclosing `object` and
+    // `Node`/`Attr` are its members. The bare-name case for `enumNames` (above, near the top of
+    // this match) only ever saw the UNQUALIFIED spelling; a `Type.Select` reaching this match
+    // fell through everything, including the variant case just above (`Attr`/`Node` are not
+    // variant CASE names — `Node` is the trait itself, `Attr`/`XmlDecl`/`QName`/`DocType` are
+    // standalone case classes, neither in `_variantOwner`) — all the way to the `i64` default's
+    // neighbour, the "R.2 accepts primitives..." refusal, on every def signature that named one.
+    case m.Type.Select(_, m.Type.Name(n)) if enumNames.contains(n) => Right(n)
     // A plain alias is its RHS. Guarded against `type X = X` by dropping the name from the map for
     // the recursive call, so a self-referential alias reaches the default instead of looping.
     case m.Type.Name(n) if _typeAliases.contains(n) =>
@@ -4933,6 +4950,11 @@ object RustCodeWalk:
     // s"…" interpolation → `format!("…", args)`.
     case m.Term.Interpolate(m.Term.Name("s"), parts, args) =>
       renderStringInterpolation(parts, args, ctx)
+
+    // f"…" interpolation (printf-style conversions) → `format!("…", args)` with Rust's own
+    // format mini-language standing in for the `%spec`.
+    case m.Term.Interpolate(m.Term.Name("f"), parts, args) =>
+      renderFStringInterpolation(parts, args, ctx)
 
     // std/ui `serve(view, port)` — SSR overload (arity 2): render the View and
     // serve it as text/html.  Must bind before the generic intrinsic resolution,
@@ -8229,8 +8251,16 @@ object RustCodeWalk:
     // Delegated to the BARE spelling rather than formatted here, for the reason that fix records:
     // the unqualified path already knows whether a variant is a tuple or a struct, and duplicating
     // that produced `Content::Text(s)` for a STRUCT variant — E0533.
+    // The qualifier is not always the ENUM's own name: `uniml/xml`'s `Doc.scala` nests every
+    // variant inside an `object Markup:` wrapper and writes `case Markup.Text(chars) => …`, where
+    // `Markup` is the object, not `Node` (the sealed trait `Text` actually extends) — the pair
+    // `("Markup", "Text")` is never a key in `_qualifiedCtors` (keyed by the trait's OWN name,
+    // `("Node", "Text")`), so the check above always missed this spelling. `ctorNameOf` already
+    // treats the qualifier as decoration to ignore for this exact reason (see its own comment); a
+    // bare `ctx.ctorMap` hit is the same permissiveness applied here, and safe for the identical
+    // reason: Scala already resolved this qualified name before this backend ever saw it.
     case m.Pat.Extract.After_4_6_0(m.Term.Select(m.Term.Name(enumName), m.Term.Name(ctorName)), argClause)
-        if _qualifiedCtors.contains((enumName, ctorName)) =>
+        if _qualifiedCtors.contains((enumName, ctorName)) || ctx.ctorMap.contains(ctorName) =>
       renderPattern(m.Pat.Extract.After_4_6_0(m.Term.Name(ctorName), argClause), ctx)
     // A FIELD-LESS variant carries no argument list, so it does not arrive as an extractor at all:
     // `case Shape.Dot` is a `Term.Select` and bare `case Dot` is a `Term.Name`. NEITHER was
@@ -8310,6 +8340,11 @@ object RustCodeWalk:
     // (`.charAt(i)`) to its bare `i64` via `.0` (see that unwrap's own comment) specifically so
     // patterns here can be plain `i64` literals instead of needing to know about `SscChar` at all.
     case m.Lit.Char(c)              => Right(s"${c.toInt}i64")
+    // `case '\'' | '"' => …` (`uniml/xml`'s `XmlScanner.scanDoctype`) — Rust has the identical
+    // `pat1 | pat2` alternative syntax in a match arm, so this is a pure recursive pass-through;
+    // no case existed at all before, so any `|`-pattern refused outright.
+    case m.Pat.Alternative(lhs, rhs) =>
+      for l <- renderPattern(lhs, ctx); r <- renderPattern(rhs, ctx) yield s"$l | $r"
     case m.Lit.Double(d)            => Right(s"${d}f64")
     case m.Lit.Boolean(b)           => Right(b.toString)
     case m.Lit.String(s)            => Right("\"" + escapeRustString(s) + "\"")
@@ -8527,6 +8562,14 @@ object RustCodeWalk:
           renderTerm(rhs, ctx).map { rhsRs =>
             s"$kw (${patOk.mkString(", ")}) = $rhsRs;"
           }
+      // `val _ = (doc, xslt, params)` (`MarkupCodec.transform`'s default trait-method body,
+      // `Doc.scala`) — the common "silence an unused-parameter warning" idiom, spelled with a
+      // tuple RHS so one `_` binding covers several names at once. Rust has no such warning to
+      // silence, but the RHS may still have side effects in general, so it is rendered and
+      // discarded rather than dropped outright — the same shape a real `let _ = expr;` binding
+      // would take.
+      case List(m.Pat.Wildcard()) =>
+        renderTerm(rhs, ctx).map(r => s"let _ = $r;")
       case _ =>
         Left(List(unsupported(
           s"def `${ctx.defName}` has a non-single-name binding; R.2 accepts only `${if mutable then "var" else "val"} name: T = expr`"
@@ -8547,6 +8590,9 @@ object RustCodeWalk:
     // `renderInfix`'s string-coercion logic (for `x == ""`-shaped comparisons) is a no-op here
     // since `isStringExpr` is false for the numeric operands these appear on in practice.
     case "+=" | "-=" | "*=" | "/=" | "%=" => Right(op)
+    // `<<` (surrogate-pair code-point assembly: `(high << 10) + low`, `uniml/xml`'s
+    // `Unicode.scala`/`XmlScanner.scan`) — an `i64` shift, spelled identically in Rust.
+    case "<<" => Right(op)
     case other => Left(List(unsupported(
       s"def `$defName` uses unsupported infix operator `$other`"
     )))
@@ -8575,6 +8621,51 @@ object RustCodeWalk:
         }.toString
         val tail = if ok.isEmpty then "" else ", " + ok.mkString(", ")
         Right(s"""format!("$formatStr"$tail)""")
+
+  /** Lower `f"prefix${expr}%spec suffix"` to `format!("prefix{:spec}suffix", expr)`. The `f`
+   *  interpolator's printf-style conversion (`%04X`, `%d`, ...) is lexically part of the literal
+   *  segment that FOLLOWS the splice — scalameta does no interpolator-specific desugaring, so
+   *  `f"U+$$codePoint%04X"` (`uniml/xml`'s `Unicode.scala`) parses to parts `["U+", "%04X"]`, args
+   *  `[codePoint]`, exactly like an `s"..."` string whose second literal happens to start with a
+   *  `%`. Rust's own format mini-language already spells zero-padded hex almost identically
+   *  (`%04X` -> `{:04X}`), so this only needs to re-punctuate, not translate — scoped to the
+   *  zero-flag/width/precision/x-X conversions this corpus's one call site actually uses. */
+  private def renderFStringInterpolation(
+      parts: List[m.Lit], args: List[m.Term], ctx: Ctx
+  ): Either[List[Diagnostic], String] =
+    val partsStr = parts.collect { case m.Lit.String(s) => s }
+    if partsStr.size != parts.size then
+      Left(List(unsupported(
+        s"def `${ctx.defName}` has a non-string interpolation part"
+      )))
+    else
+      val FormatSpec = """^%(0)?(\d*)(?:\.(\d+))?([a-zA-Z])""".r
+      val argRendered = args.map(renderInterpArg(_, ctx))
+      val (errs, ok)  = argRendered.partitionMap(identity)
+      if errs.nonEmpty then Left(errs.flatten)
+      else
+        val sb = new StringBuilder
+        sb.append(escapeForFormat(partsStr.head))
+        args.indices.foreach { i =>
+          val next = partsStr(i + 1)
+          FormatSpec.findPrefixMatchOf(next) match
+            case Some(mtch) =>
+              val zero = if mtch.group(1) != null then "0" else ""
+              val width = mtch.group(2)
+              val prec  = Option(mtch.group(3)).map(p => s".$p").getOrElse("")
+              val conv  = mtch.group(4) match
+                case "x" => "x"
+                case "X" => "X"
+                case _   => ""
+              val specBody = s"$zero$width$prec$conv"
+              sb.append(if specBody.isEmpty then "{}" else s"{:$specBody}")
+              sb.append(escapeForFormat(next.substring(mtch.end)))
+            case None =>
+              sb.append("{}")
+              sb.append(escapeForFormat(next))
+        }
+        val tail = if ok.isEmpty then "" else ", " + ok.mkString(", ")
+        Right(s"""format!("${sb.toString}"$tail)""")
 
   /** Render one interpolation splice. A bare `$name` arrives as a plain
    *  term, but a braced `${ expr }` is wrapped by scalameta in a

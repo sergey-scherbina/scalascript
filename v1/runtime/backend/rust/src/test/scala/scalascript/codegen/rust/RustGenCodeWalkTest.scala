@@ -238,3 +238,62 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(g.contains("""format!("""") && !g.contains(" + "),
       s"declared-String return left the concat path in:\n$g")
+
+  // ── uniml/xml diagnostic-reduction batch ──────────────────────────────
+
+  test("a qualified pattern under an OBJECT NAMESPACE (not the trait's own name) still lowers"):
+    // `uniml/xml`'s `Doc.scala` nests every variant inside `object Markup:` and writes
+    // `case Markup.Text(chars) => …`, where `Markup` is the wrapping object, not `Node` (the
+    // sealed trait `Text` extends). The existing qualified-pattern support only ever recognised
+    // the qualifier being the TRAIT's own name (`Shape.Circle`); this is the object-namespaced
+    // spelling, which needs the `ctx.ctorMap` fallback.
+    val src =
+      """```scalascript
+        |object Wrap:
+        |  sealed trait Shape
+        |  case class Circle(r: Double) extends Shape
+        |  case class Square(s: Double) extends Shape
+        |
+        |def area(s: Wrap.Shape): Double = s match
+        |  case Wrap.Circle(r) => 3.14 * r * r
+        |  case Wrap.Square(s) => s * s
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("Shape::Circle { r }"), s"qualified pattern did not lower:\n$g")
+
+  test("f-interpolation with a printf-style conversion lowers to Rust's format spec"):
+    val src =
+      """```scalascript
+        |def hex(codePoint: Long): String = f"U+$codePoint%04X"
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("""format!("U+{:04X}", codePoint)"""), s"f-interpolation did not lower:\n$g")
+
+  test("throw of a standard-library exception built without `new` still lowers to a panic"):
+    // `throw UnsupportedOperationException(msg)` (`uniml/xml`'s `Doc.scala`, `MarkupCodec.validate`'s
+    // default body) — `throwPayload` only ever recognised `new X(msg)` or a known user-defined
+    // ctor; a standard exception named by convention (`*Exception`, built WITHOUT `new`, which
+    // Scala 3 allows) reached the ordinary call path instead and refused as an unknown callee.
+    val src =
+      """```scalascript
+        |def bad(): Long = throw UnsupportedOperationException("nope")
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("""panic!("{}", "nope".to_string())"""), s"exception-by-name throw did not lower:\n$g")
+
+  test("`<<` and a `|` pattern alternative both lower"):
+    val src =
+      """```scalascript
+        |def widen(n: Long): Long = n << 10
+        |def isQuote(c: Char): Boolean = c match
+        |  case '\'' | '"' => true
+        |  case _          => false
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("(n) << (10i64)") || g.contains("n << 10i64") || g.contains("<<"),
+      s"`<<` did not lower:\n$g")
+    assert(g.contains("|"), s"pattern alternative did not lower:\n$g")
