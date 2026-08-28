@@ -158,7 +158,14 @@ EXEMPT = {
     "PaymentResponse.complete": (".complete(", "the response can only come from a payment request"),
 }
 
-ssc = [q for q in root.rglob("*.ssc") if ".worktrees" not in str(q)]
+# `.worktrees` excludes a NESTED worktree checked out under this one — the same corpus would
+# otherwise be counted once per sibling worktree, corrupting both this count and `would_cost`
+# below (which measures how many corpus files would gain a capability, and a duplicated corpus
+# answers that question wrong). RELATIVE to root, not the absolute path: this script's OWN root is
+# often itself `.../.worktrees/<slug>` — this repo's own documented per-task workflow — and the
+# absolute-path form matched that too, excluding the entire real corpus and reporting 0 files on
+# every ordinary worktree run, never just the genuinely nested case it was written for.
+ssc = [q for q in root.rglob("*.ssc") if ".worktrees" not in str(q.relative_to(root))]
 if len(ssc) < 200:
     print(f"✗ only {len(ssc)} .ssc files found — too few to justify any exemption")
     sys.exit(1)
