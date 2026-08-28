@@ -856,3 +856,104 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(!g.contains("_ui_element"), s"a local `element` bind must not resolve to the runtime intrinsic:\n$g")
     assert(g.contains("element).w"), s"the local bind should still read its own field:\n$g")
+
+  test("an `object X extends Trait` used bare as a value gets a unit struct + forwarding impl"):
+    // `object PureMarkupCodec extends MarkupCodec: ...` (`uniml/xml`'s `Doc.scala`) referenced bare
+    // AS A VALUE (`case "pure" => PureMarkupCodec`, expected type `MarkupCodec` = `Rc<dyn
+    // MarkupCodec>`) — this backend flattens EVERY object's own members to free functions with no
+    // struct at all, so there was nothing to construct: `error[E0425]: cannot find value
+    // PureMarkupCodec in this scope`. `renderValueObjectImpl` gives such an object a zero-field
+    // unit struct + a THIN FORWARDING `impl Trait for X` (calling the already-flattened free
+    // functions, since an object's own methods never touch instance state); the bare reference
+    // itself stays UNWRAPPED (no `Rc::new` at the reference site) because `named`'s own return type
+    // IS the dyn trait, so `renderDef`'s existing whole-body wrap already applies `Rc::new` once —
+    // self-wrapping too gave `Rc<Rc<dyn MarkupCodec>>`, caught by an isolated `cargo build` before
+    // it reached the real corpus.
+    val src =
+      """```scalascript
+        |trait Codec:
+        |  def id: String
+        |  def encode(x: Long): String
+        |
+        |object PureCodec extends Codec:
+        |  def id: String = "pure"
+        |  def encode(x: Long): String = x.toString
+        |
+        |object Codec:
+        |  def named(name: String): Codec = name match
+        |    case "pure" => PureCodec
+        |    case other  => throw new NoSuchElementException(s"no codec: $other")
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("pub struct PureCodec;"), s"value object should get a unit struct:\n$g")
+    assert(g.contains("impl Codec for PureCodec"), s"value object should get a forwarding impl:\n$g")
+    assert(g.contains("\"pure\" => PureCodec,"),
+      s"the bare reference must stay UNWRAPPED, relying on the enclosing def's own Rc::new:\n$g")
+    assert(!g.contains("Rc::new(PureCodec)"), s"self-wrapping would double-wrap under named's own Rc::new:\n$g")
+
+  test("a value object's trait member satisfied by a `val`, or by neither, is not force-forwarded"):
+    // Regression on the FIRST cut of `renderValueObjectImpl`, which blindly forwarded EVERY trait
+    // member to `${owner}_${member}()` — correct only when the object overrides the member as a
+    // genuine `def` (SITE 1 flattens that to a free function). `uniml/xml`'s real
+    // `PureMarkupCodec extends MarkupCodec` breaks that assumption two ways at once: `val id =
+    // "pure"` satisfies an ABSTRACT member with a VAL, not a def (no `PureMarkupCodec_id` free
+    // function was ever generated — `error[E0425]: cannot find function id`), and `Literal`/
+    // `XmlDialect extends DialectAdapter` (a SEPARATE trait) don't override `aliases` at all,
+    // relying on the trait's own DEFAULT body (same error, for a member the object never declared).
+    // Fixed with three-way per-member dispatch: forward a real `def` override; INLINE a `val`
+    // override's already-known init text (a topval, immutable, so re-evaluating it per call is
+    // exactly Scala's own single evaluation); OMIT a member the object does not override at all
+    // when the trait supplies its own default (Rust auto-inherits it — no override needed).
+    val src =
+      """```scalascript
+        |trait Codec:
+        |  def id: String
+        |  def describe(): String = "codec " + id
+        |
+        |object PureCodec extends Codec:
+        |  val id = "pure"
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("impl Codec for PureCodec"), s"value object should still get a forwarding impl:\n$g")
+    assert(g.contains("fn id(&self) -> String { \"pure\".to_string() }"),
+      s"a val-satisfied abstract member should inline its init, not forward to a nonexistent function:\n$g")
+    val implBlock = g.substring(g.indexOf("impl Codec for PureCodec"))
+    assert(!implBlock.contains("fn describe"),
+      s"a member the object never overrides, with a trait default, must be OMITTED from the impl (Rust inherits it from the trait declaration):\n$g")
+
+  test("global mutable companion-object state (`private var` in an `object`) uses a thread_local"):
+    // `object MarkupCodec: private var _default: MarkupCodec = PureMarkupCodec; def default =
+    // _default; def setDefault(codec) = _default = codec` (`uniml/xml`'s `Doc.scala`) — GLOBAL
+    // mutable state with no owning instance at all, unlike `Parser`'s per-instance `private var`s
+    // (`renderMutableClass`). No `self` exists to hang a field off, so this needs Rust's own answer
+    // for shared mutable state with no owner: `thread_local!` + `RefCell` (`Rc<dyn Trait>` is not
+    // `Sync`, so a plain `static` + `Mutex` could not hold it at all). A bare READ inside the SAME
+    // object (`_default`) becomes `.with(|c| c.borrow().clone())`; a bare WRITE (`_default = codec`)
+    // becomes `.with(|c| *c.borrow_mut() = …)`. The read is ALSO the regression case for a SEPARATE
+    // bug this feature exposed: `default`'s OWN return type is the dyn trait, so `renderDef`'s
+    // existing whole-body "wrap in Rc::new if returning a dyn trait" fired a SECOND Rc::new on top
+    // of the thread_local's own already-`Rc<dyn Trait>`-typed read.
+    val src =
+      """```scalascript
+        |trait Codec:
+        |  def id: String
+        |
+        |object PureCodec extends Codec:
+        |  def id: String = "pure"
+        |
+        |object Codec:
+        |  private var _default: Codec = PureCodec
+        |  def default: Codec = _default
+        |  def setDefault(codec: Codec): Unit = _default = codec
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("thread_local!"), s"a companion mutable var should render as a thread_local:\n$g")
+    assert(g.contains("RefCell<std::rc::Rc<dyn Codec>>"),
+      s"the thread_local should hold the field's own dyn-trait type:\n$g")
+    assert(g.contains(".with(|c| c.borrow().clone())"), s"a bare read should borrow+clone:\n$g")
+    assert(g.contains(".with(|c| *c.borrow_mut() = "), s"a bare write should borrow_mut+assign:\n$g")
+    assert(!g.contains("Rc::new(CODEC"),
+      s"the read must NOT be double-wrapped by the def's own dyn-trait return-wrap:\n$g")

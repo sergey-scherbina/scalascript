@@ -443,6 +443,32 @@ object RustCodeWalk:
       }
     val (dispatchTraitErrs, dispatchTraitOk) = dispatchTraitRendered.partitionMap(identity)
     val (dispatchImplErrs, dispatchImplOk)   = dispatchImplRendered.partitionMap(identity)
+    // `object X extends Trait` — the twin of `dispatchImplRendered` just above, for an OBJECT
+    // implementor rather than a `class`. `.headOption`: this backend has no case of one object
+    // extending TWO dispatch traits, and Scala itself only allows one `extends` clause anyway
+    // (further `with` mixins are a different AST shape `parentTypeName` does not match).
+    val valueObjects: List[(String, DispatchTrait)] =
+      collectObjects(module).flatMap { o =>
+        o.templ.inits.flatMap(init => parentTypeName(init).flatMap(_dispatchTraits.get)).headOption
+          .map(o.name.value -> _)
+      }
+    _valueObjectNames = valueObjects.map(_._1).toSet
+    val valueObjectRendered: List[Either[List[Diagnostic], String]] =
+      valueObjects.map((n, dt) => renderValueObjectImpl(n, dt, userTypeNames))
+    val (valueObjectErrs, valueObjectOk) = valueObjectRendered.partitionMap(identity)
+    // GLOBAL mutable object state (`MarkupCodec._default`) — AFTER `_valueObjectNames` is set,
+    // since its own initializer (`PureMarkupCodec`) is exactly such a value-object reference.
+    // Owner carried ALONGSIDE each result (not zipped back on afterward) — `partitionMap` can drop
+    // an entry on error, and a positional zip against the pre-error owner list would then pair the
+    // WRONG owner with the wrong render for every object after the first failure.
+    val mutableObjectVars = collectMutableObjectVars(module)
+    val mutableObjectRendered = mutableObjectVars.map { (o, vars) =>
+      renderMutableCompanionObject(o, vars, userTypeNames, intrinsics, userDefs, ctorMap, topVals, effectfulDefs)
+        .map(o.name.value -> _)
+    }
+    val (mutableObjectErrs, mutableObjectOkPairs) = mutableObjectRendered.partitionMap(identity)
+    val mutableObjectOk = mutableObjectOkPairs.map((_, r) => r._1)
+    _moduleMutFields = mutableObjectOkPairs.map((owner, r) => owner -> r._2).toMap
     // ── Emit what the entry point REACHES ────────────────────────────────────
     //
     // A `.ssc` import pulls in a whole module, and `build-rust` then lowers every def it brought.
@@ -587,7 +613,7 @@ object RustCodeWalk:
     // The `matches` refusal that used to live here is gone: the lane now depends on `regex` and
     // lowers `s.matches(p)` to `_str_matches` (see `applyNonListCtor`). The dependency is added only
     // for a program that uses it, the way `ureq` and `tokio` already are.
-    val allErrs = extensionErrs ++ overloadErrs ++ enumErrs.flatten ++ structErrs.flatten ++ mutableClassErrs.flatten ++ errors.flatten ++ methodErrors.flatten ++ externErrs ++ dispatchTraitErrs.flatten ++ dispatchImplErrs.flatten
+    val allErrs = extensionErrs ++ overloadErrs ++ enumErrs.flatten ++ structErrs.flatten ++ mutableClassErrs.flatten ++ errors.flatten ++ methodErrors.flatten ++ externErrs ++ dispatchTraitErrs.flatten ++ dispatchImplErrs.flatten ++ valueObjectErrs.flatten ++ mutableObjectErrs.flatten
     if allErrs.nonEmpty then Left(allErrs)
     else
       // One `impl` per owner, members in source order. Emitted next to the struct rather than among
@@ -615,7 +641,7 @@ object RustCodeWalk:
           s"impl$implTpDecl $owner$useTpDecl {\n$fns}\n"
         }.mkString
       val enumBlock = structOk.map(_.render).mkString + mutableClassOk.map(_.render).mkString + enumOk.map(_.render).mkString + implBlock +
-        dispatchTraitOk.mkString + dispatchImplOk.mkString
+        dispatchTraitOk.mkString + dispatchImplOk.mkString + valueObjectOk.mkString + mutableObjectOk.mkString
       // Render given instances as Rust structs + impls, emitted before the defs.
       val ctx0 = Ctx(intrinsics, userDefs, ctorMap, topVals, "<given>", effectfulDefs)
       val givenBlock = givens.map(g => renderGiven(g, ctx0)).mkString
@@ -1518,6 +1544,20 @@ object RustCodeWalk:
    *  `impl Trait for X` block). */
   private var _dispatchTraits: Map[String, DispatchTrait] = Map.empty
 
+  /** Names of `object`s extending a dispatch trait that got a `renderValueObjectImpl` unit-struct
+   *  + forwarding impl (`PureMarkupCodec extends MarkupCodec`, `uniml/xml`'s `Doc.scala`) — read by
+   *  `bareNameOrNiladicCtor` so a BARE reference to the object AS A VALUE (`case "pure" =>
+   *  PureMarkupCodec`, where the whole point is handing it to something typed `MarkupCodec` =
+   *  `Rc<dyn MarkupCodec>`) constructs `Rc::new(PureMarkupCodec)` instead of falling through to a
+   *  bare, undefined identifier — Scala's own upcast-to-trait has no Rust equivalent, and this
+   *  object never had a struct at all before `renderValueObjectImpl` gave it a zero-field one. */
+  private var _valueObjectNames: Set[String] = Set.empty
+
+  /** owner -> (field -> (thread_local static Rust name, its Rust type)) — `renderMutableCompanionObject`'s
+   *  own per-object result, indexed by owner so `renderDef` can look up JUST the fields a given
+   *  def's OWN owning object declares (mirrors `_defOwners`/`_objectMembers`'s existing shape). */
+  private var _moduleMutFields: Map[String, Map[String, (String, String)]] = Map.empty
+
   /** User-declared effects: effect name → its ops, each `(opName, rustParamTypes, rustRetType)`.
    *  Drives the trait emission, `Eff.op` dispatch, and the `handle` handler-struct impl. (R.4.2) */
   private var _effectOps: Map[String, List[(String, List[String], String)]] = Map.empty
@@ -1581,6 +1621,22 @@ object RustCodeWalk:
         case _             => false
       } => o.name.value
     }.toSet
+
+  /** Every `object` in the module — used to find one extending a dispatch trait, the only shape
+   *  `collectValueObjectImpls`'s caller cares about. `.collect` over the WHOLE tree, same choice
+   *  `collectEffectOps`/`collectMultiShotEffects` already made for this exact shape: unlike
+   *  `collectObjectOwnership`'s own careful scan (which must NOT descend into a `Defn.Def`'s body,
+   *  where a local def could hide an unrelated nested object), nothing here reads INTO a body at
+   *  all — only the `Defn.Object` node's own name and `templ.inits` — so the broader collect is
+   *  exactly as correct and costs one line instead of a bespoke walker. */
+  private def collectObjects(module: ast.Module): List[m.Defn.Object] =
+    def objectsIn(c: ast.Content): List[m.Defn.Object] = c match
+      case ast.Content.CodeBlock(lang, _, Some(node), _, _, _, _) if isScalaLang(lang) =>
+        node.tree.collect { case o: m.Defn.Object => o }.toList
+      case _ => Nil
+    def sectionObjects(s: ast.Section): List[m.Defn.Object] =
+      s.content.flatMap(objectsIn) ++ s.subsections.flatMap(sectionObjects)
+    module.sections.flatMap(sectionObjects)
 
   /** `(opName, List[rustParamType], rustRetType)` for one effect op; None if a type can't map. */
   private def effectOpInfo(dd: m.Defn.Def): Option[(String, List[String], String)] =
@@ -1720,6 +1776,18 @@ object RustCodeWalk:
    *  `selfMethod` gives a case class (wrong here — a clone never writes back). */
   private def collectMutableClasses(module: ast.Module): List[m.Defn.Class] =
     module.sections.flatMap(sectionClasses).filterNot(isCaseClass)
+
+  /** `object O` with a body-level `private var` — GLOBAL mutable state with no owning instance
+   *  (`MarkupCodec._default`, `renderMutableCompanionObject`'s own comment has the full shape).
+   *  Only the object's OWN direct body stats — a `class` NESTED inside an object (this corpus's
+   *  `Parser`, reached via `collectMutableClasses` instead) has its `private var`s in ITS OWN
+   *  `templ.body`, never the outer object's, so no extra filtering is needed to keep the two
+   *  mechanisms from double-counting the same field. */
+  private def collectMutableObjectVars(module: ast.Module): List[(m.Defn.Object, List[m.Defn.Var])] =
+    collectObjects(module).flatMap { o =>
+      val vars = o.templ.body.stats.collect { case v: m.Defn.Var => v }
+      if vars.nonEmpty then Some(o -> vars) else None
+    }
 
   /** The value a `throw` actually carries: an exception on this target IS its message.
    *
@@ -1920,6 +1988,66 @@ object RustCodeWalk:
            |""".stripMargin
       Right(GeneratedStruct(render, name, allNames, allTypes, Nil))
 
+  /** A GLOBAL mutable var owned by an `object`, not a class instance — `object MarkupCodec:
+   *  private var _default: MarkupCodec = PureMarkupCodec; def default = _default; def
+   *  setDefault(codec) = _default = codec` (`uniml/xml`'s `Doc.scala`). No `self` exists to hang a
+   *  field off at all (every one of an object's OWN methods is already a free function — SITE 1),
+   *  so this is not `renderMutableClass`'s shape with the struct dropped; it needs Rust's OWN
+   *  answer for "one shared mutable value with no owning instance", `thread_local!` + `RefCell` —
+   *  `Rc<dyn Trait>` (a dispatch-trait-typed field, this corpus's only case) is not `Sync`, so a
+   *  plain `static` + `Mutex` cannot hold it, and `thread_local!` sidesteps that bound entirely.
+   *  Sibling defs read/write it through `Ctx.moduleMutFields` (`walk()`'s own wiring) exactly the
+   *  way a mutable class's methods read/write `self` through `trueSelfFields`. */
+  private def renderMutableCompanionObject(
+      o: m.Defn.Object, vars: List[m.Defn.Var], typeNames: Set[String],
+      intrinsics: Map[QualifiedName, IntrinsicImpl], userDefs: Set[String],
+      ctorMap: Map[String, EnumCtor], topVals: List[TopVal], effectfulDefs: Set[String]
+  ): Either[List[Diagnostic], (String, Map[String, (String, String)])] =
+    val owner = o.name.value
+    // No `self`, so no `initCtx` needs to know about one — but UNLIKE `renderMutableClass`'s own
+    // minimal Ctx, this one DOES need the module's real `intrinsics`/`ctorMap`: `PureMarkupCodec`
+    // (this corpus's actual initializer) is a value-object reference (`_valueObjectNames`, checked
+    // directly as a module var, not through Ctx) that still needs `ctorMap` for anything ELSE a
+    // real initializer might construct.
+    val initCtx = Ctx(intrinsics, userDefs, ctorMap, topVals, s"<companion $owner>", effectfulDefs)
+    val fieldsR = vars.map { v =>
+      v.pats match
+        case List(m.Pat.Var(m.Term.Name(field))) =>
+          val tyE = v.decltpe match
+            case Some(t) => mapType(t, s"object $owner", typeNames, inField = true)
+            case None    => Left(List(unsupported(
+              s"object `$owner` field `$field` has no type annotation — this lane cannot infer it"
+            )))
+          for
+            ty      <- tyE
+            initRaw <- renderTerm(v.body, initCtx)
+          yield
+            // The bare value-object reference itself renders UNWRAPPED (`renderValueObjectImpl`'s
+            // own comment): there is no enclosing "def returns a dyn trait" whole-body wrap HERE to
+            // supply the one `Rc::new` it needs, so this is the ONE place that must supply it.
+            val init = if ty.startsWith("std::rc::Rc<dyn ") && !initRaw.startsWith("std::rc::Rc::new(")
+                       then s"std::rc::Rc::new($initRaw)" else initRaw
+            val staticName = s"${owner}_$field".toUpperCase
+            (field, staticName, ty, init)
+        case _ =>
+          Left(List(unsupported(s"object `$owner` has a mutable field binding this lane does not lower")))
+    }
+    val (errs, ok) = fieldsR.partitionMap(identity)
+    if errs.nonEmpty then Left(errs.flatten)
+    else
+      // `#[allow(...)]` on the MACRO INVOCATION (`thread_local! { ... }`) is silently ignored by
+      // rustc — the attribute belongs on the `static` ITEM the macro expands to, one per field.
+      val decls = ok.map { (_, staticName, ty, init) =>
+        s"    #[allow(dead_code, non_upper_case_globals)]\n    static $staticName: std::cell::RefCell<$ty> = std::cell::RefCell::new($init);"
+      }.mkString("\n")
+      val render =
+        s"""thread_local! {
+           |$decls
+           |}
+           |""".stripMargin
+      val byField = ok.map { (field, staticName, ty, _) => field -> (staticName, ty) }.toMap
+      Right((render, byField))
+
   /** A minimal `Debug` for an enum that cannot derive one.
    *
    *  `Rc<dyn Fn…>` implements no `Debug`, so a closure-bearing enum drops the derive — and dropping
@@ -2036,6 +2164,72 @@ object RustCodeWalk:
          |${methods.mkString("\n")}
          |}
          |""".stripMargin
+
+  /** Render a THIN FORWARDING `impl Trait for X` for an `object X extends Trait` — the OBJECT twin
+   *  `renderDispatchTraitImpl`'s own comment names as "a real gap, left for whenever a module
+   *  actually needs it" (`PureMarkupCodec extends MarkupCodec`, `uniml/xml`'s `Doc.scala`, is that
+   *  module). An `object`'s own members are ALREADY flattened to free, owner-prefixed functions
+   *  (`qualifiedMemberName` — `renderDef`'s SITE 1) with no inherent `&self` method to forward to
+   *  at all, unlike a `class`'s real struct methods (`renderDispatchTraitImpl`'s `self.$member(…)`)
+   *  — so this calls the flattened FREE FUNCTION directly and drops `self` on the floor, which is
+   *  correct precisely because an object's own methods never touch instance state to begin with.
+   *  `X` itself is a zero-field unit struct — nothing an object's members could read lives on it —
+   *  so `Copy`, not just `Clone`, is free and lets a bare reference to `X` (see
+   *  `_valueObjectNames`/`bareNameOrNiladicCtor`) sit inside an `Rc::new(X)` without a borrow. */
+  private def renderValueObjectImpl(
+      name: String, dt: DispatchTrait, enumNames: Set[String]
+  ): Either[List[Diagnostic], String] =
+    // Three DIFFERENT ways `name` can answer for one trait member, and blindly forwarding to
+    // `qualifiedMemberName(name, mem.name)` for ALL of them (this function's first cut) broke
+    // TWO objects that were never even asked for as a value (`Literal`/`XmlDialect extends
+    // DialectAdapter`, whose own `aliases` relies on the trait's DEFAULT — there is no
+    // `Literal_aliases` free function at all, and rustc said so): `cannot find function`.
+    //   1. `name` overrides `mem` as a genuine `def` (`PureMarkupCodec.parse`/`.serialize`) — SITE
+    //      1 already flattened it to a free function; forward to it.
+    //   2. `name` overrides `mem` as a `val` (`PureMarkupCodec.id = "pure"`, ABSTRACT in the
+    //      trait — Scala allows a `val` to satisfy a `def` with no params) — not a free function at
+    //      all, a companion TOP VAL (`_topValInits`); INLINE its already-rendered init text, valid
+    //      because the val is immutable — re-evaluating its constant initializer on every call is
+    //      exactly what Scala's own single evaluation already produces the SAME visible value for.
+    //   3. `name` overrides NEITHER (`Literal`/`XmlDialect`'s own `aliases`) — only sound when
+    //      `mem` HAS a trait default (an abstract member with neither is a genuine authoring gap,
+    //      refused rather than guessed); Rust auto-inherits a trait's own default `fn` for any
+    //      `impl` that does not override it, so this member is simply OMITTED from the `impl`
+    //      block — emitting a duplicate copy here would just be redundant, not wrong, but the
+    //      trait declaration (`renderDispatchTrait`) already is the one source of truth for it.
+    val methodResults: List[Either[List[Diagnostic], Option[String]]] = dt.members.map { mem =>
+      if _objectMembers.get(name).exists(_.contains(mem.name)) then
+        for
+          paramsRs <- traverseTypes(mem.params.map(_._2), name, enumNames)
+          retRs    <- mapType(mem.ret, name, enumNames)
+        yield
+          val plist  = mem.params.map(_._1).zip(paramsRs).map((n, t) => s"$n: ${paramType(t)}").mkString(", ")
+          val args   = mem.params.map(_._1).mkString(", ")
+          val target = qualifiedMemberName(name, mem.name)
+          val sig    = if retRs.isEmpty then s"fn ${rustIdent(mem.name)}(&self${if plist.isEmpty then "" else ", " + plist})"
+                       else               s"fn ${rustIdent(mem.name)}(&self${if plist.isEmpty then "" else ", " + plist}) -> $retRs"
+          Some(s"    $sig { $target($args) }")
+      else if mem.params.isEmpty && _topValInits.contains((name, mem.name)) then
+        mapType(mem.ret, name, enumNames).map { retRs =>
+          val sig = s"fn ${rustIdent(mem.name)}(&self) -> $retRs"
+          Some(s"    $sig { ${_topValInits((name, mem.name))} }")
+        }
+      else if mem.default.isDefined then Right(None)
+      else Left(List(unsupported(
+        s"value object `$name` (extends `${dt.name}`) has no override for abstract member " +
+        s"`${mem.name}` — neither a def nor a val this lane can find"
+      )))
+    }
+    val (errs, ok) = methodResults.partitionMap(identity)
+    if errs.nonEmpty then Left(errs.flatten)
+    else Right(
+      s"""#[derive(Clone, Copy)]
+         |pub struct $name;
+         |impl ${dt.name} for $name {
+         |${ok.flatten.mkString("\n")}
+         |}
+         |""".stripMargin
+    )
 
   private def enumDebugImpl(enumName: String, ctors: List[(String, EnumCtor)], tparams: List[String]): String =
     val dargs = if tparams.isEmpty then "" else tparams.mkString("<", ", ", ">")
@@ -2688,7 +2882,13 @@ object RustCodeWalk:
       // Local name -> which positions of its `Option[(A, B)]` are known Strings — see
       // `collectLocalTupleStringPositions`'s own comment. Read by `tupleStringPositions` at a
       // `.foreach`/`.flatMap` dispatch site to type a `case (a, b) => …` closure's own binders.
-      localTupleStringPos: Map[String, Set[Int]] = Map.empty
+      localTupleStringPos: Map[String, Set[Int]] = Map.empty,
+      // A GLOBAL mutable field this def's OWN owning object declares (`_default` inside
+      // `MarkupCodec`'s own `default`/`setDefault`) — bare field name -> its `thread_local!` static
+      // Rust name, see `renderMutableCompanionObject`. `trueSelfFields`'s twin with no `self` at
+      // all: a bare READ renders as `STATIC.with(|c| c.borrow().clone())` and a bare WRITE (a
+      // `Term.Assign` whose lhs is this name) renders as `STATIC.with(|c| *c.borrow_mut() = …)`.
+      moduleMutFields: Map[String, String] = Map.empty
   ):
     def enumNames: Set[String] = ctorMap.values.map(_.enumName).toSet
     @annotation.unused def topValNames: Set[String] = topVals.map(_._1).toSet
@@ -3067,6 +3267,12 @@ object RustCodeWalk:
                         trueSelfFields = if trueSelf then ownFieldTypes.keySet else Set.empty,
                         selfMethods    = if trueSelf then ownMethodNames else Set.empty,
                         localTupleStringPos = collectLocalTupleStringPositions(d.body),
+                        // `default`/`setDefault` reach `MarkupCodec`'s own `_default` thread_local
+                        // this way — `_defOwners` names the SAME owning object SITE 3 already keys
+                        // its own sibling-call map off, so a def outside `MarkupCodec` never sees
+                        // another object's mutable field by the same bare name.
+                        moduleMutFields = _defOwners.get(d.pos.start)
+                          .flatMap(_moduleMutFields.get).getOrElse(Map.empty).view.mapValues(_._1).toMap,
                         paramTypes = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).flatMap { p =>
                           p.decltpe.flatMap(t => mapType(t, name, ctorMap.values.map(_.enumName).toSet).toOption)
                             .map(p.name.value -> _)
@@ -3138,7 +3344,17 @@ object RustCodeWalk:
         // value from one of these defs, and a future one that did would get a plain, legible
         // `error[E0308]: expected Rc<dyn …>, found Rc<dyn …>` from rustc — an easy diagnosis,
         // rather than a silently wrong double-wrap.
-        val bodyOut = if ret.startsWith("std::rc::Rc<dyn ") then s"std::rc::Rc::new($bodyRs)" else bodyRs
+        // `def default: MarkupCodec = _default` (`uniml/xml`'s `Doc.scala`'s `MarkupCodec`) is the
+        // "future one" this comment's own PREVIOUS paragraph named: a body that IS already
+        // `Rc<dyn Trait>`-typed, because it just reads a `moduleMutFields` thread_local storing
+        // exactly that type (`renderMutableCompanionObject`'s own comment). Checked structurally on
+        // `d.body` (a bare `Term.Name` naming a known mutable field), not on the rendered STRING —
+        // the one shape this backend can PROVE already has the right type without re-deriving it
+        // from text; anything else still gets the unconditional wrap the paragraph above defends.
+        val bodySkipsWrap = d.body match
+          case m.Term.Name(n) => ctx.moduleMutFields.contains(n)
+          case _              => false
+        val bodyOut = if ret.startsWith("std::rc::Rc<dyn ") && !bodySkipsWrap then s"std::rc::Rc::new($bodyRs)" else bodyRs
         val src =
           s"""$signature {
              |${indent(topValPreamble + paramDestructurePreamble + bodyOut)}
@@ -4870,6 +5086,16 @@ object RustCodeWalk:
         b <- renderBody(w.body, ctx, isUnit = true)
       yield
         s"while $c {\n${indent(b)}\n}"
+
+    // `lhs = rhs` — Rust reassignment of a previously declared `var`.
+    case a: m.Term.Assign if a.lhs match { case m.Term.Name(n) => ctx.moduleMutFields.contains(n); case _ => false } =>
+      // `_default = codec` inside `def setDefault(codec) = _default = codec` — the WRITE twin of
+      // `bareNameOrNiladicCtor`'s own `moduleMutFields` read case. Guarded and handled as its own
+      // top-level case (rather than nested inside the general `Term.Assign` arm below) because a
+      // bare `Term.Name` lhs can never ALSO be a seq/map index target, so there is no ordering
+      // question with the checks that arm makes — just two disjoint shapes of the same node.
+      val n = a.lhs.asInstanceOf[m.Term.Name].value
+      renderTerm(a.rhs, ctx).map(r => s"${ctx.moduleMutFields(n)}.with(|c| *c.borrow_mut() = $r)")
 
     // `lhs = rhs` — Rust reassignment of a previously declared `var`.
     case a: m.Term.Assign =>
@@ -9424,6 +9650,21 @@ object RustCodeWalk:
     // exactly like a field read does (no `Term.Apply` at all); the guarded `Term.Apply` case for a
     // self-method CALL (this function's neighbour a few hundred lines up) never sees this shape.
     if ctx.selfMethods.contains(n) then s"self.${rustIdent(n)}()" else
+    // `_default` read bare inside `def default: MarkupCodec = _default` — the twin of
+    // `trueSelfFields` for a mutable field with no `self` at all (`renderMutableCompanionObject`'s
+    // own comment). `.with(|c| c.borrow().clone())` is `thread_local!`'s own access idiom.
+    if ctx.moduleMutFields.contains(n) then s"${ctx.moduleMutFields(n)}.with(|c| c.borrow().clone())" else
+    // `PureMarkupCodec` used BARE AS A VALUE (`case "pure" => PureMarkupCodec`, `uniml/xml`'s
+    // `Doc.scala`'s `named`) — Scala's implicit upcast from the object to the `MarkupCodec` trait
+    // it extends. `renderValueObjectImpl` gave it a zero-field unit struct + forwarding impl
+    // precisely so this reference has something to construct — but NOT wrapped in `Rc::new` HERE:
+    // `named`'s own return type IS the dyn trait, so `renderDef`'s existing whole-body wrap
+    // (`if ret.startsWith("std::rc::Rc<dyn ") then Rc::new($bodyRs)`) already applies Rc::new to
+    // this ENTIRE match once — self-wrapping too gave `Rc<Rc<dyn MarkupCodec>>`, one Rc too many,
+    // caught by a real `cargo build` before it ever reached a corpus commit. A position with no
+    // such outer wrap (a field/var initializer typed as the dyn trait) is not reached by this
+    // fallback at all — see `renderMutableCompanionObject`, which wraps its OWN init text instead.
+    if _valueObjectNames.contains(n) then n else
     ctx.ctorMap.get(n) match
       case Some(c) if c.fieldNames.isEmpty && !c.isStruct => s"${c.enumName}::$n"
       // `Nil` in an EXPRESSION — `loop(source, offset, Nil)` — emitted the bare word and rustc said

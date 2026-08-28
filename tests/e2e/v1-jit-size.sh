@@ -301,10 +301,22 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # `renderTerm`'s own match guard, which is the growth. `bareNameOrNiladicCtor`'s OWN new fallback
 # (an eta-expanded bare sibling-def reference, `digits.forall(isHexDigit)`) sits OUTSIDE
 # `renderTerm` and cost it nothing directly. Same terms as every entry above. 57 errors remain.
+#
+# renderTerm 30740 -> 30920 (+180), from two NEW dispatch-trait features on uniml/xml (57 -> 56 ->
+# 53, across two commits — the dispatch-trait sibling-self-reference fix in between, 57 -> 56, cost
+# renderTerm nothing: it only touched `renderDispatchTrait`). First: `object X extends Trait` used
+# BARE AS A VALUE (`PureMarkupCodec`, `renderValueObjectImpl` — a unit struct + thin forwarding
+# impl, the object twin of the class-only `renderDispatchTraitImpl`). Second: GLOBAL mutable
+# companion-object state (`MarkupCodec._default`, `renderMutableCompanionObject` — `thread_local!`
+# + `RefCell`, since `Rc<dyn Trait>` is not `Sync` and a plain `static Mutex` cannot hold one). The
+# growth is ONE new top-level `Term.Assign` case (the WRITE side of the mutable-companion-state
+# field, `_default = codec` — a literal new match arm + guard inside `renderTerm` itself); the READ
+# side (`bareNameOrNiladicCtor`'s `moduleMutFields` case) and the value-object case both sit outside
+# `renderTerm` and cost it nothing. Same terms as every entry above. 53 errors remain.
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-30740 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+30920 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF
