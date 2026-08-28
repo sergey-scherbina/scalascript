@@ -11,7 +11,8 @@ LIB="$BIN/lib"
 # releases.scalascript.io, a `scalascript/tap` Homebrew tap, and `get.scalascript.io`. Measured
 # 2026-08-18: neither domain resolves, the tap 404s, and `io/scalascript/` is a 404 on Maven Central,
 # so all three were instructions that cannot work. The one channel that does is the GitHub release,
-# which publishes three native binaries and their tarballs.
+# which publishes three native binaries and their tarballs, plus a JVM launcher archive
+# (ssc-jvm.tar.gz) for anyone without a native build for their platform.
 # (BUGS.md install-channels-are-fiction.)
 usage() {
     cat <<'MSG'
@@ -26,6 +27,9 @@ Or take the archive for your platform straight from
 https://github.com/sergey-scherbina/scalascript/releases/latest
 (ssc-linux-x86_64, ssc-macos-arm64, ssc-macos-x86_64) and unpack it whole — the
 binary finds its staged front relative to its own path.
+
+No native build for your platform, or a JDK already on hand: ssc-jvm.tar.gz at the
+same URL is the JVM launcher tree (needs a JDK 21+ on PATH; run bin/ssc-tools).
 
 For a contributor build from this monorepo, run:
 

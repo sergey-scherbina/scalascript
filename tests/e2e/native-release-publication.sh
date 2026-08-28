@@ -21,6 +21,11 @@ for artifact_id in "${artifact_ids[@]}"; do
     "$artifact_id.tar.gz.sha256"
   )
 done
+# ssc-jvm carries no bare-executable entry — it is a whole bin/ tree, not a single runnable file.
+asset_names+=(
+  ssc-jvm.tar.gz
+  ssc-jvm.tar.gz.sha256
+)
 
 expected_asset_csv=$(
   printf '%s\n' "${asset_names[@]}" | sort | paste -sd, -
@@ -116,19 +121,13 @@ case_repository=owner/project
 case_lookup=404
 case_create_exit=0
 
-new_fixture() {
-  local name=$1
-  fixture_directory="$TMP_ROOT/fixture-$case_index-$name"
-  mkdir -p "$fixture_directory"
-  local artifact_id
-  for artifact_id in "${artifact_ids[@]}"; do
-    printf 'direct bytes for %s\n' "$artifact_id" \
-      >"$fixture_directory/$artifact_id"
-    printf 'archive bytes for %s\n' "$artifact_id" \
-      >"$fixture_directory/$artifact_id.tar.gz"
-    python3 - \
-      "$fixture_directory/$artifact_id.tar.gz" \
-      "$fixture_directory/$artifact_id.tar.gz.sha256" <<'PY'
+write_archive_and_sidecar() {
+  local archive_id=$1
+  printf 'archive bytes for %s\n' "$archive_id" \
+    >"$fixture_directory/$archive_id.tar.gz"
+  python3 - \
+    "$fixture_directory/$archive_id.tar.gz" \
+    "$fixture_directory/$archive_id.tar.gz.sha256" <<'PY'
 import hashlib
 import os
 import sys
@@ -139,7 +138,20 @@ with open(archive, "rb") as stream:
 with open(sidecar, "wb") as stream:
     stream.write(f"{digest}  {os.path.basename(archive)}\n".encode("ascii"))
 PY
+}
+
+new_fixture() {
+  local name=$1
+  fixture_directory="$TMP_ROOT/fixture-$case_index-$name"
+  mkdir -p "$fixture_directory"
+  local artifact_id
+  for artifact_id in "${artifact_ids[@]}"; do
+    printf 'direct bytes for %s\n' "$artifact_id" \
+      >"$fixture_directory/$artifact_id"
+    write_archive_and_sidecar "$artifact_id"
   done
+  # ssc-jvm: archive + sidecar only, no bare-executable entry.
+  write_archive_and_sidecar ssc-jvm
 }
 
 invoke() {
@@ -274,6 +286,10 @@ append_expected_create() {
       "$directory/$artifact_id.tar.gz.sha256"
     )
   done
+  arguments+=(
+    "$directory/ssc-jvm.tar.gz"
+    "$directory/ssc-jvm.tar.gz.sha256"
+  )
   append_expected_call "${arguments[@]}"
 }
 
@@ -322,7 +338,7 @@ assert_exit 0
 assert_line \
   "stdout" \
   "$current_stdout" \
-  "native release publication: tag=v2.3.4 assets=9 status=created"
+  "native release publication: tag=v2.3.4 assets=11 status=created"
 assert_empty "stderr" "$current_stderr"
 asset_root=$(cd "$fixture_directory" && pwd -P)
 start_expected_log

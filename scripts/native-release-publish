@@ -83,6 +83,11 @@ artifact_ids = (
     "ssc-macos-arm64",
     "ssc-macos-x86_64",
 )
+# The JVM launcher archive has no bare-executable counterpart — unlike a native-image binary it
+# is a whole `bin/` tree (launcher scripts + jars), never a single runnable file on its own — so
+# it contributes only the archive + checksum pair, not the three-name triple the native ids do.
+jvm_archive_id = "ssc-jvm"
+archive_ids = artifact_ids + (jvm_archive_id,)
 expected_names = tuple(
     name
     for artifact_id in artifact_ids
@@ -91,6 +96,9 @@ expected_names = tuple(
         f"{artifact_id}.tar.gz",
         f"{artifact_id}.tar.gz.sha256",
     )
+) + (
+    f"{jvm_archive_id}.tar.gz",
+    f"{jvm_archive_id}.tar.gz.sha256",
 )
 
 try:
@@ -141,7 +149,7 @@ for name in expected_names:
     except OSError as error:
         refuse(f"asset read {name}", "readable", error.__class__.__name__)
 
-for artifact_id in artifact_ids:
+for artifact_id in archive_ids:
     archive_name = f"{artifact_id}.tar.gz"
     archive_path = os.path.join(root, archive_name)
     checksum_name = f"{archive_name}.sha256"
@@ -232,6 +240,11 @@ do
     "$asset_root/$artifact_id.tar.gz.sha256"
   )
 done
+# ssc-jvm has no bare-executable entry — see the matching comment in the Python validation above.
+assets+=(
+  "$asset_root/ssc-jvm.tar.gz"
+  "$asset_root/ssc-jvm.tar.gz.sha256"
+)
 
 if ! gh release create "$tag" \
   --repo "$GH_REPO" \

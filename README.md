@@ -1137,6 +1137,18 @@ chmod +x ssc   # if you extracted the archive yourself
 These binaries are not code-signed or notarized with an Apple Developer ID, which is what
 Gatekeeper is actually checking for and why the attribute has to be removed by hand.
 
+**No native binary for your platform, or a JDK already on the machine:** the release also
+publishes `ssc-jvm.tar.gz` — the same `bin/` tree `./install.sh --dev` builds from a checkout
+(the ordinary JVM launchers and their jars), needs a JDK 21+ on PATH, and runs anywhere one is
+available. `install.sh` above does not select it automatically; unpack it and use `bin/ssc-tools`
+directly:
+
+```bash
+curl -fsSL https://github.com/sergey-scherbina/scalascript/releases/latest/download/ssc-jvm.tar.gz -o ssc-jvm.tar.gz
+tar -xzf ssc-jvm.tar.gz
+./bin/ssc-tools --version
+```
+
 From a checkout, for contributors:
 
 ```bash

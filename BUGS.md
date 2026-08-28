@@ -53,8 +53,9 @@ between them), **and WILL SHIP IN v0.2.0** unless fixed before the tag: `8f0c1f1
 build inherits the same `graalVMNativeImageOptions`.
 
 **WORKAROUND, for anyone hitting this before it is fixed:** point `--registry` at a `file://` copy
-(`curl` the registry once, then `ssc search --registry file:///path/to/packages.yaml`), or use the
-JVM launcher (`ssc-tools`) from a checkout instead of the native binary.
+(`curl` the registry once, then `ssc search --registry file:///path/to/packages.yaml`), or use
+`bin/ssc-tools` from `ssc-jvm.tar.gz` — the published JVM launcher archive, no checkout needed —
+instead of the native binary. That archive is a real JVM and is unaffected by this bug.
 
 **NOT FIXED HERE.** Adding `--enable-url-protocols=http,https` (exact flag name depends on the
 pinned GraalVM version, `21.0.9` per `native-release.yml`) is the obvious next step, but HTTPS

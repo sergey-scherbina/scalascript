@@ -273,9 +273,106 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  jvm-archive:
+    name: Build the JVM launcher archive
+    needs: qualifier-contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    # No GraalVM here — `cli/installBin` (the same task `install.sh --dev` runs) stages the
+    # ordinary JVM launchers and their jars, so this job costs a plain `sbt` build rather than a
+    # multi-GB, hours-long native-image compile. It is a SEPARATE artifact from the three native
+    # binaries, not a replacement: the native image needs no JVM on the user's machine at all,
+    # which is the whole point of shipping it; this one needs a JDK but works on any platform that
+    # has one, sidesteps whatever native-image gap exists on a given release (see
+    # `native-image-has-no-http-url-protocol` — this archive is unaffected by it, because it is a
+    # plain `HttpURLConnection` call on a real JVM), and costs far less CI time to produce.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      # PINNED for the same reason the GraalVM step above pins its version: a floating '21' can
+      # resolve to a different build on a different day, and this file's own principle is that a
+      # release build must not silently vary by when it happened to run.
+      - name: Setup JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21.0.9'
+
+      - name: Setup sbt
+        uses: sbt/setup-sbt@f6db8ab474efba716fc7f04441ab33714e4825af # v1
+
+      # Same cache key as the linux native-image job's Coursier/sbt cache (both run on
+      # ubuntu-latest): whichever of the two jobs finishes resolving dependencies first warms it
+      # for the other, and both restore from a prior release's cache on a cold run.
+      - name: Cache Coursier/sbt
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/coursier
+            ~/.ivy2/cache
+            ~/.sbt
+          key: ${{ runner.os }}-release-sbt-${{ hashFiles('**/build.sbt', '**/project/*.sbt', '**/project/build.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-release-sbt-
+
+      - name: Build the JVM launcher tree
+        run: sbt cli/installBin
+
+      - name: Assemble the JVM release archive
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          tar -czf dist/ssc-jvm.tar.gz bin
+          (cd dist && sha256sum ssc-jvm.tar.gz > ssc-jvm.tar.gz.sha256)
+
+      # Isolated the same way the native binaries are: unpacked somewhere the checkout is not, to
+      # prove the archive is relocatable rather than assuming `bin/`'s relative path resolution
+      # (BASH_SOURCE-based, no baked-in absolute path — verified locally before writing this job)
+      # still holds once it is someone else's download.
+      - name: Qualify the JVM archive in isolation
+        run: |
+          set -euo pipefail
+          isolated="$RUNNER_TEMP/native-release-ssc-jvm"
+          mkdir -p "$isolated"
+          tar -xzf dist/ssc-jvm.tar.gz -C "$isolated"
+          version_out=$("$isolated/bin/ssc-tools" --version)
+          case "$version_out" in
+            "ssc "*) ;;
+            *) echo "ssc-jvm qualify: unexpected --version output: $version_out" >&2; exit 1 ;;
+          esac
+          printf '%s\n' "$version_out"
+          fixture="$isolated/qualify-hello.ssc"
+          {
+            printf '# qualify\n\n'
+            printf '```scalascript\n'
+            printf 'def main(): Unit = println("ssc-jvm archive runs standalone")\n'
+            printf '```\n'
+          } >"$fixture"
+          run_out=$("$isolated/bin/ssc-tools" run "$fixture")
+          if [[ "$run_out" != "ssc-jvm archive runs standalone" ]]; then
+            echo "ssc-jvm qualify: unexpected run output: $run_out" >&2
+            exit 1
+          fi
+
+      - name: Upload the JVM archive
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ssc-jvm
+          path: |
+            dist/ssc-jvm.tar.gz
+            dist/ssc-jvm.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 30
+
   release:
     name: Publish qualified tag
-    needs: native-image
+    needs: [native-image, jvm-archive]
     if: >-
       github.event_name == 'push' &&
       github.ref_type == 'tag' &&
