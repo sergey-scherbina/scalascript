@@ -107,6 +107,21 @@ existing `bin/lib/standard/native-front` layout.
 Verified: `NativeImageInstallRootTest` asserts the message names `ssc-<platform>.tar.gz` and
 `SSC_LIB_PATH` and does NOT mention `sbtc`/`bin/ssc`, so this cannot regress silently.
 
+**FOLLOW-UP 2026-08-28: the trap this message described no longer ships at all.** A user who
+built this exact fixed message locally still hit it immediately, by running the bare
+`ssc-<platform>` file the release used to publish beside the archive — confirming the message
+fires in practice, not just in the test. Rather than keep improving the wording for a file that
+can never work standalone, `native-release.yml`'s `native-image` job now writes the built
+binary straight into `dist/archive/ssc` and never materializes a bare top-level copy; the GitHub
+Release therefore ships only `<artifact-id>.tar.gz` + `.sha256` per platform (plus
+`ssc-jvm.tar.gz`), never a bare executable that can trigger this message from a fresh download.
+`scripts/native-release-qualify`'s `direct-binary-*` checks and `scripts/native-release-publish`'s
+bare-file entry in `expected_names`/`assets` were removed to match — both scripts now qualify and
+publish an archive-only release. `tests/e2e/native-release-qualification.sh` (68→64 cases) and
+`tests/e2e/native-release-publication.sh` (asset count 11→8) updated and green. The message
+itself stays, unchanged, for the one path that still can produce it: `SSC_LIB_PATH` pointed at a
+layout someone assembled by hand without `bin/lib/standard/native-front` beside the binary.
+
 ## native-image-has-no-http-url-protocol — the published native binary cannot make ANY network request
 
 <!-- status: fixed

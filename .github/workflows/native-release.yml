@@ -175,9 +175,8 @@ jobs:
 
           native_binary=v1/tools/cli/target/graalvm-native-image/scalascript-cli
           test -x "$native_binary"
-          cp "$native_binary" "dist/$ARTIFACT_ID"
-          chmod +x "dist/$ARTIFACT_ID"
-          cp "dist/$ARTIFACT_ID" dist/archive/ssc
+          cp "$native_binary" dist/archive/ssc
+          chmod +x dist/archive/ssc
 
           shopt -s nullglob
           plugin_hosts=(v1/tools/plugin-host/target/scala-*/ssc-plugin-host.jar)
@@ -246,7 +245,6 @@ jobs:
           set -euo pipefail
           isolated="$RUNNER_TEMP/native-release-$ARTIFACT_ID"
           mkdir -p "$isolated"
-          cp "dist/$ARTIFACT_ID" "$isolated/"
           cp "dist/$ARTIFACT_ID.tar.gz" "$isolated/"
           cp "dist/$ARTIFACT_ID.tar.gz.sha256" "$isolated/"
           cp scripts/native-release-qualify "$isolated/"
@@ -267,7 +265,6 @@ jobs:
         with:
           name: ${{ matrix.artifact_id }}
           path: |
-            dist/${{ matrix.artifact_id }}
             dist/${{ matrix.artifact_id }}.tar.gz
             dist/${{ matrix.artifact_id }}.tar.gz.sha256
           if-no-files-found: error

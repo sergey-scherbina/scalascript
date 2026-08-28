@@ -13,19 +13,19 @@ artifact_ids=(
   ssc-macos-arm64
   ssc-macos-x86_64
 )
+# Every id (native or ssc-jvm) contributes only an archive + checksum pair. A native id used to
+# also carry a bare executable beside its archive; it was dropped from the release entirely — it
+# could never run standalone (it needs bin/lib/standard/native-front staged next to it, which only
+# the archive provides), so it was a trap, not a channel
+# (BUGS.md native-binary-missing-front-message-blamed-a-checkout-that-cannot-exist).
+archive_ids=("${artifact_ids[@]}" ssc-jvm)
 asset_names=()
-for artifact_id in "${artifact_ids[@]}"; do
+for artifact_id in "${archive_ids[@]}"; do
   asset_names+=(
-    "$artifact_id"
     "$artifact_id.tar.gz"
     "$artifact_id.tar.gz.sha256"
   )
 done
-# ssc-jvm carries no bare-executable entry — it is a whole bin/ tree, not a single runnable file.
-asset_names+=(
-  ssc-jvm.tar.gz
-  ssc-jvm.tar.gz.sha256
-)
 
 expected_asset_csv=$(
   printf '%s\n' "${asset_names[@]}" | sort | paste -sd, -
@@ -145,13 +145,9 @@ new_fixture() {
   fixture_directory="$TMP_ROOT/fixture-$case_index-$name"
   mkdir -p "$fixture_directory"
   local artifact_id
-  for artifact_id in "${artifact_ids[@]}"; do
-    printf 'direct bytes for %s\n' "$artifact_id" \
-      >"$fixture_directory/$artifact_id"
+  for artifact_id in "${archive_ids[@]}"; do
     write_archive_and_sidecar "$artifact_id"
   done
-  # ssc-jvm: archive + sidecar only, no bare-executable entry.
-  write_archive_and_sidecar ssc-jvm
 }
 
 invoke() {
@@ -279,17 +275,12 @@ append_expected_create() {
     --generate-notes
   )
   local artifact_id
-  for artifact_id in "${artifact_ids[@]}"; do
+  for artifact_id in "${archive_ids[@]}"; do
     arguments+=(
-      "$directory/$artifact_id"
       "$directory/$artifact_id.tar.gz"
       "$directory/$artifact_id.tar.gz.sha256"
     )
   done
-  arguments+=(
-    "$directory/ssc-jvm.tar.gz"
-    "$directory/ssc-jvm.tar.gz.sha256"
-  )
   append_expected_call "${arguments[@]}"
 }
 
@@ -338,14 +329,14 @@ assert_exit 0
 assert_line \
   "stdout" \
   "$current_stdout" \
-  "native release publication: tag=v2.3.4 assets=11 status=created"
+  "native release publication: tag=v2.3.4 assets=8 status=created"
 assert_empty "stderr" "$current_stderr"
 asset_root=$(cd "$fixture_directory" && pwd -P)
 start_expected_log
 append_expected_lookup v2.3.4
 append_expected_create v2.3.4 "$asset_root"
 assert_gh_log
-pass_case "confirmed 404 creates one exact nine-asset release"
+pass_case "confirmed 404 creates one exact eight-asset release"
 
 invoke wrong-arity v2.3.4
 assert_exit 1
@@ -463,17 +454,17 @@ assert_line \
 assert_no_gh
 pass_case "unexpected tenth asset fails before GitHub"
 
-new_fixture symlink-binary
-rm "$fixture_directory/ssc-linux-x86_64"
-ln -s ssc-linux-x86_64.tar.gz "$fixture_directory/ssc-linux-x86_64"
-invoke symlink-binary v2.3.4 "$fixture_directory"
+new_fixture symlink-archive
+rm "$fixture_directory/ssc-linux-x86_64.tar.gz"
+ln -s ssc-macos-arm64.tar.gz "$fixture_directory/ssc-linux-x86_64.tar.gz"
+invoke symlink-archive v2.3.4 "$fixture_directory"
 assert_exit 1
 assert_line \
   "stderr" \
   "$current_stderr" \
-  "native release publication: asset type ssc-linux-x86_64: expected=regular-file actual=symlink"
+  "native release publication: asset type ssc-linux-x86_64.tar.gz: expected=regular-file actual=symlink"
 assert_no_gh
-pass_case "symlink direct binary fails before GitHub"
+pass_case "symlink archive fails before GitHub"
 
 new_fixture directory-archive
 rm "$fixture_directory/ssc-macos-arm64.tar.gz"
@@ -500,16 +491,16 @@ assert_line \
 assert_no_gh
 pass_case "symlink checksum fails before GitHub"
 
-new_fixture empty-binary
-: >"$fixture_directory/ssc-linux-x86_64"
-invoke empty-binary v2.3.4 "$fixture_directory"
+new_fixture empty-archive
+: >"$fixture_directory/ssc-jvm.tar.gz"
+invoke empty-archive v2.3.4 "$fixture_directory"
 assert_exit 1
 assert_line \
   "stderr" \
   "$current_stderr" \
-  "native release publication: asset size ssc-linux-x86_64: expected=>0 actual=0"
+  "native release publication: asset size ssc-jvm.tar.gz: expected=>0 actual=0"
 assert_no_gh
-pass_case "empty binary fails before GitHub"
+pass_case "empty archive fails before GitHub"
 
 new_fixture stale-digest
 printf '%064d  ssc-linux-x86_64.tar.gz\n' 0 \

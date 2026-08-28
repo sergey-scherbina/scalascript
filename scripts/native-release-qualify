@@ -74,16 +74,6 @@ fi
 ARCHIVE_DIR=$(cd "$ARCHIVE_DIR" && pwd)
 ARCHIVE="$ARCHIVE_DIR/$ARCHIVE_BASE"
 SIDECAR="${ARCHIVE}.sha256"
-DIRECT_BINARY="$ARCHIVE_DIR/$ARTIFACT_ID"
-
-if [[ ! -f $DIRECT_BINARY ]]; then
-  fail_check direct-binary-file "$ARTIFACT_ID beside the archive" \
-    "$DIRECT_BINARY is missing or not regular"
-fi
-if [[ ! -x $DIRECT_BINARY ]]; then
-  fail_check direct-binary-executable "$ARTIFACT_ID with at least one executable bit" \
-    "$DIRECT_BINARY is not executable"
-fi
 
 QUALIFY_TMP=$(mktemp -d "${TMPDIR:-/tmp}/ssc-native-release.XXXXXX")
 # Read at CALL time, not here: the registry-server check below sets this only if it starts one, so
@@ -370,48 +360,6 @@ for relative in declared_files:
     expected = declared[relative]
     if actual != expected:
         fail("frontend-manifest-digest", f"{expected}  {relative}", f"{actual}  {relative}")
-PY
-
-"$PYTHON" - "$DIRECT_BINARY" "$SSC_EXE" <<'PY'
-import hashlib
-import sys
-
-direct, extracted = sys.argv[1:]
-
-
-def digest(path: str) -> str:
-    value = hashlib.sha256()
-    with open(path, "rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            value.update(chunk)
-    return value.hexdigest()
-
-
-try:
-    same = True
-    with open(direct, "rb") as left, open(extracted, "rb") as right:
-        while True:
-            left_chunk = left.read(1024 * 1024)
-            right_chunk = right.read(1024 * 1024)
-            if left_chunk != right_chunk:
-                same = False
-                break
-            if not left_chunk:
-                break
-except OSError as error:
-    print("native-release-qualify: FAILED check 'direct-binary-read'", file=sys.stderr)
-    print("--- expected", file=sys.stderr)
-    print("readable direct and extracted executable bytes", file=sys.stderr)
-    print("--- actual", file=sys.stderr)
-    print(str(error), file=sys.stderr)
-    raise SystemExit(1)
-if not same:
-    print("native-release-qualify: FAILED check 'direct-binary-identity'", file=sys.stderr)
-    print("--- expected", file=sys.stderr)
-    print(f"direct sha256={digest(direct)}", file=sys.stderr)
-    print("--- actual", file=sys.stderr)
-    print(f"archive sha256={digest(extracted)}", file=sys.stderr)
-    raise SystemExit(1)
 PY
 
 "$PYTHON" - "$PLUGIN_HOST" <<'PY'

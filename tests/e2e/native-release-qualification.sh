@@ -107,7 +107,6 @@ import zipfile
 
 directory, case, artifact_id = sys.argv[1:]
 archive = os.path.join(directory, f"{artifact_id}.tar.gz")
-direct = os.path.join(directory, artifact_id)
 
 
 def plugin_jar() -> bytes:
@@ -337,17 +336,6 @@ if case == "missing-plugin":
 if case == "missing-manifest":
     files.pop("bin/lib/standard/native-front/MANIFEST.sha256")
 
-if case != "missing-direct":
-    direct_bytes = stub + (b"# direct mismatch\n" if case == "direct-mismatch" else b"")
-    with open(direct, "wb") as stream:
-        stream.write(direct_bytes)
-    direct_mode = (
-        0o644 if case == "direct-nonexec"
-        else 0o111 if case == "direct-unreadable"
-        else 0o755
-    )
-    os.chmod(direct, direct_mode)
-
 if case == "bad-archive":
     with open(archive, "wb") as stream:
         stream.write(b"not a gzip tar")
@@ -558,10 +546,6 @@ expect_fail symlink archive-entry-type
 expect_fail hardlink archive-entry-type
 expect_fail device archive-entry-type
 expect_fail nonexec-ssc archive-ssc-executable
-expect_fail missing-direct direct-binary-file
-expect_fail direct-nonexec direct-binary-executable
-expect_fail direct-unreadable direct-binary-read
-expect_fail direct-mismatch direct-binary-identity
 expect_fail missing-plugin archive-required-file
 expect_fail empty-plugin archive-plugin-host
 expect_fail wrong-plugin-main plugin-main-entry
