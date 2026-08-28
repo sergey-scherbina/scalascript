@@ -1,33 +1,37 @@
 # uniML → Rust backend hardening — session summary
 
 **Status:** COMMITTED, in worktree `fix-private-qualifier-bracket` (branch of the same name).
-Three commits so far:
+`uniml/core` now compiles through a real `cargo build` with **ZERO errors**. Four commits:
 
 - `fef8df1cc` — parser: `private[X]`/`protected[X]` bracket fix
 - `09fd7a3b8` — rust backend: local-def lambda-lifting, generic-type fixes, variant-narrowing
-  destructure (prior session, 64 → 13 errors)
+  destructure (session 1, 64 → 13 errors)
 - `6bde8ac02` — rust backend: dyn-dispatch trait support + collection/closure clone fixes
-  (this session, 13 → 2 errors)
+  (session 2, 13 → 2 errors)
+- `afdfc01b2` — rust backend: last two uniml errors — `Diagnostic.copy()` and generic erasure
+  (session 3, 2 → 0 errors)
 
 **Goal:** get `scalascript.uniml`'s core module (`uniml/core/src/main/scala/scalascript/uniml/*.scala`,
 9 files, plus the shared `alphabet/src/Alphabet.scala`) compiling through `ssc emit-rust` to a
 real, `cargo build`-clean Rust crate — a prerequisite for using uniML (compiled to native Rust,
 zero JVM at runtime) as the lossless-CST chunker for a planned project-source RAG feature in
-`rozum`.
+`rozum`. **Done** for the `uniml/core` module itself — see "What's left" at the bottom for the
+larger goal's remaining scope (the other 4 dialect modules, real multi-file crate emission, and
+actually wiring compiled uniML into rozum).
 
 **Result:** on the merged module (all files concatenated into one synthetic `.scala` file — see
-"Multi-file gap" below), `cargo build` errors went **64 → 13 → 2** across the two sessions. Not
-yet zero, but both remaining errors are isolated, well-understood, and in code paths never
-actually invoked by anything in this merged corpus.
+"Multi-file gap" below), `cargo build` errors went **64 → 13 → 2 → 0** across three sessions.
+Confirmed via `cargo build`'s own exit code after a `cargo clean` (not just absence of `error[`
+lines in the output — see the "verification standard" below for why that distinction matters).
 
 **Verification standard used throughout:** `emit-rust --print-only` reporting zero `[error]`
-lines is NOT sufficient — most of the real bugs found across both sessions were only caught by an
-actual `cargo build` on the generated crate. Trust `cargo build`, not the diagnostic scanner, for
-any claim of "this compiles." The rust backend's own Scala test suite (`sbt backendRust/test`,
-278 tests) was also run after this session's changes — 277 pass, 1 fails, and that one failure is
-pre-existing (verified against the base commit before this session's changes) and unrelated: a
-stale assertion that `Set[Long]` is an unsupported type, which stopped being true independently
-of this work.
+lines is NOT sufficient — most of the real bugs found across all three sessions were only caught
+by an actual `cargo build` on the generated crate. Trust `cargo build`'s own exit code, not the
+diagnostic scanner and not a piped command's exit code, for any claim of "this compiles." The
+rust backend's own Scala test suite (`sbt backendRust/test`, 278 tests) was also run after every
+session's changes — 277 pass, 1 fails, and that one failure is pre-existing (verified against the
+base commit before session 2's changes) and unrelated: a stale assertion that `Set[Long]` is an
+unsupported type, which stopped being true independently of this work.
 
 ## How to reproduce / continue
 
@@ -155,48 +159,71 @@ sbt build includes at compile time) into one synthetic `.scala` file first (see 
 reproduce" above) — real multi-file/multi-module Cargo crate emission would be a substantial
 separate feature, not attempted in either session.
 
-## What's NOT fixed (2 remaining cargo errors, both isolated, both dead code in this corpus)
+## What's fixed in session 3 — the last two errors, plus one more they uncovered
 
-1. **`Diagnostic.copy(span = ...)`** — Scala's implicit case-class copy method isn't supported by
-   this backend at all. The receiver here (`problem` in `TreeVm.scala`'s `step`) is a match-arm
-   binder from `Option[Diagnostic]`, not a def parameter or a field — so even a narrow fix needs
-   new match-arm type-tracking (binding a `case Some(x) =>` arm's `x` to the struct type read off
-   the scrutinee call's known return type), which nothing in this backend currently does. A real,
-   moderately-scoped feature (Rust's answer is straightforward — struct-update syntax,
-   `Diagnostic { span: ..., ..problem.clone() }` — the missing part is knowing WHICH struct name
-   to write) if built generally, but risks nothing else if left alone: only reached from
-   `reframeProblem`'s `Some(problem)` branch, never exercised by anything else in this merge.
-2. **`ProcessBatch`'s companion `def value[A](value: A): ProcessBatch[A]`** — the parameter `value:
-   A` is deliberately erased to `crate::value::Value` by `renderParams`'s existing rule ("a
-   parameter typed by the def's own type parameter is untyped at the call boundary"), for
-   consistency with `_paramTypes` (the same table drives argument coercion at every call site to
-   this def). That's right for a truly opaque type parameter, but wrong here: the RETURN type
-   (`ProcessBatch[A]`) reuses the SAME `A`, so the struct's own field (`values: Vec<A>`) expects
-   the real type, not `Value` — `error[E0308]: expected type parameter A, found Value`. Fixing
-   this safely means threading "does the return type reuse this same tparam AND is the return
-   type a real generic struct" into `renderParams`, which doesn't currently see `structTparams` at
-   all — NOT attempted, because `renderParams`'s erasure rule is shared across the whole std/*
-   corpus and a broad change to it risks a regression nothing in this session's testing would
-   catch (uniml/core is the only corpus module exercising this exact shape). Also unreached by
-   anything else in this merge (`ProcessBatch.value` is never called).
+- **`.copy(...)` (case-class functional update)** is now a real, general lowering — to Rust
+  struct-update syntax, `StructName { field: value, ..recv.clone() }`. The general mechanism:
+  `renderTerm` gets a `Term.Apply(Term.Select(recv, "copy"), namedArgs)` case that reads the
+  struct name off `ctx.paramCtorNames.get(recv)` (refusing anything with a non-named or
+  unknown-field argument, rather than guessing a positional correspondence). The missing part was
+  getting a STRUCT name into `paramCtorNames` for `problem` (`TreeVm.scala`'s `step`) at all — it's
+  a match-arm binder from `Option[Diagnostic]`, not a def parameter or a field, neither of which
+  `paramCtorNames` was ever populated from before. `renderMatch`'s `case Some(x) =>` handling now
+  reads the scrutinee call's OWN declared return type (`_returnTypes`, the same table `renderDef`
+  already builds) when the scrutinee is a call, and threads the struct name into the arm's Ctx the
+  same way a def parameter of a qualified variant type already does — so `.copy(...)` itself
+  doesn't care which of the two ways a binder learned its type.
+- **`ProcessBatch`'s companion `def value[A](value: A): ProcessBatch[A]`** — narrowed the
+  "parameter typed by the def's own type parameter is erased to `Value`" rule (both in
+  `renderParams` and its parallel copy in the `_paramTypes` builder, which have to agree) with one
+  exception: skip the erasure when the RETURN type is `Type.Apply(StructName, args)`, `StructName`
+  is a real struct already known to `ctorMap`, and `args` reuses the SAME parameter name. Scoped
+  tightly enough that `ctxSignal[T](ctx: Ctx, name: String, default: T): T` — a bare, non-struct
+  return — doesn't match and keeps erasing exactly as before; verified against the wider `sbt
+  backendRust/test` suite (278 tests, not just uniml) precisely because this rule is shared
+  corpus-wide.
+- **Fixing `.copy()` made `reframeProblem`'s calling arm reachable for the first time**, and it
+  had its own real bug: `case instruction @ VmInstruction.Reframe(closeBefore, open, closeAfter,
+  role) =>` (`TreeVm.scala`'s `step`) is a `Pat.Bind` over a POSITIONAL extractor — a different AST
+  shape from the WITH-FIELDS `Pat.Typed` case fixed in session 2, but the identical underlying bug:
+  rendered BY VALUE, so destructuring `role` (an `Option<String>`, not `Copy`) out of `instruction`
+  left `instruction` itself only partially valid for its own later use — `error[E0382]`. Same fix:
+  `ref` on the whole binding and every field. One real difference from the `Pat.Typed` twin: there,
+  every destructured field is read only through a method call (autoderefs a reference for free);
+  here `role` is handed directly to a constructor argument (`UniEdge(role, tokenNode)`), which does
+  NOT autoderef — so `ctx.byRefMut` needed every destructured name here, not just the outer binder.
+  Also found and fixed along the way: the qualified spelling (`VmInstruction.Reframe(...)`, a
+  `Term.Select` callee) needed its own match arm — Scala's `|` pattern alternation can't bind a
+  variable inside itself, so both the pattern-rendering and the `byRefMut`-marking sites read the
+  callee through a small new `ctorNameOf` helper instead.
 
-## Suggested order if picked up again
+## Multi-file gap (discovered, worked around, NOT fixed)
 
-1. Item 2 (`ProcessBatch.value[A]`) first if a NARROW fix is wanted — e.g. skip the erasure only
-   when `d.decltpe` is `Type.Apply(Type.Name(retName), args)`, `retName` names a struct actually
-   in `structTparams` (would need passing that map down into `renderParams`, currently a
-   `renderDef`-local `val`), and `args` contains the same tparam name. Verify against the WIDER
-   std/* corpus's own test suite (`sbt backendRust/test`), not just uniml, before trusting it.
-2. Item 1 (`.copy()`) is a real feature — start from `renderMatch`'s `case Some(x) =>` handling
-   (a `Pat.Extract` over `"Some"`) and thread the scrutinee's element type (via `_returnTypes` on
-   the scrutinee call, when it's a call) into the arm's `Ctx.paramCtorNames`, then add a
-   `Term.Apply(Term.Select(qual, "copy"), namedArgs)` case in `renderTerm` using it to emit
-   `StructName { ..namedArgs, ..qual.clone() }`.
-3. Once `uniml/core` is fully `cargo build`-clean, the original "8 more files" scope
-   (`uniml/markdown`, `uniml/json`, `uniml/xml`, `uniml/yaml`) is still open and untouched — and
-   an OBJECT implementor of a dyn-dispatch trait (`object Literal extends DialectAdapter`) will
-   very likely need real value-representation (not just free functions) once those dialect
-   modules actually construct and register adapters — see this session's "object implementors"
-   note above.
-4. Then: the multi-file crate-emission gap (real feature, not the merge-script workaround), and
-   finally wiring compiled uniML into rozum's planned RAG indexer — both untouched so far.
+`ssc emit-rust` compiles each file argument into its OWN independent Cargo crate
+(`EmitCommands.scala:133`, `for file <- files.toList do`) — there is no cross-file symbol
+resolution at all. `userTypeNames`/`ctorMap`/every other per-module table is scoped per file. This
+is why testing `uniml/core` as a whole requires manually concatenating all files (including the
+separately-located `alphabet/src/Alphabet.scala`, an unmanaged shared source uniml/core's own
+sbt build includes at compile time) into one synthetic `.scala` file first (see "How to
+reproduce" above) — real multi-file/multi-module Cargo crate emission would be a substantial
+separate feature, not attempted across any of the three sessions.
+
+## What's left (beyond `uniml/core`, which is now done)
+
+`uniml/core` itself is `cargo build`-clean with zero errors — the goal this session's work set out
+for is met. What's still open, for whoever picks this up next, in roughly the order it would
+need doing:
+
+1. **The other 4 dialect modules** (`uniml/markdown`, `uniml/json`, `uniml/xml`, `uniml/yaml`) —
+   untouched by any of these three sessions. They will very likely need a real value-representation
+   for an OBJECT implementor of a dyn-dispatch trait (`object Literal extends DialectAdapter` in
+   `uniml/core` itself renders as free functions today, with no backing struct, because nothing in
+   `uniml/core` alone ever hands `Literal` around as a `Rc<dyn DialectAdapter>` value — see session
+   2's dyn-trait section above) — a dialect module that actually CONSTRUCTS and REGISTERS an
+   adapter (`DialectRegistry(Literal, Markdown, Json, ...)`) will need that gap closed first.
+2. **Real multi-file/multi-module Cargo crate emission** — the workaround (manually concatenating
+   every file into one synthetic `.scala` file, `/tmp/uniml-merge/build-merge.sh`) is fine for
+   verifying a bounded set of files but does not scale to a real multi-crate uniML build or to
+   anything outside this throwaway scratch setup.
+3. **Wiring compiled uniML into rozum's planned RAG indexer** — the original motivating goal from
+   well before any of these three sessions, entirely untouched so far.
