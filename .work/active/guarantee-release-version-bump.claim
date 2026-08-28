@@ -1,0 +1,11 @@
+slug: guarantee-release-version-bump
+branch: feature/guarantee-release-version-bump
+agent: claude-code
+started: 2026-08-28T15:13:09Z
+heartbeat: 2026-08-28T15:13:09Z
+status: claimed-before-planning
+items: guarantee-release-version-bump
+paths: scripts/cut-release .github/workflows/native-release.yml build.sbt BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
