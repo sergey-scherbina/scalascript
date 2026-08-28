@@ -13,7 +13,7 @@
 # See specs/arch-registry.md for the full schema specification.
 
 - name: io.scalascript/json
-  version: 1.0.0
+  version: 0.2.1
   kind: plugin
   description: "Built-in JSON encoding/decoding for ScalaScript"
   keywords: [json, serialization, codec, parsing]
@@ -25,7 +25,7 @@
   scala-script-version: ">=1.0"
 
 - name: io.scalascript/http
-  version: 1.0.0
+  version: 0.2.1
   kind: plugin
   description: "HTTP client and server primitives for ScalaScript"
   keywords: [http, web, client, server, rest]
@@ -37,7 +37,7 @@
   scala-script-version: ">=1.0"
 
 - name: io.scalascript/streams
-  version: 1.0.0
+  version: 0.2.1
   kind: plugin
   description: "Lazy reactive streams and async pipelines for ScalaScript"
   keywords: [streams, reactive, async, pipeline, source, sink]
@@ -49,7 +49,7 @@
   scala-script-version: ">=1.51"
 
 - name: io.scalascript/actors
-  version: 1.0.0
+  version: 0.2.1
   kind: plugin
   description: "Lightweight actor model for concurrent ScalaScript programs"
   keywords: [actors, concurrency, async, mailbox]
@@ -61,7 +61,7 @@
   scala-script-version: ">=1.40"
 
 - name: io.scalascript/sql
-  version: 1.0.0
+  version: 0.2.1
   kind: plugin
   description: "SQL database access (PostgreSQL, SQLite) for ScalaScript"
   keywords: [sql, database, postgresql, sqlite, jdbc]

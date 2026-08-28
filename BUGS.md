@@ -143,6 +143,36 @@ change's scope. Until that release is cut, `registry/packages.yaml`'s URLs still
 they now point at a *specific, real, currently-nonexistent* release tag rather than a permanently
 fictional one, which is the honest state to ship until that tag is pushed.
 
+**FOLLOW-UP 2026-08-28: `version: 1.0.0` was ALSO invented — every one of the five entries used
+it unconditionally, tracking nothing real.** Asked directly where the number should come from:
+these five packages have no independent release cadence. They are built, staged, and released in
+lockstep with the compiler itself — the exact same `installBin` run stages them as essential
+plugins, and `plugin-packages` (above) builds their `.sscpkg` from the SAME tagged checkout the
+native/JVM archives come from. "What version is `io.scalascript/json`" has one honest answer: the
+release tag that built it.
+
+New `scripts/generate-registry-plugin-entries <tag>` rewrites ONLY the `version:` and `url:` lines
+of the five known plugin entries to match a given tag (`v0.2.1` → `version: 0.2.1`) — every other
+hand-authored field (description, keywords, backends, license, author, homepage,
+scala-script-version) is left untouched; idempotent (a second run at the same tag is a no-op
+diff); `--check` mode exits 1 without writing, for a CI gate that wants to verify rather than
+mutate. `.github/workflows/native-release.yml`'s `release` job runs it for real, at the tag being
+released: a SEPARATE `actions/checkout` of the `main` BRANCH (not the tag the job's first checkout
+resolves to — pushing that tree over main would silently overwrite it with whatever commit the tag
+happened to be cut from), then commits and pushes the version bump directly to `main` if the
+script changed anything, ordered AFTER the release and its assets already exist so a push failure
+here (e.g. main moved since the checkout) never affects either.
+
+Verified: all six scripted scenarios pass locally — apply, idempotent rerun, `--check` clean,
+bump to a new tag, `--check` dirty, and a malformed-tag rejection. `RegistrySchemaTest` 15/15
+against the regenerated `registry/packages.yaml` (`version: 0.2.1`, matching its own `url:` tag).
+Workflow YAML re-validated with Ruby's `Psych`. `scripts/smoke-ci` 116/116 on a freshly rebuilt
+checkout (one transient `build-ram-guards-guard` failure on the first run was traced to a
+host-wide RAM-guard contention from an unrelated concurrent build on this machine — reproduced
+green standalone, and green again on a clean full rerun). The `main`-branch checkout-and-push
+steps, like `plugin-packages` itself, have never run on GitHub — same "verified locally, not yet
+exercised for real" caveat as above, resolved by the same eventual tag push.
+
 ## cds-cache-grows-unbounded-and-a-stale-archive-fails-silently — thousands of uncollected .jsa files, one of them corrupt
 
 <!-- status: fixed

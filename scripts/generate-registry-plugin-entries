@@ -1,0 +1,79 @@
+#!/usr/bin/env python3
+"""generate-registry-plugin-entries — keep the five `kind: plugin` entries in
+registry/packages.yaml pointed at the release that actually ships them.
+
+They have no independent release cadence: json/http/streams/actors/sql are built,
+staged, and released in lockstep with the compiler itself (the SAME `installBin` run
+stages them as essential plugins, and `.github/workflows/native-release.yml`'s
+`plugin-packages` job builds their `.sscpkg` from the SAME tagged checkout the native/JVM
+archives come from). So "what version is io.scalascript/json" has one honest answer: the
+release tag that built it — not an independently-invented number with no build behind it
+(BUGS.md `registry-packages-point-at-a-release-with-no-matching-asset`, which is what
+`version: 1.0.0` was before this script existed).
+
+Usage:
+  scripts/generate-registry-plugin-entries <tag>          # e.g. v0.2.1 -- rewrites in place
+  scripts/generate-registry-plugin-entries <tag> --check   # exit 1 if a rewrite would change anything
+
+Only touches the `version:` and `url:` lines of the five known plugin entries. Every other
+field (description, keywords, backends, license, author, homepage, scala-script-version) is
+hand-authored content this script does not know how to write and must not guess at --
+idempotent otherwise: running it twice with the same tag is a no-op diff.
+"""
+import re
+import sys
+
+PLUGIN_IDS = ("json", "http", "streams", "actors", "sql")
+REPO = "sergey-scherbina/scalascript"
+PACKAGES_YAML = "registry/packages.yaml"
+
+
+def rewrite(text: str, tag: str) -> str:
+    version = tag[1:] if tag.startswith("v") else tag
+    for pkg_id in PLUGIN_IDS:
+        # version: — the line directly under this package's `name:`, not any other
+        # entry's. Matches across the intervening `kind: plugin` line too.
+        text = re.sub(
+            rf"(name: io\.scalascript/{pkg_id}\n(?:  kind: plugin\n)?  version: )\S+",
+            rf"\g<1>{version}",
+            text,
+        )
+        # url: — the asset filename (<id>-plugin.sscpkg) is fixed; only owner/repo@tag varies.
+        text = re.sub(
+            rf'url: "github:[^@"]+@[^#"]+#{pkg_id}-plugin\.sscpkg"',
+            f'url: "github:{REPO}@{tag}#{pkg_id}-plugin.sscpkg"',
+            text,
+        )
+    return text
+
+
+def main() -> int:
+    if len(sys.argv) < 2:
+        print("usage: generate-registry-plugin-entries <tag> [--check]", file=sys.stderr)
+        return 2
+    tag = sys.argv[1]
+    check_only = "--check" in sys.argv[2:]
+    if not re.fullmatch(r"v\d+\.\d+\.\d+", tag):
+        print(f"generate-registry-plugin-entries: '{tag}' does not look like a release tag (vX.Y.Z)", file=sys.stderr)
+        return 2
+
+    with open(PACKAGES_YAML, encoding="utf-8") as f:
+        before = f.read()
+    after = rewrite(before, tag)
+
+    if before == after:
+        print(f"{PACKAGES_YAML}: already up to date for {tag}")
+        return 0
+
+    if check_only:
+        print(f"{PACKAGES_YAML}: out of date for {tag} — run `scripts/generate-registry-plugin-entries {tag}`", file=sys.stderr)
+        return 1
+
+    with open(PACKAGES_YAML, "w", encoding="utf-8") as f:
+        f.write(after)
+    print(f"{PACKAGES_YAML}: updated to {tag}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
