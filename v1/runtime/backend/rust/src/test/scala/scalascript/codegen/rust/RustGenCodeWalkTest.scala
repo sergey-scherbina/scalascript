@@ -501,3 +501,47 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(g.contains("vec!["), s"ArrayBuffer ctor did not lower:\n$g")
+
+  test("HashSet.empty + .add lowers to a mutable HashSet + .insert"):
+    val src =
+      """```scalascript
+        |def firstDup(xs: List[String]): Option[String] =
+        |  val seen = scala.collection.mutable.HashSet.empty[String]
+        |  xs.find(x => !seen.add(x))
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("let mut seen") && g.contains("HashSet::new()"), s"HashSet ctor did not lower:\n$g")
+    assert(g.contains(".insert("), s".add did not lower to .insert:\n$g")
+
+  test("ArrayBuffer.remove(i) lowers to Vec::remove"):
+    val src =
+      """```scalascript
+        |import scala.collection.mutable.ArrayBuffer
+        |def pop(n: Long): Long =
+        |  val stack = ArrayBuffer(n, n + 1)
+        |  stack.remove(stack.size - 1)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".remove(("), s".remove did not lower:\n$g")
+
+  test("a positional ctor destructure (`case Ctor(a, b) =>`) types each field from the ctor"):
+    // `case PI(target, data) => data.nonEmpty` (`uniml/xml`'s `Doc.scala`'s `serializeNode`,
+    // shape simplified here) — `data`'s type comes from `PI`'s OWN declared field type
+    // (`data: String`), never threaded to `ctx.localStrings` before this fix for a BARE
+    // (non-`@`-bound) positional destructure.
+    val src =
+      """```scalascript
+        |sealed trait Node
+        |case class PI(target: String, data: String) extends Node
+        |case class Text(chars: String) extends Node
+        |
+        |def render(n: Node): String = n match
+        |  case PI(target, data) => if data.nonEmpty then data else target
+        |  case Text(chars) => chars
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("data.is_empty()") || g.contains("!data.is_empty()"),
+      s"positional-destructure field isEmpty/nonEmpty did not lower:\n$g")

@@ -2394,7 +2394,15 @@ object RustCodeWalk:
       // `localArrays` and `localStrings`, and `scalac` refused every positional `Ctx(...)` call in
       // the file with "already instantiated" (a positional argument now landing on this new named
       // parameter's position, colliding with the named one).
-      localStringBuilders: Set[String] = Set.empty
+      localStringBuilders: Set[String] = Set.empty,
+      // Local val/var names bound to `scala.collection.mutable.HashSet.empty[T]` — a Rust
+      // `HashSet` mutates in place (`.insert` — see `isKnownSetReceiver`'s own use), so this
+      // drives the SAME `let` -> `let mut` upgrade `localArrays`/`localStringBuilders` do, and
+      // tells the CONSTRUCTOR case which Rust type to build (`HashSet`, not `Vec`) — the two share
+      // `.empty[T]` syntax and only this table tells them apart. Appended at the END of the field
+      // list for the reason `localStringBuilders`'s own comment records (a positional `Ctx(...)`
+      // call site elsewhere in this file breaks on any other insertion point).
+      localSets: Set[String] = Set.empty
   ):
     def enumNames: Set[String] = ctorMap.values.map(_.enumName).toSet
     @annotation.unused def topValNames: Set[String] = topVals.map(_._1).toSet
@@ -2653,6 +2661,7 @@ object RustCodeWalk:
       val ctx     = Ctx(intrinsics, userDefs, ctorMap, topVals, name, effectfulDefs, lseqs ++ paramSeqs ++ selfSeqFields, larrays, lstrings,
                         localSscChars = collectLocalSscChars(d.body),
                         localStringBuilders = collectLocalStringBuilders(d.body),
+                        localSets = collectLocalSets(d.body),
                         mapFields = collectMapFields(d, ctorMap),
                         seqFields = seqFieldsForDef,
                         localMaps = collectLocalMaps(d, collectMapFields(d, ctorMap)) ++ selfMapFields,
@@ -3105,6 +3114,23 @@ object RustCodeWalk:
           case _ => ()
         case v: m.Defn.Var => v.pats match
           case List(m.Pat.Var(m.Term.Name(n))) if isStringBuilderCtor(v.body) => names += n
+          case _ => ()
+        case _ => ()
+      t.children.foreach(walk)
+    walk(body)
+    names.toSet
+
+  /** Local val/var names bound to `scala.collection.mutable.HashSet.empty[T]` — see
+   *  `Ctx.localSets`'s own comment. Mirrors `collectLocalStringBuilders` immediately above. */
+  private def collectLocalSets(body: m.Term): Set[String] =
+    val names = scala.collection.mutable.Set.empty[String]
+    def walk(t: m.Tree): Unit =
+      t match
+        case v: m.Defn.Val => v.pats match
+          case List(m.Pat.Var(m.Term.Name(n))) if isEmptyCtorNamed(v.rhs, "HashSet") => names += n
+          case _ => ()
+        case v: m.Defn.Var => v.pats match
+          case List(m.Pat.Var(m.Term.Name(n))) if isEmptyCtorNamed(v.body, "HashSet") => names += n
           case _ => ()
         case _ => ()
       t.children.foreach(walk)
@@ -4227,6 +4253,13 @@ object RustCodeWalk:
     // ever reads by KEY (`.getOrElse`/`.get`), never iterates in declaration order.
     case t if isEmptyCtorNamed(t, "LinkedHashMap") =>
       Right("std::collections::HashMap::new()")
+    // `scala.collection.mutable.HashSet.empty[T]` (`uniml/xml`'s `Doc.scala`'s
+    // `validateNamespaces`, dedup-tracking prefixes/expanded-attribute-names) — a Rust `HashSet`
+    // mutates in place too. `Ctx.localSets` (not `localArrays`) tracks the bound name, since the
+    // two share this `.empty[T]` constructor syntax and only that table tells the RENDERER which
+    // Rust type to build.
+    case t if isEmptyCtorNamed(t, "HashSet") =>
+      Right("std::collections::HashSet::new()")
     // `Vector.newBuilder[T]` (`uniml/xml`'s `Doc.scala`'s `validateNamespaces`) — Scala's builder
     // pattern (`+=` to accumulate, `.result()` to finish); a Rust `Vec` already supports both
     // halves directly (`.push`, and `.result()` lowers to identity — see its own case below).
@@ -5314,6 +5347,58 @@ object RustCodeWalk:
     case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("toMap")), args)
         if args.values.isEmpty && isKnownMapReceiver(qual, ctx) =>
       renderTerm(qual, ctx)
+
+    // `stack.remove(i)` over a KNOWN local `ArrayBuffer`/`ListBuffer` (`uniml/xml`'s `Doc.scala`'s
+    // `validateNamespaces`: `stack.remove(stack.size - 1)`, a pop-from-the-end stack) — Scala's
+    // `Buffer.remove(idx)` and Rust's `Vec::remove(idx)` have the IDENTICAL signature and
+    // semantics (removes AND RETURNS the element at `idx`, shifting the rest down), so this is a
+    // pure rename plus the `usize` cast every index needs.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("remove")), args)
+        if args.values.size == 1 && isKnownVecReceiver(qual, ctx) =>
+      for
+        q <- renderTerm(qual, ctx)
+        i <- renderTerm(args.values.head, ctx)
+      yield s"$q.remove(($i) as usize)"
+
+    // `xs.reverseIterator.foreach(x => body)` (`uniml/xml`'s `Doc.scala`'s `validateNamespaces`:
+    // `element.children.collect { … }.reverseIterator.foreach(child => stack += ((child,
+    // bindings)))`) — the SAME `for p in q.iter().cloned() { body }` shape `renderVecIterBody`'s
+    // own `foreach`/`Term.Function` arm already renders, with `.rev()` inserted; not folded into
+    // that shared function since `.reverseIterator` is a QUALIFIER transform (it changes what `q`
+    // means), not a different `method`, and only `foreach` — no other combinator — is ever chained
+    // after it in this corpus.
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(m.Term.Select(inner, m.Term.Name("reverseIterator")), m.Term.Name("foreach")),
+        args
+    ) if args.values.sizeIs == 1 && isKnownVecReceiver(inner, ctx) =>
+      args.values.head match
+        case fn2: m.Term.Function if fn2.paramClause.values.sizeIs == 1 =>
+          val p0 = fn2.paramClause.values.head.name.value
+          val bodyCtx = enteringClosure(ctx, Set(p0))
+          for
+            q <- renderTerm(inner, ctx)
+            b <- (fn2.body match
+                    case blk: m.Term.Block => renderBody(blk, bodyCtx, isUnit = true)
+                    case t                 => renderTerm(t, bodyCtx))
+          yield
+            val stmtBody = if b.endsWith(";") then b else b + ";"
+            s"for $p0 in $q.iter().rev().cloned() {\n${indent(stmtBody)}\n}"
+        case _ =>
+          Left(List(unsupported(
+            s"def `${ctx.defName}` calls `.reverseIterator.foreach` with an unsupported argument shape"
+          )))
+
+    // `set.add(x)` over a KNOWN local `HashSet` (`uniml/xml`'s `Doc.scala`'s
+    // `validateNamespaces`: `if !declaredPrefixes.add(prefix) then …`) — Scala's mutable
+    // `Set.add` and Rust's `HashSet::insert` have the IDENTICAL signature and return semantics
+    // (`true` iff the value was not already present), so this is a pure rename, not a
+    // translation.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("add")), args)
+        if args.values.size == 1 && isKnownSetReceiver(qual, ctx) =>
+      for
+        q <- renderTerm(qual, ctx)
+        v <- renderTerm(args.values.head, ctx)
+      yield s"$q.insert($v)"
 
     // xs.flatMap(f) on a Vec, where `f` is an OBJECT-QUALIFIED FUNCTION REFERENCE (eta-expansion,
     // no call) — `uniml/xml`'s `Doc.scala`'s `unresolvedReferences`: `result.roots.flatMap(UniNode.
@@ -6540,6 +6625,10 @@ object RustCodeWalk:
     case m.Term.Name(n) => ctx.localStringBuilders.contains(n)
     case _               => false
 
+  private def isKnownSetReceiver(term: m.Term, ctx: Ctx): Boolean = term match
+    case m.Term.Name(n) => ctx.localSets.contains(n)
+    case _               => false
+
   private def isKnownVecReceiver(term: m.Term, ctx: Ctx): Boolean = term match
     case m.Term.Name(n) => ctx.localSeqs.contains(n) || ctx.localArrays.contains(n)
     case m.Term.Apply.After_4_6_0(m.Term.Name("List" | "Vector" | "Array"), _) => true
@@ -6550,7 +6639,11 @@ object RustCodeWalk:
     // and are deliberately absent, because saying yes to them would put `[0]` on an Option.
     case m.Term.Apply.After_4_6_0(m.Term.Select(q, m.Term.Name(
            "filter" | "filterNot" | "map" | "flatMap" | "sorted" | "sortBy" | "reverse" |
-           "distinct" | "take" | "drop" | "takeWhile" | "dropWhile" | "tail" | "init")), _) =>
+           "distinct" | "take" | "drop" | "takeWhile" | "dropWhile" | "tail" | "init" |
+           // `.collect { case … }` — added alongside its siblings for `element.children.collect {
+           // case child: Markup.Element => child }.reverseIterator` (`uniml/xml`'s `Doc.scala`'s
+           // `validateNamespaces`), which chains `.reverseIterator` right after it.
+           "collect")), _) =>
       isKnownVecReceiver(q, ctx)
     // A FIELD whose declared type is a sequence — `f.specs` on `case class Form(specs: List[…])` —
     // OR a zero-arg CALL to a known method/trait-default whose declared return type is a sequence:
@@ -8149,6 +8242,28 @@ object RustCodeWalk:
                  argClause.values.forall { case m.Pat.Var(_) => true; case _ => false }) =>
           val binderNames = argClause.values.collect { case m.Pat.Var(m.Term.Name(bn)) => bn }
           ctx.copy(byRefMut = ctx.byRefMut ++ binderNames + n)
+        // `case Markup.PI(target, data) => …` / `case PI(target, data) => …` — a positional ctor
+        // destructure WITHOUT a `@`-bind wrapper (the `Pat.Bind` case just above handles the bound
+        // form; this is the far more common unbound one, and had no type-threading case here at
+        // all before). Each POSITIONAL binder's type is the ctor's own DECLARED field type at that
+        // position (`ctorMap`'s `fieldTypes`, in already-rendered Rust-type-string form) —
+        // `data.nonEmpty` (`PI.data: String`, `uniml/xml`'s `Doc.scala`'s `serializeNode`) fell to
+        // the by-name-only "collection member" refusal because a positionally-destructured field
+        // had never been typed here, only a WHOLE-VALUE bind (`Pat.Typed`, above) had.
+        case m.Pat.Extract.After_4_6_0(callee, argClause)
+            if ctorNameOf(callee).flatMap(ctx.ctorMap.get).exists(_.fieldNames.sizeIs == argClause.values.size) =>
+          val ec = ctx.ctorMap(ctorNameOf(callee).get)
+          val binds = argClause.values.zip(ec.fieldTypes).collect {
+            case (m.Pat.Var(m.Term.Name(bn)), t) => bn -> t
+          }
+          val strNames = binds.collect { case (bn, "String") => bn }.toSet
+          val vecNames = binds.collect { case (bn, t) if t.startsWith("Vec<") => bn }.toSet
+          val mapNames = binds.collect { case (bn, t) if t.startsWith("std::collections::HashMap<") => bn }.toSet
+          ctx.copy(
+            localStrings = ctx.localStrings ++ strNames,
+            localSeqs    = ctx.localSeqs ++ vecNames,
+            localMaps    = ctx.localMaps ++ mapNames
+          )
         case _ => ctx
       for
         pat   <- renderPattern(c.pat, ctx)
@@ -8834,8 +8949,9 @@ object RustCodeWalk:
         // `val m = scala.collection.mutable.LinkedHashMap.empty[...]`: `m(k) = v` needs
         // `HashMap::insert`, which is `&mut self` too (`uniml/xml`'s `Doc.scala`'s
         // `readPseudoAttrs`, the first local Map this lane ever saw MUTATED via subscript-assign).
+        // Same for a local `HashSet`: `.insert` is `&mut self` too.
         val kw = if mutable || ctx.localArrays.contains(name) || ctx.localStringBuilders.contains(name) ||
-                    ctx.localMaps.contains(name)
+                    ctx.localMaps.contains(name) || ctx.localSets.contains(name)
                  then "let mut" else "let"
         val annotated: Either[List[Diagnostic], String] = decltpe match
           case None    => Right("")
