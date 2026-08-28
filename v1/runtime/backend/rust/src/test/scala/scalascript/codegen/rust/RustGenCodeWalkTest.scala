@@ -284,6 +284,64 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(g.contains("""panic!("{}", "nope".to_string())"""), s"exception-by-name throw did not lower:\n$g")
 
+  test("two defs sharing a bare name with DIFFERENT return types don't cross-contaminate"):
+    // `_returnTypes` is keyed by bare def name, module-wide. `uniml/xml`'s `Doc.scala` has both
+    // a `trait`'s `validate(...): List[X]` default method and a plain object's `validate(...):
+    // Result` — sharing the name `validate`. Before this fix, whichever won the flat map (or the
+    // dispatch-trait table, which was `++`-ed on UNCONDITIONALLY and could silently re-clobber a
+    // collision the def-side check had already caught) answered for BOTH: a struct-returning
+    // `validate`'s result got treated as a `Vec`, and reading a genuine field on it
+    // (`r.complete`) refused as an unlowered List member.
+    val src =
+      """```scalascript
+        |trait Codec:
+        |  def validate(x: Long): List[Long] = List(x)
+        |
+        |case class Result(complete: Boolean)
+        |
+        |object Foo:
+        |  def validate(x: Long): Result = Result(x > 0)
+        |  def check(x: Long): Boolean =
+        |    val r = validate(x)
+        |    r.complete
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("r.complete"), s"struct field read after a name-colliding call did not lower:\n$g")
+
+  test("a STRING-preserving chain rooted in a String param is still known to be a String"):
+    // `value.drop(2).takeWhile(pred)` (`uniml/xml`'s `Doc.scala`'s `validatePi`, `value: String`)
+    // is a String at every step, but `collectLocalStrings` only recognised `.toString`/`.trim`/
+    // `.mkString`/`.substring` directly, and its qualifier chain bottoms out in a bare PARAM name
+    // it had never seen (that set is seeded by the CALLER, after this function used to run) — so
+    // `target.isEmpty` fell to the by-name-only "collection member" refusal, unable to tell this
+    // was a String rather than a List.
+    val src =
+      """```scalascript
+        |def firstWord(value: String): String =
+        |  val target = value.drop(2).takeWhile(c => c != ' ')
+        |  if target.isEmpty then "-" else target
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("target.is_empty()"), s"chained-String isEmpty did not lower:\n$g")
+
+  test("`.nonEmpty` on an UNQUALIFIED call to a Vec-returning def lowers"):
+    // `unresolvedReferences(result).nonEmpty` (`uniml/xml`'s `Doc.scala`'s `projectMarkup`) calls
+    // a bare top-level def WITH an argument and immediately chains `.nonEmpty` — `isKnownVecReceiver`
+    // only recognised a QUALIFIED zero-arg call (`recv.method()`) or a bare NAME already bound to a
+    // known seq, neither of which this shape is.
+    val src =
+      """```scalascript
+        |def evens(n: Long): List[Long] = List(n, n + 2)
+        |def hasEvens(n: Long): Boolean = evens(n).nonEmpty
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("!evens(n).is_empty()") || g.contains(".is_empty()"),
+      s"nonEmpty on an unqualified Vec-returning call did not lower:\n$g")
+    assert(!g.contains(".nonEmpty"), s"nonEmpty survived unlowered:\n$g")
+
   test("`<<` and a `|` pattern alternative both lower"):
     val src =
       """```scalascript

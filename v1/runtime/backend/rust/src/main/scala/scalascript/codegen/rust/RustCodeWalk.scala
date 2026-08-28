@@ -338,17 +338,35 @@ object RustCodeWalk:
     _variantOwner = ctorMap.collect {
       case (ctor, ec) if !ec.isStruct && ec.enumName != ctor => ctor -> ec.enumName
     }.toMap
-    _returnTypes = defs.map { d =>
+    // Same bare NAME can belong to two unrelated defs (different enclosing object/trait) with
+    // DIFFERENT return types — `uniml/xml`'s `Doc.scala` has both `MarkupCodec.validate(doc, xsd):
+    // List[ValidationError]` and `XmlDialect.validate(result): XmlValidationResult`, sharing the
+    // bare name `validate`. A flat `.toMap` keeps whichever def happens to come LAST, so a caller
+    // asking this table about the OTHER one got a silently wrong answer: `val validation =
+    // validate(result)` (a struct) read back as `Vec<...>` because `validate` last resolved to the
+    // List-returning one, and the perfectly ordinary field read `validation.complete` then refused
+    // as an unlowered List member. Collapse to "no opinion" (empty string — the same answer an
+    // unresolvable type already gets) whenever a name resolves to more than one DISTINCT type,
+    // rather than silently picking one and being wrong for every other def sharing the name.
+    val defReturnPairs = defs.map { d =>
       d.name.value -> d.decltpe.flatMap(ty => mapType(ty, d.name.value, userTypeNames).toOption).getOrElse("")
-    }.toMap ++
-      // A dispatch trait's own member (`DialectAdapter.aliases: Set[String]`) is EXCLUDED from
-      // `defs` above (see `dispatchTraitMemberPos`'s own comment), so its return type would
-      // otherwise be invisible here too — and `isKnownVecReceiver`'s own new case (`adapter.
-      // aliases()`) reads exactly this table.
-      dispatchTraits.flatMap { dt =>
-        val ownNames = userTypeNames ++ dt.tparams.toSet
-        dt.members.map(mem => mem.name -> mapType(mem.ret, s"${dt.name}.${mem.name}", ownNames).getOrElse(""))
-      }.toMap
+    }
+    // A dispatch trait's own member (`DialectAdapter.aliases: Set[String]`) is EXCLUDED from
+    // `defs` above (see `dispatchTraitMemberPos`'s own comment), so its return type would
+    // otherwise be invisible here too — and `isKnownVecReceiver`'s own new case (`adapter.
+    // aliases()`) reads exactly this table. Gathered into the SAME collision check as `defs`
+    // below, rather than `++`-ed on afterward: appending a second map unconditionally overrides
+    // whatever the first decided, which is exactly how the collision this comment's neighbour
+    // fixes came back — `MarkupCodec.validate` is a plain `trait` default method, which routes
+    // through `dispatchTraits`, not `defs`, so the `++` silently overwrote the "no opinion" the
+    // `defs`-only collision check had just computed for `validate`.
+    val dispatchReturnPairs = dispatchTraits.flatMap { dt =>
+      val ownNames = userTypeNames ++ dt.tparams.toSet
+      dt.members.map(mem => mem.name -> mapType(mem.ret, s"${dt.name}.${mem.name}", ownNames).getOrElse(""))
+    }
+    _returnTypes =
+      (defReturnPairs ++ dispatchReturnPairs).groupMapReduce(_._1)(p => Set(p._2))(_ ++ _)
+        .map { case (n, ts) => n -> (if ts.sizeIs == 1 then ts.head else "") }
 
     // topVals must be collected after ctorMap so enum ctors are resolved correctly.
     // Given instances are injected as `let name = StructName;` bindings.
@@ -2595,7 +2613,9 @@ object RustCodeWalk:
       val stringParams = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
         .collect { case p if p.decltpe.exists { case m.Type.Name("String") => true; case _ => false } => p.name.value }
         .toSet
-      val lstrings = collectLocalStrings(d.body) ++ stringParams ++ _moduleStrings
+      // Seeded with `stringParams` so a chain rooted in one (`value.drop(2).takeWhile(…)`) is
+      // recognised too — see `collectLocalStrings`'s own comment.
+      val lstrings = collectLocalStrings(d.body, stringParams) ++ stringParams ++ _moduleStrings
       // Params declared `Any` hold a `crate::value::Value`. Read off the signature — the boundary
       // never guesses.
       val anyParams = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
@@ -2941,10 +2961,10 @@ object RustCodeWalk:
   private def collectCopyNames(d: m.Defn.Def): Set[String] =
     val out = scala.collection.mutable.Set.empty[String]
     // The same String set the concat path uses, so both answer "is this a String" the same way.
-    val strs = collectLocalStrings(d.body) ++
-      d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
-        .collect { case p if p.decltpe.exists { case m.Type.Name("String") => true; case _ => false } => p.name.value }
-        .toSet
+    val stringParams = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
+      .collect { case p if p.decltpe.exists { case m.Type.Name("String") => true; case _ => false } => p.name.value }
+      .toSet
+    val strs = collectLocalStrings(d.body, stringParams) ++ stringParams
     d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).foreach { p =>
       // A FUNCTION-typed param is `impl Fn(…)`, which has no `clone`: `no method named clone found
       // for type parameter impl Fn(String) -> bool` (std/litdoc.ssc). It is treated as clone-free
@@ -3082,13 +3102,26 @@ object RustCodeWalk:
     walk(body)
     names.toSet
 
-  private def collectLocalStrings(body: m.Term): Set[String] =
-    val strs = scala.collection.mutable.Set.empty[String]
+  private def collectLocalStrings(body: m.Term, seed: Set[String]): Set[String] =
+    val strs = scala.collection.mutable.Set.empty[String] ++ seed
+    // STRING-PRESERVING methods, the same idea `collectLocalSeqs`'s `SeqPreserving`/`rootedInSeq`
+    // already apply to `Vec` — `value.drop(2).takeWhile(pred)` (`uniml/xml`'s `Doc.scala`'s
+    // `validatePi`, over a `String` PARAMETER) is a String at every step, but neither of the two
+    // cases just above recognised it: it is not itself `.toString`/`.trim`/`.mkString`/
+    // `.substring`, and its qualifier chain bottoms out in a bare NAME the `Term.Name` case below
+    // only trusts once `seed` carries it — which is why this function now takes one, so a caller
+    // can hand in its String-typed params (see both call sites' own comments for why THAT was
+    // deferred rather than computed here: only the caller knows the def's parameter list).
+    val StringPreserving = Set("drop", "take", "dropWhile", "takeWhile", "dropRight", "takeRight",
+                               "stripPrefix", "stripSuffix", "stripMargin", "filter", "filterNot",
+                               "replace", "replaceAll", "toLowerCase", "toUpperCase", "strip", "reverse")
     def isStr(rhs: m.Term): Boolean = rhs match
       case m.Lit.String(_)                            => true
       case m.Term.Interpolate(m.Term.Name("s"), _, _) => true
       case m.Term.Select(_, m.Term.Name("toString" | "trim" | "mkString")) => true
       case m.Term.Apply.After_4_6_0(m.Term.Select(_, m.Term.Name("toString" | "trim" | "mkString" | "substring")), _) => true
+      case m.Term.Apply.After_4_6_0(m.Term.Select(q, m.Term.Name(n)), _) if StringPreserving.contains(n) => isStr(q)
+      case m.Term.Select(q, m.Term.Name(n)) if StringPreserving.contains(n) => isStr(q)
       case m.Term.Name(n)                             => strs.contains(n)
       case ifx: m.Term.If                             => isStr(ifx.thenp) || isStr(ifx.elsep)
       case m.Term.ApplyInfix.After_4_6_0(l, m.Term.Name("+"), _, args) =>
@@ -5896,6 +5929,14 @@ object RustCodeWalk:
     case m.Term.ApplyUnary(m.Term.Name("-"), arg) =>
       renderTerm(arg, ctx).map(a => s"-($a)")
 
+    // `return expr` — a non-local early exit from inside a loop, back to the ENCLOSING def
+    // (`uniml/xml`'s `XmlScanner`'s `readContent`: `while ... do ... return buf.toList`, followed
+    // by more code after the loop the early return skips). Rust's `return` has identical semantics
+    // and is a valid expression anywhere Scala's is (including a `while` body's statement
+    // position), so this is a pure pass-through; no case existed here at all before.
+    case m.Term.Return(e) =>
+      renderTerm(e, ctx).map(r => s"return $r")
+
     // `throw e` → a panic carrying the message as a `String` payload.
     //
     // ON THIS TARGET AN EXCEPTION IS ITS MESSAGE, and that is a deliberate narrowing rather than an
@@ -6320,6 +6361,13 @@ object RustCodeWalk:
       ctx.seqFields.get(r).exists(_.contains(f)) || _returnTypes.get(f).exists(_.startsWith("Vec<"))
     case m.Term.Apply.After_4_6_0(m.Term.Select(_, m.Term.Name(meth)), args)
         if args.values.isEmpty && _returnTypes.get(meth).exists(_.startsWith("Vec<")) => true
+    // The SAME return-type-declared-as-a-seq fact, for an UNQUALIFIED call rather than a
+    // qualified/zero-arg one — `unresolvedReferences(result).nonEmpty` (`uniml/xml`'s
+    // `Doc.scala`'s `projectMarkup`) calls a bare top-level def WITH an argument, which neither
+    // case above matches (one needs a `Term.Select` qualifier, the other needs zero args). Same
+    // trust, same table — `_returnTypes` is collision-safe (see its own comment).
+    case m.Term.Apply.After_4_6_0(m.Term.Name(n), _)
+        if _returnTypes.get(n).exists(_.startsWith("Vec<")) => true
     case _ => false
 
   /** A receiver the walker still knows to be numeric: a numeric literal, or arithmetic over them.
@@ -8354,6 +8402,19 @@ object RustCodeWalk:
         case List(inner) => renderPattern(inner, ctx).map(p => s"Some($p)")
         case _           => Left(List(unsupported(s"def `${ctx.defName}`: `Some` pattern takes exactly one binder")))
     case m.Term.Name("None") => Right("None")
+    // `case Left(diagnostic) => …` / `case Right(document) => …` over the BUILT-IN Either — the
+    // pattern-side twin of the constructor special case above (see its own comment for why): the
+    // built-in enum's variants are Rust TUPLE variants (`Left(L)`), registered in `ctorMap` with
+    // `fieldNames = Nil` so the constructor side's guard (`!... .exists(_.fieldNames.nonEmpty)`)
+    // can tell "no real definition" from "a real zero-field one". The generic `Pat.Extract` case
+    // below reads that same `Nil` as ARITY ZERO and refused every 1-arg extraction — `uniml/xml`'s
+    // `Doc.scala` (`parseMarkup(...) match { case Left(diagnostic) => … case Right(document) => …
+    // }`) hit exactly this. A source defining its OWN `Left`/`Right` (`std/either.ssc`) gets real
+    // struct variants and a non-empty `fieldNames`, so this guard yields to the ordinary path for
+    // that case, same as construction does.
+    case m.Pat.Extract.After_4_6_0(m.Term.Name(ctor @ ("Left" | "Right")), argClause)
+        if argClause.values.sizeIs == 1 && !ctx.ctorMap.get(ctor).exists(_.fieldNames.nonEmpty) =>
+      renderPattern(argClause.values.head, ctx).map(p => s"Either::$ctor($p)")
     case m.Pat.Extract.After_4_6_0(m.Term.Name(ctor), argClause) =>
       val args = argClause.values
       ctx.ctorMap.get(ctor) match
