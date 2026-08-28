@@ -398,6 +398,11 @@ object RustCodeWalk:
       }
     }.toMap
 
+    // Ambiguous topval names, BEFORE any topval is rendered: `contentTopVals` calls
+    // `topValEmitName` on every val it finds, so the ambiguity set must already be complete by
+    // then, the same ordering constraint `_ambiguousMembers` has relative to `_objectMembers`.
+    _ambiguousTopValNames = collectTopValOwnerPairs(module).groupBy(_._1)
+      .collect { case (n, ps) if ps.map(_._2).distinct.size > 1 => n }.toSet
     // topVals must be collected after ctorMap so enum ctors are resolved correctly.
     // Given instances are injected as `let name = StructName;` bindings.
     val baseTopVals = collectTopVals(module, ctorMap, intrinsics, userDefs)
@@ -1206,6 +1211,7 @@ object RustCodeWalk:
     val ctx0 = Ctx(intrinsics, userDefs, ctorMap, Nil, "<topval>")
     val found = scala.collection.mutable.ListBuffer.empty[TopVal]
     _topValOwners = Map.empty
+    _topValInits = Map.empty
     module.sections.foreach(s => sectionTopVals(s, ctx0, found))
     found.toList
 
@@ -1273,8 +1279,11 @@ object RustCodeWalk:
         v.pats match
           case List(m.Pat.Var(m.Term.Name(name))) =>
             renderTerm(v.rhs, ctx).foreach { init =>
-              found += ((name, init))
-              _topValOwners += (name -> owner)
+              found += ((topValEmitName(name, owner), init))
+              owner.foreach { o =>
+                _topValOwners += (name -> (_topValOwners.getOrElse(name, Set.empty) + o))
+                _topValInits += ((o, name) -> init)
+              }
             }
           case _ => ()
       }
@@ -1417,7 +1426,57 @@ object RustCodeWalk:
    *  init)`, so `selectOrNiladicCtor`'s qualified-topval case checks THIS map too, not just
    *  membership, or `ProcessBatch.empty` (a DIFFERENT thing entirely, a zero-arg DEF) could resolve
    *  through a same-named VAL belonging to neither object it could mean. */
-  private var _topValOwners: Map[String, Option[String]] = Map.empty
+  // A `Set` of owners per name, NOT a single `Option[String]` — `Limits`/`SerializeOpts`/
+  // `XmlLimits` (`uniml/xml`'s `Doc.scala`) EACH declare their own `object <T>: val default = …`,
+  // so "default" has THREE owners. A single-owner map remembers only the LAST one registered
+  // (`contentTopVals` runs one `+=` per topval, in source order) — every EARLIER owner's own
+  // qualified reference (`Limits.default`) then fails this map's own membership check and falls
+  // through to the zero-arg-def-call arm below, which appends `()` to a VAL: `Limits.default()`,
+  // `error[E0423]: expected value, found struct Limits`.
+  private var _topValOwners: Map[String, Set[String]] = Map.empty
+  // (owner, name) -> the topval's OWN rendered init text, populated in the SAME source-order pass
+  // as `_topValOwners`. Exists for ONE reason: a topval's initializer can reference an EARLIER
+  // topval by a qualified name (`XmlLimits`'s own `val default = XmlLimits()` fills its `core`
+  // field from `Limits.default`) — but `collectTopVals` renders every init through `ctx0`, whose
+  // `topVals` list is `Nil` (see its own comment), so there is no preamble to bind a bare-name
+  // reference to at that point. `selectOrNiladicCtor` detects that exact "rendering a topval's own
+  // init, no preamble mechanism is live" context and INLINES this already-computed string instead
+  // of emitting a name reference — well-defined precisely because Scala's own `val` evaluation
+  // order already forbids a topval from referencing one declared LATER in the same file.
+  private var _topValInits: Map[(String, String), String] = Map.empty
+  // Names whose bare spelling is shared by MORE than one topval owner — `qualifiedMemberName`'s
+  // twin for topvals, computed the same way `_ambiguousMembers` is (see `walk`'s own call site).
+  // An ambiguous name's PREAMBLE BINDING and its qualified REFERENCE both switch to `owner_name`
+  // (`topValEmitName`) so two same-named topvals stop shadowing each other in one `let` sequence.
+  private var _ambiguousTopValNames: Set[String] = Set.empty
+
+  /** The emitted Rust LOCAL NAME for a topval: qualified only when the bare name is CONTESTED by
+   *  another topval owner, exactly `qualifiedMemberName`'s rule for object-member defs. */
+  private def topValEmitName(name: String, owner: Option[String]): String =
+    if _ambiguousTopValNames.contains(name) then owner.fold(name)(o => s"${o}_$name") else name
+
+  /** Owner-carrying twin of `collectTopValNames` — same early, render-free pass (needed before
+   *  `ctorMap`/`intrinsics` exist), but keeping the owning object's name alongside each topval so
+   *  ambiguity can be decided PER PAIR rather than by bare name alone (two DIFFERENT objects each
+   *  declaring their own `val default` collide; the same object declaring it once does not). */
+  private def collectTopValOwnerPairs(module: ast.Module): List[(String, Option[String])] =
+    def fromContent(c: ast.Content): List[(String, Option[String])] = c match
+      case ast.Content.CodeBlock(lang, _, Some(node), _, _, _, _) if isScalaLang(lang) =>
+        val topStats0: List[m.Tree] = node.tree match
+          case m.Source(stats)     => stats.toList
+          case m.Term.Block(stats) => stats.toList
+          case single              => List(single)
+        def descend(stats: List[m.Tree], owner: Option[String]): List[(m.Tree, Option[String])] = stats.flatMap {
+          case obj: m.Defn.Object => descend(obj.templ.body.stats.toList, Some(obj.name.value))
+          case other              => List((other, owner))
+        }
+        descend(topStats0, None).collect { case (v: m.Defn.Val, owner) => (v, owner) }.flatMap { (v, owner) =>
+          v.pats.collect { case m.Pat.Var(m.Term.Name(n)) => (n, owner) }
+        }
+      case _ => Nil
+    def fromSection(s: ast.Section): List[(String, Option[String])] =
+      s.content.flatMap(fromContent) ++ s.subsections.flatMap(fromSection)
+    module.sections.flatMap(fromSection)
 
   /** Every zero-parameter, zero-type-parameter `def` name in the module (`TreeVm.scala`'s
    *  `start`/`step`/`stop` are exactly this shape — a Scala parameterless method, called with no
@@ -3085,6 +3144,16 @@ object RustCodeWalk:
     val topValNames = topVals.map(_._1).toSet
     val referenced =
       body.collect { case m.Term.Name(n) if topValNames.contains(n) => n }.toSet
+    // A CONTESTED topval (`_ambiguousTopValNames`) was renamed by `topValEmitName` to `owner_name`
+    // in `topVals` itself, so the bare-name scan just above can never match it — the source only
+    // ever spells it `Owner.name`. This is that qualified spelling's own scan, gated on the SAME
+    // (owner, name) membership `selectOrNiladicCtor`'s own qualified-topval case checks, so the two
+    // stay in lockstep by construction rather than by two independently-written conditions.
+    val qualifiedReferenced = body.collect {
+      case m.Term.Select(m.Term.Name(owner), m.Term.Name(field))
+          if _ambiguousTopValNames.contains(field) && _topValOwners.get(field).exists(_.contains(owner)) =>
+        topValEmitName(field, Some(owner))
+    }.toSet
     // A `summon[Trait[A]]` REFERENCES A GIVEN INSTANCE BY A NAME THAT IS NOT IN THE SOURCE — the
     // resolver supplies it, and this scan only ever looked at names the user typed. So the
     // instance's `let name = …Given;` binding was judged unreachable and dropped, while the call
@@ -3100,7 +3169,7 @@ object RustCodeWalk:
           case _                                            => None
         }.flatMap(resolveSummon)
     }.flatten.toSet
-    val all = referenced ++ summoned
+    val all = referenced ++ qualifiedReferenced ++ summoned
     if all.isEmpty then Nil
     else topVals.filter { case (n, _) => all.contains(n) }
 
@@ -5241,8 +5310,16 @@ object RustCodeWalk:
     // anywhere in this module — so an ordinary field read sharing the same NAME on some other type
     // never enters this arm: the second condition then fails everywhere, and the field-access
     // fallback two lines down still wins there, exactly as it always has.
+    //
+    // `_zeroArgDefNames` is NAME-ONLY, module-wide: `MarkupCodec.default` (a genuine `def default:
+    // MarkupCodec = _default`) put "default" in this set, and `Limits`/`XmlLimits`/`SerializeOpts`
+    // (`uniml/xml`'s `Doc.scala`) EACH separately declare their OWN `val default`, an unrelated
+    // companion TOP VAL — so `Limits.default` matched here too and got a call's `()` appended to a
+    // val: `Limits.default()`, `error[E0423]: expected value, found struct Limits`. The written
+    // QUALIFIER is positive evidence this specific access means a topval, not a def, and wins.
     case m.Term.Select(qual, m.Term.Name(field))
-        if _zeroArgDefNames.contains(field) && !ctx.ctorMap.values.exists(_.fieldNames.contains(field)) =>
+        if _zeroArgDefNames.contains(field) && !ctx.ctorMap.values.exists(_.fieldNames.contains(field)) &&
+           !(qual match { case m.Term.Name(o) => _topValOwners.get(field).exists(_.contains(o)); case _ => false }) =>
       renderTerm(qual, ctx).map(q => s"$q.${rustIdent(field)}()")
 
     // `m.toMap` (no parens — Scala elides `()` on a niladic method) over a KNOWN local Map
@@ -9350,7 +9427,30 @@ object RustCodeWalk:
       // HugeMethodLimit and `v1-jit-size` refuses growth; the helper is already on the Name path.
       // The ctorMap is consulted FIRST, so a program that declares its own `Nil` keeps it.
       case _ if n == "Nil" && !ctx.ctorMap.contains("Nil")  => "Vec::new()"
-      case _                                                => n
+      // `isHexDigit` referenced BARE as a value (`digits.forall(isHexDigit)`, `uniml/xml`'s
+      // `XmlScanner`) — a sibling def flattened to `XmlScanner_isHexDigit` (SITE 1, `renderDef`'s
+      // `qualifiedDefName`). The CALLED form (`isHexDigit(x)`) already resolves through this same
+      // per-def `intrinsics` map (SITE 3, `renderDef`'s own comment); this is that map's other
+      // consumer — an ETA-EXPANSION reaches `Term.Name` alone, with no `Term.Apply` around it, so
+      // it never took the SITE-3 path at all and rustc said "cannot find value" for the bare
+      // unqualified Scala name.
+      //
+      // GATED ON `userDefs`, NOT "any intrinsics hit" — `ctx.intrinsics` is SITE-3's sibling map
+      // `++`-merged with `intrinsics0`, the GLOBAL runtime registry (`println`, `element`, …), and
+      // that merge is unconditional for every def regardless of which object owns it. A `case
+      // element @ Markup.Element(name, attrs, children) => … element.attrs …` pattern-bind named
+      // "element" reached this catch-all too and matched `intrinsics0`'s OWN `element` entry
+      // (`std/ui`'s builder), rewriting the LOCAL variable into `crate::runtime::ui::_ui_element`
+      // (the function itself) — `error[E0609]: no field attrs on type fn(...) -> View`. SITE 3's
+      // own target is always a def THIS MODULE generates (`renderDef`'s comment on `baseArgs` makes
+      // the identical distinction the identical way); a real runtime intrinsic's target is always a
+      // `crate::runtime::…` path and is never in `userDefs` — so this check is what SITE 3 actually
+      // means, and the global registry's own entries are excluded by construction rather than by
+      // name.
+      case _ =>
+        ctx.intrinsics.get(QualifiedName(n)) match
+          case Some(RuntimeCall(target)) if ctx.userDefs.contains(target) => target
+          case _                                                         => n
 
   /** `Shape.Dot` — a QUALIFIED NILADIC enum constructor, and the THIRD twin in this family.
    *
@@ -9378,7 +9478,19 @@ object RustCodeWalk:
       // different companion objects can each declare their own topval under the same bare name
       // (see `_topValOwners`'s own comment), and without this check a `DialectRegistry.empty`
       // reference could resolve through `TreeVm`'s unrelated same-named val instead.
-      case m.Term.Name(enumName) if _topValOwners.get(field).flatten.contains(enumName) => field
+      //
+      // `collectTopVals` renders EVERY topval's own init through `ctx0` (`topVals = Nil`, no
+      // preamble mechanism at all — see its own comment), so `XmlLimits`'s `val default =
+      // XmlLimits()` filling its `core` field from `Limits.default` reaches this SAME case while
+      // ctx carries no such local to bind to. INLINE the referenced topval's own already-rendered
+      // init text instead of a name reference — well-defined because `_topValInits` only ever
+      // holds an EARLIER-declared topval's text by the time a later one's init is being rendered
+      // (Scala's own `val` evaluation order forbids the reverse), so the lookup always hits.
+      case m.Term.Name(enumName)
+          if ctx.topVals.isEmpty && ctx.defName == "<topval>" && _topValInits.contains((enumName, field)) =>
+        _topValInits((enumName, field))
+      case m.Term.Name(enumName) if _topValOwners.get(field).exists(_.contains(enumName)) =>
+        topValEmitName(field, Some(enumName))
       // `ProcessBatch.empty` — a companion `def empty[A]: ProcessBatch[A] = …` called WITHOUT
       // parens, Scala's ordinary spelling for a niladic def and `Processor.scala`'s actual one.
       // Parenthesised `ProcessBatch.empty(x)` already resolves (`_objectMembers`'s SITE 2, in the

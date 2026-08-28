@@ -782,3 +782,60 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(g.contains("data.is_empty()") || g.contains("!data.is_empty()"),
       s"positional-destructure field isEmpty/nonEmpty did not lower:\n$g")
+
+  test("two companion objects each declaring their own `val default` don't shadow each other"):
+    // `object Limits: val default = Limits()` / `object XmlLimits: val default = XmlLimits()`
+    // (`uniml/xml`'s `Doc.scala`) — a SINGLE-owner `_topValOwners` map remembered only the LAST
+    // "default" registered, so `Limits.default` (referenced from XmlLimits's own ctor-default fill
+    // for its `core` field) matched neither the topval case NOR the def case and fell to the
+    // zero-arg-def-call fallback, which appended `()` to a VAL: `Limits.default()`,
+    // `error[E0423]: expected value, found struct Limits`. Two fixes needed at once: the topval's
+    // own PREAMBLE BINDING is qualified (`XmlLimits_default`) when the bare name is contested, and
+    // a topval's init referencing an EARLIER topval (rendered with no preamble mechanism live at
+    // all) gets that earlier topval's init text INLINED rather than a name reference.
+    val src =
+      """```scalascript
+        |final case class Limits(maxDepth: Long = 10L)
+        |
+        |object Limits:
+        |  val default: Limits = Limits()
+        |
+        |final case class XmlLimits(core: Limits = Limits.default, maxSize: Long = 100L)
+        |
+        |object XmlLimits:
+        |  val default: XmlLimits = XmlLimits()
+        |
+        |def useIt(): XmlLimits = XmlLimits.default
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(!g.contains("Limits.default") && !g.contains("XmlLimits.default"),
+      s"a companion topval reference should never keep the Scala dot-qualified spelling:\n$g")
+    assert(g.contains("Limits { maxDepth: 10i64 }"),
+      s"XmlLimits's own default-fill for `core` should inline Limits's already-known init:\n$g")
+    assert(g.contains("XmlLimits_default"),
+      s"the contested topval name should get an owner-qualified preamble binding:\n$g")
+
+  test("a local variable bare-shadowing a GLOBAL runtime intrinsic name stays a local reference"):
+    // Regression on the `isHexDigit` fix just above: that fix routed a bare `Term.Name` through
+    // `ctx.intrinsics` so a SIBLING def (flattened with an owner prefix) resolves when referenced
+    // as a value with no call. But `ctx.intrinsics` is SITE-3's per-def sibling map `++`-merged
+    // with `intrinsics0`, the GLOBAL runtime registry (`println`, `element`, …), unconditionally
+    // for every def — so `case element @ Shape.Box(w) => element.area` (a pattern-bind named
+    // "element", colliding with `std/ui`'s builtin `element(...)` builder) rewrote the LOCAL
+    // variable into `crate::runtime::ui::_ui_element`, the function itself:
+    // `error[E0609]: no field area on type fn(...) -> View {_ui_element}`. Fixed by gating the
+    // fallback on `ctx.userDefs.contains(target)` — true only for a def THIS MODULE generates
+    // (a genuine sibling call), never for a `crate::runtime::…` runtime intrinsic's own target.
+    val src =
+      """```scalascript
+        |case class Box(w: Long)
+        |
+        |def describe(b: Box): Long =
+        |  b match
+        |    case element @ Box(w) => element.w
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(!g.contains("_ui_element"), s"a local `element` bind must not resolve to the runtime intrinsic:\n$g")
+    assert(g.contains("element).w"), s"the local bind should still read its own field:\n$g")

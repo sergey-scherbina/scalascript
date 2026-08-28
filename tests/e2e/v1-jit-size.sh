@@ -288,10 +288,23 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # outside `renderTerm` itself: `collectLocalMaps`'s walk had a `Defn.Val` case but no `Defn.Var`
 # one, so a Map-typed local declared MUTABLE (`var bindings = inherited`, reassigned later) was
 # never tracked at all. Same terms as every entry above. 70 errors remain.
+#
+# renderTerm 30632 -> 30740 (+108), from a THIRD round of `cargo-build`-driven fixes on uniml/xml
+# (60 -> 57 — 63 was the count right after the `Nothing -> !` fix; a separate E0499 borrow-checker
+# fix landed in between, in a prior commit, without touching renderTerm at all). Two fixes this
+# time: `selectOrNiladicCtor`'s companion-topval case gained an INLINE branch for a topval's own
+# init referencing an EARLIER topval with no preamble mechanism live (`XmlLimits`'s `val default =
+# XmlLimits()` filling `core` from `Limits.default`), and the pre-existing zero-arg-def-call arm
+# (`vm.start` with no parens) gained an exclusion so a qualifier that owns a TOPVAL by this name
+# wins over the name-only "some def somewhere is called this" guess (`Limits.default` vs
+# `MarkupCodec`'s unrelated `def default`) — that exclusion is an extra boolean literally inside
+# `renderTerm`'s own match guard, which is the growth. `bareNameOrNiladicCtor`'s OWN new fallback
+# (an eta-expanded bare sibling-def reference, `digits.forall(isHexDigit)`) sits OUTSIDE
+# `renderTerm` and cost it nothing directly. Same terms as every entry above. 57 errors remain.
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-30632 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+30740 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF
