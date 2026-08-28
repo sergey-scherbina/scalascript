@@ -247,10 +247,20 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # `Ctx.copy(...)` call sites × field count, not the arm count) no attempt was made to shrink it back
 # down by extraction; each new arm is a genuine `error[E0xxx]` this repo's own `cargo build` caught,
 # not a refactor. `uniml/core` went from 64 cargo errors to 0 across the three commits.
+#
+# renderTerm 23885 -> 27888 (+4003), from the uniml/xml dialect-module hardening batch (55 -> 3
+# diagnostics against the merged xml+markup+core module): `Left`/`Right` patterns over the built-in
+# Either, `Term.Return`, `.isInstanceOf[T]` -> `matches!`, `.mkString`/`.toMap` no-paren dispatch,
+# `.collect(pf)` -> `filter_map`, `.takeWhile`/`.dropWhile`/`.sortBy` on a Vec,
+# `.flatMap(Obj.member)` (object-qualified function reference), `ListBuffer`/`ArrayBuffer`/
+# `LinkedHashMap`/`Vector.newBuilder`/`HashSet` constructors plus `+=`/`m(k)=v`/`.result()`/
+# `.add`/`.remove`/`.reverseIterator.foreach`. Same terms as the entry above: each arm is a genuine
+# lowering gap this session's own `--print-only` diagnostic count and `cargo build` caught, not a
+# refactor, and "split it up" still does not apply for the reason recorded there.
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-23885 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+27888 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF
