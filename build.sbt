@@ -2694,6 +2694,19 @@ lazy val cli = project
       "--no-fallback",
       "--initialize-at-build-time=scala",
       "--initialize-at-build-time=scalascript",
+      // WITHOUT THIS, THE NATIVE BINARY CANNOT MAKE ANY NETWORK REQUEST AT ALL — no URL protocol
+      // handler is included by default, so `RegistryClient`'s `HttpURLConnection` throws
+      // `MalformedURLException: Accessing a URL protocol that was not enabled` on the FIRST byte of
+      // any `http://` or `https://` fetch, and `fetchYaml`'s `Try{}.toOption.flatten` swallows it —
+      // `ssc search`/`add`/`info` (the whole plugin registry) printed "0 packages" in every native
+      // binary shipped in v0.1.0, v0.1.1 and v0.2.0, silently. tests/BUGS.md
+      // `native-image-has-no-http-url-protocol`.
+      //
+      // VERIFIED, not assumed: a minimal `native-image`-compiled program without this flag threw
+      // that exact exception for BOTH `http://` and `https://`; the SAME program rebuilt with only
+      // this flag reached `code=200` for both, no additional trust-store or security-service flag
+      // needed — GraalVM 21.0.11 bundles the JDK's cacerts into the image already.
+      "--enable-url-protocols=http,https",
       // Anchored on the BUILD ROOT, not on a count of `..` from cli's base dir.
       // These previously read `baseDirectory / ".." / ".."`, which from
       // v1/tools/cli resolves to v1/native-image-configs — a directory that does

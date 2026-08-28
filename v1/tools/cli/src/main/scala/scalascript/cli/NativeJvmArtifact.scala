@@ -118,7 +118,7 @@ private[cli] object NativeJvmArtifact:
 
     val compilation = RunNativeV2.compile(files.toList)
     val installRoot = Option(System.getProperty("ssc.lib.path")).map(new File(_)).getOrElse {
-      throw new IllegalStateException("build-jvm requires a staged installation (ssc.lib.path is unset)")
+      throw new IllegalStateException(NativeImageInstallRoot.MissingInstallRootMessage)
     }
     val out = new File(output.get).getCanonicalFile
     write(

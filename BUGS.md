@@ -1,13 +1,117 @@
+# Cross-module bugs
+
+Per-module bug files live in the modules — see `specs/work-tracking-layout.md` for the
+layout and `specs/bugs-index.md` for the entry format. **This file holds only entries that
+no single module owns**: the same defect present in more than one implementation, where the
+root is the nearest common ancestor. It is not a leftovers bin — if an entry here turns out
+to be one module's, move it and change its `lane:`.
+
+Query across every file at once:
+
+```sh
+scripts/bugs-report                        # counts by status, per module
+scripts/bugs-report --module v2 --status open
+scripts/bugs-report --no-gate              # open entries with no regression gate named
+```
+
+Newest first.
+
+## native-binary-missing-front-message-blamed-a-checkout-that-cannot-exist — an end-user error mentioned `scripts/sbtc`
+
+<!-- status: open
+     lane: multi
+     kind: bug
+     area: build
+     gate: v1/tools/cli/src/test/scala/scalascript/cli/NativeImageInstallRootTest.scala
+     reported-by: claude-code
+     reported-at: 2026-08-28
+     confirmed: yes -->
+
+**Diagnosed and fixed 2026-08-28; the header flips in the follow-up commit that can name the SHA.** Reported live: `./ssc-macos-arm64 ./hello.ssc` threw
+
+```
+Exception in thread "main" java.lang.IllegalStateException: native frontend requires a staged
+installation (ssc.lib.path is unset); run scripts/sbtc "installBin" and use bin/ssc
+```
+
+— to someone who had downloaded the release binary, had no checkout, and for whom
+`scripts/sbtc` names nothing. **The message could never have been right for its audience,
+because it could never reach any other audience**: `NativeImageInstallRoot.configure()` only
+calls `discoverRoot` when `org.graalvm.nativeimage.imagecode == "runtime"`, i.e. only inside a
+native-image binary — a JVM launcher (`bin/ssc`, `bin/ssc-tools`) always sets `ssc.lib.path`
+itself in its shell wrapper and can never reach this throw site. So a checkout, where
+`scripts/sbtc` and `bin/ssc` exist, is not merely a wrong guess about the reader — it is a
+state that CANNOT coexist with this error firing at all.
+
+**REPRODUCED, not assumed.** The release publishes a bare `ssc-<platform>` executable at the
+top level of the GitHub Release page, alongside `ssc-<platform>.tar.gz` — visually
+indistinguishable, and the bare one can never work alone: `discoverRoot` requires
+`bin/lib/standard/native-front` next to the executable (two accepted layouts, `<root>/ssc` or
+`<root>/bin/ssc`), which only the archive provides. `curl`-ing the bare asset alone and running
+it against any `.ssc` file throws this exact message, on the real published v0.2.0 binary.
+
+**THE SAME WRONG WORDING WAS WRITTEN TWICE**, in `RunNativeV2.nativeFrontLayout` and
+`NativeJvmArtifact.runCommand` (`build-jvm`) — both throw for the identical reason and had
+drifted (`build-jvm`'s copy never mentioned `scripts/sbtc` at all, `RunNativeV2`'s did), which
+is how it went unnoticed that the wording was wrong for a checkout audience it can't have.
+Consolidated into one `NativeImageInstallRoot.MissingInstallRootMessage`, naming the two real
+remedies: get `ssc-<platform>.tar.gz` and unpack it whole, or point `SSC_LIB_PATH` at an
+existing `bin/lib/standard/native-front` layout.
+
+Verified: `NativeImageInstallRootTest` asserts the message names `ssc-<platform>.tar.gz` and
+`SSC_LIB_PATH` and does NOT mention `sbtc`/`bin/ssc`, so this cannot regress silently.
+
 ## native-image-has-no-http-url-protocol — the published native binary cannot make ANY network request
 
 <!-- status: open
      lane: multi
      kind: bug
      area: build
-     gate: none
+     gate: scripts/native-release-qualify
      reported-by: claude-code
      reported-at: 2026-08-28
      confirmed: yes -->
+
+**Diagnosed and fixed 2026-08-28; the header flips in the follow-up commit that can name the SHA.**
+`graalVMNativeImageOptions` (`build.sbt`) now includes
+`--enable-url-protocols=http,https`.
+
+**VERIFIED ON THE REAL PRODUCT, both directions, not on a minimal reproducer alone.** A full
+`ssc` native image was rebuilt locally with the flag and run against the LIVE registry:
+
+```
+before (the published v0.2.0 binary): Fetching registry... (0 packages)
+after  (rebuilt with the flag):       Fetching registry... (5 packages)
+                                       1 result(s) for 'json': io.scalascript/json ...
+```
+
+HTTPS worked with no additional trust-store or security-service flag — GraalVM 21.0.11 already
+bundles the JDK's cacerts into the image. Isolated first on a 5-line reproducer to name the
+exact flag (GraalVM's own refusal message states it): a native-image build of a program calling
+`HttpURLConnection` without the flag throws
+`MalformedURLException: Accessing a URL protocol that was not enabled` for BOTH `http://` and
+`https://`, ruling out a certificate-specific problem; the same program rebuilt with only this
+flag reached both over a real socket.
+
+**NEW QUALIFICATION ROW, so this cannot regress silently again** — the reason it shipped in
+v0.1.0, v0.1.1 and v0.2.0 unnoticed is that no gate exercised the network path at all.
+`scripts/native-release-qualify` starts a LOCAL HTTP server (not `sergey-scherbina.github.io` —
+a gate that curls a live external domain is red on GitHub's bad afternoons, which this project
+has already paid for once, `install-channels-are-real.sh`'s own header) and runs
+`search --refresh --registry http://127.0.0.1:<port>/packages.yaml` against it. Proven as a
+negative control, not assumed: run against the OLD (unfixed) published v0.2.0 binary, the exact
+same qualify command fails at this new check with `Fetching registry... (0 packages)`; against
+the rebuilt binary it passes. `tests/e2e/native-release-qualification.sh`'s compare-first
+harness grew four rows for it (`search-exit`, `search-stdout`, `search-network`,
+`search-timeout`) — 68/68 cases pass.
+
+**A SECOND, UNRELATED BUG FOUND WHILE VERIFYING THIS ONE**: the qualify script's `cleanup()`
+trap could report the wrong exit code. Once the network check started a background server,
+`kill "$PID"` after it had already been explicitly stopped returned non-zero, and under
+`set -euo pipefail` that failure — inside an `EXIT` trap — overrode an otherwise-successful
+run's exit status. A fully passing qualification (stdout printed `QUALIFIED ...`) still exited
+1. Fixed by moving the kill inside an `if`/`|| true` so no cleanup step can fail the trap.
+Caught by running the real qualify script end-to-end rather than trusting the printed summary.
 
 **`ssc search`, `ssc add`, `ssc info <name>` — the whole plugin/package registry — is dead in
 every published native binary, silently.** A user downloaded v0.1.1, ran `ssc search --refresh`,

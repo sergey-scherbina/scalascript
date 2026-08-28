@@ -127,6 +127,19 @@ class NativeImageInstallRootTest extends AnyFunSuite:
       ).isEmpty)
     assert(queries == 1)
 
+  // The message this class provides for RunNativeV2/NativeJvmArtifact to throw when discovery
+  // fails. It is asserted HERE, not only where it is thrown, because the situation that reaches
+  // either throw site is exactly the one `configure()` documents above: `isNativeRuntime` is the
+  // only path that ever calls `discoverRoot`, so a checkout (where `scripts/sbtc` and `bin/ssc`
+  // exist) can never be the audience. The old wording named them anyway; this asserts it cannot
+  // happen again by naming what the message must and must not say.
+  test("the missing-install-root message is actionable for a downloaded release binary, not a checkout"):
+    val message = NativeImageInstallRoot.MissingInstallRootMessage
+    assert(message.contains("ssc-<platform>.tar.gz"), message)
+    assert(message.contains("SSC_LIB_PATH"), message)
+    assert(!message.contains("sbtc"), message)
+    assert(!message.contains("bin/ssc"), message)
+
   test("ships native-image runtime initialization for the application namespace"):
     val resource =
       "META-INF/native-image/scalascript/ssc/native-image.properties"

@@ -917,8 +917,7 @@ object RunNativeV2:
 
   private def nativeFrontLayout(): NativeFrontLayout =
     val installRoot = Option(System.getProperty("ssc.lib.path")).map(new java.io.File(_)).getOrElse {
-      throw new IllegalStateException(
-        "native frontend requires a staged installation (ssc.lib.path is unset); run scripts/sbtc \"installBin\" and use bin/ssc")
+      throw new IllegalStateException(NativeImageInstallRoot.MissingInstallRootMessage)
     }
     val standardBase = new java.io.File(installRoot, "bin/lib/standard/native-front")
     val legacyBase = new java.io.File(installRoot, "bin/lib/native-front")

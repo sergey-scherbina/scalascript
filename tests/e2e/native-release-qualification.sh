@@ -257,6 +257,29 @@ println(answer)'
   esac
 fi
 
+# `search --refresh --registry <url> network-check` — the network-protocol check
+# (native-image-has-no-http-url-protocol). The URL is not inspected: this fixture proves the
+# QUALIFY SCRIPT's own assertions, not that a real registry answered.
+if [ "$#" -eq 5 ] && [ "$1" = "search" ] && [ "$2" = "--refresh" ] && [ "$3" = "--registry" ] && [ "$5" = "network-check" ]; then
+  case "$fixture_mode" in
+    search-exit) exit 9 ;;
+    search-stdout) printf "No packages found for 'network-check'.\\n"; exit 0 ;;
+    # Contains the name (passes the FIRST assertion) so the SECOND — the empty-registry
+    # fallback text — is what's actually exercised, mirroring `vm-extra-newline` above:
+    # a fixture shaped to hit one specific assertion, not a realistic transcript.
+    search-network)
+      printf 'qualify-fixture/network-check\\n'
+      printf 'Registry is empty or could not be fetched.\\n'
+      exit 0
+      ;;
+    search-timeout) /bin/sleep 5; exit 0 ;;
+  esac
+  printf 'Fetching registry... (1 packages)\\n'
+  printf "1 result(s) for 'network-check':\\n"
+  printf '  qualify-fixture/network-check\\n'
+  exit 0
+fi
+
 printf 'unexpected fake ssc args:' >&2
 printf ' %s' "$@" >&2
 printf '\\n' >&2
@@ -570,6 +593,10 @@ expect_fail asm-refusal-silent  asm-refusal-names-flag
 expect_fail version-timeout version-timeout
 expect_fail vm-timeout vm-timeout
 expect_fail asm-timeout asm-timeout
+expect_fail search-exit    search-exit
+expect_fail search-stdout  search-stdout
+expect_fail search-network search-network
+expect_fail search-timeout search-timeout
 expect_fail plugin-java-exit plugin-host-exit wrong-exit
 expect_fail plugin-java-stdout plugin-host-stdout wrong-stdout
 expect_fail plugin-java-stderr plugin-host-stderr wrong-stderr

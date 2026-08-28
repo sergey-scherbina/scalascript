@@ -86,7 +86,13 @@ if [[ ! -x $DIRECT_BINARY ]]; then
 fi
 
 QUALIFY_TMP=$(mktemp -d "${TMPDIR:-/tmp}/ssc-native-release.XXXXXX")
+# Read at CALL time, not here: the registry-server check below sets this only if it starts one, so
+# a failure anywhere earlier in the script (nothing to kill yet) leaves this a harmless no-op — but
+# a failure AFTER it starts (a fail_check inside the network row, or any later `set -e` exit) still
+# tears the server down instead of leaking a listener on a fixed port for the rest of the host's day.
+REGISTRY_SERVER_PID=""
 cleanup() {
+  if [[ -n "$REGISTRY_SERVER_PID" ]]; then kill "$REGISTRY_SERVER_PID" 2>/dev/null || true; fi
   rm -rf "$QUALIFY_TMP"
 }
 trap cleanup EXIT HUP INT TERM
@@ -623,6 +629,62 @@ if re.fullmatch(pattern, actual) is None:
     print(repr(actual), file=sys.stderr)
     raise SystemExit(1)
 PY
+
+# THE BINARY CAN MAKE A NETWORK REQUEST AT ALL — `ssc search`/`add`/`info` (the whole plugin
+# registry) went silently dead for three releases because native-image ships no URL-protocol
+# handler unless one is enabled at build time; `RegistryClient.fetchYaml`'s `Try{}.toOption.flatten`
+# swallowed the exception, so every prior qualification passed while the feature was gone.
+# tests/BUGS.md `native-image-has-no-http-url-protocol`.
+#
+# A LOCAL SERVER, NOT sergey-scherbina.github.io — this checks GraalVM's URL-protocol capability,
+# which is what actually regressed; it is not a check that the real registry is reachable, and a gate
+# that curls an external domain is red on GitHub's bad afternoons, which this project has already
+# paid for once (`install-channels-are-real.sh`'s own header). The port avoids the 8766-8769 range
+# other e2e gates already use on a shared host.
+REGISTRY_DIR="$QUALIFY_TMP/registry"
+mkdir -p "$REGISTRY_DIR"
+cat >"$REGISTRY_DIR/packages.yaml" <<'YAML'
+- name: qualify-fixture/network-check
+  version: 1.0.0
+  description: "fixture package for native-release-qualify's network check"
+YAML
+REGISTRY_PORT=$((19000 + ($$ % 500)))
+( cd "$REGISTRY_DIR" && exec "$PYTHON" -m http.server "$REGISTRY_PORT" --bind 127.0.0.1 \
+    >"$QUALIFY_TMP/registry-server.log" 2>&1 ) &
+REGISTRY_SERVER_PID=$!
+registry_up=0
+for _ in $(seq 1 50); do
+  if "$PYTHON" -c "
+import socket, sys
+s = socket.socket()
+s.settimeout(0.2)
+try:
+    s.connect(('127.0.0.1', $REGISTRY_PORT))
+except OSError:
+    sys.exit(1)
+finally:
+    s.close()
+" ; then
+    registry_up=1
+    break
+  fi
+  sleep 0.1
+done
+if [[ $registry_up -ne 1 ]]; then
+  fail_check "registry-server" "listening within 5s" "never came up: $(file_repr "$QUALIFY_TMP/registry-server.log")"
+fi
+
+run_process search runtime "$RUN_DIR" "$SSC_EXE" search --refresh \
+  --registry "http://127.0.0.1:$REGISTRY_PORT/packages.yaml" network-check
+kill "$REGISTRY_SERVER_PID" 2>/dev/null || true
+wait "$REGISTRY_SERVER_PID" 2>/dev/null || true
+expect_exit search 0
+if ! grep -qF "qualify-fixture/network-check" "$LAST_STDOUT"; then
+  fail_check "search-stdout" "a result naming qualify-fixture/network-check" "$(file_repr "$LAST_STDOUT")"
+fi
+if grep -qiF "registry is empty" "$LAST_STDOUT"; then
+  fail_check "search-network" "a real fetch, not the empty-registry fallback" "$(file_repr "$LAST_STDOUT")"
+fi
 
 run_process vm runtime "$RUN_DIR" "$SSC_EXE" run --v2 --interpret release-probe.ssc
 expect_exit vm 0
