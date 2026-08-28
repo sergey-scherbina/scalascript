@@ -135,10 +135,11 @@ cp "$ROOT/bin/ssc" "$slim/bin/ssc"
 cp "$ROOT/bin/ssc-standard" "$slim/bin/ssc-standard"
 chmod +x "$slim/bin/ssc" "$slim/bin/ssc-standard"
 
-# Delete the complete compatibility/tools surface from the copied install.
+# Delete the complete compatibility/tools surface from the copied install. native-front is NOT
+# tools-only anymore — it ships as ONE copy (specs/arch-lib-path-resolution.md §7) that both the
+# standard and tools launcher resolve the same way, so it stays.
 rm -rf "$slim/bin/lib/jars" \
        "$slim/bin/lib/compiler" \
-       "$slim/bin/lib/native-front" \
        "$slim/bin/lib/ssc.jar" \
        "$slim/bin/ssc-tools"
 
@@ -154,8 +155,9 @@ for compiler in scala-cli scalac javac; do
 done
 
 standard="$slim/bin/lib/standard"
-if [[ ! -f "$standard/ssc.jar" || ! -d "$standard/jars" || ! -d "$standard/native-front" ]]; then
-  fail_check "standard layout present" "expected ssc.jar, jars/, and native-front/ under $standard"
+if [[ ! -f "$standard/ssc.jar" || ! -d "$standard/jars" || ! -d "$slim/bin/lib/native-front" ]]; then
+  fail_check "standard layout present" \
+    "expected ssc.jar and jars/ under $standard, and lib/native-front/ (shared, no tier prefix)"
 fi
 if [[ -e "$slim/bin/lib/compiler" || -e "$slim/bin/lib/jars" || -e "$slim/bin/lib/ssc.jar" ]]; then
   fail_check "tools layout removed" "compiler/, lib/jars/, or lib/ssc.jar survived under $slim/bin/lib"

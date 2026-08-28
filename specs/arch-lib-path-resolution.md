@@ -236,3 +236,40 @@ front/std trees + manifests). `scripts/smoke-ci` 116/116 green. Manually rebuilt
 `ssc-macos-arm64` + assembled archive on the new layout (`lib/std/*.ssc` at the top level,
 `lib/standard/native-front/` containing only `tower/`): `std/json.ssc` resolution and network
 (`search --refresh`) both verified end-to-end.
+
+## 7. `native-front` drops the `standard/` prefix; the legacy duplicate is gone
+
+Before this section, `native-front` was staged TWICE per archive — once at `lib/standard/
+native-front/` and once again, byte-identical, at `lib/native-front/` (no prefix, called "legacy"
+in code and comments). `RunNativeV2.nativeFrontLayout` picked whichever it found first, always
+`standardBase` (`lib/standard/native-front/`), because `standardDir` was staged unconditionally by
+`build.sbt` and therefore always existed — so the "legacy" copy was never actually read by anything;
+it was staged, shipped, and qualified for no reason.
+
+Asked directly why the prefix existed at all: it was inherited from the tools-tier vs.
+standard-tier classpath split (`bin/lib/jars/` + `bin/lib/ssc.jar` for `ssc-tools` vs.
+`bin/lib/standard/jars/` + `bin/lib/standard/ssc.jar` for the class-filtered `ssc`), a split that is
+real and stays — but `native-front` itself is not tier-specific data; both launcher tiers read the
+exact same self-hosted tower. Tagging it with a tier prefix implied a distinction that never
+existed for this asset.
+
+`native-front` now ships as exactly one copy, `lib/native-front/`, resolved through
+`NativeImageInstallRoot.resolveUnderLib(installRoot, "native-front")` like every other `lib/`-
+relative asset (§1) — `FrontMarker` changed from `Paths.get("standard", "native-front")` to
+`Paths.get("native-front")`, and `RunNativeV2`'s `standardBase`/`legacyBase`/`base` three-variable
+dance collapsed to a single `resolveUnderLib` call. `build.sbt` no longer runs the second
+`IO.copyDirectory` that produced the duplicate.
+
+The release workflow, `scripts/native-release-qualify` (allowlist, required files, manifest
+verification), `tests/e2e/native-release-qualification.sh`'s fixture generator, and every e2e gate
+that hardcoded `bin/lib/standard/native-front/…` were all updated to the single `bin/lib/
+native-front/…` path — including `tests/e2e/v21-slim-distribution-gate.sh`, which used to delete
+`bin/lib/native-front` (the then-legacy, then-dead copy) as tools-only cruft; deleting it now would
+break the standard tier, since it is the one shared copy both tiers resolve.
+
+Verified: `NativeImageInstallRootTest` 14/14 green. `scripts/smoke-ci` 116/116 green (including a
+full, untruncated `f-output-agreement-gate.sh` run — 351 measured, 308 agree, F-wrong 0 — and
+`f-front-cache-gate.sh`). Manually rebuilt `ssc-macos-arm64` + assembled archive: layout is flat —
+`ssc`, `lib/native-front/`, `lib/std/`, `lib/ssc-plugin-host.jar` — no `standard/` anywhere;
+`std/json.ssc` resolution, `search --refresh`, and the missing-`lib/` error message on a bare-binary
+copy all reconfirmed end-to-end.

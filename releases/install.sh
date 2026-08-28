@@ -76,10 +76,10 @@ fetch "$BASE_URL/$ARTIFACT.tar.gz.sha256" "$tmp/$ARTIFACT.tar.gz.sha256"
     exit 1
   fi )
 
-# THE LAYOUT IS NOT DECORATION. The native binary finds its staged front by walking up from its OWN
-# real path looking for `bin/lib/standard/native-front` (NativeImageInstallRoot), so the archive has
-# to be unpacked whole and the launcher has to point INTO it. `toRealPath()` resolves the symlink
-# first, which is why a symlink works here and a copy of the binary alone would not.
+# THE LAYOUT IS NOT DECORATION. The native binary finds its staged lib/ by walking up from its OWN
+# real path looking for `lib/native-front` (NativeImageInstallRoot), so the archive has to be
+# unpacked whole and the launcher has to point INTO it. `toRealPath()` resolves the symlink first,
+# which is why a symlink works here and a copy of the binary alone would not.
 rm -rf "$LIB_DIR"
 mkdir -p "$LIB_DIR" "$BIN_DIR"
 tar -xzf "$tmp/$ARTIFACT.tar.gz" -C "$LIB_DIR"

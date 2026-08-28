@@ -293,7 +293,7 @@ source-located error before plugin installation. CommonMark/Flexmark are not on
 the standard path.
 
 Standalone Markdown link imports resolve relative to the importing file;
-`std/...` resolves against `bin/lib/native-front/runtime`. The loader
+`std/...` resolves against `bin/lib/std`. The loader
 deduplicates normalized module paths, accepts multiple source files before
 `--`, and forwards only the values after `--` as program arguments. Prose and
 inline-code links are not imports. There is no transparent fallback: explicitly
@@ -393,8 +393,10 @@ bin/ssc info --execution-plan --bytecode
 ```
 
 Its classpath is only `bin/lib/standard/ssc.jar` plus the explicit JAR allowlist
-under `bin/lib/standard/jars/`; its self-hosted tower and std sources live under
-`bin/lib/standard/native-front/`. The entry JAR itself is class-filtered, so it
+under `bin/lib/standard/jars/`; its self-hosted compiler tower lives at
+`bin/lib/native-front/` (shared with `ssc-tools`, not tier-specific) and the
+staged std library lives separately at `bin/lib/std/`. The entry JAR itself is
+class-filtered, so it
 does not retain dormant compatibility command references. A standard request
 for a compiler-backed or compatibility command fails before source execution
 with a diagnostic naming `ssc-tools`.

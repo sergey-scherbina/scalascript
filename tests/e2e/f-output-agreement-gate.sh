@@ -297,14 +297,14 @@ if [ "${1:-}" = "--self-test" ]; then
   base=$(digest)
   # what a REBUILD does to F: it restages the source. This is the row that would have caught the
   # first version, where `.build-digest` carried the F edit into the key.
-  st_holds "the staged F front" "$ROOT/bin/lib/standard/native-front/tower/bin/fsub.ssc"
-  st_holds "the F runner"       "$ROOT/bin/lib/standard/native-front/tower/bin/ssc1-run-fsub.ssc0"
+  st_holds "the staged F front" "$ROOT/bin/lib/native-front/tower/bin/fsub.ssc"
+  st_holds "the F runner"       "$ROOT/bin/lib/native-front/tower/bin/ssc1-run-fsub.ssc0"
   st_holds "the build digest"   "$ROOT/bin/lib/.build-digest"
   # the narrowing that motivated this: registering a gate must not cost the whole cache
   st_holds "scripts/smoke-ci.ssc" "$ROOT/scripts/smoke-ci.ssc"
   # …and the other direction, because a key that holds for everything is not a key
-  st_moves "the reference lowerer" "$ROOT/bin/lib/standard/native-front/tower/lib/ssc1-lower.ssc0"
-  st_moves "the reference front"   "$ROOT/bin/lib/standard/native-front/tower/lib/ssc1-front.ssc0"
+  st_moves "the reference lowerer" "$ROOT/bin/lib/native-front/tower/lib/ssc1-lower.ssc0"
+  st_moves "the reference front"   "$ROOT/bin/lib/native-front/tower/lib/ssc1-front.ssc0"
   # the runtime is covered by its SOURCES, since its jars carry mtimes and cannot be hashed usefully
   st_moves "the CLI runtime source" "$ROOT/v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala"
 

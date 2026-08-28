@@ -919,9 +919,10 @@ object RunNativeV2:
     val installRoot = Option(System.getProperty("ssc.lib.path")).map(new java.io.File(_)).getOrElse {
       throw new IllegalStateException(NativeImageInstallRoot.MissingInstallRootMessage)
     }
-    val standardBase = NativeImageInstallRoot.resolveUnderLib(installRoot, "standard/native-front")
-    val legacyBase = NativeImageInstallRoot.resolveUnderLib(installRoot, "native-front")
-    val base = if standardBase.isDirectory then standardBase else legacyBase
+    // No more "standard" tier vs "legacy" no-prefix duplicate — native-front ships as ONE copy at
+    // lib/native-front/, resolved the same way as every other lib/-relative asset (specs/arch-
+    // lib-path-resolution.md §7).
+    val base = NativeImageInstallRoot.resolveUnderLib(installRoot, "native-front")
     val useF = frontIsF
     val defaultRunner = new java.io.File(base, "tower/bin/ssc1-run.ssc0")
     val runnerName = if useF then "ssc1-run-fsub.ssc0" else "ssc1-run.ssc0"
@@ -952,8 +953,7 @@ object RunNativeV2:
     // (only from a hand-set `SSC_LIB_PATH` still using the pre-unification convention) passes
     // through unchanged instead.
     val towerRoot =
-      if NativeImageInstallRoot.isLibShaped(installRoot, "standard/native-front") ||
-         NativeImageInstallRoot.isLibShaped(installRoot, "native-front")
+      if NativeImageInstallRoot.isLibShaped(installRoot, "native-front")
       then NativeImageInstallRoot.rootAbove(installRoot)
       else installRoot
     NativeFrontLayout(runner, checker, stdRoot, towerRoot, fsubSrc, fsubIr, defaultRunner)

@@ -172,6 +172,24 @@ asset, and the empty `runtime/` wrapper is gone. Full detail in
 `scripts/smoke-ci` 116/116, manual rebuild of `ssc-macos-arm64` on the new archive layout
 (`std/json.ssc` resolution + network both confirmed end-to-end).
 
+**FIFTH FOLLOW-UP 2026-08-28: the `standard/` prefix dropped from `native-front`, and the
+byte-identical "legacy" duplicate it existed alongside is gone.** Asked directly why the prefix
+was there: `native-front` was staged TWICE per archive — `lib/standard/native-front/` and an
+unprefixed `lib/native-front/` — and `RunNativeV2.nativeFrontLayout` always preferred the
+`standard/`-prefixed one because it was staged unconditionally and therefore always existed, which
+means the unprefixed copy was shipped, qualified, and never read by anything. The tier prefix
+made sense for the standard-vs-tools CLASSPATH split (`bin/lib/standard/jars/` vs `bin/lib/jars/`,
+which is real and unchanged) but never for `native-front`, since both launcher tiers read the exact
+same self-hosted tower. `native-front` now ships as one copy, `lib/native-front/`, resolved via
+`NativeImageInstallRoot.resolveUnderLib(installRoot, "native-front")` like every other `lib/`-
+relative asset; `build.sbt`'s second `IO.copyDirectory` that produced the duplicate is gone. Full
+detail in `specs/arch-lib-path-resolution.md` §7. Verified: `NativeImageInstallRootTest` 14/14,
+`scripts/smoke-ci` 116/116 (including full untruncated `f-output-agreement-gate.sh`: 351 measured,
+308 agree, F-wrong 0), manual rebuild of `ssc-macos-arm64` + archive (flat layout — `ssc`,
+`lib/native-front/`, `lib/std/`, `lib/ssc-plugin-host.jar`, no `standard/` anywhere): `std/json.ssc`
+resolution, `search --refresh`, and the missing-`lib/` error message on a bare-binary copy all
+reconfirmed end-to-end.
+
 ## native-image-has-no-http-url-protocol — the published native binary cannot make ANY network request
 
 <!-- status: fixed

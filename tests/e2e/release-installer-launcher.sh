@@ -34,11 +34,11 @@ mkdir -p "$FAKE_BIN" "$SERVE"
 # ── the payload a release publishes, in miniature ────────────────────────────────────────────────
 #
 # Same shape as the real archive: `ssc` at the root, `lib/`, and the staged front under
-# `bin/lib/standard/native-front`. The fake `ssc` prints its own resolved location and its argv, so
+# `bin/lib/native-front`. The fake `ssc` prints its own resolved location and its argv, so
 # the assertions below can tell "the launcher ran the unpacked binary" from "the launcher ran
 # something".
 stage="$TMP/stage"
-mkdir -p "$stage/lib" "$stage/bin/lib/standard/native-front/tower/bin"
+mkdir -p "$stage/lib" "$stage/bin/lib/native-front/tower/bin"
 cat > "$stage/ssc" <<'FAKE_SSC'
 #!/usr/bin/env sh
 # RESOLVE LIKE THE REAL BINARY DOES, and that means FOLLOWING THE SYMLINK. `NativeImageInstallRoot`
@@ -54,7 +54,7 @@ while [ -L "$real" ]; do
   esac
 done
 self=$(cd "$(dirname "$real")" && pwd)
-if [ ! -d "$self/bin/lib/standard/native-front" ]; then
+if [ ! -d "$self/bin/lib/native-front" ]; then
   echo "fake ssc: staged front not found beside me at $self" >&2
   exit 3
 fi
@@ -63,7 +63,7 @@ echo "root=$self argv=$*"
 FAKE_SSC
 chmod +x "$stage/ssc"
 : > "$stage/lib/ssc-plugin-host.jar"
-: > "$stage/bin/lib/standard/native-front/tower/bin/fsub.ssc"
+: > "$stage/bin/lib/native-front/tower/bin/fsub.ssc"
 printf 'README\n' > "$stage/README.md"
 
 archive="$SERVE/ssc-fake.tar.gz"
@@ -124,7 +124,7 @@ if [[ ! -L "$launcher" ]]; then
 else
   echo "  ✓ the launcher is a symlink into the unpacked tree"
 fi
-if [[ ! -d "$PREFIX/lib/scalascript/bin/lib/standard/native-front" ]]; then
+if [[ ! -d "$PREFIX/lib/scalascript/bin/lib/native-front" ]]; then
   echo "  ✗ the archive was not unpacked whole — the staged front is missing"; fails=$((fails + 1))
 else
   echo "  ✓ the archive is unpacked whole"

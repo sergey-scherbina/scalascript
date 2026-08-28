@@ -36,9 +36,11 @@ private[cli] object NativeImageInstallRoot:
   private val ImageCode = "org.graalvm.nativeimage.imagecode"
   private val LibPath   = "ssc.lib.path"
   private val EnvLibPath = "SSC_LIB_PATH"
-  // The one file every layout is guaranteed to carry — used only to confirm a candidate `lib/` is
-  // a real install, not an unrelated directory that happens to be named `lib`.
-  private val FrontMarker = Paths.get("standard", "native-front")
+  // The one directory every layout is guaranteed to carry — used only to confirm a candidate
+  // `lib/` is a real install, not an unrelated directory that happens to be named `lib`. No
+  // `standard/` prefix: native-front ships as a single `lib/native-front/`, not duplicated per
+  // tier (specs/arch-lib-path-resolution.md §7).
+  private val FrontMarker = Paths.get("native-front")
 
   /** Shown at the two call sites that need `ssc.lib.path` and find it unset
    *  (`RunNativeV2.nativeFrontLayout`, `NativeJvmArtifact.runCommand`) — never written twice, because
@@ -94,7 +96,7 @@ private[cli] object NativeImageInstallRoot:
       else None
     }
 
-  /** Resolve `suffix` (e.g. `"standard/native-front"`) against `ssc.lib.path`'s value: the direct
+  /** Resolve `suffix` (e.g. `"native-front"`, `"std"`) against `ssc.lib.path`'s value: the direct
    *  `lib/`-dir shape (the normal case now, from either a launcher or native-image discovery) tried
    *  first, falling back to the older ROOT shape (`<root>/bin/lib/<suffix>`) only for backward
    *  compatibility with a hand-set `SSC_LIB_PATH` still pointed at a checkout root the old way. */

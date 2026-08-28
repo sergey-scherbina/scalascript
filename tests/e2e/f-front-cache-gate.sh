@@ -94,16 +94,9 @@ fi
 # passes every row above and fails only this one — which is precisely the bug worth catching, since
 # its symptom in the wild is "my fix did nothing" rather than any error.
 
-# RESOLVE THE BASE THE WAY THE CODE DOES, not the way the tree reads. `install.sh --dev` stages the
-# front into TWO trees and `RunNativeV2.nativeFrontLayout` prefers `standard` whenever that directory
-# exists. Checking `native-front` first looks reasonable and edits the copy nothing runs — this row
-# then reports "the key does not cover the front's content" about a perfectly good key, which is
-# exactly the false accusation a gate must not make. Caught by this gate against its own first draft.
-if [[ -d "$ROOT/bin/lib/standard/native-front" ]]; then
-  staged="$ROOT/bin/lib/standard/native-front/tower/bin/fsub.ssc"
-else
-  staged="$ROOT/bin/lib/native-front/tower/bin/fsub.ssc"
-fi
+# `install.sh --dev` stages the front into ONE tree now (specs/arch-lib-path-resolution.md §7 —
+# no more "standard" tier duplicate for `RunNativeV2.nativeFrontLayout` to prefer).
+staged="$ROOT/bin/lib/native-front/tower/bin/fsub.ssc"
 if [[ -f "$staged" ]]; then
   cp "$staged" "$sandbox/fsub.orig"
   printf '\n// f-front-cache-gate probe\n' >> "$staged"

@@ -2584,8 +2584,11 @@ lazy val cli = project
       }
       log.info(s"bin/lib/native-front/    (${nativeTowerFiles.size} tower files)")
       log.info(s"bin/lib/std/              (${nativeStdFiles.size + scljetStdFiles.size} std modules)")
-      IO.copyDirectory(nativeFrontDir, standardDir / "native-front", overwrite = true)
-      log.info(s"bin/lib/standard/native-front/ (${nativeTowerFiles.size} tower files)")
+      // bin/lib/native-front/ is the ONE copy — no more bin/lib/standard/native-front/ duplicate.
+      // `standardBase`/`legacyBase` in NativeImageInstallRoot never actually preferred the
+      // "standard" copy for a real reason; it was checked FIRST and always existed, so the
+      // "legacy" no-prefix copy (this one) was dead weight, byte-identical, staged for nothing.
+      // See specs/arch-lib-path-resolution.md §7.
 
       // Package and install standard-library plugins as .sscpkg archives.
       // NOTE: sbt task-macro prevents dynamic .value in a loop, so this list
