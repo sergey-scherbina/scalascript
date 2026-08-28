@@ -4,12 +4,17 @@ import scalascript.parser.SimpleYaml
 import scala.jdk.CollectionConverters.*
 import scala.util.Try
 
-/** One entry in the ScalaScript package registry (`packages.yaml`).
+/** One entry in the ScalaScript package registry (`packages.yaml`) — the ONE registry, covering
+ *  both library dependencies (`kind: library`, the default) and compiler `.sscpkg` plugins
+ *  (`kind: plugin`). A single catalog, a single client (`RegistryClient`), searched by `ssc
+ *  plugin search` and consumed by `ssc add`/`ssc info`/`ssc plugin install <name>` alike — there
+ *  is no separate plugin-only registry file or schema (see `specs/arch-registry.md §3b`).
  *
  *  Registry `packages.yaml` format — a YAML sequence of entries:
  *  ```yaml
  *  - name: io.example/json-extra
  *    version: 1.2.0
+ *    kind: library                 # or "plugin" — omit for library (the default)
  *    description: "Extra JSON utilities for ScalaScript"
  *    keywords: [json, serialization, codec]
  *    backends: [jvm, js]
@@ -21,13 +26,16 @@ import scala.util.Try
  *    scala-script-version: ">=1.60"
  *  ```
  *
- *  `name` and `version` are required; all other fields are optional.
+ *  `name` and `version` are required; all other fields are optional. A `kind: library` entry's
+ *  `name` must be `<group>/<artifact>`; a `kind: plugin` entry's `name` is the plugin id as-is
+ *  (flat, no slash required — matches `.sscpkg` manifest ids like `json-plugin`).
  *  Allowed `url` schemes: `github:`, `jitpack:`, `dep:`, `https:`.
  *
  *  See `specs/arch-registry.md §3b`. */
 case class RegistryEntry(
   name:               String,
   version:            String,
+  kind:               String       = "library",
   description:        String       = "",
   keywords:           List[String] = Nil,
   backends:           List[String] = Nil,
@@ -38,11 +46,13 @@ case class RegistryEntry(
   changelog:          String       = "",
   scalaScriptVersion: String       = "",
   deprecated:         Boolean      = false,
-)
+):
+  def isPlugin: Boolean = kind == "plugin"
 
 object RegistryEntry:
 
   val AllowedUrlSchemes = Set("github:", "jitpack:", "dep:", "https://", "http://")
+  val AllowedKinds      = Set("library", "plugin")
 
   /** Parse and validate a complete `packages.yaml` document.
    *  Returns `Left(errors)` if any entry fails validation. */
@@ -84,6 +94,7 @@ object RegistryEntry:
                 List(Right(RegistryEntry(
                   name               = name,
                   version            = version,
+                  kind               = str("kind", "library"),
                   description        = str("description"),
                   keywords           = strList("keywords"),
                   backends           = strList("backends"),
@@ -107,8 +118,11 @@ object RegistryEntry:
   /** Validate a single entry.  Returns `Some(errors)` if invalid. */
   def validate(e: RegistryEntry): Option[List[String]] =
     val errs = List.newBuilder[String]
-    // name must be <group>/<artifact>
-    if !e.name.contains('/') then
+    // kind must be one of the known values
+    if !AllowedKinds.contains(e.kind) then
+      errs += s"'${e.name}': kind must be one of ${AllowedKinds.mkString("'", "', '", "'")} (got '${e.kind}')"
+    // a library's name must be <group>/<artifact>; a plugin's is a flat id (matches .sscpkg manifest ids)
+    if e.kind == "library" && !e.name.contains('/') then
       errs += s"'${e.name}': name must be in '<group>/<artifact>' format"
     // version must be non-empty and look like semver
     if e.version.isEmpty then
@@ -129,6 +143,7 @@ object RegistryEntry:
     entries.foreach { e =>
       sb.append(s"- name: ${e.name}\n")
       sb.append(s"  version: ${e.version}\n")
+      if e.kind != "library"        then sb.append(s"  kind: ${e.kind}\n")
       if e.description.nonEmpty     then sb.append(s"  description: \"${e.description}\"\n")
       if e.keywords.nonEmpty        then sb.append(s"  keywords: [${e.keywords.mkString(", ")}]\n")
       if e.backends.nonEmpty        then sb.append(s"  backends: [${e.backends.mkString(", ")}]\n")

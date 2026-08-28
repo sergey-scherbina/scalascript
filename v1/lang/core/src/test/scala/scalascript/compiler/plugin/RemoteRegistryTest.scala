@@ -71,7 +71,7 @@ class RemoteRegistryTest extends AnyFunSuite:
     assert(compareVersions("1.2", "1.2.0") < 0)   // shorter prefix is smaller
 
   // slice 2 — the packages.yaml bridge: a FileRegistry-served directory is consumable by the EXISTING
-  // client (LocalRegistry/RegistryClient/ssc search), which reads `packages.yaml`.
+  // client (RegistryClient/`ssc plugin search`), which reads `packages.yaml`.
   // slice 3 — `ssc plugin registry publish`: read id/version from a real .sscpkg manifest, publish into a
   // FileRegistry, regenerate packages.yaml. (Tests the substantive logic the CLI command wires together.)
   private def writeSscpkg(dir: os.Path, name: String, manifestYaml: String): os.Path =
@@ -96,25 +96,38 @@ class RemoteRegistryTest extends AnyFunSuite:
     val entry   = reg.publish(manifest.id, manifest.version, os.read.bytes(pkg), "Foo plugin")
     assert(entry.sha256 == RemoteRegistry.sha256Hex(os.read.bytes(pkg)))
     assert(reg.fetch("org.example.foo", "2.1.0").map(_.toSeq).contains(os.read.bytes(pkg).toSeq))
-    // regenerate the client-facing packages.yaml; the existing client parser sees the published package
+    // regenerate the client-facing packages.yaml; the ACTUAL client parser (RegistryEntry/
+    // RegistryClient, the one `ssc plugin search`/`ssc plugin install` use) sees the published
+    // package — this is the round-trip the old LocalRegistry-based version of this test did NOT
+    // prove: it parsed its own write with its own reader, so a schema mismatch with the real
+    // client (RegistryEntry expects a YAML list; the old LocalRegistry.toYaml emitted a map) went
+    // undetected. See BUGS.md `plugin-cli-two-disjoint-registries-and-a-blind-plugin-list`.
     val yamlPath = reg.writePackagesYaml("https://reg.example.com")
-    val clientEntry = LocalRegistry.resolve("org.example.foo", List(yamlPath)).get
+    val parsed = scalascript.imports.RegistryEntry.parseAll(os.read(yamlPath))
+    assert(parsed.isRight, s"client failed to parse published packages.yaml: $parsed")
+    val clientEntry = scalascript.imports.RegistryClient
+      .resolveByName("org.example.foo", parsed.toOption.get).get
+    assert(clientEntry.kind == "plugin")
     assert(clientEntry.version == "2.1.0")
     assert(clientEntry.url == "https://reg.example.com/packages/org.example.foo/2.1.0.sscpkg")
 
-  test("exportPackagesYaml emits the client format, latest version per id, round-trips via LocalRegistry"):
+  test("exportPackagesYaml emits the client format, latest version per id, round-trips via RegistryClient"):
     val root = freshRoot()
     val reg  = FileRegistry(root)
     reg.publish("org.example.redis", "1.0.0", bytes("r1"), "Redis client")
     reg.publish("org.example.redis", "1.2.0", bytes("r2"), "Redis client")   // newer → wins in packages.yaml
     reg.publish("org.example.kafka", "2.3.0", bytes("k"),  "Kafka streams")
     val p = reg.writePackagesYaml("https://registry.example.com")
-    // the EXISTING client parser reads it
-    val entries = LocalRegistry.parseFile(p).get.sortBy(_.id)
-    assert(entries.map(_.id) == List("org.example.kafka", "org.example.redis"))
-    val redis = entries.find(_.id == "org.example.redis").get
+    // the ACTUAL client parser reads it
+    val parsed = scalascript.imports.RegistryEntry.parseAll(os.read(p))
+    assert(parsed.isRight, s"client failed to parse published packages.yaml: $parsed")
+    val entries = parsed.toOption.get.sortBy(_.name)
+    assert(entries.map(_.name) == List("org.example.kafka", "org.example.redis"))
+    assert(entries.forall(_.kind == "plugin"))
+    val redis = entries.find(_.name == "org.example.redis").get
     assert(redis.version == "1.2.0")   // latest, not 1.0.0
     assert(redis.url == "https://registry.example.com/packages/org.example.redis/1.2.0.sscpkg")
     assert(redis.description == "Redis client")
-    // and LocalRegistry.resolve (the client alias lookup) finds it
-    assert(LocalRegistry.resolve("org.example.kafka", List(p)).map(_.version).contains("2.3.0"))
+    // and RegistryClient.resolveByName (the client short-name lookup) finds it
+    assert(scalascript.imports.RegistryClient.resolveByName("org.example.kafka", entries)
+      .map(_.version).contains("2.3.0"))

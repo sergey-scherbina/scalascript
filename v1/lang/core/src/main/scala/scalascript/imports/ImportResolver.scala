@@ -302,8 +302,9 @@ object ImportResolver:
    *  Resolution order:
    *  1. Search `~/.scalascript/compiler/plugins/` (and any dirs registered
    *     via `BackendRegistry.addPluginDir`) for a matching `.sscpkg`.
-   *  2. If not found locally, look in `LocalRegistry` for a download URL
-   *     and call `ssc plugin install` logic to fetch + install first.
+   *  2. If not found locally, look it up in the package registry (`RegistryClient`,
+   *     `packages.yaml`) for a download URL and call `ssc plugin install` logic to fetch +
+   *     install first.
    *  3. If still not found, throw a clear "not installed" error.
    *
    *  When a matching archive is found, `BackendRegistry.loadAndExtract`
@@ -313,15 +314,15 @@ object ImportResolver:
    *  Additive: scripts that don't use `pkg:` are unaffected. */
   private def resolvePkg(pkgUri: String): os.Path =
     val coord = pkgUri.stripPrefix("pkg:")
-    import scalascript.compiler.plugin.{BackendRegistry, LocalRegistry, RemotePluginInstaller}
+    import scalascript.compiler.plugin.{BackendRegistry, RemotePluginInstaller}
 
     // Try to find an already-installed .sscpkg.
     val maybePkg = BackendRegistry.findInstalledPkg(coord)
 
     val pkgPath = maybePkg.getOrElse {
-      // Not installed locally — check the local registry for a URL.
-      val entry = LocalRegistry.resolve(coord)
-      entry match
+      // Not installed locally — check the package registry for a URL.
+      val entries = RegistryClient.load()
+      RegistryClient.resolveByName(coord, entries) match
         case None =>
           throw new RuntimeException(
             s"plugin '$coord' is not installed.\n" +

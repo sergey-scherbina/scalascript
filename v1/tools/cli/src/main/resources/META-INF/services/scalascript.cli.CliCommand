@@ -50,7 +50,6 @@ scalascript.cli.CheckCmd
 scalascript.cli.DepsCmd
 scalascript.cli.LockCmd
 scalascript.cli.UpdateCmd
-scalascript.cli.SearchCmd
 scalascript.cli.AddCmd
 scalascript.cli.PluginCmd
 scalascript.cli.ClusterCmd

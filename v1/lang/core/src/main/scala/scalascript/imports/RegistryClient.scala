@@ -130,14 +130,24 @@ object RegistryClient:
         else 0
       entries.filter(score(_) > 0).sortBy(-score(_))
 
-  /** Format a compact one-line search result row. */
+  /** Format a compact one-line search result row, tagged `[library]`/`[plugin]` so a mixed-kind
+   *  result list never leaves the reader guessing what a row installs as. */
   def formatRow(e: RegistryEntry): String =
     val namePad = f"${e.name}%-32s"
     val verPad  = f"${e.version}%-8s"
+    val kindTag = f"${s"[${e.kind}]"}%-9s"
     val desc    = if e.description.nonEmpty then e.description else ""
     val backs   = if e.backends.nonEmpty then s"  [${e.backends.mkString(", ")}]" else ""
     val dep = if e.deprecated then "  [DEPRECATED]" else ""
-    s"  $namePad $verPad $desc$backs$dep".stripTrailing
+    s"  $kindTag $namePad $verPad $desc$backs$dep".stripTrailing
+
+  /** Resolve a short name to its registry entry, for `ssc plugin install <name>` and `pkg:` import
+   *  resolution. Matches the full `name` first, then the last `/`-segment (so a plugin's flat id,
+   *  or a library's bare artifact name, both work without the caller spelling the full `<group>/`
+   *  prefix). */
+  def resolveByName(name: String, entries: List[RegistryEntry]): Option[RegistryEntry] =
+    entries.find(_.name == name)
+      .orElse(entries.find(_.name.split('/').last == name))
 
   /** Format a multi-line detail view for `ssc info`. */
   def formatInfo(e: RegistryEntry): String =

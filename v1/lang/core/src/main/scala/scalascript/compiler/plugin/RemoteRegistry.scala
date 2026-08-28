@@ -8,10 +8,12 @@ import scala.util.Try
  *
  *  This is the SERVER-SIDE catalog that unlocks the third-party plugin ecosystem: it stores published
  *  `.sscpkg` artifacts by `(id, version)` with a SHA-256 checksum and answers publish / search / resolve /
- *  fetch. It is distinct from [[LocalRegistry]] (a static client-side name→URL alias map). The index +
- *  entries serialize as JSON — the wire format a future HTTP `registry.scalascript.io` will serve — so the
- *  file-backed [[FileRegistry]] below is at once the round-trip test harness AND the reference an HTTP
- *  service wraps. CLI (`ssc publish`/`ssc search`) and remote `pkg:` resolution are follow-up slices. */
+ *  fetch. The index + entries serialize as JSON — the wire format a future HTTP `registry.scalascript.io`
+ *  will serve — so the file-backed [[FileRegistry]] below is at once the round-trip test harness AND the
+ *  reference an HTTP service wraps. `exportPackagesYaml` projects this JSON index into the client-facing
+ *  `packages.yaml` list format ([[scalascript.imports.RegistryEntry]]) that `RegistryClient`/`ssc plugin
+ *  search`/`ssc plugin install` actually parse. CLI (`ssc plugin publish`) and remote `pkg:` resolution
+ *  are follow-up slices. */
 object RemoteRegistry:
 
   /** One published artifact: a name+version with the SHA-256 of its `.sscpkg` bytes. */
@@ -139,24 +141,26 @@ class FileRegistry(root: os.Path):
         Some(bytes)
     }
 
-  /** Project the catalog into the client-facing `packages.yaml` format ([[LocalRegistry.Entry]]:
-   *  id → url + version + description), ONE entry per id at its latest version, with `url` pointing at the
-   *  stored artifact under `baseUrl`. This is exactly what the existing `RegistryClient` / `ssc search` /
-   *  `ssc install` consume — so a `FileRegistry`-served directory works with the current client unchanged
-   *  (the richer `index.json` with checksums/all-versions stays the publish-side record). */
+  /** Project the catalog into the client-facing `packages.yaml` format
+   *  ([[scalascript.imports.RegistryEntry]], `kind: plugin`), ONE entry per id at its latest
+   *  version, with `url` pointing at the stored artifact under `baseUrl`. This is exactly what
+   *  `RegistryClient` / `ssc plugin search` / `ssc plugin install` consume — so a
+   *  `FileRegistry`-served directory works with the current client unchanged (the richer
+   *  `index.json` with checksums/all-versions stays the publish-side record). */
   def exportPackagesYaml(baseUrl: String): String =
     val base = baseUrl.stripSuffix("/")
     val latest = index.groupBy(_.id).values.toList.map { es =>
       es.sortWith((a, b) => compareVersions(a.version, b.version) < 0).last
     }
     val entries = latest.sortBy(_.id).map { e =>
-      LocalRegistry.Entry(
-        id          = e.id,
-        url         = s"$base/packages/${e.id}/${e.version}.sscpkg",
+      scalascript.imports.RegistryEntry(
+        name        = e.id,
         version     = e.version,
-        description = e.description)
+        kind        = "plugin",
+        description = e.description,
+        url         = s"$base/packages/${e.id}/${e.version}.sscpkg")
     }
-    LocalRegistry.toYaml(entries)
+    scalascript.imports.RegistryEntry.toYaml(entries)
 
   /** Write the client-facing `packages.yaml` into the registry root (call after publish so the served
    *  directory exposes the index the client fetches). Returns the written path. */

@@ -52,14 +52,11 @@ private def sscMain(rawArgs: String*): Unit =
   }
   // Auto-load .sscpkg files from lib/compiler/plugins/ next to the install root.
   // Runs before CLI flags so --plugin can still override or supplement.
-  scalascript.imports.ImportResolver.libPath
-    .map(_ / "compiler" / "plugins")
-    .filter(os.exists)
-    .foreach { dir =>
-      os.list(dir)
-        .filter(_.ext == "sscpkg")
-        .foreach(BackendRegistry.loadSscpkg)
-    }
+  essentialPluginDirs.foreach { dir =>
+    os.list(dir)
+      .filter(_.ext == "sscpkg")
+      .foreach(BackendRegistry.loadSscpkg)
+  }
   // Register the opt-in `plugin-available/` dirs so the interpreter's lazy
   // ensurePluginsLoaded() can commit them on first missing name/extern
   // (plugin-lazyload-extern-imports). Not loaded here — startup stays fast.
@@ -5915,6 +5912,13 @@ private[cli] def importPrefixesOf(module: scalascript.ast.Module): Set[String] =
       case _                                     => Nil
     } ++ s.subsections.flatMap(loop)
   module.sections.flatMap(loop).toSet
+
+/** Directory holding bundled, auto-loaded `.sscpkg` plugins (`lib/compiler/plugins/`) — loaded
+ *  unconditionally at CLI startup, before any command dispatch. `ssc plugin list`'s "essential"
+ *  group reads this same dir. */
+private[cli] def essentialPluginDirs: List[os.Path] =
+  scalascript.imports.ImportResolver.libPath
+    .map(_ / "compiler" / "plugins").filter(os.exists).toList
 
 /** Directories holding bundled-but-opt-in `.sscpkg` plugins (`lib/compiler/plugin-available/`),
  *  for `ssc check`'s import-driven auto-load. The install-relative dir plus an optional

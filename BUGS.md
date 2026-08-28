@@ -16,6 +16,74 @@ scripts/bugs-report --no-gate              # open entries with no regression gat
 
 Newest first.
 
+## plugin-cli-two-disjoint-registries-and-a-blind-plugin-list — `ssc plugin list` said "(no plugins installed)" while plugins ran
+
+<!-- status: open
+     lane: multi
+     kind: bug
+     area: cli
+     gate: v1/lang/core/src/test/scala/scalascript/compiler/plugin/RemoteRegistryTest.scala
+     reported-by: user
+     reported-at: 2026-08-28
+     confirmed: yes
+     fixed-in: - -->
+
+**FIXED 2026-08-28 (landing SHA follows in a same-day follow-up commit, per the board's
+`fixed-in` convention — specs/bugs-index.md).** Reported live: `ssc plugin list` printed `(no plugins installed)` on a
+build where http-plugin/json-plugin/etc. were demonstrably active (a script importing `std/http`
+worked). Asked why, and separately "what is `ssc search` even searching?" — both questions traced
+to the same root: three disjoint "where do plugins live" directories (`lib/compiler/plugins/`
+essential-auto-load, `lib/compiler/plugin-available/` advanced-lazy-load,
+`~/.scalascript/compiler/plugins/` user-installed) with no command that showed all three, PLUS two
+independent registry schemas both informally called "the registry" — `packages.yaml`/
+`RegistryEntry` (library deps, `ssc search`/`ssc add`/`ssc info`) and
+`~/.scalascript/registry.yaml`/`LocalRegistry` (a separate map-schema alias file, `ssc plugin
+install <name>`'s short-name resolution only).
+
+**A THIRD, CONCRETE BUG surfaced investigating the second point, not just confusion**:
+`FileRegistry.exportPackagesYaml` (the `ssc plugin registry publish` output) had a doc comment
+claiming it emits "exactly what `RegistryClient`/`ssc search` consume" — but it built
+`LocalRegistry.Entry`s and serialized with `LocalRegistry.toYaml` (a YAML *map*), while
+`RegistryClient` parses via `RegistryEntry.parseAll` (a YAML *list*). The two are not the same
+schema; a `FileRegistry`-published `packages.yaml` could never actually be read by `ssc search`.
+`RemoteRegistryTest`'s own round-trip test didn't catch this because it parsed its own write with
+its own reader (`LocalRegistry.parseFile`) rather than the real client — reproducing exactly the
+"a differential is blind where nobody wrote the shape down" pattern.
+
+**Fixed by unifying onto one registry, one schema, one client** (`RegistryEntry`/`RegistryClient`,
+full design in `specs/arch-registry.md` §8):
+- `RegistryEntry` gained `kind: "library" | "plugin"` (default `"library"`, so every existing
+  `packages.yaml` entry parses unchanged); `RegistryClient.formatRow` tags every search row
+  `[library]`/`[plugin]`.
+- `RegistryClient.resolveByName` replaces `LocalRegistry.resolve` at every call site:
+  `RemotePluginInstaller.resolveSource` (`ssc plugin install <name>`) and
+  `ImportResolver.resolvePkg` (`pkg:` import scheme) both went through `LocalRegistry` before.
+- `FileRegistry.exportPackagesYaml` now builds real `RegistryEntry`s (`kind = "plugin"`) — the
+  broken-bridge bug above, fixed. Verified END TO END, not just by reading the code: published a
+  real bundled `.sscpkg` via `ssc plugin publish`, then read it back with `ssc plugin search
+  --registry file://<path>` (the actual client) and got a correctly-tagged `[plugin]` result — the
+  exact round-trip the old code could never complete.
+- `LocalRegistry.scala` and its dedicated test are deleted, not deprecated.
+- `ssc plugin list` now shows THREE labeled groups (essential / available / installed) instead of
+  reading only `~/.scalascript/compiler/plugins/` — the essential/available split is a build-time
+  staging decision (`project/PluginSpec.scala`'s `PluginTier`), so the command derives it the same
+  way the runtime does: by which directory a `.sscpkg` was found in.
+- `ssc search` (top-level) moved to `ssc plugin search` — everything it ever searched was a
+  library or a plugin, and now both kinds are tagged per-row so nesting under `plugin` reads
+  correctly for either. `ssc plugin registry list/add/remove/search` (the old `LocalRegistry`
+  subcommands) are gone; `ssc plugin registry publish` moved to `ssc plugin publish` (nothing was
+  left under `registry` to disambiguate).
+
+Verified: `RegistrySchemaTest`/`RegistryClientTest`/`RegistryPrivateTest`/`RegistrySiteGeneratorTest`/
+`RemoteRegistryTest`/`RegistryHttpServerTest` 67/67 green (including the fixed round-trip test,
+now parsing via the real `RegistryEntry.parseAll` instead of the writer's own reader).
+`core`/`cli` compile clean. Manual end-to-end on a freshly rebuilt checkout: `ssc plugin list`
+shows 27 essential + 14 available bundled plugins grouped and labeled (was
+"(no plugins installed)"); `ssc plugin search json --refresh` returns `[library]
+io.scalascript/json`; `ssc plugin install <unknown>` fails with a clear registry-lookup message;
+`ssc search` (removed) correctly falls through to "file not found"; the publish→search round-trip
+above confirmed with a real `.sscpkg`.
+
 ## repl-load-resolves-imports-against-the-launch-dir-not-the-loaded-file — `:load` broke a file's own relative imports
 
 <!-- status: fixed

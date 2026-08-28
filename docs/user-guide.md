@@ -3791,13 +3791,18 @@ repositories can be supplied with `ssc.coursier.repositories` or
 
 ### Package Registry
 
+ONE registry (`packages.yaml`) covers both library dependencies (`kind: library`, the default)
+and compiler `.sscpkg` plugins (`kind: plugin`) — search results are tagged `[library]`/`[plugin]`
+so a mixed result list never leaves you guessing what a row installs as.
+
 ```bash
-ssc search json                     # search the public static registry
-ssc search json --refresh           # force a registry re-download
-ssc search json --offline           # use only the cached registry
+ssc plugin search json              # search the public static registry (libraries and plugins)
+ssc plugin search json --refresh    # force a registry re-download
+ssc plugin search json --offline    # use only the cached registry
 ssc info io.scalascript/json        # show registry metadata and install snippet
 ssc add io.scalascript/json         # add the latest registry version to a manifest
 ssc add io.scalascript/json 1.0.0 --file app.ssc
+ssc plugin install json-plugin      # install a plugin entry by its (flat) registry name
 ```
 
 The built-in public registry URL is
@@ -3806,8 +3811,8 @@ HTML index is served from `https://sergey-scherbina.github.io/scalascript/regist
 (the Pages root serves the project landing page).
 No custom domain is required for the MVP.
 
-Use `--registry <url>` on registry commands for a local mirror or internal
-registry. To make that default persistent:
+Use `--registry <url>` on registry commands (`ssc plugin search`, `ssc add`, `ssc info`) for a
+local mirror or internal registry. To make that default persistent:
 
 ```yaml
 registry:
@@ -5559,7 +5564,7 @@ ssc --plugin ./org.example.crypto-1.0.0.sscpkg run my-script.ssc
 # Use a bundled advanced plugin without a public registry/domain
 ssc --plugin bin/lib/compiler/plugin-available/sql-plugin.sscpkg run my-script.ssc
 
-# Inspect installed plugins
+# Inspect every plugin ScalaScript knows about — grouped essential / available / installed
 ssc plugin list
 
 # Check compatibility without running
@@ -5569,9 +5574,10 @@ ssc plugin check ./org.example.crypto-1.0.0.sscpkg
 ssc plugin uninstall org.example.crypto
 ```
 
-The compiler discovers plugins via a registry file at
-`~/.scalascript/registry.yaml`.  Plugins are loaded lazily on first
-import — an unused plugin adds zero overhead.
+`ssc plugin install <name>` resolves a short name (e.g. `crypto-plugin`) against the package
+registry (`packages.yaml`, `kind: plugin` entries — see §"Package Registry" above). Bundled
+essential/available plugins are loaded lazily on first import — an unused advanced plugin adds
+zero startup overhead.
 
 ### 21.7 Built-in plugins
 

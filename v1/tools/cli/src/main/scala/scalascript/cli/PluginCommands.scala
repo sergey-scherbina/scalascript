@@ -1,7 +1,7 @@
 package scalascript.cli
 
 // CLI `ssc plugin ...` subcommands: install / list / uninstall / check /
-// pack / registry. Extracted from Main.scala. Everything here references
+// pack / search / publish. Extracted from Main.scala. Everything here references
 // os-lib and scalascript.compiler.plugin.* by fully-qualified name, so no
 // imports are required.
 
@@ -9,9 +9,9 @@ private def pluginsDir: os.Path = os.home / ".scalascript" / "compiler" / "plugi
 
 final class PluginCmd extends CliCommand:
   def name = "plugin"
-  override def summary = "Manage installed .sscpkg plugins"
+  override def summary = "Manage compiler plugins (essential, available, and installed)"
   override def category = "Dependencies & plugins"
-  override def details = List("Subs: install | list | uninstall | check | pack | registry")
+  override def details = List("Subs: install | list | uninstall | check | pack | search | publish")
   def run(args: List[String]): Unit =
     args match
       case "install"   :: rest => pluginInstall(rest)
@@ -19,26 +19,28 @@ final class PluginCmd extends CliCommand:
       case "uninstall" :: rest => pluginUninstall(rest)
       case "check"     :: rest => pluginCheck(rest)
       case "pack"      :: rest => pluginPack(rest)
-      case "registry"  :: rest => pluginRegistryCommand(rest)
+      case "search"    :: rest => pluginSearch(rest)
+      case "publish"   :: rest => pluginPublish(rest)
       case sub :: _            =>
         System.err.println(s"Unknown plugin subcommand: '$sub'")
-        System.err.println("Usage: ssc plugin install|list|uninstall|check|pack|registry ...")
+        System.err.println("Usage: ssc plugin install|list|uninstall|check|pack|search|publish ...")
         System.exit(1)
       case Nil =>
-        System.err.println("Usage: ssc plugin install|list|uninstall|check|pack|registry ...")
+        System.err.println("Usage: ssc plugin install|list|uninstall|check|pack|search|publish ...")
         System.exit(1)
 
 /** `ssc plugin install <path-or-url-or-name>` — copy/download a
  *  `.sscpkg` to `~/.scalascript/compiler/plugins/` and print a confirmation.
- *  Short names (e.g. "redis") are resolved via the local registry
- *  (`~/.scalascript/registry.yaml`). */
+ *  Short names (e.g. "json-plugin") are resolved via the package registry
+ *  (the same `packages.yaml` catalog `ssc plugin search`/`ssc add` use). */
 def pluginInstall(args: List[String]): Unit =
   val rawSrc = args.headOption.getOrElse {
     System.err.println("Usage: ssc plugin install <path-or-url-or-name>"); System.exit(1); ""
   }
   try
     if !rawSrc.startsWith("http://") && !rawSrc.startsWith("https://") && !os.exists(os.Path(rawSrc, os.pwd)) then
-      scalascript.compiler.plugin.LocalRegistry.resolve(rawSrc).foreach { entry =>
+      val entries = scalascript.imports.RegistryClient.load()
+      scalascript.imports.RegistryClient.resolveByName(rawSrc, entries).foreach { entry =>
         println(s"Resolved '$rawSrc' → ${entry.url}  (${entry.description})")
       }
     val installed = scalascript.compiler.plugin.RemotePluginInstaller.install(rawSrc, pluginsDir)
@@ -48,23 +50,47 @@ def pluginInstall(args: List[String]): Unit =
       System.err.println(s"plugin install: ${e.getMessage}")
       System.exit(1)
 
-/** `ssc plugin list` — print every `.sscpkg` in `~/.scalascript/compiler/plugins/`. */
+/** One `.sscpkg`'s summary row: `id  version  spi=... [kind]  targets=...`, or a parse-error
+ *  line for a broken archive. Shared by every group `pluginList` prints. */
+private def sscpkgRow(p: os.Path): String =
+  scala.util.Try(scalascript.compiler.plugin.SscpkgLoader.load(p).manifest) match
+    case scala.util.Success(manifest) =>
+      val kinds   = manifest.kind.mkString(", ")
+      val targets = if manifest.targets.isEmpty then "" else s"  targets=${manifest.targets.mkString(",")}"
+      f"${manifest.id}%-30s  ${manifest.version}  spi=${manifest.spiVersion}  [$kinds]$targets"
+    case scala.util.Failure(e) =>
+      s"${p.last}  [parse error: ${e.getMessage}]"
+
+private def sscpkgsIn(dir: os.Path): List[os.Path] =
+  if os.isDir(dir) then os.list(dir).filter(_.ext == "sscpkg").sorted.toList else Nil
+
+/** `ssc plugin list` — every `.sscpkg` ScalaScript knows about, grouped by how it loads:
+ *
+ *    essential  — `lib/compiler/plugins/`, auto-loaded at startup, always active
+ *    available  — `lib/compiler/plugin-available/`, bundled but loaded lazily on first use
+ *    installed  — `~/.scalascript/compiler/plugins/`, added via `ssc plugin install`
+ *
+ *  A `.sscpkg`'s essential/available tier is a build-time staging decision (which directory it
+ *  was packaged into — `project/PluginSpec.scala`'s `PluginTier`), not a property recorded in the
+ *  package itself, so this command derives it the same way the runtime does: by which directory
+ *  it was found in. */
 def pluginList(): Unit =
-  if !os.isDir(pluginsDir) then
-    println("(no plugins installed)"); return
-  val pkgs = os.list(pluginsDir).filter(_.ext == "sscpkg").sorted
-  if pkgs.isEmpty then println("(no plugins installed)")
-  else
-    pkgs.foreach { p =>
-      val m = scala.util.Try(scalascript.compiler.plugin.SscpkgLoader.load(p).manifest)
-      m match
-        case scala.util.Success(manifest) =>
-          val kinds   = manifest.kind.mkString(", ")
-          val targets = if manifest.targets.isEmpty then "" else s"  targets=${manifest.targets.mkString(",")}"
-          println(f"${manifest.id}%-30s  ${manifest.version}  spi=${manifest.spiVersion}  [$kinds]$targets")
-        case scala.util.Failure(e) =>
-          println(s"${p.last}  [parse error: ${e.getMessage}]")
-    }
+  val essential = essentialPluginDirs.flatMap(sscpkgsIn)
+  val available = pluginAvailableDirs.flatMap(sscpkgsIn)
+  val installed = sscpkgsIn(pluginsDir)
+
+  if essential.isEmpty && available.isEmpty && installed.isEmpty then
+    println("(no plugins found)")
+    return
+
+  def printGroup(title: String, pkgs: List[os.Path]): Unit =
+    if pkgs.nonEmpty then
+      println(s"$title:")
+      pkgs.foreach(p => println("  " + sscpkgRow(p)))
+
+  printGroup("essential (auto-loaded at startup)", essential)
+  printGroup("available (bundled, loaded on first use)", available)
+  printGroup(s"installed (${pluginsDir})", installed)
 
 /** `ssc plugin uninstall <id>` — remove the installed `.sscpkg` for that id. */
 def pluginUninstall(args: List[String]): Unit =
@@ -143,92 +169,78 @@ def pluginPack(args: List[String]): Unit =
   val fileCount = os.walk(dir).count(os.isFile)
   println(s"$outName  ($fileCount files) — id=${manifest.id} version=${manifest.version}")
 
-/** `ssc plugin registry <sub> [args]` — manage local registry.
- *
- *  Subcommands:
- *    list                  — print all registry entries
- *    add <id> <url>        — add/update an entry in ~/.scalascript/registry.yaml
- *    remove <id>           — remove an entry
- *    search <query>        — search entries by id or description substring
- *    publish <pkg.sscpkg>  — publish a package into a server-side FileRegistry (content + index +
- *                            regenerated packages.yaml); flags --registry <dir> --base-url <url> --description <t>
- */
-def pluginRegistryCommand(args: List[String]): Unit =
-  import scalascript.compiler.plugin.LocalRegistry
-  val regPath = os.home / ".scalascript" / "registry.yaml"
-  args match
-    case "list" :: _ =>
-      val entries = LocalRegistry.loadAll()
-      if entries.isEmpty then println("(no registry entries)")
-      else entries.foreach { e =>
-        val ver  = if e.version.nonEmpty then s"  v${e.version}" else ""
-        val desc = if e.description.nonEmpty then s"  — ${e.description}" else ""
-        println(f"${e.id}%-40s$ver$desc")
-      }
-    case "add" :: id :: url :: rest =>
-      val description = rest.headOption.getOrElse("")
-      val existing    = if os.exists(regPath) then LocalRegistry.loadAll() else Nil
-      val updated     = existing.filterNot(_.id == id) :+
-                        LocalRegistry.Entry(id, url, description = description)
-      os.makeDir.all(regPath / os.up)
-      os.write.over(regPath, LocalRegistry.toYaml(updated))
-      println(s"Registry: added '$id'  →  $url")
-    case "remove" :: id :: _ =>
-      if !os.exists(regPath) then
-        System.err.println("registry remove: no registry file found"); System.exit(1)
-      val entries = LocalRegistry.loadAll()
-      val updated = entries.filterNot(_.id == id)
-      if updated.size == entries.size then
-        System.err.println(s"registry remove: '$id' not found"); System.exit(1)
-      os.write.over(regPath, LocalRegistry.toYaml(updated))
-      println(s"Registry: removed '$id'")
-    case "search" :: query :: _ =>
-      val q       = query.toLowerCase
-      val matches = LocalRegistry.loadAll().filter { e =>
-        e.id.toLowerCase.contains(q) || e.description.toLowerCase.contains(q)
-      }
-      if matches.isEmpty then println("(no matches)")
-      else matches.foreach { e =>
-        val desc = if e.description.nonEmpty then s"  — ${e.description}" else ""
-        println(s"${e.id}$desc")
-      }
-    case "publish" :: rest =>
-      // ssc plugin registry publish <pkg.sscpkg> [--registry <dir>] [--base-url <url>]
-      // Publishes a .sscpkg into a server-side FileRegistry (content store + index.json), reading id/
-      // version/description from the package manifest, then regenerates the client-facing packages.yaml.
-      import scalascript.compiler.plugin.{FileRegistry, SscpkgLoader}
-      var pkgArg:  Option[String] = None
-      var regDir:  os.Path        = os.home / ".scalascript" / "registry"
-      var baseUrl: Option[String] = None
-      var desc:    String         = ""
-      val it = rest.iterator
-      while it.hasNext do
-        it.next() match
-          case "--registry"    if it.hasNext => regDir  = os.Path(it.next(), os.pwd)
-          case "--base-url"    if it.hasNext => baseUrl = Some(it.next())
-          case "--description" if it.hasNext => desc    = it.next()
-          case arg if !arg.startsWith("--") && pkgArg.isEmpty => pkgArg = Some(arg)
-          case arg =>
-            System.err.println(s"registry publish: unexpected argument '$arg'"); sys.exit(1)
-      val pkgPath = pkgArg.map(os.Path(_, os.pwd)).getOrElse {
-        System.err.println("Usage: ssc plugin registry publish <pkg.sscpkg> [--registry <dir>] [--base-url <url>] [--description <text>]")
-        sys.exit(1)
-      }
-      if !os.exists(pkgPath) then
-        System.err.println(s"registry publish: file not found: $pkgPath"); sys.exit(1)
-      val manifest = SscpkgLoader.loadManifest(pkgPath)
-      val reg      = FileRegistry(regDir)
-      val entry    = reg.publish(manifest.id, manifest.version, os.read.bytes(pkgPath), desc)
-      val base     = baseUrl.getOrElse(regDir.toNIO.toUri.toString.stripSuffix("/"))
-      reg.writePackagesYaml(base)
-      println(s"Published ${entry.id}@${entry.version} → $regDir")
-      println(s"  sha256: ${entry.sha256}")
-      println(s"  packages.yaml regenerated (base: $base)")
-    case sub :: _ =>
-      System.err.println(s"Unknown registry subcommand: '${sub}'")
-      System.err.println("Usage: ssc plugin registry list|add|remove|search|publish ...")
-      System.exit(1)
-    case Nil =>
-      System.err.println("Usage: ssc plugin registry list|add|remove|search|publish ...")
-      System.exit(1)
+/** `ssc plugin search [<query>] [--refresh] [--offline] [--registry <url>]` — search the ONE
+ *  package registry (`packages.yaml`, both libraries and compiler plugins). Each row is tagged
+ *  `[library]`/`[plugin]` so a mixed-kind result never leaves the reader guessing what it
+ *  installs as. Was `ssc search` (top-level); moved here because everything it searches is
+ *  either a plugin or a library dependency resolved by `ssc plugin install <name>`/`ssc add`. */
+def pluginSearch(args: List[String]): Unit =
+  import scalascript.imports.RegistryClient
+  var refresh     = false
+  var offline     = false
+  var query       = ""
+  var registryArg: Option[String] = None
+  val it = args.iterator
+  while it.hasNext do
+    it.next() match
+      case "--refresh"                      => refresh = true
+      case "--offline"                      => offline = true
+      case "--registry" if it.hasNext       => registryArg = Some(it.next())
+      case q                                => query = q
+  // --offline: use the cached index only, never fetch; error clearly if the cache is empty.
+  val entries =
+    if offline then
+      RegistryClient.loadOffline() match
+        case Right(es) => es
+        case Left(msg) => println(s"ssc plugin search --offline: $msg"); return
+    else
+      val url    = RegistryClient.effectiveUrl(registryArg)
+      val cached = registryArg.isEmpty && RegistryClient.isCacheFresh
+      if refresh || !cached then print("Fetching registry... ")
+      val es = RegistryClient.load(url, refresh = refresh || registryArg.isDefined)
+      if refresh || !cached then println(s"(${es.length} packages)")
+      es
+  if entries.isEmpty then
+    println("Registry is empty or could not be fetched.  Try --refresh.")
+    return
+  val results = RegistryClient.search(query, entries)
+  if results.isEmpty then
+    println(s"No packages found for '${query}'.")
+    println("Run `ssc plugin search` (no query) to list all packages.")
+  else
+    if query.nonEmpty then println(s"${results.length} result(s) for '${query}':")
+    results.foreach(e => println(RegistryClient.formatRow(e)))
+    if results.length == 1 then println(s"\nUse `ssc info ${results.head.name}` for details.")
 
+/** `ssc plugin publish <pkg.sscpkg> [--registry <dir>] [--base-url <url>] [--description <text>]`
+ *  — publish a package into a server-side `FileRegistry` (content + index +
+ *  regenerated `packages.yaml`, the same file `ssc plugin search` reads). */
+def pluginPublish(args: List[String]): Unit =
+  import scalascript.compiler.plugin.{FileRegistry, SscpkgLoader}
+  var pkgArg:  Option[String] = None
+  var regDir:  os.Path        = os.home / ".scalascript" / "registry"
+  var baseUrl: Option[String] = None
+  var desc:    String         = ""
+  val it = args.iterator
+  while it.hasNext do
+    it.next() match
+      case "--registry"    if it.hasNext => regDir  = os.Path(it.next(), os.pwd)
+      case "--base-url"    if it.hasNext => baseUrl = Some(it.next())
+      case "--description" if it.hasNext => desc    = it.next()
+      case arg if !arg.startsWith("--") && pkgArg.isEmpty => pkgArg = Some(arg)
+      case arg =>
+        System.err.println(s"plugin publish: unexpected argument '$arg'"); sys.exit(1)
+  val pkgPath = pkgArg.map(os.Path(_, os.pwd)).getOrElse {
+    System.err.println("Usage: ssc plugin publish <pkg.sscpkg> [--registry <dir>] [--base-url <url>] [--description <text>]")
+    sys.exit(1)
+  }
+  if !os.exists(pkgPath) then
+    System.err.println(s"plugin publish: file not found: $pkgPath"); sys.exit(1)
+  val manifest = SscpkgLoader.loadManifest(pkgPath)
+  val reg      = FileRegistry(regDir)
+  val entry    = reg.publish(manifest.id, manifest.version, os.read.bytes(pkgPath), desc)
+  val base     = baseUrl.getOrElse(regDir.toNIO.toUri.toString.stripSuffix("/"))
+  reg.writePackagesYaml(base)
+  println(s"Published ${entry.id}@${entry.version} → $regDir")
+  println(s"  sha256: ${entry.sha256}")
+  println(s"  packages.yaml regenerated (base: $base)")

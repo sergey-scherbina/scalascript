@@ -2,11 +2,12 @@ package scalascript.compiler.plugin
 
 import java.net.URI
 
-/** Shared installer for local paths, remote URLs, and registry aliases.
+/** Shared installer for local paths, remote URLs, and registry short names.
  *
- *  This is the new home for the download/cache part of the old
- *  `LocalRegistry` flow.  `LocalRegistry` remains as a compatibility wrapper
- *  for one migration window.
+ *  Short-name resolution goes through the ONE package registry
+ *  (`scalascript.imports.RegistryClient`, `packages.yaml`) — the same catalog `ssc plugin search`
+ *  and `ssc add` use, filtered to nothing in particular (a plugin's flat id resolves the same way
+ *  a library's bare artifact name does; see `RegistryClient.resolveByName`).
  */
 object RemotePluginInstaller:
 
@@ -15,12 +16,8 @@ object RemotePluginInstaller:
   val defaultInstallDir: os.Path =
     os.home / ".scalascript" / "compiler" / "plugins"
 
-  def install(
-      source:        String,
-      installDir:    os.Path       = defaultInstallDir,
-      registryPaths: List[os.Path] = LocalRegistry.defaultRegistryPaths
-  ): Installed =
-    val resolved = resolveSource(source, registryPaths)
+  def install(source: String, installDir: os.Path = defaultInstallDir): Installed =
+    val resolved = resolveSource(source)
     installBytes(readBytes(resolved), installDir)
 
   def install(uri: URI, installDir: os.Path): Installed =
@@ -36,10 +33,11 @@ object RemotePluginInstaller:
     os.write.over(dest, bytes)
     Installed(manifest, dest)
 
-  def resolveSource(source: String, registryPaths: List[os.Path] = LocalRegistry.defaultRegistryPaths): String =
+  def resolveSource(source: String): String =
     if isHttp(source) || os.exists(os.Path(source, os.pwd)) then source
     else
-      LocalRegistry.resolve(source, registryPaths) match
+      val entries = scalascript.imports.RegistryClient.load()
+      scalascript.imports.RegistryClient.resolveByName(source, entries) match
         case Some(entry) => entry.url
         case None =>
           throw RuntimeException(s"'$source' is not a file, URL, or known registry entry")

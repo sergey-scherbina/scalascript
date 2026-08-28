@@ -86,56 +86,10 @@ private def lockCheckCommand(args: List[String]): Unit =
     System.exit(1)
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ssc search — search the ScalaScript package registry
+// ssc plugin search — search the ScalaScript package registry (v1/tools/cli/.../PluginCommands.scala)
 // ssc info <name> — show registry entry details  (see also infoCommand above)
 // ssc add <name> [<version>] — add a dep to the current project manifest
 // ─────────────────────────────────────────────────────────────────────────────
-
-/** `ssc search [<query>] [--refresh]`
- *
- *  Downloads + caches `packages.yaml` from the registry, then performs
- *  substring/keyword matching on the query.  `--refresh` bypasses the cache. */
-final class SearchCmd extends CliCommand:
-  def name = "search"
-  override def summary = "Search the plugin registry by id or description"
-  override def category = "Dependencies & plugins"
-  def run(args: List[String]): Unit =
-    import scalascript.imports.RegistryClient
-    var refresh     = false
-    var offline     = false
-    var query       = ""
-    var registryArg: Option[String] = None
-    val it = args.iterator
-    while it.hasNext do
-      it.next() match
-        case "--refresh"                      => refresh = true
-        case "--offline"                      => offline = true
-        case "--registry" if it.hasNext       => registryArg = Some(it.next())
-        case q                                => query = q
-    // --offline: use the cached index only, never fetch; error clearly if the cache is empty.
-    val entries =
-      if offline then
-        RegistryClient.loadOffline() match
-          case Right(es) => es
-          case Left(msg) => println(s"ssc search --offline: $msg"); return
-      else
-        val url    = RegistryClient.effectiveUrl(registryArg)
-        val cached = registryArg.isEmpty && RegistryClient.isCacheFresh
-        if refresh || !cached then print("Fetching registry... ")
-        val es = RegistryClient.load(url, refresh = refresh || registryArg.isDefined)
-        if refresh || !cached then println(s"(${es.length} packages)")
-        es
-    if entries.isEmpty then
-      println("Registry is empty or could not be fetched.  Try --refresh.")
-      return
-    val results = RegistryClient.search(query, entries)
-    if results.isEmpty then
-      println(s"No packages found for '${query}'.")
-      println("Run `ssc search` (no query) to list all packages.")
-    else
-      if query.nonEmpty then println(s"${results.length} result(s) for '${query}':")
-      results.foreach(e => println(RegistryClient.formatRow(e)))
-      if results.length == 1 then println(s"\nUse `ssc info ${results.head.name}` for details.")
 
 /** `ssc add <name> [<version>] [--file <manifest>]`
  *

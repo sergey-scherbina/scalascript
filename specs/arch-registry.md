@@ -1,7 +1,8 @@
 # Package Registry — Specification
 
-Status: **IMPLEMENTED (CLI + no-domain static registry), 2026-06-20.** The `ssc search` / `ssc info` / `ssc add` CLI
-is built (`LockCommands.SearchCmd`/`AddCmd`, `Main.InfoCmd` registry dispatch) over
+Status: **IMPLEMENTED (CLI + no-domain static registry), 2026-06-20; unified with the compiler-plugin
+registry 2026-08-28 (§8).** The `ssc plugin search` / `ssc info` / `ssc add` CLI
+is built (`PluginCommands.pluginSearch`/`LockCommands.AddCmd`, `Main.InfoCmd` registry dispatch) over
 `scalascript.imports.RegistryClient` (URL priority `--registry` → config → default
 GitHub Pages project URL `https://sergey-scherbina.github.io/scalascript/packages.yaml`;
 1-hour-TTL cache at `~/.cache/scalascript/registry/`;
@@ -268,3 +269,41 @@ purely additive (helps find things, not required to use them).
    publishing?  Recommendation: no reservation in v1; first-merged-PR wins.
 4. **Custom domain timing**: defer until after the no-domain GitHub Pages MVP is live.
    Do not block the registry on domain registration or DNS setup.
+
+## 8. Unified with the compiler-plugin registry (2026-08-28)
+
+Before this, `packages.yaml`/`RegistryEntry` (this spec) and `~/.scalascript/registry.yaml`/
+`LocalRegistry` (a separate, unrelated map-schema file used only by `ssc plugin install <name>`'s
+short-name resolution) were two independent "registry" concepts with no interoperability — and a
+publish-side bridge, `FileRegistry.exportPackagesYaml`, claimed in its own doc comment to emit
+"exactly what `RegistryClient`/`ssc search` consume" while actually serializing via
+`LocalRegistry.toYaml` (a YAML *map*), which `RegistryEntry.parseAll` (a YAML *list* parser)
+cannot read at all. `RemoteRegistryTest`'s round-trip test parsed its own write with its own
+reader (`LocalRegistry.parseFile`), so this schema mismatch had no gate.
+
+Now there is exactly one registry, one schema, one client:
+
+- `RegistryEntry` gained a `kind: "library" | "plugin"` field (default `"library"`, so every
+  existing `packages.yaml` entry is unchanged). A `library` entry's `name` must still be
+  `<group>/<artifact>`; a `plugin` entry's `name` is a flat id (matches `.sscpkg` manifest ids —
+  `FileRegistry.publish` already forbids `/` in an id).
+- `RegistryClient.formatRow` tags every row `[library]`/`[plugin]` — a mixed-kind result list
+  (`ssc plugin search`, unqualified) never leaves the reader guessing what a row installs as.
+- `RegistryClient.resolveByName` is the ONE short-name lookup, used by `ssc plugin install
+  <name>` (`RemotePluginInstaller.resolveSource`) and by `pkg:`-scheme import resolution
+  (`ImportResolver.resolvePkg`) alike — both used to go through `LocalRegistry.resolve` instead.
+- `FileRegistry.exportPackagesYaml` now builds `RegistryEntry`s (`kind = "plugin"`) via
+  `RegistryEntry.toYaml` — the actual bug above, fixed. `RemoteRegistryTest`'s round-trip test now
+  parses the published file with `RegistryEntry.parseAll` (the real client parser), proving the
+  round-trip for real instead of asserting it in a way that could not fail.
+- `LocalRegistry`/`~/.scalascript/registry.yaml` are gone — deleted, not deprecated.
+- `ssc search` (top-level) moved to `ssc plugin search` — it always searched this one registry;
+  nesting it under `plugin` reads correctly for a plugin lookup and no worse for a library lookup
+  now that both kinds are tagged per-row. `ssc plugin registry list/add/remove/search` (the old
+  `LocalRegistry`-backed subcommands) are gone with it; `ssc plugin registry publish` moved to
+  `ssc plugin publish` (the `registry` nesting had nothing left under it to disambiguate).
+
+See `BUGS.md` `plugin-cli-two-disjoint-registries-and-a-blind-plugin-list` and
+`specs/arch-lib-path-resolution.md`-style two-front bug pairs precedent — this was the same shape
+(two independently-evolved copies of "the same" concept, silently incompatible) applied to a
+registry instead of a staged directory.

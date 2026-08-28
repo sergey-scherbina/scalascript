@@ -468,9 +468,9 @@ Both halves are in the standard graph as of 2026-07-31 and run on plain `ssc` �
 | Module imports | `[name](./lib.ssc)` Markdown links bring definitions into scope; one pure Markdown paragraph may contain multiple import links |
 | URL imports | `[X](https://...)` URL fetch, cached at `~/.cache/ssc/` |
 | Dependency imports | `[X](dep:org/lib:1.2)` legacy source resolver, `[X](dep:org:name:version)` Coursier resolver, `[X](jitpack:com.github.owner:repo:tag)`, `[X](github:owner/repo@tag[#asset])`, `sha256:` pins, `ssc.lock` |
-| Package registry | `ssc search` / `ssc info` / `ssc add` against `https://sergey-scherbina.github.io/scalascript/packages.yaml` by default, overrideable with `--registry` or `registry.url` |
+| Package registry | ONE registry (`packages.yaml`, `kind: library`\|`plugin`) — `ssc plugin search` / `ssc info` / `ssc add` against `https://sergey-scherbina.github.io/scalascript/packages.yaml` by default, overrideable with `--registry` or `registry.url` |
 | Project scaffolding | `ssc new my-app`, `--template lib|plugin|dsl|web-app|wasm-app`, bundled templates, `releases/install.sh` (downloads the native binary from the GitHub release) |
-| Plugin system | `.sscpkg` format, essential bundled plugins auto-loaded from `bin/lib/compiler/plugins`, advanced bundled plugins available locally under `bin/lib/compiler/plugin-available` and enabled with `--plugin` / `ssc plugin install`, `~/.scalascript/registry.yaml` |
+| Plugin system | `.sscpkg` format, essential bundled plugins auto-loaded from `bin/lib/compiler/plugins`, advanced bundled plugins available locally under `bin/lib/compiler/plugin-available` and enabled with `--plugin` / `ssc plugin install`; `ssc plugin list` shows all three (essential/available/installed) |
 | sbt integration | `ScalascriptInteropPlugin`, `sscGenerateFacade`, `sscCompile`, `sscLink`, `sscTest`, `sscRun`, `sscRepl`, `sscWatch`, `sscBspSetup`, `sscBackends` cross-build (emit JVM/JS/Rust/Wasm artifacts from one source), Phase 5 dependency resolution, `src/main/scalascript/` source convention |
 | Config system | `config:` front-matter, ` ```yaml config "name" ` fenced blocks, `config.files: [...]`, typed `derives Config`, `JsConfigEmitter`, `ScalaConfigEmitter` — see `specs/config-system.md` |
 | Separate compilation | `ssc emit-interface`, `ssc emit-ir`, `ssc compile-jvm/compile-js`, `ssc link`, `ssc build --incremental`, `.scim/.scir/.scjvm/.scjs`; `.scir` and `.sscc` preserve Markdown content snapshots when present |
@@ -1031,11 +1031,11 @@ ssc emit-wc file.ssc          # Web Components bundle
 ssc test file.ssc             # run tests
 ssc preview file.ssc          # preview component variants
 ssc deps file.ssc             # show import closure
-ssc search json [--refresh|--offline]
+ssc plugin search json [--refresh|--offline]
 ssc info io.scalascript/json [--registry <url>]
 ssc add io.scalascript/json [<version>] [--file <manifest>]
 ssc info artifact.scjvm       # inspect artifact
-ssc plugin install/list/uninstall/check/pack/registry
+ssc plugin install/list/uninstall/check/pack/search/publish
 ssc --list-backends / --describe-backend <id>
 jssc file.ssc                 # JS transpiler runner
 sscc file.ssc                 # JVM runner
