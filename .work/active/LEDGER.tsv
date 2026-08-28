@@ -1,2 +1,3 @@
-# generation: 3059
+# generation: 3060
 #slug	agent	started	items	paths
+tag-self-consistent-release	claude-code	2026-08-28T15:42:50Z	tag-self-consistent-release	scripts/cut-release .github/workflows/native-release.yml BUGS.md

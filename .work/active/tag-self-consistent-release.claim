@@ -1,0 +1,11 @@
+slug: tag-self-consistent-release
+branch: feature/tag-self-consistent-release
+agent: claude-code
+started: 2026-08-28T15:42:50Z
+heartbeat: 2026-08-28T15:42:50Z
+status: claimed-before-planning
+items: tag-self-consistent-release
+paths: scripts/cut-release .github/workflows/native-release.yml BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
