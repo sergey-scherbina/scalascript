@@ -938,10 +938,11 @@ object RunNativeV2:
         s"SSC_FRONT=F requested but F source is not staged at ${f.getPath}; run scripts/sbtc \"installBin\"")
     }
     // `NativeSourceClosure`'s bare repo-relative import fallback and the tower's own `--lib-root`
-    // flag both want "the root", not the lib dir `ssc.lib.path` may now BE (specs/arch-lib-path-
-    // resolution.md) — recover it only when this run actually resolved via the lib-dir shape; a
-    // ROOT-shaped `ssc.lib.path` (the checkout's JVM launcher, unaffected by any of this) passes
-    // through unchanged, exactly as before.
+    // flag both want "the root", not the lib dir `ssc.lib.path` now IS everywhere (specs/arch-lib-
+    // path-resolution.md) — recover it via `rootAbove` in the normal case (both the checkout's own
+    // `bin/ssc` and native-image discovery set the lib-dir shape now); a ROOT-shaped `ssc.lib.path`
+    // (only from a hand-set `SSC_LIB_PATH` still using the pre-unification convention) passes
+    // through unchanged instead.
     val towerRoot =
       if NativeImageInstallRoot.isLibShaped(installRoot, "standard/native-front") ||
          NativeImageInstallRoot.isLibShaped(installRoot, "native-front")

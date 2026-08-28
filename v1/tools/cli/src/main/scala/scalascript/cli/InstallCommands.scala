@@ -31,9 +31,10 @@ private[cli] def scriptCommand(cmd: String, extraArgs: List[String]): Unit =
                 System.exit(1)
 
 /** `ssc install [--prefix <dir>]` — install ssc to a system prefix (default: `~/.local`).
- *  Copies `bin/lib/` (JARs) and `std/` from the current installation root to
- *  `<prefix>/lib/ssc/`, then writes a self-contained launcher at `<prefix>/bin/ssc`.
- *  The launcher hard-codes the prefix so the binary works from any directory. */
+ *  Copies `bin/lib/` (JARs, from `ssc.lib.path`) and `std/` (from `ImportResolver.stdPath` —
+ *  a separate discovery, since `std/` is not under `lib/`) to `<prefix>/lib/ssc/`, then writes
+ *  a self-contained launcher at `<prefix>/bin/ssc`. The launcher hard-codes the prefix so the
+ *  binary works from any directory. */
 def selfInstallCommand(args: List[String]): Unit =
   val prefix: os.Path = args match
     case "--prefix" :: p :: _ => os.Path(p, os.pwd)
@@ -42,7 +43,9 @@ def selfInstallCommand(args: List[String]): Unit =
       System.err.println("Usage: ssc install [--prefix <dir>]")
       System.exit(1); os.pwd
 
-  val libRoot: os.Path = scalascript.imports.ImportResolver.libPath.getOrElse {
+  // ssc.lib.path (ImportResolver.libPath) names the lib/ directory itself
+  // (specs/arch-lib-path-resolution.md) — this IS the source to copy, not a root above it.
+  val srcLib: os.Path = scalascript.imports.ImportResolver.libPath.getOrElse {
     System.err.println(
       "ssc install: cannot determine current install root.\n" +
       "  ssc must be launched via the bin/ssc launcher (ssc.lib.path must be set).")
@@ -55,7 +58,6 @@ def selfInstallCommand(args: List[String]): Unit =
   println(s"Installing ssc → $prefix")
 
   // Copy bin/lib/ (runtime JARs + thin ssc.jar)
-  val srcLib = libRoot / "bin" / "lib"
   if !os.exists(srcLib) then
     System.err.println(s"ssc install: bin/lib not found at $srcLib"); System.exit(1)
   os.makeDir.all(destRoot / "bin")
@@ -67,22 +69,24 @@ def selfInstallCommand(args: List[String]): Unit =
   val jarCount = os.walk(destRoot / "bin" / "lib").count(_.ext == "jar")
   println(s"  ✓  Library   → $destRoot/bin/lib/  ($jarCount jars)")
 
-  // Copy std/ (standard library .ssc files)
-  val srcStd = libRoot / "std"
-  if os.exists(srcStd) then
+  // Copy std/ (standard library .ssc files) — std/ is NOT under lib/, so this goes through
+  // ImportResolver's own std-root discovery rather than a path built off srcLib.
+  val srcStdOpt = scalascript.imports.ImportResolver.stdPath.map(_ / "std").filter(os.exists)
+  srcStdOpt.foreach { srcStd =>
     os.walk(srcStd).foreach { src =>
       val dest = destRoot / "std" / src.relativeTo(srcStd)
       if os.isDir(src) then os.makeDir.all(dest)
       else { os.makeDir.all(dest / os.up); os.copy.over(src, dest) }
     }
     println(s"  ✓  Stdlib    → $destRoot/std/")
+  }
 
   // Write a self-contained launcher with hard-coded prefix
   os.makeDir.all(destBin)
   val launcher = destBin / "ssc"
   os.write.over(launcher,
     s"""#!/usr/bin/env bash
-       |exec java -Dssc.lib.path="$destRoot" \\
+       |exec java -Dssc.lib.path="$destRoot/bin/lib" \\
        |  -cp "$destRoot/bin/lib/standard/jars/*:$destRoot/bin/lib/standard/ssc.jar" \\
        |  scalascript.cli.StandardMain "$$@"
        |""".stripMargin)
@@ -93,7 +97,7 @@ def selfInstallCommand(args: List[String]): Unit =
   val standardLauncher = destBin / "ssc-standard"
   os.write.over(standardLauncher,
     s"""#!/usr/bin/env bash
-       |exec java -Dssc.lib.path="$destRoot" \\
+       |exec java -Dssc.lib.path="$destRoot/bin/lib" \\
        |  -cp "$destRoot/bin/lib/standard/jars/*:$destRoot/bin/lib/standard/ssc.jar" \\
        |  scalascript.cli.StandardMain "$$@"
        |""".stripMargin)
@@ -103,7 +107,7 @@ def selfInstallCommand(args: List[String]): Unit =
   val toolsLauncher = destBin / "ssc-tools"
   os.write.over(toolsLauncher,
     s"""#!/usr/bin/env bash
-       |exec java -Dssc.lib.path="$destRoot" \\
+       |exec java -Dssc.lib.path="$destRoot/bin/lib" \\
        |  -cp "$destRoot/bin/lib/jars/*:$destRoot/bin/lib/ssc.jar" \\
        |  scalascript.cli.ssc "$$@"
        |""".stripMargin)

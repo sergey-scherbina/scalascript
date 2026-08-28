@@ -935,7 +935,7 @@ class JvmGen(
         finally stream.close()
       else None
     val libPath = Option(System.getProperty("ssc.lib.path"))
-    val installed = libPath.flatMap(path => findIn(java.nio.file.Paths.get(path, "bin", "lib", "jars")))
+    val installed = libPath.flatMap(path => findIn(java.nio.file.Paths.get(path, "jars")))
     // Locate jars/ relative to the running jar — works for `java -jar ssc.jar`
     // from any CWD, since the dep jars live next to ssc.jar in bin/lib/jars/.
     val jarLocal = Option(this.getClass.getProtectionDomain).flatMap(pd => Option(pd.getCodeSource))

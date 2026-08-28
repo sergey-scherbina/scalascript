@@ -7,40 +7,43 @@ Companion: `NativeImageInstallRoot.scala` (the code this spec documents),
 
 ---
 
-## 1. Two `ssc.lib.path` conventions, deliberately left as two
+## 1. One `ssc.lib.path` convention, project-wide
 
-This project has, and keeps, **two separate conventions** for what the JVM system property
-`ssc.lib.path` means, depending on which code reads it:
+`ssc.lib.path` names the `lib/` directory itself — EVERYWHERE. Every consumer appends only its own
+asset-specific subpath directly onto it:
 
-1. **The checkout/install ROOT** (the older, pre-existing convention). `ImportResolver`
-   (`std/…`, `scljet/…`, bare repo-relative import resolution), `JarCommands`, `CompilerLoader`,
-   `JvmGen`/`SparkGen`, and `PluginManifest` all read `ssc.lib.path` as a ROOT and append their own
-   `bin/lib/…` (or, for `ImportResolver`, `std/`/`scljet/`/`runtime/…`) suffix themselves. A JVM
-   launcher (`bin/ssc`, `bin/ssc-tools`, written by `InstallCommands.scala`) sets this explicitly —
-   `-Dssc.lib.path=<checkout-root>` — and NOTHING in this spec changes that. It is genuinely load-
-   bearing (std-library import resolution for every `.ssc` program run through the JVM launcher)
-   and was left alone on purpose.
+- `NativeImageInstallRoot`/`RunNativeV2`/`NativeJvmArtifact` → `standard/native-front`,
+  `standard/jars` (§2).
+- `JarCommands` → `ssc.jar`, `jars/`.
+- `CompilerLoader` → `compiler/jars/`.
+- `JvmGen`/`SparkGen` → `jars/`.
+- `PluginManifest` and `Main.scala`'s startup essential-plugin auto-load → `compiler/plugins/`.
+- `Main.scala`'s `pluginAvailableDirs`/x402-tools-classpath helpers → `compiler/plugin-available/`,
+  `tools/x402/`.
+- `InstallCommands.scala`'s `bin/ssc`/`bin/ssc-tools`/`bin/ssc-standard` launcher templates now
+  SET it this way too — `-Dssc.lib.path="$destRoot/bin/lib"` — instead of the checkout root; the
+  physical `bin/lib/` tree they point at is unchanged, only the property's value changed to name
+  it directly.
+- `build.sbt`'s own launcher-script generator (`installBin`, the checkout's `bin/ssc`/`bin/ssc-
+  tools`/`bin/ssc-provider`) sets `-Dssc.lib.path="$_SSC_BIN/lib"` (`$_SSC_BIN` is already `bin/`),
+  matching the same convention for the checkout itself.
 
-2. **The `lib/` directory itself** (this spec). `NativeImageInstallRoot.discoverLib` and
-   `resolveUnderLib`, and their two callers — `RunNativeV2.nativeFrontLayout` (locates the
-   self-hosted compiler front, `standard/native-front`) and `NativeJvmArtifact.runCommand`
-   (locates staged JVM runtime jars, `standard/jars`) — read `ssc.lib.path` this way.
+**The one exception is `ImportResolver`'s `std/`/`scljet/` resolution**, and only because `std/`
+and `scljet/` genuinely do not live under `lib/` — they live at the checkout/install ROOT
+(`<root>/std`, `<root>/scljet`), which is a different directory than `lib/` in every layout. This
+does NOT need special-casing at the `ssc.lib.path` level, because `ImportResolver.discoverStdRoot`
+already had an INDEPENDENT discovery path that finds the ROOT regardless of `ssc.lib.path`'s
+value: rule 5 walks up from `jarDir` (the directory holding the running classes/jar) until it
+finds a `std/` or `runtime/std/`, which works for a JVM-launcher run whether `ssc.lib.path` points
+at the ROOT or at `lib/` — verified empirically, live, before committing to this change (see §2d).
+`ImportResolver.libPath`'s own rule 3 (`lib.filter(hasStd)`) and `discoverScljetRoot`'s `lib/
+scljet` check simply return `None` now (since `lib/std`/`lib/scljet` don't exist) and fall through
+to that independent path — kept only for backward compatibility with a hand-set `SSC_LIB_PATH`
+still pointed at a ROOT the old way, not because anything depends on them succeeding today.
 
-**Why not unify these into one?** Because `ImportResolver`'s ROOT convention is reachable from
-inside a running native-image binary too (via the legacy `--v1` interpreter lane), and its std/
-scljet resolution genuinely needs a ROOT-shaped value (`<root>/std`, `<root>/scljet`) that cannot
-be recovered from a bare `lib/` directory without reintroducing exactly the forced `bin/lib`
-nesting this work removes from the release archive. Changing convention 1's meaning to match
-convention 2 would have meant either (a) touching a dozen call sites across `ImportResolver`,
-`JarCommands`, `CompilerLoader`, `JvmGen`, `SparkGen`, `PluginManifest`, and `InstallCommands`'s
-launcher templates — all of which work correctly today and are exercised by every JVM-launcher
-run — for no behavioral gain, since (b) `--v1` on a released native-image binary already cannot
-resolve `std/…` imports today regardless (verified empirically: `ssc --v1 script-importing-std.ssc`
-on the shipped archive throws `Import not found: std/…` — `ImportResolver.libPath`/`stdPath` find
-nothing useful in the archive's shape either before or after this change). There was no working
-behavior in that lane to preserve, and no reason to risk the *other*, load-bearing lane to "fix"
-it. Two well-documented conventions, each internally consistent and each scoped to what actually
-reads it, beats one convention stretched to cover two genuinely different needs.
+`InstallCommands.selfInstallCommand` (`ssc install`) is the one place that ALSO needs `std/`'s real
+location directly (to copy it to a new prefix) — it now reads `ImportResolver.stdPath` for that,
+instead of building a `std/` path off `ssc.lib.path` (which no longer points anywhere near it).
 
 ## 2. What `NativeImageInstallRoot` solves
 
@@ -79,21 +82,15 @@ needs to address a checkout audience (`scripts/sbtc`, `bin/ssc` can't be what th
 `SSC_LIB_PATH` (or an already-set `-Dssc.lib.path`) always wins over discovery, unmodified — a
 user or launcher setting it explicitly is authoritative.
 
-### 2b. `resolveUnderLib` — accepting either shape at the READ site
+### 2b. `resolveUnderLib` — a backward-compatible fallback, not the normal path
 
-`ssc.lib.path` can arrive at `nativeFrontLayout`/`NativeJvmArtifact.runCommand` in either shape,
-regardless of source:
-
-- the **`lib/`-dir shape** — from `discoverLib` above, or a user exporting `SSC_LIB_PATH` pointed
-  straight at a `lib/` directory;
-- the **ROOT shape** — from a JVM launcher's own `-Dssc.lib.path=<checkout-root>` (convention 1,
-  §1), or a user exporting `SSC_LIB_PATH` the older way.
-
-Rather than have the two callers guess which shape they were handed, `resolveUnderLib(root,
-suffix)` tries the direct shape first (`root/<suffix>`) and falls back to the ROOT shape
-(`root/bin/lib/<suffix>`) — so the same call resolves `standard/native-front` (or `standard/jars`)
-correctly either way, and the checkout's own `bin/ssc`-launched runs (which still pass a ROOT-
-shaped value, completely unaffected by anything in §2a) keep working unmodified.
+`ssc.lib.path` is `lib/`-dir-shaped in the NORMAL case now, from every source: native-image
+discovery (§2a), the checkout's own `bin/ssc`/`bin/ssc-tools` (both now set it to `bin/lib`
+directly), and a freshly self-installed prefix (`ssc install`, §1). `resolveUnderLib(root, suffix)`
+still tries that direct shape first (`root/<suffix>`) and falls back to the older ROOT shape
+(`root/bin/lib/<suffix>`) only for backward compatibility — a hand-set `SSC_LIB_PATH` still pointed
+at a checkout root the pre-unification way. Nothing in this project sets the ROOT shape anymore;
+the fallback exists purely so an external override in that shape does not silently break.
 
 ```scala
 def resolveUnderLib(installRoot: File, suffix: String): File =
@@ -108,13 +105,35 @@ the self-hosted tower's own `--lib-root` flag, and `NativeSourceClosure`'s bare 
 import fallback (`tests/conformance/lib/foo.ssc`-style imports that are neither `std/…` nor
 `./…`-relative) — both pre-date this work and are unrelated to it. `NativeImageInstallRoot.
 isLibShaped`/`rootAbove` recover a ROOT value from whichever shape `resolveUnderLib` actually
-matched, WITHOUT changing what either downstream consumer receives:
+matched:
 
-- if the lib-dir shape matched (archive/install-prefix), `rootAbove` walks up one level, or two
-  when the level directly above is named `bin` (so a `<root>/bin/lib` shape recovers `<root>`,
-  not `<root>/bin`);
-- if the ROOT shape matched (checkout via JVM launcher), the value passes through completely
-  unchanged — exactly what `RunNativeV2`/`NativeSourceClosure` received before this work existed.
+- the normal case now: the lib-dir shape matched, so `rootAbove` walks up one level, or two when
+  the level directly above is named `bin` (so a `<root>/bin/lib` shape recovers `<root>`, not
+  `<root>/bin`);
+- the backward-compat case: a hand-set ROOT-shaped `SSC_LIB_PATH` matched instead, so the value
+  passes through completely unchanged.
+
+### 2d. Why `ImportResolver` needed no changes — verified live, not just reasoned
+
+Before touching `InstallCommands.scala`'s launcher templates (the change with the widest blast
+radius, since it flips what value every JVM-launcher run passes), the risk was checked directly
+against a real running interpreter rather than trusted from reading the code: with `ssc.lib.path`
+pointed straight at `<checkout>/bin/lib` (the NEW shape, not the ROOT `ImportResolver`'s doc
+comments described at the time),
+
+```
+java -Dssc.lib.path=<checkout>/bin/lib -cp bin/lib/standard/jars/*:bin/lib/standard/ssc.jar \
+  scalascript.cli.StandardMain t.ssc     # imports std/json.ssc — resolved
+java ... same ...                         t.ssc     # imports std/scljet/index.ssc — resolved
+java ... same ...                         t.ssc     # a bare tests/-relative import — resolved
+```
+
+all three resolved correctly. This is because `discoverStdRoot`'s rule 5 (an ancestor walk from
+`jarDir`, independent of `ssc.lib.path` entirely) already finds the checkout root in a dev-tree
+run, and `discoverScljetRoot`/the bare-import fallback both consult `stdPath` — which rule 5
+already fixed — before ever falling back to a `libPath`-built candidate. The three-line
+`ImportResolver.libPath` doc comment (§1) and `AutoResolve.scala`'s inline comment were updated
+to state this plainly, so the next reader does not have to re-derive it.
 
 ## 3. The release archive's physical layout
 
@@ -138,31 +157,51 @@ moves anything inside it.
 and required-file list, and `tests/e2e/native-release-qualification.sh`'s fixture generator were
 all updated to the new archive path in lockstep.
 
-## 4. What deliberately did NOT change
+## 4. What changed everywhere, and what a near-miss taught
 
-- `ImportResolver.scala` — zero changes. Its ROOT convention (§1) stays exactly as documented in
-  its own doc comments.
-- `JarCommands.scala`, `CompilerLoader.scala`, `JvmGen.scala`, `SparkGen.scala`,
-  `PluginManifest.scala` — zero changes. All still read `ssc.lib.path` as a ROOT and append
-  `bin/lib/…` themselves, unaffected by anything in this spec.
-- `InstallCommands.scala`'s launcher templates — zero changes. `bin/ssc`/`bin/ssc-tools` still set
-  `-Dssc.lib.path=<checkout-root>`, exactly as before.
-- `BackendRegistry.scala`'s `ssc-plugin-host.jar` lookup — zero changes. It already searches
-  `<binary-dir>/lib/ssc-plugin-host.jar` independently of `ssc.lib.path`, which already matches
-  the archive's `lib/ssc-plugin-host.jar` placement; there was nothing to unify there.
+Every consumer listed in §1 dropped its `bin/lib/…` (or, for `Main.scala`'s bench-command launcher
+lookup, its `bin/ssc-tools`) suffix computation against `ssc.lib.path`, since the property already
+names that directory now. `BackendRegistry.scala`'s `ssc-plugin-host.jar` lookup is the one true
+zero-change case — it already searches `<binary-dir>/lib/ssc-plugin-host.jar` independently of
+`ssc.lib.path` entirely (its own `<binary-dir>/lib/` walk), which already matched the archive's
+`lib/ssc-plugin-host.jar` placement; there was nothing to unify there.
+
+**A near-miss during this change, left in as a cautionary note for the next one:** the first pass
+updated `PluginManifest.defaultSearchPaths` but missed a SECOND, independent computation in
+`Main.scala`'s startup essential-plugin auto-loader — a few lines that build `bin/lib/compiler/
+plugins` off `ImportResolver.libPath` directly, not through `PluginManifest` at all. `scripts/smoke-
+ci` caught it immediately and unambiguously: 17 checks failed with `Undefined: serve` /
+`Undefined: __jsonCoreInstallRenderer` / similar — every essential plugin (http, json, ws, …) had
+stopped auto-loading, because the ONLY thing wrong was that startup path still appending `bin/lib`
+to a value that was now already `bin/lib`, landing on `bin/lib/bin/lib/compiler/plugins`, which
+never exists. The fix was one line; the lesson is procedural — `grep` for every literal
+`"bin"`/`"lib"` pair against `ssc.lib.path`/`ImportResolver.libPath` project-wide BEFORE declaring
+a property-meaning change complete, since a call site that duplicates another's logic instead of
+sharing it will not show up by re-reading the file you already fixed.
 
 ## 5. Verification
 
 - `NativeImageInstallRootTest.scala` — `discoverLib` exercises all three layouts (§2a) plus a
   precedence test (a `lib/` beside the executable wins over one one level up) and a symlink-
   resolution test; `resolveUnderLib`/`isLibShaped`/`rootAbove` are tested directly against both
-  shapes.
+  shapes. 18/18 green.
 - `tests/e2e/native-release-qualification.sh` — the archive fixture's front now lives at
   `lib/standard/native-front`; 64 compare-first cases, green.
 - `tests/e2e/native-release-publication.sh` — unaffected by this change (asset names, not their
   internal layout); 40 compare-first cases, green.
+- `V2RunArgvCliTest`/`V2ActorCliTest`/`V2CaseClassMethodCliTest`/`JvmTransitiveStdImportCliTest`/
+  `EmitScalaFacadeCliTest`/`JvmDirectDriverTest`/`StdRootResolutionTest` — 45/45 green, run against
+  a freshly rebuilt `ssc.jar` (a stale, month-old jar from before this work gave one false failure
+  that disappeared once `cli/assembly` actually ran).
+- `ssc install --prefix <tmp>` exercised end-to-end: copies `bin/lib/` (via the now-direct
+  `srcLib = ImportResolver.libPath`) and `std/` (via `ImportResolver.stdPath`, §1) to a fresh
+  prefix, writes a launcher, and the installed binary resolves `std/json.ssc` correctly.
+- `compile-jvm --bytecode`/`link --bytecode` (both load the Scala compiler via `CompilerLoader`)
+  exercised directly through `bin/ssc-tools`.
 - Manual, on a locally rebuilt `ssc-macos-arm64` native-image binary + freshly assembled archive
   (layout 1): `search --refresh` (network), the missing-install-root message (bare binary with no
   `lib/`), and `repl :load` all verified end-to-end, plus layouts 2 and 3 reproduced by hand-moving
   the same built binary and its `lib/` directory into each shape and re-running `--version` +
   a `std/…`-importing script.
+- `scripts/smoke-ci`: 99/116 green on the first full run (the `Main.scala` near-miss above, §4),
+  116/116 green after the fix.

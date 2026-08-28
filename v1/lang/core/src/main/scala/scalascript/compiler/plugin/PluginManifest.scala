@@ -110,12 +110,12 @@ object PluginManifest:
 
   /** Default search paths for plugin.yaml and .sscpkg discovery.
    *
-   *    - `$ssc.lib.path/lib/plugins/` — install-local plugins (sibling of std/)
+   *    - `$ssc.lib.path/compiler/plugins/` — install-local plugins
    *    - `$SCALASCRIPT_PLUGIN_PATH`   — colon-separated override list
    *    - `~/.scalascript/compiler/plugins/`   — user-global plugins */
   def defaultSearchPaths: List[os.Path] =
     val libPlugins = scalascript.imports.ImportResolver.libPath
-      .map(_ / "bin" / "lib" / "compiler" / "plugins")
+      .map(_ / "compiler" / "plugins")
       .filter(os.exists)
       .toList
     val envPath = sys.env.get("SCALASCRIPT_PLUGIN_PATH").getOrElse("")

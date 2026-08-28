@@ -142,7 +142,9 @@ private[cli] object NativeSourceClosure:
     //   A BARE path is ambiguous (a sibling of the importer, e.g. std/http.ssc →
     //   `json.ssc`, OR a repo-root-relative case import like
     //   tests/conformance/lib/foo.ssc). Try the importer directory first and fall
-    //   back to the install/lib root (ssc.lib.path — the repo root in a checkout).
+    //   back to the install/lib root — the `libRoot` param, which callers derive via
+    //   `NativeImageInstallRoot.rootAbove` since `ssc.lib.path` itself now names `lib/`, not the
+    //   checkout root (specs/arch-lib-path-resolution.md).
     val target =
       if normalizedRelative.startsWith("std/") then
         new File(stdRoot, normalizedRelative)

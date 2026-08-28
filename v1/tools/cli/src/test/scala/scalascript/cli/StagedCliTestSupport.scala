@@ -78,9 +78,15 @@ private[cli] object StagedCliTestSupport:
 
   /** Configure the current test JVM like the installed launcher before the
    * in-process compiler service is initialised. CLI tests execute serially, and
-   * retaining the correct staged root lets the lazy service be reused safely. */
+   * retaining the correct staged root lets the lazy service be reused safely.
+   *
+   * `ssc.lib.path` names `bin/lib` itself (specs/arch-lib-path-resolution.md), matching what
+   * `bin/ssc`/`bin/ssc-tools` actually set — NOT `installRoot`, which is the checkout root one
+   * level up (found by locating `bin/ssc-tools`). Returns `installRoot` (the checkout root),
+   * unchanged, since every caller of this method wants that for its own path-building, not the
+   * `ssc.lib.path` value this sets as a side effect. */
   def configureInstalledLibPath(): Option[os.Path] =
     installRoot.filter(_ => compilerDriverAvailable).map { root =>
-      sys.props("ssc.lib.path") = root.toString
+      sys.props("ssc.lib.path") = (root / "bin" / "lib").toString
       root
     }

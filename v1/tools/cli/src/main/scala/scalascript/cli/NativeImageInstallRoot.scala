@@ -8,14 +8,16 @@ import scala.util.Try
  *  `NativeJvmArtifact.runCommand` need and cannot find any other way inside a native-image binary,
  *  which has no launcher to set the property itself.
  *
- *  `ssc.lib.path` is scoped NARROWLY here: only `discoverLib`/`resolveUnderLib` in this file, and
- *  their two callers, treat it this way. `ImportResolver`, `JarCommands`, `CompilerLoader`,
- *  `JvmGen`/`SparkGen`, and `InstallCommands`'s launcher templates all keep the older, UNCHANGED
- *  convention where the property names the checkout/install ROOT and each of them appends its own
- *  `bin/lib/...` suffix — that convention is load-bearing for every JVM-launcher run (`bin/ssc`
- *  sets `ssc.lib.path` to the checkout root itself, never touching this file) and is deliberately
- *  left alone; see `specs/arch-lib-path-resolution.md` for why the two conventions coexist instead
- *  of one replacing the other project-wide.
+ *  `ssc.lib.path` names the `lib/` directory itself EVERYWHERE now (specs/arch-lib-path-
+ *  resolution.md) — `JarCommands`, `CompilerLoader`, `JvmGen`/`SparkGen`, `PluginManifest`, and
+ *  `InstallCommands`'s launcher templates all read it this way too, appending only their own
+ *  asset-specific subpath (`/jars`, `/compiler/jars`, `/compiler/plugins`, ...) directly. A JVM
+ *  launcher (`bin/ssc`) sets it to `<checkout>/bin/lib`; this file's `discoverLib` derives the
+ *  equivalent for a native-image binary, which has no launcher to set it.
+ *
+ *  `ImportResolver`'s `std/`/`scljet/` resolution is the one exception, and only because `std/`
+ *  and `scljet/` genuinely do not live under `lib/` — see `ImportResolver.libPath`'s own doc
+ *  comment for why that resolution chain does not need to change here either.
  *
  *  `discoverLib` finds a `lib/` directory next to the executable, or one level up — covering all
  *  three physical layouts a `ssc` binary ships in, checked in this order (so a `lib/` beside the
@@ -92,12 +94,10 @@ private[cli] object NativeImageInstallRoot:
       else None
     }
 
-  /** Resolve `suffix` (e.g. `"standard/native-front"`) against `ssc.lib.path`'s value, whichever
-   *  of the two shapes it currently holds: the `lib/` directory itself (this file's own discovery,
-   *  or `SSC_LIB_PATH` pointed straight at `lib/`) tried first, then the checkout ROOT shape a JVM
-   *  launcher sets (`<root>/bin/lib/<suffix>`) as a fallback — so the SAME call works unmodified
-   *  whether `ssc.lib.path` arrived from native-image discovery or from `bin/ssc`'s own launcher
-   *  property, without either caller needing to know which one it got. */
+  /** Resolve `suffix` (e.g. `"standard/native-front"`) against `ssc.lib.path`'s value: the direct
+   *  `lib/`-dir shape (the normal case now, from either a launcher or native-image discovery) tried
+   *  first, falling back to the older ROOT shape (`<root>/bin/lib/<suffix>`) only for backward
+   *  compatibility with a hand-set `SSC_LIB_PATH` still pointed at a checkout root the old way. */
   private[cli] def resolveUnderLib(installRoot: java.io.File, suffix: String): java.io.File =
     val direct = new java.io.File(installRoot, suffix)
     if direct.exists() then direct

@@ -2185,7 +2185,7 @@ lazy val cli = project
           |                   -Xlog:cds=off -Xlog:cds+dynamic=off)
           |  fi
           |fi
-          |exec java "${_SSC_CDS_ARGS[@]}" -Xss"${SSC_XSS:-64m}" -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8 -Dssc.lib.path="$_SSC_ROOT" \
+          |exec java "${_SSC_CDS_ARGS[@]}" -Xss"${SSC_XSS:-64m}" -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8 -Dssc.lib.path="$_SSC_BIN/lib" \
           |  -cp "$_SSC_BIN/lib/standard/jars/*:$_SSC_BIN/lib/standard/ssc.jar" \
           |  scalascript.cli.StandardMain "$@"
           |""".stripMargin
@@ -2199,7 +2199,7 @@ lazy val cli = project
           |_SSC_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
           |_SSC_ROOT="$(dirname "$_SSC_BIN")"
           |""".stripMargin + buildCheckSnippet +
-        """|exec java -Xss"${SSC_XSS:-64m}" -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8 -Dssc.lib.path="$_SSC_ROOT" \
+        """|exec java -Xss"${SSC_XSS:-64m}" -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8 -Dssc.lib.path="$_SSC_BIN/lib" \
           |  -cp "$_SSC_BIN/lib/jars/*:$_SSC_BIN/lib/ssc.jar" \
           |  scalascript.cli.ssc "$@"
           |""".stripMargin)
@@ -2230,7 +2230,7 @@ lazy val cli = project
           |  fi
           |  exit 2
           |fi
-          |exec java -Xss"${SSC_XSS:-64m}" -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8 -Dssc.lib.path="$_SSC_ROOT" \
+          |exec java -Xss"${SSC_XSS:-64m}" -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8 -Dssc.lib.path="$_SSC_BIN/lib" \
           |  -cp "$_SSC_PROVIDER_DIR/*:$_SSC_BIN/lib/standard/jars/*:$_SSC_BIN/lib/standard/ssc.jar" \
           |  scalascript.cli.StandardMain "$@"
           |""".stripMargin)

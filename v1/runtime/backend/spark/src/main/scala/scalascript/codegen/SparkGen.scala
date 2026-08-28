@@ -729,7 +729,7 @@ private class SparkGen(
         finally stream.close()
       else None
     val libPath = Option(System.getProperty("ssc.lib.path"))
-    val installed = libPath.flatMap(path => findIn(java.nio.file.Paths.get(path, "bin", "lib", "jars")))
+    val installed = libPath.flatMap(path => findIn(java.nio.file.Paths.get(path, "jars")))
     val jarLocal = Option(this.getClass.getProtectionDomain).flatMap(pd => Option(pd.getCodeSource))
       .flatMap(cs => Option(cs.getLocation))
       .flatMap(url => scala.util.Try(java.nio.file.Paths.get(url.toURI).getParent).toOption)

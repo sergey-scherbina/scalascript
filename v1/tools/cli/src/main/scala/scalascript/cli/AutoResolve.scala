@@ -89,16 +89,20 @@ object AutoResolve:
                 // the importing file are looked up under the library roots.
                 //
                 // BOTH roots, and `stdPath` is the one that matters. `libPath` is whatever the
-                // launcher passed as `-Dssc.lib.path`, which in a dev tree is the REPO ROOT.
-                // `stdPath` is the result of `ImportResolver.discoverStdRoot`, the six-rule search
-                // the interpreter and the js lane already use (`specs/std-root-resolution.md §3`).
+                // launcher passed as `-Dssc.lib.path` — since `specs/arch-lib-path-resolution.md`,
+                // that is `<checkout>/bin/lib` itself, NOT the repo root `std/` actually lives
+                // under, so `libPath`'s own candidate below no longer matches directly in a dev
+                // tree. `stdPath` is the result of `ImportResolver.discoverStdRoot`, the six-rule
+                // search the interpreter and the js lane already use
+                // (`specs/std-root-resolution.md §3`) — its OWN `jarDir`-ancestor walk (rule 5)
+                // finds the repo root independently of `libPath`'s value, which is why this still
+                // resolves correctly; `libPath` stays first in the list below purely as a fast path
+                // for whatever hasn't moved off the older root-shaped `SSC_LIB_PATH` convention.
                 //
                 // This used to add "and `std/` does not live there, it lives at `v1/runtime/std`",
-                // which was the reason the two roots differed at all. Since `std-to-repo-root`
-                // (2026-08-09) the dev tree keeps its 108 `.ssc` modules AT the repo root, so in a
-                // dev tree the two roots now coincide and rule 3 matches directly. They still
-                // differ for an INSTALLED tree, whose std is staged to `<root>/runtime/std` — so
-                // reading `stdPath` rather than `libPath` remains the correct thing to do here.
+                // which was the reason the two roots differed at all for an INSTALLED tree, whose
+                // std is staged to `<root>/runtime/std` — so reading `stdPath` rather than
+                // `libPath` remains the correct thing to do here.
                 //
                 // Consulting only `libPath` is why `compile-jvm` refused an import that `run --v1`
                 // and `run-js` accepted from the SAME file: one lane out of three used a different

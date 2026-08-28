@@ -21,7 +21,7 @@ private[cli] def buildSwiftUIPackage(
   val module  = Parser.parse(os.read(sscFile))
   val baseDir = Some(sscFile / os.up)
   val raw     = JvmGen.generate(module, baseDir, frontendOverride = Some("swiftui"))
-  val jarsDir = scalascript.imports.ImportResolver.libPath.map(_ / "bin" / "lib" / "jars")
+  val jarsDir = scalascript.imports.ImportResolver.libPath.map(_ / "jars")
   val source  = jarsDir match
     case Some(jars) => patchLocalSscDeps(raw, jars)
     case None       => raw

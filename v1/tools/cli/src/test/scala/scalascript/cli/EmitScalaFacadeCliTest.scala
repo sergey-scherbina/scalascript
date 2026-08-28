@@ -33,11 +33,12 @@ class EmitScalaFacadeCliTest extends AnyFunSuite:
     cancel("ssc.jar not found — run `sbt cli/assembly` first")
 
   // `compile-jvm --bytecode` / `link --bytecode` lazily load the Scala compiler
-  // jars from `<ssc.lib.path>/bin/lib/compiler/jars` (staged by `sbt installBin`).
-  // Plain `java -jar ssc.jar` doesn't set `ssc.lib.path`, so derive it by walking
-  // up from the jar to the staged root (same pattern as
-  // ClusterMultiBackendMatrixTest.sscLibArgs) — without it the whole happy-path
-  // family failed with "CompilerLoader: ssc.lib.path is not set".
+  // jars from `<ssc.lib.path>/compiler/jars` (staged by `sbt installBin` at
+  // `bin/lib/compiler/jars` on disk — ssc.lib.path names bin/lib itself,
+  // specs/arch-lib-path-resolution.md). Plain `java -jar ssc.jar` doesn't set
+  // `ssc.lib.path`, so derive it by walking up from the jar to the staged root
+  // (same pattern as ClusterMultiBackendMatrixTest.sscLibArgs) — without it the
+  // whole happy-path family failed with "CompilerLoader: ssc.lib.path is not set".
   private lazy val sscLibArgs: Seq[String] =
     sscJar match
       case Some(j) =>
@@ -45,7 +46,7 @@ class EmitScalaFacadeCliTest extends AnyFunSuite:
         var found: Option[os.Path] = None
         var i = 0
         while found.isEmpty && i < 8 do
-          if os.exists(p / "bin" / "lib" / "compiler" / "jars") then found = Some(p)
+          if os.exists(p / "bin" / "lib" / "compiler" / "jars") then found = Some(p / "bin" / "lib")
           if p != p / os.up then p = p / os.up
           i += 1
         found.map(r => s"-Dssc.lib.path=$r").toSeq

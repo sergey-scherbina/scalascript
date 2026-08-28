@@ -53,11 +53,12 @@ class StdRootResolutionTest extends AnyFunSuite:
     val j = withStd("jar")
     check(disc(jar = Some(j), home = os.temp.dir()), Some(j))
 
-  // THE PRODUCTION SHAPE, and the one every other test here misses: `lib` is set — every `bin/ssc*`
-  // passes `-Dssc.lib.path=<repo root>` — but a dev tree keeps its std at `runtime/std`, so the
-  // root does NOT contain `std/`. Rule 3 was unfiltered, so it returned the root regardless and
-  // rules 4-6 never ran. Every other test builds `lib` with `withStd("lib")`, which is the one
-  // shape where a filtered and an unfiltered rule 3 behave identically.
+  // A REAL PRODUCTION SHAPE (a hand-set `SSC_LIB_PATH=<repo root>` the pre-`arch-lib-path-
+  // resolution` way — every `bin/ssc*` itself now passes `bin/lib`, but this override is still
+  // accepted): `lib` is set to a root whose dev tree keeps its std at `runtime/std`, so the root
+  // does NOT contain `std/` directly. Rule 3 was unfiltered, so it returned the root regardless
+  // and rules 4-6 never ran. Every other test builds `lib` with `withStd("lib")`, which is the
+  // one shape where a filtered and an unfiltered rule 3 behave identically.
   test("a lib root WITHOUT std/ does not win over the dev tree"):
     val repo = os.temp.dir(prefix = "ssc-repo-")
     os.makeDir.all(repo / "runtime" / "std")           // dev layout: std is under runtime/

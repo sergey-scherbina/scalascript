@@ -130,12 +130,33 @@ build. Full design and rationale in `specs/arch-lib-path-resolution.md`; summary
 now finds a plain `lib/` directory next to the binary or one level above it (covering `ssc` +
 `lib/*`, `bin/ssc` + `lib/*`, and the checkout's own `bin/ssc` + `bin/lib/*`, in that precedence
 order), and the archive ships `lib/standard/native-front/` — no `bin/` in the archive at all. The
-checkout's own `bin/` tree is untouched, and every OTHER `ssc.lib.path` consumer
-(`ImportResolver`, `JarCommands`, `CompilerLoader`, `JvmGen`/`SparkGen`, `PluginManifest`,
-`InstallCommands`'s launcher templates) deliberately keeps its older, separate ROOT-based
-convention — see the spec's §1 for why unifying those too was assessed and rejected. The message
-now says "no lib/ directory ... next to itself, or one level above itself" instead of naming
-`bin/lib/standard/native-front` specifically, matching the new discovery shape.
+checkout's own `bin/` tree is untouched. The message now says "no lib/ directory ... next to
+itself, or one level above itself" instead of naming `bin/lib/standard/native-front` specifically,
+matching the new discovery shape.
+
+**THIRD FOLLOW-UP 2026-08-28: `ssc.lib.path` now names `lib/` project-wide, not just for
+`RunNativeV2`/`NativeJvmArtifact`.** The second follow-up above deliberately left every other
+consumer (`ImportResolver`, `JarCommands`, `CompilerLoader`, `JvmGen`/`SparkGen`,
+`PluginManifest`, `InstallCommands`'s launcher templates) on the older ROOT-based convention,
+reasoning that unifying them too was unnecessary risk for a property whose two meanings never
+collided in the same process. Asked directly to finish the unification anyway: verified LIVE
+(not just by reading the code) that `ImportResolver`'s `std/`/`scljet/` resolution keeps working
+with `ssc.lib.path` pointed at `bin/lib` instead of the checkout root — its `jarDir`-ancestor walk
+(rule 5) already finds the root independently — then updated every remaining consumer to drop its
+own `bin/lib/…` suffix, and `InstallCommands.scala` + `build.sbt`'s launcher-script generator
+(`installBin`, the ACTUAL source of the checkout's `bin/ssc`/`bin/ssc-tools`/`bin/ssc-provider` —
+a separate template from `InstallCommands.scala`'s `ssc install` self-installer, both needed
+updating) to set the new value. Full rationale, the one intentional exception (`ImportResolver`
+keeps a backward-compat fallback for a hand-set old-style `SSC_LIB_PATH`), and a near-miss caught
+by `scripts/smoke-ci` (a second, independent `bin/lib/compiler/plugins` computation in
+`Main.scala`'s startup essential-plugin loader, missed on the first pass, broke EVERY essential
+plugin — `Undefined: serve`, `Undefined: __jsonCoreInstallRenderer` — until found and fixed) are
+in `specs/arch-lib-path-resolution.md` §1 and §4. Verified: `NativeImageInstallRootTest` 18/18,
+45 CLI/import-resolution tests green against a freshly rebuilt `ssc.jar`, `ssc install` end-to-end
+(copies `bin/lib/` via the now-direct `ImportResolver.libPath` and `std/` via
+`ImportResolver.stdPath` to a fresh prefix, installed binary resolves `std/json.ssc`),
+`compile-jvm --bytecode` (exercises `CompilerLoader` directly), `scripts/smoke-ci` 116/116 green
+(after the `Main.scala` fix; 99/116 before it, isolated and understood before landing).
 
 ## native-image-has-no-http-url-protocol — the published native binary cannot make ANY network request
 

@@ -6,6 +6,14 @@ package scalascript.cli
 // fully-qualified, locally imported, or package-level helpers, so no
 // top-level imports are needed.
 
+/** `ssc.lib.path` names the `lib/` directory itself (specs/arch-lib-path-resolution.md) — set by
+ *  the JVM launcher directly (`bin/ssc` sets it to `<checkout>/bin/lib`), or discovered by
+ *  `NativeImageInstallRoot` inside a native-image binary. When unset (e.g. running the CLI
+ *  directly from an sbt shell, not through a launcher), fall back to the checkout's own
+ *  `./bin/lib`, matching the launcher's own default. */
+private[cli] def jarLibRoot: os.Path =
+  os.Path(System.getProperty("ssc.lib.path", (os.pwd / "bin" / "lib").toString))
+
 // ─── Fat-JAR entry point ────────────────────────────────────────────────────
 
 /** Entry point written into *fat* JARs by `ssc package --target ssc`.
@@ -64,7 +72,7 @@ private[cli] def buildThinJar(sscFile: os.Path, outJar: os.Path): Unit =
   import scalascript.ast.SsccFormat
   import scalascript.parser.Parser
 
-  val libRoot = os.Path(System.getProperty("ssc.lib.path", os.pwd.toString)) / "bin" / "lib"
+  val libRoot = jarLibRoot
   val sscJar  = libRoot / "ssc.jar"
 
   // Parse and serialize the AST now so the runtime skips parsing entirely.
@@ -127,7 +135,7 @@ private[cli] def buildJvmBootstrapJar(sscFile: os.Path, name: String, outJar: os
   val sanitized     = name.replaceAll("[^a-zA-Z0-9_]", "_")
   val mainClass     = s"${sanitized}_sc"
 
-  val libRoot = os.Path(System.getProperty("ssc.lib.path", os.pwd.toString)) / "bin" / "lib"
+  val libRoot = jarLibRoot
   val sscJar  = libRoot / "ssc.jar"
 
   val tmpDir      = os.temp.dir()
@@ -194,7 +202,7 @@ Ssc-Source: ${sscFile.last}
  *  a self-contained fat JAR at `outJar`.  Running `java -jar outJar`
  *  launches the `.ssc` program via the embedded interpreter.
  *
- *  All JARs from `<ssc.lib.path>/bin/lib/jars/` and `bin/lib/ssc.jar`
+ *  All JARs from `<ssc.lib.path>/jars/` and `<ssc.lib.path>/ssc.jar`
  *  are merged; duplicate entries (other than `META-INF/MANIFEST.MF`) are
  *  silently deduplicated (first-seen wins — safe for class files). */
 private[cli] def buildFatJar(sscFile: os.Path, outJar: os.Path): Unit =
@@ -202,7 +210,7 @@ private[cli] def buildFatJar(sscFile: os.Path, outJar: os.Path): Unit =
   import java.util.jar.JarOutputStream
   import java.io.{FileOutputStream, FileInputStream}
 
-  val libRoot = os.Path(System.getProperty("ssc.lib.path", os.pwd.toString)) / "bin" / "lib"
+  val libRoot = jarLibRoot
   val runtimeJars =
     os.list(libRoot / "jars").filter(_.ext == "jar").sorted.toList :+
     (libRoot / "ssc.jar")

@@ -53,7 +53,7 @@ private def sscMain(rawArgs: String*): Unit =
   // Auto-load .sscpkg files from lib/compiler/plugins/ next to the install root.
   // Runs before CLI flags so --plugin can still override or supplement.
   scalascript.imports.ImportResolver.libPath
-    .map(_ / "bin" / "lib" / "compiler" / "plugins")
+    .map(_ / "compiler" / "plugins")
     .filter(os.exists)
     .foreach { dir =>
       os.list(dir)
@@ -3349,7 +3349,7 @@ final class RunJvmCmd extends CliCommand:
       else
         compileJvmAndCache(path, baseName, scjvmPath, frontendOverride)
 
-    val jarsDir = scalascript.imports.ImportResolver.libPath.map(_ / "bin" / "lib" / "jars")
+    val jarsDir = scalascript.imports.ImportResolver.libPath.map(_ / "jars")
     val source = jarsDir match
       case Some(jars) => patchLocalSscDeps(raw, jars)
       case None       => raw
@@ -3357,7 +3357,7 @@ final class RunJvmCmd extends CliCommand:
       if !source.contains("scalascript.x402.") then None
       else
         scalascript.imports.ImportResolver.libPath.flatMap { libRoot =>
-          val lane = libRoot / "bin" / "lib" / "tools" / "x402"
+          val lane = libRoot / "tools" / "x402"
           val classes = lane / "classes"
           val jars = lane / "jars"
           val entries =
@@ -5921,7 +5921,7 @@ private[cli] def importPrefixesOf(module: scalascript.ast.Module): Set[String] =
  *  `-Dscalascript.pluginAvailableDir=…` override (used by tests / custom layouts). */
 private[cli] def pluginAvailableDirs: List[os.Path] =
   val fromInstall = scalascript.imports.ImportResolver.libPath
-    .map(_ / "bin" / "lib" / "compiler" / "plugin-available").toList
+    .map(_ / "compiler" / "plugin-available").toList
   val fromProp = Option(System.getProperty("scalascript.pluginAvailableDir"))
     .filter(_.nonEmpty).map(os.Path(_, os.pwd)).toList
   (fromInstall ++ fromProp).filter(os.exists).distinct
@@ -7828,8 +7828,11 @@ final class BenchCmd extends CliCommand:
     // shape as the v2 column in `specs/v2-runtime-perf-vs-v1.md` §0, different cause.
     val sscCmd: Seq[String] =
       sys.props.get("ssc.lib.path").flatMap { libPath =>
-        val root = java.nio.file.Paths.get(libPath)
-        Seq("bin/ssc-tools", "bin/ssc").map(root.resolve)
+        // ssc.lib.path names bin/lib itself (specs/arch-lib-path-resolution.md); the launcher
+        // scripts this looks for are bin/lib's OWN siblings, one level up.
+        val binDir = java.nio.file.Paths.get(libPath).getParent
+        Option(binDir).toList
+          .flatMap(dir => Seq("ssc-tools", "ssc").map(dir.resolve))
           .find(java.nio.file.Files.isExecutable)
           .map(p => Seq(p.toString))
       }.orElse(sys.env.get("SSC").map(s => Seq(s)))

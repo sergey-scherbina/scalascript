@@ -52,9 +52,9 @@ class JvmDirectDriverTest extends AnyFunSuite:
   private def scalaCliAvailable: Boolean = JvmBytecode.scalaCliAvailable
 
   /** The in-process driver needs the staged compiler classloader
-   *  (`<ssc.lib.path>/bin/lib/compiler/jars/`), populated by `installBin`.
-   *  Configure this test JVM with the same root as the installed launcher
-   *  before CompilerLoader's lazy service is initialised. */
+   *  (`<ssc.lib.path>/compiler/jars/`, i.e. `bin/lib/compiler/jars/` on disk), populated by
+   *  `installBin`. Configure this test JVM with the same `ssc.lib.path` as the installed
+   *  launcher before CompilerLoader's lazy service is initialised. */
   private def compilerDriverAvailable: Boolean =
     StagedCliTestSupport.compilerDriverAvailable
 

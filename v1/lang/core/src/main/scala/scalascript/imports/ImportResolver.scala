@@ -29,11 +29,17 @@ object ImportResolver:
   private val libCacheRoot: os.Path  = os.home / ".cache" / "scalascript" / "libs"
   private val depSourcesPath: os.Path = os.home / ".config" / "scalascript" / "dep-sources"
 
-  /** Root for library (non-relative) imports — the parent of `std/`.
-   *  Set by the launcher as `-Dssc.lib.path=<dir>` (e.g. the project root).
-   *  Falls back to `SSC_LIB_PATH` env var.  When absent, only relative and
-   *  URL imports resolve; bare paths like `std/actors.ssc` fall through to
-   *  the usual "file not found" error. */
+  /** `ssc.lib.path` verbatim — as of `specs/arch-lib-path-resolution.md`, this now names the
+   *  `lib/` directory itself (`bin/ssc` sets it to `<checkout>/bin/lib`), NOT the checkout/install
+   *  root that `std/` and `scljet/` actually live under. `discoverStdRoot`/`discoverScljetRoot`
+   *  below still try `lib` directly first (rule 3 / the `lib/scljet` check) for backward
+   *  compatibility with a hand-set `SSC_LIB_PATH` pointed at the OLD root shape, but the working
+   *  path for a normal launcher run is their OWN independent `jarDir`-ancestor walk (rule 5 / the
+   *  `stdPath`-based walk), which finds the checkout root regardless of what `libPath` holds — this
+   *  was verified empirically before `ssc.lib.path`'s meaning changed project-wide, specifically so
+   *  that change would not need to touch this resolution chain. Falls back to `SSC_LIB_PATH` env
+   *  var. When absent, only relative and URL imports resolve; bare paths like `std/actors.ssc`
+   *  fall through to the usual "file not found" error. */
   val libPath: Option[os.Path] =
     sys.props.get("ssc.lib.path")
       .orElse(sys.env.get("SSC_LIB_PATH"))

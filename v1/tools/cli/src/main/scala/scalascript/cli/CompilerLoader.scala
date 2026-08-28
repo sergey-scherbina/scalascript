@@ -26,10 +26,10 @@ object CompilerLoader:
     val libPath = configuredLibPath.getOrElse(
       throw RuntimeException(
         "CompilerLoader: ssc.lib.path is not set — cannot locate lib/compiler/jars/.\n" +
-        "Run ssc via the installed bin/ssc launcher or set -Dssc.lib.path=<root>."
+        "Run ssc via the installed bin/ssc launcher or set -Dssc.lib.path=<lib-dir>."
       )
     )
-    val jarDir = libPath / "bin" / "lib" / "compiler" / "jars"
+    val jarDir = libPath / "compiler" / "jars"
     if !os.exists(jarDir) then
       throw RuntimeException(
         s"CompilerLoader: $jarDir does not exist.\n" +
