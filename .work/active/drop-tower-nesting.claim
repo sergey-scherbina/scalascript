@@ -1,0 +1,11 @@
+slug: drop-tower-nesting
+branch: feature/drop-tower-nesting
+agent: claude-code
+started: 2026-08-28T09:58:59Z
+heartbeat: 2026-08-28T09:58:59Z
+status: claimed-before-planning
+items: drop-tower-nesting
+paths: build.sbt v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala tests/e2e/v21-native-entry-smoke.sh tests/e2e/native-release-qualification.sh tests/e2e/release-installer-launcher.sh tests/e2e/ref-front-string-literal-gate.sh tests/e2e/v21-native-checker-smoke.sh tests/e2e/f-front-cache-gate.sh tests/e2e/f-output-agreement-gate.sh tests/e2e/v21-standard-tier-smoke.sh tests/e2e/single-line-extension-gate.sh install.sh tests/e2e/launcher-digest-gate.sh specs/arch-lib-path-resolution.md BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
