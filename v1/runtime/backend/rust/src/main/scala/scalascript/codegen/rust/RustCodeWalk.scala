@@ -3834,6 +3834,15 @@ object RustCodeWalk:
     case m.Type.Name("Double")  => Right("f64")
     case m.Type.Name("Float")   => Right("f64")
     case m.Type.Name("String")  => Right("String")
+    // `def err(msg: String): Nothing = throw ParseError(...)` (`uniml/xml`'s `Doc.scala`'s
+    // `Parser`) — Scala's BOTTOM type, coercible to anything; Rust's `!` (the never type) is its
+    // direct equivalent and — as a function RETURN type specifically — has been stable for years
+    // (`std::process::exit`'s own signature). No case existed here at all before, so `Nothing`
+    // fell to the unknown-type-name `i64` default: `self.err(...)`'s call-site type became a
+    // CONCRETE `i64` instead of coercing to whatever the surrounding context needed, and `if cond
+    // { self.err(...) } else { () }` — this corpus's own idiom for "raise, otherwise do nothing"
+    // — read as `i64` vs `()`, `error[E0308]: if and else have incompatible types`.
+    case m.Type.Name("Nothing") => Right("!")
     // `sb: StringBuilder` as a PARAMETER type (`uniml/xml`'s `Doc.scala`'s `serializeNode(node,
     // sb: StringBuilder, opts, depth)`) — a Rust `String` already IS one (the constructor/`.append`
     // cases elsewhere in this file say why), but `mapType` itself had no case for the bare type

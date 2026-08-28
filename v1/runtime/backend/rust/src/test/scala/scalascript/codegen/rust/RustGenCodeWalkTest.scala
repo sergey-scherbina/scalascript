@@ -713,6 +713,21 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(g.contains("i64::from_str_radix("), s"Integer.parseInt did not lower:\n$g")
     assert(g.contains(").max("), s"math.max did not lower:\n$g")
 
+  test("`Nothing` maps to Rust's `!`, so a diverging call unifies with either if/else branch"):
+    // `def err(msg: String): Nothing = throw ...; if cond then err(msg) else ()` (`uniml/xml`'s
+    // `Doc.scala`'s `Parser`) — `Nothing` had no case in `mapType` at all and fell to the
+    // unknown-type-name `i64` default, so `err(...)`'s call-site type was a CONCRETE `i64` instead
+    // of coercing to whatever the branch needed — `error[E0308]: if and else have incompatible
+    // types` against the `()` sibling branch.
+    val src =
+      """```scalascript
+        |def err(msg: String): Nothing = throw new RuntimeException(msg)
+        |def maybeErr(cond: Boolean): Unit = if cond then err("bad") else ()
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("-> !"), s"Nothing did not map to !:\n$g")
+
   test("a positional ctor destructure (`case Ctor(a, b) =>`) types each field from the ctor"):
     // `case PI(target, data) => data.nonEmpty` (`uniml/xml`'s `Doc.scala`'s `serializeNode`,
     // shape simplified here) — `data`'s type comes from `PI`'s OWN declared field type
