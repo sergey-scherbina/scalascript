@@ -12877,6 +12877,12 @@ object RustCodeWalk:
     // point) is non-negative, where an unsigned and a signed right-shift agree bit-for-bit — so
     // Rust's plain `>>` is the exact answer here, not an approximation of one.
     case ">>>" => Right(">>")
+    // `hi = 0xD800 + (c >> 10)` (`uniml/markdown`'s `MarkdownDialect.scala`'s
+    // `codePointToString`, the SAME surrogate-pair assembly `<<`/`&` above already exist for, on
+    // this dialect module's own spelling of it) — plain SIGNED right shift, spelled identically
+    // in Rust; `>>>`'s own case just above already established this lane's ints all being `i64`
+    // makes signed/unsigned right-shift agree bit-for-bit on this corpus's operands.
+    case ">>" => Right(op)
     case other => Left(List(unsupported(
       s"def `$defName` uses unsupported infix operator `$other`"
     )))

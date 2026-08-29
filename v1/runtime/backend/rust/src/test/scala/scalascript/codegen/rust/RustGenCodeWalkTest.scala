@@ -3064,6 +3064,26 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(g.contains("gfm: bool") && g.contains("htmlType1Tags: Vec<String>"),
       s"a class field with no type annotation must infer Boolean from a comparison and Vec<String> from string-literal args:\n$g")
 
+  test("a plain signed `>>` infix operator is spelled identically in Rust"):
+    // `hi = 0xD800 + (c >> 10)` (`uniml/markdown`'s `MarkdownDialect.scala`'s
+    // `codePointToString`, surrogate-pair assembly) — `<<`/`&`/`>>>` were already handled, but
+    // plain `>>` (signed right shift) was not: "uses unsupported infix operator `>>`". Spelled
+    // identically in Rust.
+    val src =
+      """```scalascript
+        |def codePointToString(cp: Int): String =
+        |  if cp <= 0xFFFF then cp.toChar.toString
+        |  else
+        |    val c = cp - 0x10000
+        |    val hi = 0xD800 + (c >> 10)
+        |    val lo = 0xDC00 + (c & 0x3FF)
+        |    hi.toChar.toString + lo.toChar.toString
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("(c >> 10i64)"),
+      s"a plain signed >> infix operator must be spelled identically in Rust:\n$g")
+
   test("`xs.count(_.field == x)` / `xs.filter(_.field == x)` — a placeholder predicate types cleanly"):
     // `lexed.tokens.count(_.kind == "yaml.anchor")` / `ranges.filter(_.start == index)`
     // (`uniml/yaml`) — `renderVecIterBody`'s `Term.AnonymousFunction` branch wrapped the WHOLE
