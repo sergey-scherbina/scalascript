@@ -12294,6 +12294,10 @@ object RustCodeWalk:
     case m.Term.Name("Nil")                                              => true
     case m.Pat.ExtractInfix.After_4_6_0(_, m.Term.Name("::"), _)         => true
     case m.Pat.Extract.After_4_6_0(m.Term.Name("Cons"), _)               => true
+    // `case rest :+ MarkdownInline.SoftBreak => rest` (`uniml/markdown`'s
+    // `MarkdownProjection.scala`'s `trimBlockInlines`) — the SUFFIX twin of `::`'s prefix cons:
+    // matches a sequence whose LAST element matches a pattern, binding everything BEFORE it.
+    case m.Pat.ExtractInfix.After_4_6_0(_, m.Term.Name(":+"), _)         => true
     case _                                                               => false
 
   /** Rebind a slice pattern's binders to the OWNED types the body expects.
@@ -12312,6 +12316,14 @@ object RustCodeWalk:
       argClause.values.toList.zipWithIndex.map {
         case (m.Pat.Var(m.Term.Name(n)), 0) => s"let $n = $n.clone(); "
         case (m.Pat.Var(m.Term.Name(n)), _) => s"let $n = $n.to_vec(); "
+        case _                              => ""
+      }.mkString
+    // `:+`'s roles are SWAPPED from `::`'s: the REST (a slice) comes FIRST here, the single
+    // element LAST — `renderPattern`'s own `:+` case has the full shape.
+    case m.Pat.ExtractInfix.After_4_6_0(h, m.Term.Name(":+"), argClause) =>
+      (h :: argClause.values.toList).zipWithIndex.map {
+        case (m.Pat.Var(m.Term.Name(n)), 0) => s"let $n = $n.to_vec(); "
+        case (m.Pat.Var(m.Term.Name(n)), _) => s"let $n = $n.clone(); "
         case _                              => ""
       }.mkString
     case _ => ""
@@ -12572,6 +12584,17 @@ object RustCodeWalk:
           for hp <- renderPattern(h, ctx); tp <- renderPattern(t, ctx)
           yield s"[$hp, ${sliceTail(tp)}]"
         case _ => Left(List(unsupported(s"def `${ctx.defName}`: `::` pattern takes exactly one tail")))
+    // `case rest :+ MarkdownInline.SoftBreak => rest` (`uniml/markdown`'s
+    // `MarkdownProjection.scala`'s `trimBlockInlines`) — the SUFFIX twin of `::` just above:
+    // matches a sequence whose LAST element matches `last`, binding everything BEFORE it as
+    // `rest`. `sliceTail`'s own `name @ ..` rest-binder syntax works at EITHER end of a Rust
+    // slice pattern — only the POSITION in the bracket list (first vs. last) says which end.
+    case m.Pat.ExtractInfix.After_4_6_0(h, m.Term.Name(":+"), argClause) =>
+      argClause.values match
+        case List(last) =>
+          for hp <- renderPattern(h, ctx); lp <- renderPattern(last, ctx)
+          yield s"[${sliceTail(hp)}, $lp]"
+        case _ => Left(List(unsupported(s"def `${ctx.defName}`: `:+` pattern takes exactly one last element")))
     // `case Cons(h, t)` — the same shape spelled as an extractor. Only when `Cons` is not a user
     // enum constructor: a program that defines its OWN `Cons` means that one, and the ctorMap arm
     // below is the right handler for it.

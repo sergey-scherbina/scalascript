@@ -3195,6 +3195,31 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(g.contains("match (node).clone() {") && g.contains("Some(definitionOf(node.clone()))"),
       s".asInstanceOf[T] must erase as identity, and the match subject must clone when partially moved and read again:\n$g")
 
+  test("`case rest :+ X => rest` lowers to a suffix slice pattern, the mirror of `::`"):
+    // `case rest :+ MarkdownInline.SoftBreak => rest` (`uniml/markdown`'s
+    // `MarkdownProjection.scala`'s `trimBlockInlines`) — the SUFFIX twin of `::`'s prefix cons:
+    // matches a sequence whose LAST element matches a pattern, binding everything BEFORE it as
+    // `rest`. `::` was already lowered; `:+` had no case at all: "has unsupported pattern:
+    // Pat.ExtractInfix (rest :+ MarkdownInline.SoftBreak)".
+    val src =
+      """```scalascript
+        |enum MarkdownInline:
+        |  case Text(v: String)
+        |  case SoftBreak
+        |  case HardBreak
+        |
+        |def trimBlockInlines(is: Vector[MarkdownInline]): Vector[MarkdownInline] =
+        |  is match
+        |    case rest :+ MarkdownInline.SoftBreak => rest
+        |    case rest :+ MarkdownInline.HardBreak => rest
+        |    case _ => is
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("[rest @ .., MarkdownInline::SoftBreak] => { let rest = rest.to_vec(); rest.clone() }")
+      && g.contains("[rest @ .., MarkdownInline::HardBreak] => { let rest = rest.to_vec(); rest.clone() }"),
+      s"case rest :+ X => rest must lower to a suffix slice pattern, the mirror of ::: \n$g")
+
   test("`xs.count(_.field == x)` / `xs.filter(_.field == x)` — a placeholder predicate types cleanly"):
     // `lexed.tokens.count(_.kind == "yaml.anchor")` / `ranges.filter(_.start == index)`
     // (`uniml/yaml`) — `renderVecIterBody`'s `Term.AnonymousFunction` branch wrapped the WHOLE
