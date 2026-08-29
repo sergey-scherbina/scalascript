@@ -3748,6 +3748,19 @@ object RustCodeWalk:
       // `significant.headOption` fell to the no-paren-member refusal despite `filterNot` already
       // being fixed to `renderTerm` an actual Vec.
       case m.Term.Select(m.Term.Name(r), m.Term.Name(f)) if seqFields.get(r).exists(_.contains(f)) => true
+      // `val starts = if meaningfulBeforeFirst then 0 +: documentStarts else 0 +: documentStarts.
+      // tail` (`uniml/yaml`'s `YamlStructure.scala`'s `streamAndDocuments`) — TWO gaps in one
+      // declaration. `:+`/`+:` (append/prepend a single element) had no case here at all — either
+      // side being seq-rooted makes the whole append/prepend seq-rooted too, the same reasoning
+      // `SeqPreserving`'s own combinators already get. And an IF/ELSE whose EVERY branch is
+      // seq-rooted is itself seq-rooted (the same recursion `collectLocalStrings`/
+      // `collectLocalOptions`'s own `Term.If` cases already use, for the identical reason).
+      // Without both, `starts` never registered as a seq, so `starts.indices` (`.indices` needs
+      // `isKnownVecReceiver`, which needs `starts` in `localSeqs`) reached rustc as a plain FIELD
+      // access on the receiver: `error[E0609]: no field indices on type Vec<i64>`.
+      case m.Term.ApplyInfix.After_4_6_0(l, m.Term.Name(":+" | "+:"), _, r) if r.values.sizeIs == 1 =>
+        rootedInSeq(l) || rootedInSeq(r.values.head)
+      case ifx: m.Term.If => rootedInSeq(ifx.thenp) && rootedInSeq(ifx.elsep)
       case _ => false
     // The DECLARED type, checked before the rhs shape at all: `var elements: Vector[String] =
     // Vector.empty` (`XmlDialect.scala`'s `XmlScanner.scan`) has an rhs `seqCtor`/`rootedInSeq`
@@ -6553,6 +6566,19 @@ object RustCodeWalk:
     case m.Term.Select(qual, m.Term.Name("getMessage"))
         if ctorNameOfExpr(qual, ctx).flatMap(ctx.ctorMap.get).exists(_.fieldNames.contains("message")) =>
       renderTerm(qual, ctx).map(q => s"$q.message")
+
+    // `validateTagSpelling(spelling).left.toOption` (`uniml/yaml`'s `YamlPropertySyntax.scala`) —
+    // Scala's `Either.left` PROJECTION then `.toOption`: `Some(l)` for a `Left(l)`, `None` for a
+    // `Right(_)`. This lane's own fallback `Either<L, R>` (`renderBuiltinEitherEnum`'s own
+    // comment) is a bare two-variant enum with no `.left`/`.right` projection methods at all —
+    // MUST sit before the fully-generic bare-Select fallback immediately below, which would
+    // otherwise take it as an ordinary (wrong) field/no-paren-member read: `error[E0609]: no
+    // field left on type Either<...>`. The `.left.map(f)` sibling shape (an `Apply`, not a bare
+    // `Select`, so it never collided with that fallback) already has its own case, guarded the
+    // same way, a few hundred lines up — this is the `.toOption` twin, not a duplicate of it.
+    case m.Term.Select(m.Term.Select(qual, m.Term.Name("left")), m.Term.Name("toOption"))
+        if isEitherExpr(qual, ctx) =>
+      renderTerm(qual, ctx).map(q => s"match $q { Either::Left(__l) => Some(__l), Either::Right(_) => None }")
 
     case m.Term.Select(qual, m.Term.Name(field)) =>
       renderTerm(qual, ctx).map(q => selectOrNiladicCtor(qual, q, field, ctx))
@@ -11443,6 +11469,16 @@ object RustCodeWalk:
       // `crate::runtime::…` path and is never in `userDefs` — so this check is what SITE 3 actually
       // means, and the global registry's own entries are excluded by construction rather than by
       // name.
+      // `def boundaryFailure(scan: YamlPropertyScan, ...) = scan.failure.orElse { ... scan.end ...
+      // }` (`uniml/yaml`'s `YamlPropertySyntax.scala`) — `scan` is an ORDINARY parameter here, but
+      // ALSO the name of a SIBLING top-level def in the SAME object (`YamlPropertySyntax.scan`,
+      // flattened to `YamlPropertySyntax_scan` by SITE-1's own qualifiedDefName convention). The
+      // fallback below never checked whether `n` is ALSO a known local/param name before asking
+      // SITE 3's intrinsics map whether it names a sibling def — so the PARAMETER lost to the
+      // FUNCTION every time: `scan.failure` rendered as `YamlPropertySyntax_scan.failure`, a field
+      // read on a function ITEM, not the struct the parameter actually holds: `error[E0609]: no
+      // field failure on type fn(...) {YamlPropertySyntax_scan}`. A known local/param always wins.
+      case _ if ctx.defParams.contains(n) => rustIdent(n)
       case _ =>
         ctx.intrinsics.get(QualifiedName(n)) match
           case Some(RuntimeCall(target)) if ctx.userDefs.contains(target) => target

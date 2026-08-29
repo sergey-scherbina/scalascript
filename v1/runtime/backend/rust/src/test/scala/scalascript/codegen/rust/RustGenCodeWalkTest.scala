@@ -2373,3 +2373,65 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(g.contains("value: lexeme.clone(), lexeme: lexeme.clone()"),
       s"resolveImplicit's own unrelated `lexeme` param must still be cloned on repeated use:\n$g")
+
+  test("a parameter named the same as a SIBLING top-level def must resolve as the parameter"):
+    // `def boundaryFailure(scan: YamlPropertyScan, ...) = scan.failure.orElse { ... scan.end ...
+    // }` (`uniml/yaml`'s `YamlPropertySyntax.scala`) — `scan` is an ordinary parameter here, but
+    // ALSO the name of a SIBLING top-level def in the same object (`YamlPropertySyntax.scan`,
+    // flattened to `YamlPropertySyntax_scan`). The bare-name fallback never checked whether a name
+    // is ALSO a known local/param before asking whether it names a sibling def, so the PARAMETER
+    // lost to the FUNCTION: `scan.failure` rendered as `YamlPropertySyntax_scan.failure`, a field
+    // read on a function item, not the struct the parameter actually holds.
+    val src =
+      """```scalascript
+        |case class Scan(failure: Int, end: Int)
+        |
+        |def scan(x: Int): Scan = Scan(x, x)
+        |
+        |def boundaryFailure(scan: Scan): Int = scan.failure + scan.end
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("scan.failure") && g.contains("scan.end"),
+      s"the parameter must win over the sibling def with the same name:\n$g")
+    assert(!g.contains("_scan.failure"),
+      s"the parameter must not be rewritten to the sibling def's flattened name:\n$g")
+
+  test("`val starts = if cond then 0 +: xs else 0 +: xs.tail` — an if/else of `:+`/`+:` prepends is a seq"):
+    // `val starts = if meaningfulBeforeFirst then 0 +: documentStarts else 0 +: documentStarts.
+    // tail` then `starts.indices.foreach { ... }` (`uniml/yaml`'s `YamlStructure.scala`'s
+    // `streamAndDocuments`) — `:+`/`+:` had no case in `rootedInSeq` at all, and neither did an
+    // if/else whose every branch is seq-rooted; without both, `starts` never registered as a
+    // known Vec, so `.indices` reached rustc as a plain field access:
+    // `error[E0609]: no field indices on type Vec<i64>`.
+    val src =
+      """```scalascript
+        |def starts(cond: Boolean, xs: List[Int]): List[Int] =
+        |  val starts = if cond then 0 +: xs else 0 +: xs.tail
+        |  starts.indices.foreach { position => () }
+        |  starts
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("0i64.."), s"starts must be recognized as a known Vec so .indices lowers to a Range:\n$g")
+    assert(!g.contains(".indices {") , s"a bare .indices field access must not survive unlowered:\n$g")
+
+  test("`either.left.toOption` — Scala's Either LEFT projection then toOption"):
+    // `validateTagSpelling(spelling).left.toOption` (`uniml/yaml`'s `YamlPropertySyntax.scala`) —
+    // Scala's `Either.left` projection then `.toOption`: `Some(l)` for `Left(l)`, `None` for
+    // `Right(_)`. This lane's own fallback `Either<L, R>` has no `.left` field at all — needed
+    // placing BEFORE a fully-generic, unconditional bare-Select fallback that otherwise silently
+    // swallowed it as an ordinary (wrong) field read.
+    val src =
+      """```scalascript
+        |case class Failure(msg: String)
+        |
+        |def validate(value: String): Either[Failure, Unit] =
+        |  if value.isEmpty then Left(Failure("empty")) else Right(())
+        |
+        |def check(value: String): Option[Failure] =
+        |  validate(value).left.toOption
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("Either::Left(__l) => Some(__l)"), s"left.toOption must lower to a match on Either:\n$g")

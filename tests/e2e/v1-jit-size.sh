@@ -686,10 +686,33 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # against an owned `String` subject: `error[E0308]: expected String, found &str`. Lives entirely
 # in `renderMatch`, a separate function, and costs nothing here. uniml/yaml: 85 -> 74 real cargo
 # errors. Re-verified uniml/xml and uniml/json both still build clean (0 errors).
+#
+# renderTerm 36921 -> 37197 (+276), continuing the uniml/yaml real `cargo build` pass, 74 -> 63 ->
+# 54 (two intervening commits needed no bump: the collectCopyNames String-detection gap lives
+# entirely in a separate function). Three fixes this entry: (1) `def boundaryFailure(scan:
+# YamlPropertyScan, ...) = scan.failure...` — `scan` is an ordinary PARAMETER here, but ALSO the
+# name of a SIBLING top-level def in the same object (`YamlPropertySyntax.scan`, flattened to
+# `YamlPropertySyntax_scan`); `bareNameOrNiladicCtorTail`'s fallback never checked whether a bare
+# name is ALSO a known local/param before asking SITE 3's intrinsics map whether it names a
+# sibling def, so the PARAMETER lost to the FUNCTION: `scan.failure` rendered as
+# `YamlPropertySyntax_scan.failure`, a field read on a function item. New case in that function
+# (a SEPARATE function from `renderTerm`, costs nothing) checks `ctx.defParams` first. (2) `val
+# starts = if … then 0 +: documentStarts else 0 +: documentStarts.tail` then `starts.indices` —
+# `:+`/`+:` (append/prepend) had no case in `rootedInSeq` (`collectLocalSeqs`'s own helper,
+# ALSO a separate function) at all, and neither did an if/else whose every branch is seq-rooted;
+# without both, `starts` never registered as a seq, so `.indices` (needing `isKnownVecReceiver`)
+# reached rustc as a plain field access. (3) `validateTagSpelling(spelling).left.toOption` —
+# Scala's `Either.left` projection then `.toOption`; this lane's own fallback `Either<L, R>` has
+# no `.left` field at all. THIS is the only fix actually inline in `renderTerm`'s own match (the
+# growth) — and needed CARE about ORDER: a fully-generic, unconditional bare-`Term.Select`
+# fallback sits earlier in the same match and silently swallowed the new case as unreachable
+# (`-Werror` caught it) until moved above that fallback, right where existing narrowly-scoped
+# bare-Select cases (`getMessage`, map `.get`/`.contains`) already sit for the identical reason.
+# Re-verified uniml/xml and uniml/json both still build clean (0 errors).
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-36921 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+37197 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF
