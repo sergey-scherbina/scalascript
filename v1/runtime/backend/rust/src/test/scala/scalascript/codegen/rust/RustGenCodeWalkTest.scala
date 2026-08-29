@@ -3025,6 +3025,45 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(g.contains("""vec!["literal".to_string(), "text".to_string(), "unknown".to_string()]"""),
       s"Set(...) must construct a vec![...], this lane's own Set-as-Vec convention:\n$g")
 
+  test("`.take`/`.drop` are element-preserving in elementTypeOf, like .filter/.sorted/.distinct/.reverse"):
+    // `segments.take(segments.length - 1).exists(_.isEmpty)` (`uniml/markdown`'s
+    // `MarkdownInlines.scala`'s `domainAndPath`) — `.take`/`.drop` never change the element type,
+    // the SAME fact `elementTypeOf` already trusts for `.filter`/`.sorted`/`.distinct`/`.reverse`;
+    // without it, the placeholder `_` in `.exists(_.isEmpty)` reached its body with no type of its
+    // own, and `.isEmpty` (no-paren) fell to the generic "collection member" refusal.
+    val src =
+      """```scalascript
+        |def domainAndPath(domain: String): Boolean =
+        |  val segments = domain.split("\\.", -1).toVector
+        |  segments.length < 2 || segments.take(segments.length - 1).exists(_.isEmpty)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".any(|__p0| { __p0.is_empty() })"),
+      s".take must be element-preserving in elementTypeOf, for a no-paren .isEmpty on its placeholder:\n$g")
+
+  test("a class field with no type annotation infers Boolean from a comparison, Vec<String> from string-literal args"):
+    // `private val gfm = profile == gfmProfile` / `private val htmlType1Tags = Vector("script",
+    // "pre", "style", "textarea")` (`uniml/markdown`'s `MarkdownBlocks.scala`) — the class-field
+    // `literalType` helper only recognized a genuine LITERAL initializer; a computed comparison/
+    // logical expression is unambiguously `Boolean` (the SAME fact `inferCaptureType`'s own twin
+    // case, for a captured LOCAL rather than a class field, already trusts), and a sequence
+    // CONSTRUCTOR whose every argument is a string literal is unambiguously `Vec<String>`. Without
+    // these: "class `MarkdownBlocks` field `gfm`/`htmlType1Tags` has no type annotation and its
+    // initializer is not a plain literal — this lane cannot infer its type".
+    val src =
+      """```scalascript
+        |class MarkdownBlocks(profile: Int, gfmProfile: Int):
+        |  private val gfm = profile == gfmProfile
+        |  private val htmlType1Tags = Vector("script", "pre", "style", "textarea")
+        |  def isGfm: Boolean = if gfm then true else false
+        |  def isType1(name: String): Boolean = htmlType1Tags.contains(name)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("gfm: bool") && g.contains("htmlType1Tags: Vec<String>"),
+      s"a class field with no type annotation must infer Boolean from a comparison and Vec<String> from string-literal args:\n$g")
+
   test("`xs.count(_.field == x)` / `xs.filter(_.field == x)` — a placeholder predicate types cleanly"):
     // `lexed.tokens.count(_.kind == "yaml.anchor")` / `ranges.filter(_.start == index)`
     // (`uniml/yaml`) — `renderVecIterBody`'s `Term.AnonymousFunction` branch wrapped the WHOLE

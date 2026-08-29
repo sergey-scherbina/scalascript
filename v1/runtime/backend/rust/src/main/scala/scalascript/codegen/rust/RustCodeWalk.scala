@@ -1976,6 +1976,21 @@ object RustCodeWalk:
       case _: m.Lit.Double | _: m.Lit.Float => Some("f64")
       case _: m.Lit.Boolean                 => Some("bool")
       case _: m.Lit.String                  => Some("String")
+      // `private val gfm = profile == MarkdownProfile.Gfm` / `private val scala = profile ==
+      // MarkdownProfile.ScalaScript` (`uniml/markdown`'s `MarkdownBlocks.scala`) — a comparison/
+      // logical `ApplyInfix` is unambiguously `Boolean`, the SAME fact `inferCaptureType`'s own
+      // twin case (added for a captured LOCAL, not a class FIELD) already trusts for a computed
+      // (not literal) boolean.
+      case m.Term.ApplyInfix.After_4_6_0(_, m.Term.Name("==" | "!=" | "<" | ">" | "<=" | ">=" | "&&" | "||"), _, _) =>
+        Some("bool")
+      // `private val htmlType1Tags = Vector("script", "pre", "style", "textarea")` (same file) —
+      // a sequence CONSTRUCTOR whose every argument is a plain string literal is unambiguously
+      // `Vec<String>`; narrower than the general `.split(...)`/`.mkString` inference elsewhere in
+      // this file on purpose, since a field with no declared type is otherwise trusted only for a
+      // genuine literal.
+      case m.Term.Apply.After_4_6_0(m.Term.Name("Vector" | "List" | "Array" | "Seq" | "Set"), args)
+          if args.values.nonEmpty && args.values.forall(_.isInstanceOf[m.Lit.String]) =>
+        Some("Vec<String>")
       case _                                => None
     val fieldStats = c.templ.body.stats.collect {
       case v: m.Defn.Var => (v.pats, v.decltpe, Some(v.body))
@@ -5498,6 +5513,13 @@ object RustCodeWalk:
     case m.Term.Apply.After_4_6_0(m.Term.Select(inner, m.Term.Name("filter")), args) if args.values.size == 1 =>
       elementTypeOf(inner, ctx)
     case m.Term.Select(inner, m.Term.Name("sorted" | "distinct" | "reverse")) =>
+      elementTypeOf(inner, ctx)
+    // `segments.take(segments.length - 1).exists(_.isEmpty)` (`uniml/markdown`'s
+    // `MarkdownInlines.scala`'s `domainAndPath`) — `.take`/`.drop` are element-preserving the SAME
+    // way `.filter`/`.sorted`/`.distinct`/`.reverse` just above already are; without this, the
+    // placeholder `_` in `.exists(_.isEmpty)` reached its body with no type of its own, and
+    // `.isEmpty` (no-paren) fell to the generic "collection member" refusal.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(inner, m.Term.Name("take" | "drop")), args) if args.values.size == 1 =>
       elementTypeOf(inner, ctx)
     // `element.attrs` — a STRUCT FIELD access whose OWN declared type is `Vec<Attr>`
     // (`ctorNameOfExpr` on the qualifier resolves `element`'s ctor, then this reads the field's
