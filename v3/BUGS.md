@@ -8,14 +8,14 @@ Query: `scripts/bugs-report --module v3`.
 
 ## point-free-class-method-reference-never-eta-expands — a bare selection on a class instance always dynamic-Invoked with zero args
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      kind: feature
      area: front
      gate: v3/tests/front/eta-expansion-class-method.ssc
      found-by: claude-code
      found-at: 2026-08-29
-     fixed-in: - -->
+     fixed-in: 2cc79a78e -->
 
 Found while checking whether the repository-root `BUGS.md` entries
 `point-free-class-method-never-eta-expands-on-native` (v2) and `-on-int` (v1) — both already
