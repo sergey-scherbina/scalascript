@@ -353,10 +353,26 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # local bound via tuple-destructuring from a collection-of-tuples method call, e.g. `val (element,
 # inherited) = stack.remove(...)`, now recovers `element`'s own ctor name) both sit outside
 # `renderTerm` and cost it nothing. Same terms as every entry above. 29 errors remain.
+#
+# renderTerm 32294 -> 32890 (+596), continuing "fix everything remaining" on uniml/xml, 29 -> 24
+# across one more commit. Biggest piece: the enum-variant `.copy` reconstruction's OVERRIDE branch
+# gained the SAME `Box::new(…)` wrap the non-override branch and the ordinary constructor path
+# already had (`document.copy(root = resolveElement(…))`, a boxed recursive field). Also: a new
+# call-site default-arg fill for a QUALIFIED call (`PureMarkupCodec.parse(source)`, reading the
+# collision-safe `_ownedDefBodies` rather than the bare-name `_defaultsMap`, mirroring
+# `eitherSideCtorName`'s own qualified-call case); the ungated `xs.foreach(f)` arm gained an
+# exclusion for `xs.reverseIterator.foreach(f)` — a LATENT shadow (present since before this
+# session, invisible until `isKnownVecReceiver` learned to recognize the receiver at all) where the
+# generic arm, having no receiver-type guard by design, always won over the dedicated
+# `.reverseIterator.foreach` case positioned later in the same match. `isKnownVecReceiver` gained
+# two cases (a Vec-yielding `.toVector`/`.toList`/…, and a `ctorNameOfExpr`-resolved struct/variant
+# field) and `ctorNameOfExpr` itself gained a `destructuredCtorNames` fallback; `collectLocalMaps`
+# gained the tuple-destructure-position case `collectTupleDestructureCtorNames` already has for
+# ctor names. Same terms as every entry above. 24 errors remain.
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-32294 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+32890 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

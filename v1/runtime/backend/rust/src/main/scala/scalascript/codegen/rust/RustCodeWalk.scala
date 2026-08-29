@@ -2437,7 +2437,16 @@ object RustCodeWalk:
     // `paramCtorNames` never covers at all (only real DEF parameters, never a closure's). Guarded on
     // `ctorMap.contains`: `paramTypes` also holds `"i64"`/`"String"`/… for everything else, and only
     // a genuine struct/variant name should ever be handed back as a "ctor name" here.
-    case m.Term.Name(n) => ctx.paramCtorNames.get(n).orElse(ctx.paramTypes.get(n).filter(ctx.ctorMap.contains))
+    // `ctx.destructuredCtorNames` THIRD — a parameter WITH FIELDS whose variant `renderDef`'s own
+    // `paramVariantDestructures` preamble already destructures (`element: Markup.Element`,
+    // `uniml/xml`'s `Doc.scala`'s `validateNamespaces`). `element.children.reverseIterator.foreach`
+    // needs `isKnownVecReceiver` to resolve `element.children`'s ctor through THIS map — the SAME
+    // one `renderTerm`'s own bare-rewrite case (`Select(Name(n), Name(field))` -> bare `field`)
+    // already reads for the identical reason, just consulted here on the SELECT shape before that
+    // rewrite ever applies, not after it.
+    case m.Term.Name(n) =>
+      ctx.paramCtorNames.get(n).orElse(ctx.paramTypes.get(n).filter(ctx.ctorMap.contains))
+        .orElse(ctx.destructuredCtorNames.get(n))
     case m.Term.Select(qual, m.Term.Name(field)) =>
       for
         qualCtor <- ctorNameOfExpr(qual, ctx)
@@ -3261,7 +3270,41 @@ object RustCodeWalk:
         case None =>
           Right(GeneratedDef(name = name, render = "", isMain = false))
     else
-      val paramSeqs = collectSeqParams(d)
+      // param name -> the SPECIFIC with-fields ctor it was declared against — see
+      // `destructuredCtorNames`'s own use below for why a PARAMETER needs this too, not just a
+      // match-arm binder. Computed HERE (moved up from its original spot below `lseqs`/`larrays`)
+      // because `element.children.reverseIterator.foreach(…)` (`uniml/xml`'s `Doc.scala`'s
+      // `validateNamespaces`) needs its OWN Vec-typed destructured field name ("children", not
+      // "element") seeded into `localSeqs` BEFORE `collectLocalSeqs` runs — a destructured field is
+      // a BARE NAME reference in the body (`children`, not `element.children`), invisible to every
+      // seq-detection case that only ever looks at a `.field` SELECT shape.
+      val paramVariantDestructures: Map[String, String] =
+        d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).flatMap { p =>
+          p.decltpe.collect {
+            // `parentName: Markup.QName` (`uniml/xml`'s `Doc.scala`'s `readContent`) — `QName` is a
+            // plain STRUCT (`ec.isStruct`), not an enum variant, so it needs no let-else destructure
+            // at all: `parentName.localName` already works, the ordinary Rust field access every
+            // OTHER struct-typed parameter already gets. Without `!isStruct` this matched it anyway
+            // (only `fieldNames.nonEmpty` was checked) and emitted `let QName::QName { … } = …`,
+            // which is not valid Rust for a struct at all — `error[E0223]: ambiguous associated
+            // type` (`QName::QName` parses as an associated-type path, since `QName` has no such
+            // enum variant to select). This destructure exists ONLY for the true enum-variant case
+            // (`instruction: VmInstruction.Reframe`), where an unchecked `.field` read on the whole
+            // enum type is genuinely illegal Rust.
+            case m.Type.Select(_, m.Type.Name(ctorName))
+                if ctorMap.get(ctorName).exists(ec => ec.fieldNames.nonEmpty && !ec.isStruct) =>
+              p.name.value -> ctorName
+          }
+        }.toMap
+      // Every destructured field name across every such PARAMETER, split by its OWN declared
+      // Rust type — Vec-typed feeds `collectLocalSeqs`'s seed, Map-typed feeds `collectLocalMaps`'s.
+      val destructuredFieldTypes: Map[String, String] =
+        paramVariantDestructures.values.toSet.flatMap { ctorName =>
+          ctorMap.get(ctorName).map(ec => ec.fieldNames.zip(ec.fieldTypes).toMap).getOrElse(Map.empty)
+        }.toMap
+      val destructuredSeqFieldNames = destructuredFieldTypes.collect { case (f, t) if t.startsWith("Vec<") => f }.toSet
+      val destructuredMapFieldNames = destructuredFieldTypes.collect { case (f, t) if t.startsWith("std::collections::HashMap<") => f }.toSet
+      val paramSeqs = collectSeqParams(d) ++ destructuredSeqFieldNames
       val seqFieldsForDef = collectSeqFields(d, ctorMap)
       val (lseqs, larrays) = collectLocalSeqs(d.body, paramSeqs, seqFieldsForDef)
       // Params DECLARED `String` are strings too — the declaration says so. Without this a
@@ -3296,34 +3339,13 @@ object RustCodeWalk:
       // `contains_key` rewrite two arms below never got the chance to even ask.
       val selfSeqFields = ownFieldTypes.collect { case (f, t) if t.startsWith("Vec<") => f }.toSet
       val selfMapFields = ownFieldTypes.collect { case (f, t) if t.startsWith("std::collections::HashMap<") => f }.toSet
-      // param name -> the SPECIFIC with-fields ctor it was declared against — see
-      // `destructuredCtorNames`'s own use below for why a PARAMETER needs this too, not just a
-      // match-arm binder.
-      val paramVariantDestructures: Map[String, String] =
-        d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).flatMap { p =>
-          p.decltpe.collect {
-            // `parentName: Markup.QName` (`uniml/xml`'s `Doc.scala`'s `readContent`) — `QName` is a
-            // plain STRUCT (`ec.isStruct`), not an enum variant, so it needs no let-else destructure
-            // at all: `parentName.localName` already works, the ordinary Rust field access every
-            // OTHER struct-typed parameter already gets. Without `!isStruct` this matched it anyway
-            // (only `fieldNames.nonEmpty` was checked) and emitted `let QName::QName { … } = …`,
-            // which is not valid Rust for a struct at all — `error[E0223]: ambiguous associated
-            // type` (`QName::QName` parses as an associated-type path, since `QName` has no such
-            // enum variant to select). This destructure exists ONLY for the true enum-variant case
-            // (`instruction: VmInstruction.Reframe`), where an unchecked `.field` read on the whole
-            // enum type is genuinely illegal Rust.
-            case m.Type.Select(_, m.Type.Name(ctorName))
-                if ctorMap.get(ctorName).exists(ec => ec.fieldNames.nonEmpty && !ec.isStruct) =>
-              p.name.value -> ctorName
-          }
-        }.toMap
       val ctx     = Ctx(intrinsics, userDefs, ctorMap, topVals, name, effectfulDefs, lseqs ++ paramSeqs ++ selfSeqFields, larrays, lstrings,
                         localSscChars = collectLocalSscChars(d.body),
                         localStringBuilders = collectLocalStringBuilders(d.body) ++ stringBuilderParams,
                         localSets = collectLocalSets(d.body),
                         mapFields = collectMapFields(d, ctorMap),
                         seqFields = seqFieldsForDef,
-                        localMaps = collectLocalMaps(d, collectMapFields(d, ctorMap)) ++ selfMapFields,
+                        localMaps = collectLocalMaps(d, collectMapFields(d, ctorMap)) ++ selfMapFields ++ destructuredMapFieldNames,
                         localFns = collectLocalFns(d, userDefs),
                         localOptions = collectLocalOptions(d.body,
                           Ctx(intrinsics, userDefs, ctorMap, topVals, name, effectfulDefs)),
@@ -6040,6 +6062,13 @@ object RustCodeWalk:
           val bindPat = ec.fieldNames.map(rustIdent).mkString(", ")
           val fields = ec.fieldNames.map { f =>
             overrides.get(f) match
+              // `document.copy(root = resolveElement(document.root, …))` (`uniml/xml`'s
+              // `Doc.scala`'s `parse`) — `root` is a BOXED recursive field (`ec.boxedFields`); the
+              // non-overridden branch already re-clones the ORIGINAL `Box<Node>` bare, but an
+              // OVERRIDE value is a plain `Node` (whatever the caller's own expression produced) and
+              // needs the SAME `Box::new(…)` wrap the ordinary constructor path already applies —
+              // `error[E0308]: expected Box<Node>, found Node` without it.
+              case Some(v) if ec.boxedFields.contains(f) => s"$f: Box::new($v)"
               case Some(v) => s"$f: $v"
               case None    => s"$f: ${rustIdent(f)}.clone()"
           }.mkString(", ")
@@ -6238,9 +6267,19 @@ object RustCodeWalk:
 
     // xs.foreach(f)  → for __x in xs.iter() { f(__x) }
     // The body of the closure is written as a for-loop statement.
+    //
+    // EXCLUDES `xs.reverseIterator.foreach(f)` — this case has NO receiver-type guard at all (the
+    // whole point, per the comment above: "these bind before the generic Apply so the method name
+    // is visible"), so it matched `Select(Select(inner, "reverseIterator"), "foreach")` too, being
+    // textually EARLIER than the dedicated `.reverseIterator.foreach` case a few hundred lines
+    // down — `qual` then rendered as a bare `Select(inner, "reverseIterator")`, and nothing
+    // anywhere else knows how to render "reverseIterator" outside that ONE dedicated shape. Silent
+    // wrong Rust until `isKnownVecReceiver` on `inner` was fixed to recognize `element.children` —
+    // at which point the SAME shape started reaching a diagnostic refusal instead, but the shadow
+    // was the actual bug, present even for the OLD (unrecognized) receivers too, just invisibly.
     case m.Term.Apply.After_4_6_0(
         m.Term.Select(qual, m.Term.Name("foreach")), args
-    ) if args.values.size == 1 =>
+    ) if args.values.size == 1 && (qual match { case m.Term.Select(_, m.Term.Name("reverseIterator")) => false; case _ => true }) =>
       val enriched = withTupleStringLocals(args.values.head, qual, ctx)
       for
         q <- renderTerm(qual, enriched)
@@ -7118,6 +7157,22 @@ object RustCodeWalk:
             val fills = _defaultsMap(n).drop(renderedArgsBase.size).flatten.map(renderTerm(_, ctx))
             val (_, okFills) = fills.partitionMap(identity)
             if okFills.size == fills.size then renderedArgsBase ++ okFills else renderedArgsBase
+          // `PureMarkupCodec.parse(source)` (`uniml/xml`'s `Doc.scala`'s `parseMarkup`) — a
+          // QUALIFIED call, so the bare-name case above never matches it at all (`Term.Select`, not
+          // `Term.Name`), and its `dialect: Dialect = Dialect.Xml1_0` default was never filled —
+          // `error[E0061]: this function takes 2 arguments but 1 argument was supplied`. Reads
+          // `_ownedDefBodies` (collision-safe: this corpus has FOUR `def parse`) directly, rather
+          // than a bare-name `_defaultsMap` lookup, for the SAME reason `eitherSideCtorName`'s own
+          // qualified-call case does.
+          case m.Term.Select(m.Term.Name(owner), m.Term.Name(n))
+              if _ownedDefBodies.get((owner, n)).exists { d =>
+                val ds = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.default)
+                renderedArgsBase.size < ds.size && ds.drop(renderedArgsBase.size).forall(_.isDefined)
+              } =>
+            val ds = _ownedDefBodies((owner, n)).paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.default)
+            val fills = ds.drop(renderedArgsBase.size).flatten.map(renderTerm(_, ctx))
+            val (_, okFills) = fills.partitionMap(identity)
+            if okFills.size == fills.size then renderedArgsBase ++ okFills else renderedArgsBase
           case _ => renderedArgsBase
         // The `Any` boundary at a CALL. Only touches arguments that can actually be on the wrong
         // side of it — a name known to hold an `Any`, a call to an `Any`-returning def, or a case
@@ -7962,6 +8017,24 @@ object RustCodeWalk:
     // enough here since a wrong `true` only costs the `+` case below choosing the sequence lowering
     // over `renderInfix`, and nothing in this corpus names an unrelated `aliases`/`id` returning
     // something else).
+    // `document.docType.toVector.collect { case … }` (`uniml/xml`'s `Doc.scala`'s `parse`) —
+    // `docType: Option[DocType]`, and `.toVector`/`.toList`/… (Scala's Option-to-collection
+    // conversion, ALREADY rendered as `.into_iter().collect::<Vec<_>>()` by an existing arm) yields
+    // a genuine `Vec`, but this function had no case recognizing the SHAPE at all — so `.collect
+    // {case…}` chained after it missed `isKnownVecReceiver` and fell to the generic (wrong) `.collect`
+    // rename instead of `.filter_map`.
+    case m.Term.Select(_, m.Term.Name("toVector" | "toList" | "toSeq" | "toArray" | "toIndexedSeq")) => true
+    // `element.children.collect { case … }` (`uniml/xml`'s `Doc.scala`'s `validateNamespaces`) —
+    // `element` bound via `collectTupleDestructureCtorNames` (a tuple-destructure local, not a
+    // match-arm bind), so `ctx.seqFields` — populated only from match-arm/param-destructure
+    // bodyCtx threading — never heard of it. `ctorNameOfExpr`, which DOES know "element" is an
+    // `Element` (the same lookup `paramCtorNames` now covers this shape through), gives the same
+    // answer `seqFields`/`_returnTypes` exist to approximate, read directly off the ctor's own
+    // field types instead.
+    case m.Term.Select(qual, m.Term.Name(f))
+        if ctorNameOfExpr(qual, ctx).flatMap(ctx.ctorMap.get)
+          .exists(ec => ec.fieldNames.indexOf(f) >= 0 && ec.fieldTypes.lift(ec.fieldNames.indexOf(f)).exists(_.startsWith("Vec<"))) =>
+      true
     case m.Term.Select(m.Term.Name(r), m.Term.Name(f)) =>
       ctx.seqFields.get(r).exists(_.contains(f)) || _returnTypes.get(f).exists(_.startsWith("Vec<"))
     case m.Term.Apply.After_4_6_0(m.Term.Select(_, m.Term.Name(meth)), args)
@@ -9839,10 +9912,46 @@ object RustCodeWalk:
       case _ => false
     d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
       .foreach(p => if isMapType(p.decltpe) then maps += p.name.value)
+    // `val (element, inherited) = stack.remove(...)` where `stack: ArrayBuffer[(Element,
+    // Map[String,String])]` (`uniml/xml`'s `Doc.scala`'s `validateNamespaces`) — `inherited` is
+    // TUPLE POSITION 1 of a collection-of-tuples local, the SAME destructure shape
+    // `collectTupleDestructureCtorNames` exists for, but for "is this position a Map" instead of
+    // "what's this position's ctor name". First pass: which locals hold a collection built from a
+    // tuple LITERAL, and which of ITS positions are Map-shaped (via the SAME `isMap` this whole
+    // function already uses); second pass (below, inside the main walk) binds a destructured name
+    // at a Map position into `maps` too.
+    val seqTupleMapPos = scala.collection.mutable.Map.empty[String, Set[Int]]
+    def walkSeqLits(t: m.Tree): Unit =
+      t match
+        case v: (m.Defn.Val | m.Defn.Var) =>
+          val (pats, rhsOpt) = v match
+            case vv: m.Defn.Val => (vv.pats, Some(vv.rhs))
+            case vv: m.Defn.Var => (vv.pats, vv.body)
+          (pats, rhsOpt) match
+            case (List(m.Pat.Var(m.Term.Name(n))), Some(m.Term.Apply.After_4_6_0(_, args))) =>
+              args.values.toList match
+                case List(m.Term.Tuple(elems)) =>
+                  val mapPos = elems.toList.zipWithIndex.collect { case (e, i) if isMap(e) => i }.toSet
+                  if mapPos.nonEmpty then seqTupleMapPos(n) = mapPos
+                case _ => ()
+            case _ => ()
+        case _ => ()
+      t.children.foreach(walkSeqLits)
+    walkSeqLits(d.body)
     def walk(t: m.Tree): Unit =
       t match
         case v: m.Defn.Val => v.pats match
           case List(m.Pat.Var(m.Term.Name(n))) => if isMapType(v.decltpe) || isMap(v.rhs) then maps += n
+          case List(m.Pat.Tuple(pats)) =>
+            v.rhs match
+              case m.Term.Apply.After_4_6_0(m.Term.Select(m.Term.Name(recv), _), _) =>
+                seqTupleMapPos.get(recv).foreach { mapPos =>
+                  pats.toList.zipWithIndex.foreach {
+                    case (m.Pat.Var(m.Term.Name(n)), i) if mapPos.contains(i) => maps += n
+                    case _ => ()
+                  }
+                }
+              case _ => ()
           case _                               => ()
         // `var bindings = inherited` (`uniml/xml`'s `Doc.scala`'s `validateNamespaces`/
         // `resolveElement`, reassigned later via `bindings = bindings.updated(...)`) — this walk

@@ -1251,3 +1251,67 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(g.contains("Node::Elem"), s"element.name should resolve via an enum-variant field-read match:\n$g")
+
+  test("`xs.reverseIterator.foreach(f)` is not shadowed by the ungated generic `.foreach` arm"):
+    // `element.children.reverseIterator.foreach(child => …)` (`uniml/xml`'s `Doc.scala`'s
+    // `validateNamespaces`) — the generic `xs.foreach(f)` arm has NO receiver-type guard at all (by
+    // design, so the method name stays visible before the receiver's type is known) and is
+    // positioned textually BEFORE the dedicated `.reverseIterator.foreach` case, so it ALWAYS won
+    // first: `qual` rendered as a bare `Select(inner, "reverseIterator")`, which nothing else knows
+    // how to render — a LATENT bug, invisible until `isKnownVecReceiver` learned to recognize the
+    // receiver at all (before that, the guard on the REFUSAL check for an unhandled no-paren member
+    // was ALSO false, so the wrong rendering passed silently instead of being caught).
+    val src =
+      """```scalascript
+        |def walk(xs: List[Long]): Long =
+        |  var total = 0L
+        |  xs.reverseIterator.foreach(x => total = total + x)
+        |  total
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".rev()"), s"xs.reverseIterator.foreach should lower via the dedicated .rev() case:\n$g")
+
+  test("a boxed field OVERRIDE in an enum-variant `.copy` gets the same `Box::new` wrap"):
+    // `document.copy(root = resolveElement(document.root, …))` (`uniml/xml`'s `Doc.scala`'s
+    // `parse`) — `root` is a boxed recursive field (`ec.boxedFields`); the non-overridden branch
+    // already re-clones the ORIGINAL `Box<Node>` bare, but an override value is a plain `Node`
+    // (whatever the caller's own expression produced) and needs the SAME `Box::new(…)` wrap the
+    // ordinary constructor path already applies: `error[E0308]: expected Box<Node>, found Node`
+    // without it.
+    val src =
+      """```scalascript
+        |object Markup:
+        |  sealed trait Node
+        |  case class Doc(root: Elem) extends Node
+        |  case class Elem(name: String, children: List[Node] = Nil) extends Node
+        |
+        |def resolve(e: Markup.Elem): Markup.Elem = e
+        |
+        |def fix(doc: Markup.Doc): Markup.Doc = doc.copy(root = resolve(doc.root))
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("root: Box::new("), s"an overridden boxed field should get Box::new(...):\n$g")
+
+  test("a default arg is filled for a QUALIFIED call too, not just a bare one"):
+    // `PureMarkupCodec.parse(source)` (`uniml/xml`'s `Doc.scala`'s `parseMarkup`) — `parse`'s own
+    // `dialect: Dialect = Dialect.Xml1_0` default was never filled for a QUALIFIED call at all (the
+    // existing fill logic only ever matched a bare `Term.Name`): `error[E0061]: this function takes
+    // 2 arguments but 1 argument was supplied`. Reads the collision-safe `_ownedDefBodies` (this
+    // corpus has four `def parse`), not a bare-name table.
+    val src =
+      """```scalascript
+        |case class Dialect(name: String)
+        |object Dialect:
+        |  val Default: Dialect = Dialect("default")
+        |
+        |object Codec:
+        |  def parse(src: String, dialect: Dialect = Dialect.Default): String = src
+        |
+        |def useIt(src: String): String = Codec.parse(src)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("parse(src, ") || g.contains("parse(src,"),
+      s"the qualified call should get its default argument filled:\n$g")
