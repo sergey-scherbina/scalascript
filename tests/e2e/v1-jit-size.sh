@@ -839,10 +839,25 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # (`_paramTypes.contains(calleeName) || closureWant.nonEmpty`) and the `want` selection between
 # the two sources, both inline in this arm's own body. Re-verified uniml/xml and uniml/json both
 # still build clean (0 errors).
+#
+# renderTerm 37869 -> 37885 (+16), FINISHING the uniml/yaml real `cargo build` pass: 6 -> 0 (clean
+# `cargo build`), the last fix a genuine SEMANTIC bug, not just a borrow-check false positive.
+# `stream: YamlValue.Stream`'s destructured field `documents` (`resolve`) collided by pure NAME
+# COINCIDENCE with an UNRELATED `var documents` declared later in the SAME function; Rust's own
+# shadowing rules meant `stream.documents.foreach{…}`'s iteration source silently resolved to the
+# WRONG (accumulator) binding instead of the field — `error[E0506]` was the borrow checker
+# noticing the SYMPTOM (the loop reassigning the very Vec its own iterator borrowed), not the
+# actual defect. Fixed by renaming a destructured field's binder (`__dstruct_documents`) whenever
+# it collides with any other local in the def, threaded through a new `ctx.destructuredFieldRenames`
+# map consulted at the existing `Select(Name(n), Name(field)) -> bare field` rewrite site (inline
+# in `renderTerm`'s own case, the growth); the rename computation itself lives in `renderDef`, not
+# `renderTerm`, and costs nothing here. Re-verified uniml/xml and uniml/json both still build
+# clean (0 errors). uniml/yaml: 184 -> 0 real `cargo build` errors this session, across many
+# small, individually-tested commits.
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-37869 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+37885 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

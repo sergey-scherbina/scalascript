@@ -3014,6 +3014,24 @@ object RustCodeWalk:
       // `paramCtorNames` for that reason: one drives TYPE inference (safe on a param), the other
       // drives an actual NAME rewrite (safe only where a destructure really happened).
       destructuredCtorNames: Map[String, String] = Map.empty,
+      // A destructured variant-param FIELD name (`paramDestructurePreamble`'s own bare-field
+      // binder), when that bare name would COLLIDE with a `var`/`val` declared ELSEWHERE in the
+      // SAME def. `stream: YamlValue.Stream` destructures its single field `documents` as a bare
+      // local — but `resolve` (`uniml/yaml`'s `YamlSemanticParser.scala`) ALSO declares an
+      // unrelated `var documents: Vector[YamlDocument]` (an accumulator) later in the SAME body.
+      // Both compile to a plain `let`/`let mut documents` in sequence; Rust's own shadowing rules
+      // mean EVERY read of bare `documents` from that point on resolves to whichever binding is
+      // LEXICALLY closest — the accumulator, not the destructured field. `stream.documents.foreach
+      // {…}`, rewritten by the SAME `Select(Name(n), Name(field)) -> bare field` convention this
+      // whole destructuring exists to feed, silently started iterating the WRONG (empty)
+      // collection: not a borrow-check false positive but a genuine SEMANTIC bug the borrow
+      // checker only happened to also catch (`documents = […]` while the for loop's OWN iterator
+      // still borrows the very same accumulator it is about to reassign, since both are one
+      // binding by the time the loop runs) — `error[E0506]: cannot assign to documents because it
+      // is borrowed`. The destructure binder is renamed (`__dstruct_documents`) precisely when this
+      // collision is detected, and every bare-field READ site (`ctx.destructuredCtorNames`'s own
+      // rewrite) redirects through this map instead, so the two bindings never share a name at all.
+      destructuredFieldRenames: Map[String, String] = Map.empty,
       // Local names (currently just a `foldLeft` accumulator param) known to hold an `Either`, when
       // that is NOT syntactically visible at the use site — `adapters.foldLeft[Either[String,
       // DialectRegistry]](Right(empty)) { (result, adapter) => result.flatMap(…) }`
@@ -3410,6 +3428,19 @@ object RustCodeWalk:
               p.name.value -> ctorName
           }
         }.toMap
+      // `stream: YamlValue.Stream`'s field `documents`, colliding with `resolve`'s OWN unrelated
+      // `var documents` (`uniml/yaml`'s `YamlSemanticParser.scala`) — see `Ctx.
+      // destructuredFieldRenames`'s own comment for the full story. `localDeclNames` (shared with
+      // the move-capture clone-prelude fixes) already collects every `var`/`val` name declared
+      // ANYWHERE in the def, which is exactly the set a destructured field's bare binder must
+      // avoid colliding with. Computed here, ahead of the `Ctx(...)` construction below, so both
+      // `destructuredFieldRenames` (fed into that `Ctx`) and `paramDestructurePreamble` (built
+      // AFTER `ctx` exists, further down) can share the SAME map.
+      val localVarValNames = localDeclNames(d.body)
+      val fieldRenames: Map[String, String] =
+        paramVariantDestructures.values.toSet.flatMap { ctorName =>
+          ctorMap.get(ctorName).map(_.fieldNames.filter(localVarValNames.contains)).getOrElse(Nil)
+        }.map(f => f -> s"__dstruct_$f").toMap
       // Every destructured field name across every such PARAMETER, split by its OWN declared
       // Rust type — Vec-typed feeds `collectLocalSeqs`'s seed, Map-typed feeds `collectLocalMaps`'s.
       val destructuredFieldTypes: Map[String, String] =
@@ -3545,6 +3576,7 @@ object RustCodeWalk:
                         // needs the SAME real destructure, here via a PREAMBLE statement (built
                         // below, from this same map) rather than a match pattern.
                         destructuredCtorNames = paramVariantDestructures,
+                        destructuredFieldRenames = fieldRenames,
                         bodyStats = d.body match { case b: m.Term.Block => b.stats; case _ => Nil })
       val effName = defEffectName(d)
       val pNames  = extractParamNames(d)
@@ -3587,8 +3619,15 @@ object RustCodeWalk:
             // boxed field is bound under a renamed pattern variable and immediately dereferenced
             // into the real name in a follow-up `let`, the same rename-and-deref shape
             // `renderMatch`'s own with-fields-variant case already uses for a boxed match binding.
-            val patFields = ec.fieldNames.map(f => if ec.boxedFields.contains(f) then s"$f: __boxed_$f" else f)
-            val derefs = ec.fieldNames.filter(ec.boxedFields.contains)
+            // A COLLIDING field (`fieldRenames`) takes priority over boxing's OWN rename when both
+            // would apply to the same field — it needs no deref-restore afterward at all (unlike a
+            // boxed field, which restores its ORIGINAL name via `derefs`; a colliding field's
+            // whole point is to NOT reuse that name), so it is checked FIRST.
+            val patFields = ec.fieldNames.map(f =>
+              if fieldRenames.contains(f) then s"$f: ${fieldRenames(f)}"
+              else if ec.boxedFields.contains(f) then s"$f: __boxed_$f"
+              else f)
+            val derefs = ec.fieldNames.filter(f => ec.boxedFields.contains(f) && !fieldRenames.contains(f))
               .map(f => s"let $f = *__boxed_$f;").mkString(" ")
             s"let ${ec.enumName}::$ctorName { ${patFields.mkString(", ")} } = $p.clone() else { unreachable!() };" +
               (if derefs.isEmpty then "" else s" $derefs")
@@ -5998,7 +6037,12 @@ object RustCodeWalk:
     // THAT ctor from an ordinary (unrelated) field access spelled the same way.
     case m.Term.Select(m.Term.Name(n), m.Term.Name(field))
         if ctx.destructuredCtorNames.get(n).flatMap(ctx.ctorMap.get).exists(_.fieldNames.contains(field)) =>
-      Right(field)
+      // `ctx.destructuredFieldRenames` FIRST — see its own comment (`Ctx`'s field doc) for why a
+      // destructured field's bare binder is sometimes NOT actually bare: `stream.documents`, once
+      // `documents` collides with an unrelated `var documents` elsewhere in the same def, binds
+      // under `__dstruct_documents` instead, and every read site (this one) must follow that
+      // rename too, or it silently reads whichever OTHER binding happens to share the bare name.
+      Right(ctx.destructuredFieldRenames.getOrElse(field, field))
 
     // Plain identifier — parameter / in-scope fn name, OR a top-level `val`.
     // Top-level vals aren't emitted as Rust items, so inline their (already-rendered)

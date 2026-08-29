@@ -2795,6 +2795,38 @@ class RustGenCodeWalkTest extends AnyFunSuite:
       && g.contains("let options = options.clone();"),
       s"a closure calling a lifted def must reborrow &mut extras and pre-clone by-value extras:\n$g")
 
+  test("a destructured variant field renames itself away from a colliding local"):
+    // `stream: YamlValue.Stream`'s destructured field `documents`, colliding with `resolve`'s OWN
+    // unrelated `var documents` (`uniml/yaml`'s `YamlSemanticParser.scala`) — both compile to a
+    // plain `let`/`let mut documents` in sequence, and Rust's own shadowing rules mean EVERY read
+    // of bare `documents` from that point on resolves to whichever binding is lexically closest —
+    // the accumulator, not the destructured field. `stream.documents.foreach{…}`'s iteration
+    // source silently started iterating the WRONG (empty) collection: not a borrow-check false
+    // positive but a genuine SEMANTIC bug the borrow checker only happened to also catch
+    // (`documents = […]` while the for loop's own iterator still borrows the very same
+    // accumulator it is about to reassign, since both are one binding by the time the loop runs):
+    // `error[E0506]: cannot assign to documents because it is borrowed`.
+    val src =
+      """```scalascript
+        |case class YamlDocument(value: Int)
+        |
+        |enum YamlValue:
+        |  case Stream(documents: List[YamlDocument])
+        |  case Scalar(text: String)
+        |
+        |def resolve(stream: YamlValue.Stream): List[YamlDocument] =
+        |  var documents: List[YamlDocument] = List.empty
+        |  stream.documents.foreach { document =>
+        |    documents = documents :+ document
+        |  }
+        |  documents
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("documents: __dstruct_documents } = stream.clone()")
+      && g.contains("for document in __dstruct_documents.iter().cloned()"),
+      s"a destructured field colliding with an unrelated local must rename itself, not shadow it:\n$g")
+
   test("`xs.count(_.field == x)` / `xs.filter(_.field == x)` — a placeholder predicate types cleanly"):
     // `lexed.tokens.count(_.kind == "yaml.anchor")` / `ranges.filter(_.start == index)`
     // (`uniml/yaml`) — `renderVecIterBody`'s `Term.AnonymousFunction` branch wrapped the WHOLE
