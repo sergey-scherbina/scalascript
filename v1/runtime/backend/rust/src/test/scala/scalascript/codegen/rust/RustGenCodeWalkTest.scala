@@ -1381,6 +1381,27 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(g.contains("ref e @"), s"the typed bind should still render as a ref-bound pattern:\n$g")
 
+  test("`Some(child)` clones a `byRefMut`-bound match-arm name used at a by-value position"):
+    // `validateNamespaces`-style shape (`uniml/xml`'s `Doc.scala`): a typed with-fields-variant
+    // binder (`case child: Markup.Elem => …`) is `byRefMut` (renders bare reads as `(*child)`),
+    // but passing it to `Some(...)` is a BY-VALUE position — `(*child)` alone still tries to MOVE
+    // out of the borrow: `error[E0507]: cannot move out of *child, which is behind a shared
+    // reference`. `cloneIfMoved` must clone at that same rendered text: `(*child).clone()`.
+    val src =
+      """```scalascript
+        |object Markup:
+        |  sealed trait Node
+        |  case class Elem(name: String, children: List[Node] = Nil) extends Node
+        |  case class Text(chars: String) extends Node
+        |
+        |def firstElem(n: Markup.Node): Option[Markup.Node] = n match
+        |  case child: Markup.Elem => Some(child)
+        |  case _ => None
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("(*child).clone()"), s"the byRefMut name must be cloned at the by-value position:\n$g")
+
   test("`s.replace(from, to)` keeps `to` a `&str` even when it's a char literal"):
     // `kind.replace('.', '-')` (`uniml/xml`'s `Doc.scala`) — Rust's `str::replace` requires its
     // SECOND argument to be `&str` specifically (unlike `from`, a genuine `Pattern` where a `char`

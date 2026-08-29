@@ -3802,7 +3802,15 @@ object RustCodeWalk:
           // body — `error[E0507]: cannot move out of catalog, a captured variable in an Fn
           // closure`. An `Fn` closure may run many times, so a captured non-Copy value has to be
           // cloned AT THE USE, not merely cloned into the closure. (rust-noarg-closure-moves-its-capture.)
-          || (ctx.inClosure && !ctx.closureParams.contains(r)))
+          || (ctx.inClosure && !ctx.closureParams.contains(r))
+          // `Some(child)` where `child` is `ref child @ Node::Element { … }` (`uniml/xml`'s
+          // `Doc.scala`'s `validateNamespaces`) — `renderTerm`'s deref-on-read case already turns
+          // `n` into `(*n)` for a `byRefMut` name (this function is called with THAT rendered
+          // text, not the bare name), but a bare reference alone still tries to MOVE the value out
+          // of the borrow at a by-value position: `error[E0507]: cannot move out of *child, which
+          // is behind a shared reference`. `(*n).clone()` is the fix, the identical shape this
+          // function already gives a topval/multi-use/closure-captured name.
+          || ctx.byRefMut.contains(r))
     arg match
       case m.Term.Name(n)
           if needs(n) && !rendered.matches(raw"-?\d+i64|-?\d+\.\d+f64|true|false") =>
