@@ -33,6 +33,11 @@ exports:
   - lastAgg
   - MapMonoid
   - groupByAgg
+  - doubleSumGroup
+  - GroupAggregator
+  - SumGroupAgg
+  - SlidingWindow
+  - emptyWindow
 ---
 
 # Aggregator — the aggregation-algebra core primitive
@@ -40,8 +45,8 @@ exports:
 Design: [`specs/aggregation-algebra.md`](../specs/aggregation-algebra.md). This module ships the
 piece that document calls "the central primitive" (`Group`, `Aggregator[In, Acc, Out]`, `zip`/`map`
 composition — §2.2–§4), all of §5's canonical exact aggregators (`min`/`max`, `variance`/`stddev`,
-`first`/`last`), and §8's `groupBy` (`Map[K, Acc]` as a `Monoid`, pointwise). Approximate
-aggregators (HyperLogLog, …), §7's `Group`-backed sliding window, the `DStream`/`Dataset` bridge,
+`first`/`last`), §7's `Group`-backed sliding window, and §8's `groupBy` (`Map[K, Acc]` as a
+`Monoid`, pointwise). Approximate aggregators (HyperLogLog, …), the `DStream`/`Dataset` bridge,
 rendering, and effectful aggregators are out of scope for this module — see the spec's §13 and
 `BACKLOG.md` for what is deferred and why.
 
@@ -288,6 +293,69 @@ def lastAgg[A](): Aggregator[(A, Int), Option[(A, Int)], Option[A]] =
 
 `runAggregator(xs.zipWithIndex, firstAgg[Double]())` is `first`; swap in `lastAgg` for `last`. Both
 return `None` on empty input, for the same reason `min`/`max` do.
+
+## Sliding windows — only sound for a `Group`-backed `Aggregator`
+
+A tumbling window ("every 5 minutes, non-overlapping") only ever needs `combine` — any `Monoid`
+handles it. A *sliding* window ("the last 5 minutes, updated every second") is different: as time
+advances, old data must stop contributing, and recomputing from every retained raw element defeats
+the point of aggregating at all. `combine(total, inverse(agingOutValue))` retracts a contribution in
+O(1) — but only for a `Group`; retracting from `min`/`max` or a §6 sketch produces a silently wrong
+answer, since there is no way to know whether some OTHER retained element was tied for the extreme.
+
+The design's intent is to make this a type-level fact: `GroupAggregator` narrows `Aggregator` to
+ones whose `Acc` genuinely has an `inverse`, and `SlidingWindow`'s signature asks for a
+`GroupAggregator`, not a plain `Aggregator`. **Verified narrower than that intent, though**: passing
+a `MinAgg`/`MaxAgg` (a real `Aggregator`, not a `GroupAggregator`) to `emptyWindow` currently
+compiles and runs without error on both self-hosted fronts — the mismatch surfaces only the first
+time `.group` is actually accessed inside `push` (`unhandled runtime effect`), not at the call site.
+`GroupAggregator` is still worth declaring — it documents the real constraint, and a caller who
+reads the signature gets the right idea — but it is not, today, the compile-time guardrail this
+design would like it to be. See `v2/BUGS.md`
+`trait-typed-parameter-accepts-a-non-conforming-argument` for the underlying gap, reproduced with a
+minimal example unrelated to aggregators:
+
+```scalascript
+trait GroupAggregator[In, Acc, Out] extends Aggregator[In, Acc, Out]:
+  def group: Group[Acc]
+  def monoid: Monoid[Acc] = group
+
+given doubleSumGroup: Group[Double] with
+  def empty: Double = 0.0
+  def combine(a: Double, b: Double): Double = a + b
+  def inverse(a: Double): Double = -a
+
+class SumGroupAgg() extends GroupAggregator[Double, Double, Double]:
+  def group: Group[Double] = doubleSumGroup
+  def prepare(in: Double): Double = in
+  def present(acc: Double): Double = acc
+```
+
+The window itself keeps a running total plus a FIFO of each entered element's *prepared* value (not
+the raw input — `prepare` may not be cheap to redo, and only the prepared `Acc` is what `inverse`
+needs), capped at `size`. Immutable, like every other structure in this module — `push` returns a
+new `SlidingWindow` rather than mutating:
+
+```scalascript
+class SlidingWindow[In, Acc, Out](agg: GroupAggregator[In, Acc, Out], size: Int, total: Acc, buffer: List[Acc]):
+  def push(in: In): SlidingWindow[In, Acc, Out] =
+    val prepared  = agg.prepare(in)
+    val entered   = agg.group.combine(total, prepared)
+    val extended  = buffer :+ prepared
+    if extended.length > size then
+      val evicted = agg.group.combine(entered, agg.group.inverse(extended.head))
+      SlidingWindow(agg, size, evicted, extended.tail)
+    else
+      SlidingWindow(agg, size, entered, extended)
+  def current: Out = agg.present(total)
+
+def emptyWindow[In, Acc, Out](agg: GroupAggregator[In, Acc, Out], size: Int): SlidingWindow[In, Acc, Out] =
+  SlidingWindow(agg, size, agg.group.empty, List())
+```
+
+`xs.foldLeft(emptyWindow(SumGroupAgg(), 3))((w, x) => w.push(x)).current` folds the whole stream and
+reads the final window's total; calling `.current` after each `.push` gives the running sliding sum
+at every point, which is the actual point of a sliding window over a live stream.
 
 ## `groupBy` — no new primitive, `Map[K, Acc]` is a `Monoid` too
 

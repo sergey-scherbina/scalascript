@@ -1,17 +1,18 @@
 # Aggregation Algebra — `Monoid`, `Group`, and `Aggregator[In, Acc, Out]`
 
-Status: **§2.2–§5 and §8 landed 2026-08-29** as [`std/aggregator.ssc`](../std/aggregator.ssc) —
-`Group`, `Aggregator[In, Acc, Out]`, `zip`/`map` composition, `mean`-from-`sum`-and-`count`,
+Status: **§2.2–§5, §7, and §8 landed 2026-08-29** as [`std/aggregator.ssc`](../std/aggregator.ssc)
+— `Group`, `Aggregator[In, Acc, Out]`, `zip`/`map` composition, `mean`-from-`sum`-and-`count`,
 `min`/`max` (any `Order[A]`), `variance`/`stddev` (Chan/Golub/LeVeque), `first`/`last`
-(`MinByAgg`/`MaxByAgg` generalized to a projected key, keyed on `.zipWithIndex`), and `groupByAgg`
-(`Map[K, Acc]` as a `Monoid`), runnable at
+(`MinByAgg`/`MaxByAgg` generalized to a projected key, keyed on `.zipWithIndex`), `groupByAgg`
+(`Map[K, Acc]` as a `Monoid`), and a `Group`-backed `SlidingWindow` (§7 — see its own note on a
+type-checking gap this surfaced), runnable at
 [`examples/std-aggregator.ssc`](../examples/std-aggregator.ssc) and gated by
 `tests/conformance/std-aggregator.ssc` + `tests/conformance/std-order.ssc` (INT/JVM green; JS
 known-red against a filed codegen bug — `v1/runtime/backend/js/BUGS.md`
-`js-codegen-drops-generic-typeclass-resolution-when-multiple-instances-exist`). §6, §7, §9–§11
-(approximate aggregators, the `Group`-backed sliding window, the `DStream`/`Dataset` bridge,
-rendering, effects) remain **design / planning** — queued in `BACKLOG.md`. Every code sample in
-this document has been run for real against this checkout's `bin/ssc-tools` to confirm it actually
+`js-codegen-drops-generic-typeclass-resolution-when-multiple-instances-exist`). §6, §9–§11
+(approximate aggregators, the `DStream`/`Dataset` bridge, rendering, effects) remain **design /
+planning** — queued in `BACKLOG.md`. Every code sample in this document has been run for real
+against this checkout's `bin/ssc-tools` to confirm it actually
 compiles and produces the stated result — see §12 for what that verification found (including one
 interpreter bug it surfaced, since fixed).
 
@@ -477,11 +478,22 @@ window, which must stop contributing). Two strategies exist:
   because there is genuinely no way to know whether some OTHER retained element was tied for the
   max once the one you're retracting is removed.
 
-The language's job is to make this a **type-level fact, not a runtime surprise**: a sliding-window
-operator should only accept a `Group`-backed `Aggregator`; requesting one over a `min`/`max` or a
-§6 sketch is a compile-time rejection with a clear reason ("no inverse — use a tumbling window, or
-a bucketed approximation"), not a silently wrong number or an unbounded-memory fallback chosen for
-you.
+The intent is to make this a **type-level fact, not a runtime surprise**: a sliding-window operator
+should only accept a `Group`-backed `Aggregator`; requesting one over a `min`/`max` or a §6 sketch
+should be a rejection with a clear reason ("no inverse — use a tumbling window, or a bucketed
+approximation"), not a silently wrong number or an unbounded-memory fallback chosen for you.
+
+**Landed 2026-08-29** as `std/aggregator.ssc`'s `GroupAggregator`/`SlidingWindow` — **narrower than
+that intent, though, found while landing it**: `GroupAggregator extends Aggregator` and adds a
+`group: Group[Acc]` member, and `SlidingWindow`'s constructor asks for a `GroupAggregator`, not a
+plain `Aggregator` — but passing a `MinAgg`/`MaxAgg` (a real `Aggregator`, never declared to extend
+`GroupAggregator`) compiles and runs without error on both self-hosted fronts today. The mismatch
+surfaces only the first time `.group` is actually accessed inside `push` (an `unhandled runtime
+effect`), not at the call site — a runtime surprise, not the compile-time fact this section wants.
+Reproduced with a minimal example unrelated to aggregators at all: `v2/BUGS.md`
+`trait-typed-parameter-accepts-a-non-conforming-argument`. `GroupAggregator` is still worth
+declaring — it documents the real constraint for a reader — but is not, today, an enforced
+guardrail.
 
 ## 8. `groupBy` needs no new concept — it's `Map[K, Acc]`, pointwise
 

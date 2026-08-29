@@ -45,9 +45,17 @@ itself scopes out of the first slice — queued here rather than attempted in th
 - **§6 approximate aggregators** — `ApproxAggregator` (adds `errorBound`) plus HyperLogLog,
   Count-Min Sketch, and T-Digest as parameterized classes. Real algorithmic work (hashing, register
   arrays), not a straightforward port of the spec's sketch.
-- **§7's `Group`-backed sliding window** — the concrete payoff of §2.2's `inverse`: retract an
-  expired value from a window's accumulator instead of recomputing from what remains. `Group` ships
-  now; the windowing structure that uses it does not yet.
+- **§7's `Group`-backed sliding window — DONE** (claim `aggregator-sliding-window`, 2026-08-29).
+  `GroupAggregator`/`SlidingWindow`/`emptyWindow` ship in `std/aggregator.ssc`; `push` retracts the
+  aging-out element via `inverse` in O(1) once the window is full. Found landing it, and this is the
+  more important finding of the two: the design's own "should be a compile-time rejection" claim for
+  passing a non-`Group`-backed `Aggregator` **does not hold** — `emptyWindow(MinAgg(...), 3)`
+  compiles and runs today, failing only the first time `.group` is actually accessed. Reproduced
+  with a minimal, aggregator-unrelated example and filed as real, separate type-checker work:
+  `v2/BUGS.md` `trait-typed-parameter-accepts-a-non-conforming-argument`. Every design in this
+  codebase that leans on a narrower trait to make a constraint type-level (`ApproxAggregator` in the
+  still-queued §6, for instance) inherits the same caveat — worth keeping in mind rather than
+  re-discovering per feature.
 - **§8 `groupBy` — DONE** (claim `aggregator-groupby`, 2026-08-29). `MapMonoid[K, Acc]` +
   `groupByAgg[K, In, Acc, Out](xs: List[(K, In)], agg): Map[K, Out]` ship in `std/aggregator.ssc`.
   Found landing it: `Map.empty` throws under the v1 interpreter (`--v1`) — it reads `"empty"` as a

@@ -7,7 +7,56 @@ grepping for status.
 
 Newest first.
 
-## anonymous-given-instance-unresolvable-by-summon-or-using — an unnamed `given` cannot be found by `summon[T]` or a `(using x: T)` parameter, on either self-hosted front
+## trait-typed-parameter-accepts-a-non-conforming-argument — a function whose parameter requires trait `T` accepts a value whose static type only extends `T`'s SUPERTRAIT, and the mismatch surfaces at first method dispatch, not at the call site
+
+<!-- status: open
+     lane: native
+     kind: bug
+     area: front
+     gate: none
+     reported-by: claude-code
+     reported-at: 2026-08-29
+     confirmed: yes -->
+
+Found designing `std/aggregator.ssc`'s sliding window (`specs/aggregation-algebra.md` §7), which
+wanted "a sliding window only accepts a `Group`-backed `Aggregator`" to be a **compile-time**
+rejection — the whole point being to make an unsound retraction a type error, not a silently wrong
+number. Minimal repro, no aggregator code involved:
+
+```scalascript
+trait Animal:
+  def sound: String
+
+trait Dog extends Animal:
+  def sound: String = "woof"
+  def fetch: String = "fetch!"
+
+class Cat() extends Animal:
+  def sound: String = "meow"
+
+def needsDog(d: Dog): String = d.fetch
+
+println(needsDog(Cat()))
+```
+
+`Cat` extends `Animal`, not `Dog` — a real Scala 3 compiler rejects this at the `needsDog(Cat())`
+call site (`Found: Cat, Required: Dog`). Here it compiles and runs on **both** self-hosted fronts —
+`ssc info --front-report` names `F` directly, no fallback — and fails only once `d.fetch` is
+actually dispatched at runtime: `unhandled runtime effect: Cat.fetch`. The type mismatch is invisible
+until the specific method that differs between the two traits is actually called; a caller who only
+calls methods `Animal` and `Dog` share in common would see no error at all, ever, for a value of the
+wrong trait.
+
+This means any design in this codebase that relies on a narrower trait (`GroupAggregator extends
+Aggregator`, `ApproxAggregator extends Aggregator`, etc.) to make a constraint a *type-level* fact
+gets, in practice, a *runtime* fact instead — real for callers who exercise the narrowing method,
+invisible for callers who happen not to. `std/aggregator.ssc`'s §7 sliding window text was corrected
+to describe this honestly (accepted at the call site, fails at first `.group` access) rather than
+claiming a compile-time rejection that does not currently exist.
+
+Not investigated further: whether this is a gap in trait-conformance checking specifically, or a
+broader case of ScalaScript's argument-passing being effectively structural/dynamic regardless of
+declared trait bounds — that's real, separate type-checker work.
 
 <!-- status: open
      lane: native

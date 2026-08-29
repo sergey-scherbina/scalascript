@@ -14,3 +14,8 @@ None
 Map(east -> 13, west -> 12, north -> 1)
 Map(east -> 2, west -> 2, north -> 1)
 Map()
+15
+1
+3
+6
+9

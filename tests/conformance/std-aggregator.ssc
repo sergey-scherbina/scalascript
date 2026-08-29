@@ -8,11 +8,11 @@ known-red: "js — summon[Order[Int]]/summon[Order[String]] (for MinAgg/MaxAgg) 
 
 Exercises the aggregation-algebra core primitive: `Group` (retraction), `Aggregator`'s `zip`/`map`
 composition, the `mean`-from-`sum`-and-`count` worked example, `min`/`max` over any `Order[A]`,
-`variance`/`stddev` (population and sample), `first`/`last` (keyed by `.zipWithIndex`), and
-`groupByAgg` (§8) from [`specs/aggregation-algebra.md`](../../specs/aggregation-algebra.md) §4.3,
-§5, and §8.
+`variance`/`stddev` (population and sample), `first`/`last` (keyed by `.zipWithIndex`), `groupByAgg`
+(§8), and the `Group`-backed `SlidingWindow` (§7) from
+[`specs/aggregation-algebra.md`](../../specs/aggregation-algebra.md) §4.3, §5, §7, and §8.
 
-[Group, intSumGroup, Aggregator, runAggregator, ZipAgg, MapAgg, SumAgg, CountAgg, MinAgg, MaxAgg, VarianceAgg, populationVariance, sampleVariance, stddev, firstAgg, lastAgg, groupByAgg](std/aggregator.ssc)
+[Group, intSumGroup, Aggregator, runAggregator, ZipAgg, MapAgg, SumAgg, CountAgg, MinAgg, MaxAgg, VarianceAgg, populationVariance, sampleVariance, stddev, firstAgg, lastAgg, groupByAgg, SumGroupAgg, emptyWindow](std/aggregator.ssc)
 
 [Order](std/order.ssc)
 
@@ -50,4 +50,17 @@ val sales = List(("east", 10.0), ("west", 5.0), ("east", 3.0), ("west", 7.0), ("
 println(groupByAgg(sales, SumAgg()))
 println(groupByAgg(sales, CountAgg[Double]()))
 println(groupByAgg(List[(String, Double)](), SumAgg()))
+
+val readings = List(1.0, 2.0, 3.0, 4.0, 5.0, 6.0)
+val finalWindow = readings.foldLeft(emptyWindow(SumGroupAgg(), 3))((w, x) => w.push(x))
+println(finalWindow.current)
+
+val w1 = emptyWindow(SumGroupAgg(), 3).push(1.0)
+val w2 = w1.push(2.0)
+val w3 = w2.push(3.0)
+val w4 = w3.push(4.0)
+println(w1.current)
+println(w2.current)
+println(w3.current)
+println(w4.current)
 ```
