@@ -7702,6 +7702,17 @@ object RustCodeWalk:
           s"def `${ctx.defName}` has invalid `Some` constructor application"
         )))
 
+    // `Option.when(valid, result)` (`uniml/yaml`'s `YamlSemanticParser.scala`, several call sites)
+    // — Scala's static `Option` factory: `Some(value)` if `cond` else `None`. No case existed for
+    // it at all, so it reached rustc as a literal call on the `Option` TYPE itself: `error[E0423]:
+    // expected value, found enum Option`.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(m.Term.Name("Option"), m.Term.Name("when")), args)
+        if args.values.size == 2 =>
+      for
+        cond <- renderTerm(args.values.head, ctx)
+        v0   <- renderTerm(args.values(1), ctx)
+      yield s"if $cond { Some(${cloneIfMoved(args.values(1), v0, ctx)}) } else { None }"
+
     case m.Term.Apply.After_4_6_0(
         m.Term.Select(qual, m.Term.Name("map")),
         args
@@ -10400,7 +10411,16 @@ object RustCodeWalk:
   private def isConceptuallyChar(t: m.Term, ctx: Ctx): Boolean =
     yieldsSscChar(t, ctx) || (t match
       case m.Term.Name(n) =>
-        _defBodies.get(n).exists(_.decltpe match { case Some(m.Type.Name("Char")) => true; case _ => false })
+        _defBodies.get(n).exists(_.decltpe match { case Some(m.Type.Name("Char")) => true; case _ => false }) ||
+        // `private def isHandleChar(value: Char): Boolean = ... "!$&'()*+,;=".contains(value)`
+        // (`uniml/yaml`'s `YamlPropertySyntax.scala`/`YamlLexer.scala`, several defs) — `value` is
+        // the CURRENT def's OWN parameter declared `Char`, not a niladic-def reference (the ONLY
+        // shape the case above checks) — `error[E0277]: the trait bound &i64: Pattern is not
+        // satisfied` at `.contains(&(value))`, `String::contains`'s Pattern needing an actual
+        // `char`, not the raw `i64` code point this lane's `Char` convention gives every OTHER
+        // position. Reads the CURRENT def's own raw params off `_defBodies`, keyed by `ctx.defName`.
+        _defBodies.get(ctx.defName).exists(_.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
+          .exists(p => p.name.value == n && (p.decltpe match { case Some(m.Type.Name("Char")) => true; case _ => false })))
       case _ => false)
 
   private def needsAnyCoercion(arg: m.Term, target: String, ctx: Ctx): Boolean =

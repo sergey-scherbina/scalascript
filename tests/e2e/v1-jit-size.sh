@@ -709,10 +709,29 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # (`-Werror` caught it) until moved above that fallback, right where existing narrowly-scoped
 # bare-Select cases (`getMessage`, map `.get`/`.contains`) already sit for the identical reason.
 # Re-verified uniml/xml and uniml/json both still build clean (0 errors).
+#
+# renderTerm 37197 -> 37385 (+188), continuing the uniml/yaml real `cargo build` pass, 54 -> 47 ->
+# 45. Two fixes: (1) `Option.when(valid, result)` — Scala's static `Option` factory (`Some` if
+# `cond` else `None`); no case existed for it at all, so it reached rustc as a literal call on
+# the `Option` TYPE itself: `error[E0423]: expected value, found enum Option`. New case, inline
+# in `renderTerm`'s own match — the growth. (2) `private def isSubDelimiter(value: Char): Boolean
+# = "!$&'()*+,;=".contains(value)` — `isConceptuallyChar`'s bare-name case only ever checked
+# `_defBodies` for a NILADIC-DEF reference (a Scala parameterless method read bare), never
+# whether the name is the CURRENT def's OWN parameter declared `Char` — so a `Char` param passed
+# to `.contains`/`.startsWith`/`.endsWith` kept its raw `i64` form where Rust's `Pattern` trait
+# needs an actual `char`: `error[E0277]: the trait bound &i64: Pattern is not satisfied`. Lives
+# entirely in `isConceptuallyChar`, a separate function, and costs nothing here — BUT the first
+# attempt used `p.decltpe.contains(m.Type.Name("Char"))` (`Option.contains`, i.e. `==`), the EXACT
+# mistake this same function's own docstring three lines above already warns about by name
+# (scalameta `Tree` equality is position-sensitive, so a freshly-built `Type.Name("Char")` never
+# equals the parser's own instance) — caught by testing the standalone repro before trusting it,
+# not by the test suite (a `.contains` guard that is always `false` produces no compile error,
+# just silently never fires); fixed to a real pattern match. Re-verified uniml/xml and uniml/json
+# both still build clean (0 errors).
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-37197 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+37385 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

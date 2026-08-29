@@ -2435,3 +2435,32 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(g.contains("Either::Left(__l) => Some(__l)"), s"left.toOption must lower to a match on Either:\n$g")
+
+  test("`Option.when(cond, value)` — Scala's static Option factory"):
+    // `Option.when(valid, result)` (`uniml/yaml`'s `YamlSemanticParser.scala`, several call
+    // sites) — no case existed for it at all, so it reached rustc as a literal call on the
+    // `Option` TYPE itself: `error[E0423]: expected value, found enum Option`.
+    val src =
+      """```scalascript
+        |def f(cond: Boolean, x: Int): Option[Int] = Option.when(cond, x)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("if cond { Some(x) } else { None }"), s"Option.when must lower to an if/else:\n$g")
+
+  test("a `Char`-declared PARAMETER used as a String Pattern argument (.contains/.startsWith)"):
+    // `private def isSubDelimiter(value: Char): Boolean = "!$&'()*+,;=".contains(value)`
+    // (`uniml/yaml`'s `YamlLexer.scala`/`YamlPropertySyntax.scala`, several defs) —
+    // `isConceptuallyChar`'s bare-name case only ever checked `_defBodies` for a NILADIC-DEF
+    // reference (a Scala parameterless method read bare), never whether the name is the CURRENT
+    // def's OWN parameter declared `Char` — so a `Char` param kept its raw `i64` form where
+    // Rust's `Pattern` trait needs an actual `char`: `error[E0277]: the trait bound &i64: Pattern
+    // is not satisfied`.
+    val src =
+      """```scalascript
+        |def isSubDelimiter(value: Char): Boolean =
+        |  "!$&'()*+,;=".contains(value)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("char::from_u32"), s"a Char-declared parameter must convert to a real char for .contains:\n$g")
