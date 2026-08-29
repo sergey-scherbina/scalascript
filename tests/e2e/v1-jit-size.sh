@@ -817,10 +817,21 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # in `renderTerm`'s own match); the Vec case's OWN algorithm lives in `renderVecIterBody`, a
 # separate function, and costs nothing here. Re-verified uniml/xml and uniml/json both still build
 # clean (0 errors).
+#
+# renderTerm 37817 -> 37821 (+4), continuing the uniml/yaml real `cargo build` pass, 18 -> 17 -> 16
+# (the collectLocalStrings tuple/->-pair commit in between needed no bump). `lastSpan.getOrElse(…)`
+# where `lastSpan: &mut Option<SourceSpan>` (a captured `var`) — `renderTerm` derefs a `byRefMut`
+# name to `(*lastSpan)`, and `.unwrap_or` CONSUMES its receiver; moving out of a dereferenced
+# borrow is illegal UNCONDITIONALLY, the moment there is a borrow at all, not just on multi-use:
+# `error[E0507]: cannot move out of *lastSpan which is behind a shared reference`.
+# `cloneIfMoved` already has a `ctx.byRefMut` case for exactly this; it was never asked here
+# because a method's OWN receiver, unlike an ordinary argument, never reached it. Inline in this
+# arm's own `yield`, the growth. Re-verified uniml/xml and uniml/json both still build clean (0
+# errors).
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-37817 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+37821 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

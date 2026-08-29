@@ -7160,8 +7160,15 @@ object RustCodeWalk:
     // `opt.getOrElse(default)` (one arg → native Option) → `opt.unwrap_or(default)`.  Map.getOrElse
     // takes two args (key, default) and is excluded by the arity guard. (rust-option-consumption)
     case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("getOrElse")), a) if a.values.size == 1 =>
-      for q <- renderTerm(qual, ctx); d <- renderTerm(a.values.head, ctx)
-      yield s"$q.unwrap_or($d)"
+      // `lastSpan.getOrElse(SourceSpan(...))` where `lastSpan: &mut Option<SourceSpan>` (a
+      // captured `var`, `uniml/yaml`'s `YamlLexer.scala`) — `renderTerm(qual, ctx)` derefs a
+      // `byRefMut` name to `(*lastSpan)`, and `.unwrap_or` CONSUMES its receiver — moving OUT of a
+      // dereferenced borrow is illegal regardless of multi-use, unconditionally, the moment there
+      // is a borrow at all: `error[E0507]: cannot move out of *lastSpan which is behind a shared
+      // reference`. `cloneIfMoved` already has a `ctx.byRefMut` case for exactly this; it was
+      // never asked here because a method's OWN receiver, unlike an argument, never reached it.
+      for q0 <- renderTerm(qual, ctx); d <- renderTerm(a.values.head, ctx)
+      yield s"${cloneIfMoved(qual, q0, ctx)}.unwrap_or($d)"
     // `opt.orElse(other)` — a pure rename to Rust's snake_case `or_else` (`uniml/xml`'s
     // `Doc.scala`'s `resolveElement`: `name.prefix.flatMap(…).orElse(bindings.get(""))`). Scoped to
     // an Option receiver — `orElse` is not a name any other type on this lane spells the same way.

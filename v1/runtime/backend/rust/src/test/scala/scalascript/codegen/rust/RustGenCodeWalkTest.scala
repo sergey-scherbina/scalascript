@@ -2773,3 +2773,25 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(g.contains("format!(\"{}{}\", handle, suffix)"),
       s"handle/suffix from an if/else of ->-pairs must feed the format! string-concat rewrite:\n$g")
+
+  test("`byRefMutVar.getOrElse(default)` clones before the consuming unwrap_or"):
+    // `lastSpan.getOrElse(SourceSpan(...))` where `lastSpan: &mut Option<SourceSpan>` (a captured
+    // `var`, `uniml/yaml`'s `YamlLexer.scala`) — `renderTerm` derefs a `byRefMut` name to
+    // `(*lastSpan)`, and `.unwrap_or` CONSUMES its receiver; moving out of a dereferenced borrow
+    // is illegal UNCONDITIONALLY, not just on multi-use: `error[E0507]: cannot move out of
+    // *lastSpan which is behind a shared reference`.
+    val src =
+      """```scalascript
+        |case class Span(start: Int)
+        |
+        |def scan(n: Int): Span =
+        |  var lastSpan: Option[Span] = None
+        |  def track(): Span =
+        |    lastSpan.getOrElse(Span(0))
+        |  lastSpan = Some(Span(n))
+        |  track()
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("(*lastSpan).clone().unwrap_or("),
+      s"a byRefMut Option must be cloned before the consuming unwrap_or:\n$g")
