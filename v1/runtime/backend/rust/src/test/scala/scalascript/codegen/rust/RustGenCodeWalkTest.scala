@@ -2529,6 +2529,35 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(g.contains("consume(value.clone(), cursor)"),
       s"a def param called inside a while-loop body must be cloned even with one syntactic use:\n$g")
 
+  test("a plain reassignment's RHS is cloned like every other by-value position"):
+    // `env = EnvDefaults.defaults` inside `while index < limit do …` (`uniml/yaml`'s
+    // `YamlSemanticParser.scala`'s `parse`: `tagEnvironment = YamlTagEnvironment.defaults`) — a
+    // PLAIN reassignment's RHS never went through `cloneIfMoved` at all (every OTHER by-value
+    // position — a call argument, a struct field, a tuple element — already did). `defaults` here
+    // is a qualified `Term.Select` on a topval (`EnvDefaults`), read again on the loop's second
+    // iteration: `error[E0382]: use of moved value: defaults`. `cloneIfMoved` already has a
+    // `Term.Select` case for exactly this shape; it just never had a chance to fire from an
+    // assignment RHS before now.
+    val src =
+      """```scalascript
+        |case class Env(name: String)
+        |
+        |object EnvDefaults:
+        |  val defaults: Env = Env("base")
+        |
+        |def reassignQualifiedTopval(limit: Int): Env =
+        |  var env = EnvDefaults.defaults
+        |  var index = 0
+        |  while index < limit do
+        |    env = EnvDefaults.defaults
+        |    index = index + 1
+        |  env
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("env = defaults.clone();"),
+      s"a plain assignment's RHS reusing a topval inside a while-loop must be cloned:\n$g")
+
   test("`xs.count(_.field == x)` / `xs.filter(_.field == x)` — a placeholder predicate types cleanly"):
     // `lexed.tokens.count(_.kind == "yaml.anchor")` / `ranges.filter(_.start == index)`
     // (`uniml/yaml`) — `renderVecIterBody`'s `Term.AnonymousFunction` branch wrapped the WHOLE

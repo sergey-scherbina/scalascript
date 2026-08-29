@@ -3999,8 +3999,19 @@ object RustCodeWalk:
           // *syntactically*, so `ctx.multiUse` (a pure occurrence count) never caught them, but the
           // loop BODY runs once per iteration — the same "may run many times" reasoning the
           // `inClosure` case just above already applies to a closure. Scoped to `ctx.defParams`,
-          // not every name: a `val` declared INSIDE the loop body is freshly bound each iteration
-          // and never has this problem.
+          // NOT the broader `looksLikeBinding` the move-closure fixes use — tried that first, and
+          // it broke an EXISTING golden: `cursor = consume(value, cursor)` inside the SAME kind of
+          // `while` loop reassigns `cursor` (a loop-local `var`, `i64`) every iteration, so it
+          // never has this problem, but `looksLikeBinding` cannot distinguish "loop-local,
+          // reassigned each pass" from "declared outside, read again after" the way `ctx.defParams`
+          // incidentally already does for THIS specific shape — widening it added a needless (if
+          // harmless in isolation) `cursor.clone()` VS the test's own asserted exact text. A local
+          // `val`/`var` declared OUTSIDE the loop but not a def param is consequently NOT caught
+          // here — a real gap, left for a future, more careful pass rather than risking a wider
+          // fix this late (a *qualified* reference like `YamlTagEnvironment.defaults` is a
+          // different shape entirely and is handled by `cloneIfMoved`'s own `Term.Select` case,
+          // now reachable from a plain assignment's RHS too — see that case, and the plain-
+          // assignment call site below, for the actual fix for that one).
           || (ctx.inWhileLoop && ctx.defParams.contains(r)))
     arg match
       case m.Term.Name(n)
@@ -6114,7 +6125,20 @@ object RustCodeWalk:
                 // `yieldsSscChar` and the LHS is NOT itself an SscChar-holding name (so `c1 = c2`
                 // between two genuine SscChar locals stays untouched).
                 val lhsIsSscChar = a.lhs match { case m.Term.Name(n) => ctx.localSscChars.contains(n); case _ => false }
-                val r = if yieldsSscChar(a.rhs, ctx) && !lhsIsSscChar then s"($r0).0" else r0
+                // `tagEnvironment = YamlTagEnvironment.defaults` inside `while index <
+                // lines.length do …` (`uniml/yaml`'s `YamlSemanticParser.scala`'s `parse`) — a
+                // PLAIN reassignment's RHS never went through `cloneIfMoved` at all (every OTHER
+                // position — a call argument, a struct field, a tuple element — already does).
+                // `defaults` here is a qualified `Term.Select` on a topval (`YamlTagEnvironment`,
+                // itself read again on a later loop iteration), not a bare local — `cloneIfMoved`
+                // already has a `Term.Select` case for exactly this shape, it just never had a
+                // chance to fire from an assignment RHS before now: `error[E0382]: use of moved
+                // value: defaults`. This is a general position fix, not loop-specific — any of
+                // `needs()`'s other disjuncts (`topValNames`, `ctx.multiUse`, `inClosure`,
+                // `byRefMut`) can now also fire for a plain assignment's RHS, matching every other
+                // by-value position in this file.
+                val rC = cloneIfMoved(a.rhs, r0, ctx)
+                val r = if yieldsSscChar(a.rhs, ctx) && !lhsIsSscChar then s"($rC).0" else rC
                 s"$l = $r"
 
     // `subject match { case … => …; … }` — Rust `match` expression.
