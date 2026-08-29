@@ -1,20 +1,20 @@
 # Aggregation Algebra — `Monoid`, `Group`, and `Aggregator[In, Acc, Out]`
 
-Status: **§2.2–§5, §7, and §8 landed 2026-08-29** as [`std/aggregator.ssc`](../std/aggregator.ssc)
-— `Group`, `Aggregator[In, Acc, Out]`, `zip`/`map` composition, `mean`-from-`sum`-and-`count`,
-`min`/`max` (any `Order[A]`), `variance`/`stddev` (Chan/Golub/LeVeque), `first`/`last`
-(`MinByAgg`/`MaxByAgg` generalized to a projected key, keyed on `.zipWithIndex`), `groupByAgg`
-(`Map[K, Acc]` as a `Monoid`), and a `Group`-backed `SlidingWindow` (§7 — see its own note on a
-type-checking gap this surfaced), runnable at
+Status: **§2.2–§5 and §7–§9 landed 2026-08-29–30** as
+[`std/aggregator.ssc`](../std/aggregator.ssc) — `Group`, `Aggregator[In, Acc, Out]`, `zip`/`map`
+composition, `mean`-from-`sum`-and-`count`, `min`/`max` (any `Order[A]`), `variance`/`stddev`
+(Chan/Golub/LeVeque), `first`/`last` (`MinByAgg`/`MaxByAgg` generalized to a projected key, keyed
+on `.zipWithIndex`), a `Group`-backed `SlidingWindow` (§7 — see its own note on a type-checking gap
+this surfaced), `groupByAgg` (`Map[K, Acc]` as a `Monoid`), and the `DStream`/`Dataset` bridge
+(`aggregatorSeqOp`/`aggregatorCombOp`), runnable at
 [`examples/std-aggregator.ssc`](../examples/std-aggregator.ssc) and gated by
 `tests/conformance/std-aggregator.ssc` + `tests/conformance/std-order.ssc` (INT/JVM green; JS
 known-red against a filed codegen bug — `v1/runtime/backend/js/BUGS.md`
-`js-codegen-drops-generic-typeclass-resolution-when-multiple-instances-exist`). §6, §9–§11
-(approximate aggregators, the `DStream`/`Dataset` bridge, rendering, effects) remain **design /
-planning** — queued in `BACKLOG.md`. Every code sample in this document has been run for real
-against this checkout's `bin/ssc-tools` to confirm it actually
-compiles and produces the stated result — see §12 for what that verification found (including one
-interpreter bug it surfaced, since fixed).
+`js-codegen-drops-generic-typeclass-resolution-when-multiple-instances-exist`). §6 (approximate
+aggregators) and §10–§11 (rendering, effects) remain **design / planning** — queued in
+`BACKLOG.md`. Every code sample in this document has been run for real against this checkout's
+`bin/ssc-tools` to confirm it actually compiles and produces the stated result — see §12 for what
+that verification found (including one interpreter bug it surfaced, since fixed).
 
 Companion documents:
 - [`std/semigroup-monoid.ssc`](../std/semigroup-monoid.ssc) — `Semigroup`/`Monoid` already ship
@@ -539,8 +539,10 @@ makes it sound.
 
 ## 9. Bridge to `DStream`/`Pipeline` and `Dataset`
 
-`specs/distributed-streams.md` §5.2/§5.8 already defines the raw primitives an `Aggregator` slots
-into directly, with real backends (native, Spark, Kafka Streams, Flink, Beam) already implemented:
+**Landed 2026-08-30** as `std/aggregator.ssc`'s `aggregatorSeqOp`/`aggregatorCombOp`, verified by
+the equivalence property below (running for real against this checkout). `specs/distributed-streams.md`
+§5.2/§5.8 already defines the raw primitives an `Aggregator` slots into directly, with real backends
+(native, Spark, Kafka Streams, Flink, Beam) already implemented:
 
 | `DStream`/`Dataset` operator | Existing signature | `Aggregator` bridge |
 |---|---|---|

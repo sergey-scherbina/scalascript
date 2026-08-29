@@ -9,10 +9,10 @@ known-red: "js — summon[Order[Int]]/summon[Order[String]] (for MinAgg/MaxAgg) 
 Exercises the aggregation-algebra core primitive: `Group` (retraction), `Aggregator`'s `zip`/`map`
 composition, the `mean`-from-`sum`-and-`count` worked example, `min`/`max` over any `Order[A]`,
 `variance`/`stddev` (population and sample), `first`/`last` (keyed by `.zipWithIndex`), `groupByAgg`
-(§8), and the `Group`-backed `SlidingWindow` (§7) from
-[`specs/aggregation-algebra.md`](../../specs/aggregation-algebra.md) §4.3, §5, §7, and §8.
+(§8), the `Group`-backed `SlidingWindow` (§7), and the `DStream`/`Dataset` bridge (§9) from
+[`specs/aggregation-algebra.md`](../../specs/aggregation-algebra.md) §4.3, §5, §7, §8, and §9.
 
-[Group, intSumGroup, Aggregator, runAggregator, ZipAgg, MapAgg, SumAgg, CountAgg, MinAgg, MaxAgg, VarianceAgg, populationVariance, sampleVariance, stddev, firstAgg, lastAgg, groupByAgg, SumGroupAgg, emptyWindow](std/aggregator.ssc)
+[Group, intSumGroup, Aggregator, runAggregator, ZipAgg, MapAgg, SumAgg, CountAgg, MinAgg, MaxAgg, VarianceAgg, populationVariance, sampleVariance, stddev, firstAgg, lastAgg, groupByAgg, SumGroupAgg, emptyWindow, aggregatorSeqOp, aggregatorCombOp](std/aggregator.ssc)
 
 [Order](std/order.ssc)
 
@@ -63,4 +63,12 @@ println(w1.current)
 println(w2.current)
 println(w3.current)
 println(w4.current)
+
+val wordAgg    = CountAgg[String]()
+val seqOp      = aggregatorSeqOp(wordAgg)
+val combOp     = aggregatorCombOp(wordAgg)
+val partition1 = List("a", "b", "c").foldLeft(wordAgg.monoid.empty)(seqOp)
+val partition2 = List("d", "e").foldLeft(wordAgg.monoid.empty)(seqOp)
+println(combOp(partition1, partition2))
+println(List("a", "b", "c", "d", "e").foldLeft(wordAgg.monoid.empty)(seqOp))
 ```

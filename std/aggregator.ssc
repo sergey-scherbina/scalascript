@@ -38,6 +38,8 @@ exports:
   - SumGroupAgg
   - SlidingWindow
   - emptyWindow
+  - aggregatorSeqOp
+  - aggregatorCombOp
 ---
 
 # Aggregator — the aggregation-algebra core primitive
@@ -45,10 +47,10 @@ exports:
 Design: [`specs/aggregation-algebra.md`](../specs/aggregation-algebra.md). This module ships the
 piece that document calls "the central primitive" (`Group`, `Aggregator[In, Acc, Out]`, `zip`/`map`
 composition — §2.2–§4), all of §5's canonical exact aggregators (`min`/`max`, `variance`/`stddev`,
-`first`/`last`), §7's `Group`-backed sliding window, and §8's `groupBy` (`Map[K, Acc]` as a
-`Monoid`, pointwise). Approximate aggregators (HyperLogLog, …), the `DStream`/`Dataset` bridge,
-rendering, and effectful aggregators are out of scope for this module — see the spec's §13 and
-`BACKLOG.md` for what is deferred and why.
+`first`/`last`), §7's `Group`-backed sliding window, §8's `groupBy` (`Map[K, Acc]` as a `Monoid`,
+pointwise), and §9's `DStream`/`Dataset` bridge (`aggregatorSeqOp`/`aggregatorCombOp`). Approximate
+aggregators (HyperLogLog, …), rendering, and effectful aggregators are out of scope for this
+module — see the spec's §13 and `BACKLOG.md` for what is deferred and why.
 
 [Monoid, intSum](./semigroup-monoid.ssc)
 
@@ -395,3 +397,39 @@ def groupByAgg[K, In, Acc, Out](xs: List[(K, In)], agg: Aggregator[In, Acc, Out]
 s.amount)), SumAgg())` gives total sales per region. This is exactly what `keyBy` + `aggregatePerKey`
 already do on `DStream` (see `specs/distributed-streams.md`); this is the same algebraic fact,
 usable directly over an in-memory `List`.
+
+## Bridge to `DStream`/`Pipeline` and `Dataset`
+
+`specs/distributed-streams.md` §5.2/§5.8 already defines the raw primitives an `Aggregator` slots
+into directly — `aggregatePerKey(z)(f)(g)`/`runFold(z)(f)`/`combinePerKey(f)`, with real backends
+(native, Spark, Kafka Streams, Flink, Beam) already implemented. Two small helpers make the bridge
+mechanical rather than something every caller hand-writes:
+
+```scalascript
+def aggregatorSeqOp[In, Acc, Out](agg: Aggregator[In, Acc, Out]): (Acc, In) => Acc =
+  (acc, in) => agg.monoid.combine(acc, agg.prepare(in))
+
+def aggregatorCombOp[In, Acc, Out](agg: Aggregator[In, Acc, Out]): (Acc, Acc) => Acc =
+  (a, b) => agg.monoid.combine(a, b)
+
+// stream.keyBy(keyFn).aggregatePerKey(agg.monoid.empty)(aggregatorSeqOp(agg))(aggregatorCombOp(agg))
+```
+
+Verified standalone (without a live `DStream` backend, which needs plugin infrastructure beyond
+`std/aggregator.ssc` itself): `aggregatorSeqOp`/`aggregatorCombOp` are what `aggregatePerKey` calls
+internally, so folding two "partitions" with `seqOp` and merging their results with `combOp` must
+equal folding the whole input with `seqOp` directly — exactly the property that licenses running
+`aggregatePerKey` across any number of real partitions:
+
+```scalascript
+val agg    = CountAgg[String]()
+val seqOp  = aggregatorSeqOp(agg)
+val combOp = aggregatorCombOp(agg)
+val part1  = List("a", "b", "c").foldLeft(agg.monoid.empty)(seqOp)
+val part2  = List("d", "e").foldLeft(agg.monoid.empty)(seqOp)
+combOp(part1, part2)   // => 5, same as counting all five elements in one partition
+```
+
+This is a proof of the bridge's mechanism, not an end-to-end `DStream` integration test — it does
+not exercise `aggregatePerKey` itself, windowing, or any backend; that stays real, separate work
+(see `BACKLOG.md`) if a caller wants it verified live rather than by this equivalence.

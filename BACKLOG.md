@@ -64,10 +64,15 @@ itself scopes out of the first slice — queued here rather than attempted in th
   separate interpreter work): `v1/runtime/backend/interpreter/BUGS.md`
   `map-dot-empty-reads-empty-as-a-literal-key-not-the-companion-accessor`. Worked around throughout
   `std/aggregator.ssc` with `Map[K, V]()` instead of `Map.empty`.
-- **§9 bridge to `DStream`/`Pipeline` and `Dataset`** — `aggregatorSeqOp`/`aggregatorCombOp` helpers
-  that turn an `Aggregator`'s `(monoid, prepare)` into the `zero`/`seqOp`/`combOp` triple
-  `aggregatePerKey`/`runFold` already accept. `DStream`/`Dataset` are already real and implemented;
-  only the bridge functions are missing.
+- **§9 bridge to `DStream`/`Pipeline` and `Dataset` — DONE** (claim `aggregator-dstream-bridge`,
+  2026-08-30). `aggregatorSeqOp`/`aggregatorCombOp` turn an `Aggregator`'s `(monoid, prepare)` into
+  the `zero`/`seqOp`/`combOp` triple `aggregatePerKey`/`runFold` already accept, verified by the
+  equivalence property the spec itself names: folding two partitions with `seqOp` then merging with
+  `combOp` equals folding the whole input with `seqOp` directly. This proves the bridge's mechanism,
+  not a live `DStream` integration — no `aggregatePerKey`/windowing/backend was exercised, per the
+  spec's own scoping (that needs plugin infrastructure beyond `std/aggregator.ssc`). A live
+  integration test, if wanted, is real, separate work — not queued here since nothing about it is
+  designed yet.
 - **§10 rendering** — `headers`/`rows` bridge to `std/ui/data.ssc`'s live table and JSON. §10.3's
   chart renderer is explicitly out of scope for the whole document (§13), not just deferred here.
 - **§11 effects** — `EffAggregator[F[_], In, Acc, Out]` (prepare/present in an effect `F`) composed
