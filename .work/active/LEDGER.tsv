@@ -1,2 +1,3 @@
-# generation: 3105
+# generation: 3106
 #slug	agent	started	items	paths
+aggregator-groupby	claude-code	2026-08-29T21:33:36Z	aggregation-algebra-canonical-and-effectful	file:std/aggregator.ssc file:examples/std-aggregator.ssc file:specs/aggregation-algebra.md file:BACKLOG.md file:tests/conformance/std-aggregator.ssc file:tests/conformance/expected/std-aggregator.txt
