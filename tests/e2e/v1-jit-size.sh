@@ -468,10 +468,26 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # written for). Verified `std/ui/input.ssc`'s `selectFrom` — the real, earlier case the blanket
 # `+ 'static` bound exists for — still keeps it unchanged. 1 error remains: the untyped `.foreach`
 # closure param (`elemType` threading tried and reverted twice, still net-regresses elsewhere).
+#
+# renderTerm 33974 -> 33982 (+8), CLOSING THE LOOP: `--elemType`-threading `.foreach` (the LAST
+# remaining error, tried and reverted TWICE before) fixed its own target (`error[E0599]: no method
+# named flatMap`) but again surfaced 4 NEW errors — this time each individually root-caused and
+# fixed rather than reverted a third time, since three of this session's OWN earlier fixes this
+# round were the exact same "never called cloneIfMoved" shape: `set.add(x)` (HashSet insert),
+# `Map(k -> v)` literal construction (neither the key NOR the value had ever been routed through
+# it — only the key-mentions-value special case did), the `.collect{}` PartialFunction's own
+# IMPLICIT `Some(...)` wrap (the backend's OWN lowering, not a user-written `Some(x)` call — a
+# DIFFERENT site from the one two entries up), and — this one genuinely NEW, not just another
+# missed call site — a bare TUPLE LITERAL `(child, bindings)` read inside a loop body run once per
+# iteration, where `bindings` is a captured `var`: `renderTupleElems` (feeding every `(a, b, …)`
+# tuple literal in the file) now runs each element through `cloneIfMoved` too, the one shape
+# `cloneIfMoved`'s existing call sites never covered at all (a tuple's ELEMENTS, not the tuple
+# itself). **uniml/xml's real `cargo build` now succeeds with ZERO errors** (603 warnings, all
+# cosmetic — snake_case naming, unused variables). 0 errors remain.
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-33974 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+33982 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

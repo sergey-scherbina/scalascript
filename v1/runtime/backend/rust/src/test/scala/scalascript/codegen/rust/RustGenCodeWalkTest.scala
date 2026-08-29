@@ -1453,6 +1453,75 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(!g.contains("move |__pf|"), s"a synchronously-consumed map closure must not `move`:\n$g")
 
+  test("`set.add(x)` clones a multi-use argument"):
+    // `declaredPrefixes.add(prefix)` then `prefix` read again later in the same match arm
+    // (`uniml/xml`'s `Doc.scala`'s `validateNamespaces`) — `HashSet::insert` takes its argument
+    // by value; this rename never called `cloneIfMoved` on it: `error[E0382]: borrow of moved
+    // value: prefix`.
+    val src =
+      """```scalascript
+        |def check(prefix: String): Boolean =
+        |  val seen = scala.collection.mutable.HashSet.empty[String]
+        |  seen.add(prefix)
+        |  prefix.nonEmpty
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".insert(prefix.clone())"), s"the Set.add argument must be cloned:\n$g")
+
+  test("a `Map(k -> v)` literal clones a multi-use key AND value"):
+    // `Map(XmlNamespace -> XmlNamespaceUri)` then `XmlNamespaceUri` read again later in the same
+    // function (`uniml/xml`'s `Doc.scala`'s `validateNamespaces`) — neither the key nor the value
+    // in a map literal had ever been routed through `cloneIfMoved` (only the key-mentioned-in-
+    // value special case did): `error[E0382]: borrow of moved value: XmlNamespaceUri`.
+    val src =
+      """```scalascript
+        |def build(k: String, v: String): Map[String, String] =
+        |  val m = Map(k -> v)
+        |  println(v)
+        |  m
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("v.clone()"), s"the map literal's multi-use value must be cloned:\n$g")
+
+  test("`.collect{}`'s implicit `Some(...)` wrap clones a `byRefMut` arm body"):
+    // `element.children.collect { case child: Markup.Element => child }` (`uniml/xml`'s
+    // `Doc.scala`'s `validateNamespaces`) — `child` is a `byRefMut` typed-variant bind
+    // (deref-on-read to `(*child)`), and THIS arm's implicit `Some(...)` wrap (the backend's own
+    // `.collect` lowering, not a user-written `Some(x)` call) never routed it through
+    // `cloneIfMoved`: `error[E0507]: cannot move out of *child, which is behind a shared
+    // reference`.
+    val src =
+      """```scalascript
+        |object Markup:
+        |  sealed trait Node
+        |  case class Elem(name: String, children: List[Node] = Nil) extends Node
+        |  case class Text(chars: String) extends Node
+        |
+        |def onlyElems(xs: List[Markup.Node]): List[Markup.Elem] =
+        |  xs.collect { case e: Markup.Elem => e }
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("Some((*e).clone())"), s"the implicit Some(...) wrap must clone the byRefMut body:\n$g")
+
+  test("a tuple literal clones a multi-use element"):
+    // `child => stack += ((child, bindings))` inside a loop run once per element (`uniml/xml`'s
+    // `Doc.scala`'s `validateNamespaces`) — `bindings` is a captured `var`, moved into the tuple
+    // on the FIRST iteration with nothing left for the rest: `error[E0382]: use of moved value:
+    // bindings, in previous iteration of loop`. `renderTupleElems` now runs every tuple element
+    // through `cloneIfMoved`.
+    val src =
+      """```scalascript
+        |def build(xs: List[Int]): List[(Int, String)] =
+        |  var bindings = "b"
+        |  xs.map(x => (x, bindings))
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("bindings.clone()"), s"the tuple's multi-use element must be cloned:\n$g")
+
   test("a lifted def that only READS a captured var takes `&T`, not `&mut T`"):
     // `scanOpaque(validate, elements, …)` (`uniml/xml`'s `Doc.scala`'s `scanCData`) — `scanOpaque`
     // only ever reads `elements.nonEmpty`, but every lifted def took `&mut T` for ANY var-capture

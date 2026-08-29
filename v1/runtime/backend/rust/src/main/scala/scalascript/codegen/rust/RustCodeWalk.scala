@@ -6599,7 +6599,7 @@ object RustCodeWalk:
         // the collectLocalSscChars sibling-collision fix) in case any of them happened to also
         // cover the reassigned-`HashMap` case — still net WORSE (9/10 -> 13 real errors), so the
         // underlying gap is still open and unrelated to any of those three.
-        body <- renderVecIterBody(args.values.head, q, enriched, method = "foreach")
+        body <- renderVecIterBody(args.values.head, q, enriched, method = "foreach", elemType = elementTypeOf(qual, ctx))
       yield body
 
     // xs.map(f) → xs.iter().cloned().map(move |p| body).collect::<Vec<_>>()
@@ -6928,9 +6928,13 @@ object RustCodeWalk:
     case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("add")), args)
         if args.values.size == 1 && isKnownSetReceiver(qual, ctx) =>
       for
-        q <- renderTerm(qual, ctx)
-        v <- renderTerm(args.values.head, ctx)
-      yield s"$q.insert($v)"
+        q  <- renderTerm(qual, ctx)
+        v0 <- renderTerm(args.values.head, ctx)
+      // `declaredPrefixes.add(prefix)` then `prefix` read again later in the SAME match arm
+      // (`uniml/xml`'s `Doc.scala`'s `validateNamespaces`) — `HashSet::insert` takes its argument
+      // BY VALUE same as `.contains`/`.get` do not; this rename never called `cloneIfMoved` on it:
+      // `error[E0382]: borrow of moved value: prefix`.
+      yield s"$q.insert(${cloneIfMoved(args.values.head, v0, ctx)})"
 
     // xs.flatMap(f) on a Vec, where `f` is an OBJECT-QUALIFIED FUNCTION REFERENCE (eta-expansion,
     // no call) — `uniml/xml`'s `Doc.scala`'s `unresolvedReferences`: `result.roots.flatMap(UniNode.
@@ -6980,7 +6984,15 @@ object RustCodeWalk:
                          case Nil => ""
                          case gs  => s" if ${gs.mkString(" && ")}"
               bod   <- renderTerm(c.body, bodyCtx)
-            yield s"$pat$guard => Some($bod),"
+            // `element.children.collect { case child: Markup.Element => child }` (`uniml/xml`'s
+            // `Doc.scala`'s `validateNamespaces`) — `child` is a `byRefMut` typed-variant bind
+            // (`variantBodyCtxExtra`, deref-on-read to `(*child)`), and this arm's IMPLICIT
+            // `Some(...)` wrap (the backend's OWN lowering of `.collect`, not a user-written
+            // `Some(x)` call — the ONE other `Some(a)` cloneIfMoved site a few hundred lines up
+            // never reaches this shape at all) had never been routed through `cloneIfMoved`
+            // either: `error[E0507]: cannot move out of *child, which is behind a shared
+            // reference`.
+            yield s"$pat$guard => Some(${cloneIfMoved(c.body, bod, bodyCtx)}),"
           }
           val (errs, ok) = arms.partitionMap(identity)
           if errs.nonEmpty then Left(errs.flatten)
@@ -8108,8 +8120,14 @@ object RustCodeWalk:
       terms: List[m.Term], ctx: Ctx
   ): Either[List[Diagnostic], List[String]] =
     val rendered = terms.map(renderTerm(_, ctx))
-    val (errs, ok) = rendered.partitionMap(identity)
-    if errs.nonEmpty then Left(errs.flatten) else Right(ok)
+    val (errs, okRaw) = rendered.partitionMap(identity)
+    // `child => stack += ((child, bindings))` inside a `.reverseIterator.foreach` loop
+    // (`uniml/xml`'s `Doc.scala`'s `validateNamespaces`) — `bindings` is a captured `var`, read
+    // (moved into the tuple) once per loop ITERATION; the tuple literal itself had never been
+    // routed through `cloneIfMoved` at all, so only the FIRST iteration's move succeeded:
+    // `error[E0382]: use of moved value: bindings, in previous iteration of loop`.
+    if errs.nonEmpty then Left(errs.flatten)
+    else Right(terms.zip(okRaw).map((t, r) => cloneIfMoved(t, r, ctx)))
 
   private def renderTuple(parts: List[String]): String = parts match
     case Nil       => "()"
@@ -11012,8 +11030,8 @@ object RustCodeWalk:
     val inserts = entries.map {
       case m.Term.ApplyInfix.After_4_6_0(k, m.Term.Name("->"), _, vArgs) if vArgs.values.size == 1 =>
         for
-          kr <- renderTerm(k, ctx)
-          vr <- renderTerm(vArgs.values.head, ctx)
+          kr0 <- renderTerm(k, ctx)
+          vr0 <- renderTerm(vArgs.values.head, ctx)
         yield
           // THE KEY MOVES FIRST. Rust evaluates arguments left to right, so `insert(s.name, f(…
           // s.name.clone() …))` moves the key and then the value expression borrows it —
@@ -11021,6 +11039,14 @@ object RustCodeWalk:
           // exactly when the VALUE mentions it keeps every other literal byte-identical; the
           // alternative, reordering so the value is bound first, would change evaluation order,
           // which is observable and not ours to change.
+          //
+          // `Map(XmlNamespace -> XmlNamespaceUri)` then `XmlNamespaceUri` read again later in the
+          // SAME function (`uniml/xml`'s `Doc.scala`'s `validateNamespaces`) — neither the key NOR
+          // the value here had ever been routed through `cloneIfMoved` at all (only the
+          // key-mentioned-in-value special case above handles ONE specific shape):
+          // `error[E0382]: borrow of moved value: XmlNamespaceUri`.
+          val kr = cloneIfMoved(k, kr0, ctx)
+          val vr = cloneIfMoved(vArgs.values.head, vr0, ctx)
           val v = if liftValues then s"crate::value::Value::from($vr)" else vr
           s"__m.${insertOwning(kr, v)};"
       case _ =>
