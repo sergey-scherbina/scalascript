@@ -9,10 +9,11 @@ known-red: "js — summon[Order[Int]]/summon[Order[String]] (for MinAgg/MaxAgg) 
 Exercises the aggregation-algebra core primitive: `Group` (retraction), `Aggregator`'s `zip`/`map`
 composition, the `mean`-from-`sum`-and-`count` worked example, `min`/`max` over any `Order[A]`,
 `variance`/`stddev` (population and sample), `first`/`last` (keyed by `.zipWithIndex`), `groupByAgg`
-(§8), the `Group`-backed `SlidingWindow` (§7), and the `DStream`/`Dataset` bridge (§9) from
-[`specs/aggregation-algebra.md`](../../specs/aggregation-algebra.md) §4.3, §5, §7, §8, and §9.
+(§8), the `Group`-backed `SlidingWindow` (§7), the `DStream`/`Dataset` bridge (§9), and the
+rendering bridge (§10) from
+[`specs/aggregation-algebra.md`](../../specs/aggregation-algebra.md) §4.3, §5, §7, §8, §9, and §10.
 
-[Group, intSumGroup, Aggregator, runAggregator, ZipAgg, MapAgg, SumAgg, CountAgg, MinAgg, MaxAgg, VarianceAgg, populationVariance, sampleVariance, stddev, firstAgg, lastAgg, groupByAgg, SumGroupAgg, emptyWindow, aggregatorSeqOp, aggregatorCombOp](std/aggregator.ssc)
+[Group, intSumGroup, Aggregator, runAggregator, ZipAgg, MapAgg, SumAgg, CountAgg, MinAgg, MaxAgg, VarianceAgg, populationVariance, sampleVariance, stddev, firstAgg, lastAgg, groupByAgg, SumGroupAgg, emptyWindow, aggregatorSeqOp, aggregatorCombOp, mapToRows, renderTableHtml](std/aggregator.ssc)
 
 [Order](std/order.ssc)
 
@@ -71,4 +72,8 @@ val partition1 = List("a", "b", "c").foldLeft(wordAgg.monoid.empty)(seqOp)
 val partition2 = List("d", "e").foldLeft(wordAgg.monoid.empty)(seqOp)
 println(combOp(partition1, partition2))
 println(List("a", "b", "c", "d", "e").foldLeft(wordAgg.monoid.empty)(seqOp))
+
+val eastWestOnly = List(("east", 10.0), ("west", 5.0), ("east", 3.0))
+println(renderTableHtml(List("region", "total"), mapToRows(groupByAgg(eastWestOnly, SumAgg()))))
+println(mapToRows(Map[String, Int]()))
 ```

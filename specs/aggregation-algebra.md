@@ -1,18 +1,18 @@
 # Aggregation Algebra — `Monoid`, `Group`, and `Aggregator[In, Acc, Out]`
 
-Status: **§2.2–§5 and §7–§9 landed 2026-08-29–30** as
+Status: **§2.2–§5 and §7–§10 landed 2026-08-29–30** as
 [`std/aggregator.ssc`](../std/aggregator.ssc) — `Group`, `Aggregator[In, Acc, Out]`, `zip`/`map`
 composition, `mean`-from-`sum`-and-`count`, `min`/`max` (any `Order[A]`), `variance`/`stddev`
 (Chan/Golub/LeVeque), `first`/`last` (`MinByAgg`/`MaxByAgg` generalized to a projected key, keyed
 on `.zipWithIndex`), a `Group`-backed `SlidingWindow` (§7 — see its own note on a type-checking gap
-this surfaced), `groupByAgg` (`Map[K, Acc]` as a `Monoid`), and the `DStream`/`Dataset` bridge
-(`aggregatorSeqOp`/`aggregatorCombOp`), runnable at
-[`examples/std-aggregator.ssc`](../examples/std-aggregator.ssc) and gated by
+this surfaced), `groupByAgg` (`Map[K, Acc]` as a `Monoid`), the `DStream`/`Dataset` bridge
+(`aggregatorSeqOp`/`aggregatorCombOp`), and the rendering bridge (`mapToRows`/`renderTableHtml`),
+runnable at [`examples/std-aggregator.ssc`](../examples/std-aggregator.ssc) and gated by
 `tests/conformance/std-aggregator.ssc` + `tests/conformance/std-order.ssc` (INT/JVM green; JS
 known-red against a filed codegen bug — `v1/runtime/backend/js/BUGS.md`
 `js-codegen-drops-generic-typeclass-resolution-when-multiple-instances-exist`). §6 (approximate
-aggregators) and §10–§11 (rendering, effects) remain **design / planning** — queued in
-`BACKLOG.md`. Every code sample in this document has been run for real against this checkout's
+aggregators) and §11 (effects) remain **design / planning** — queued in `BACKLOG.md`. Every code
+sample in this document has been run for real against this checkout's
 `bin/ssc-tools` to confirm it actually compiles and produces the stated result — see §12 for what
 that verification found (including one interpreter bug it surfaced, since fixed).
 
@@ -606,23 +606,37 @@ has: rows of plain values.
 
 ### 10.1 The bridge is a shape, not a new primitive
 
-An `Aggregator`'s `Out`, or a `groupBy` result's `Map[K, Out]` (§8), becomes renderable the moment
-it is turned into `List[String]` headers and `List[List[String]]` rows — nothing about §2–§9 needs
-to know this is coming. Verified standalone:
+**Landed 2026-08-30** as `std/aggregator.ssc`'s `mapToRows`/`renderTableHtml`. An `Aggregator`'s
+`Out`, or a `groupByAgg` result's `Map[K, Out]` (§8), becomes renderable the moment it is turned
+into `List[String]` headers and `List[List[String]]` rows — nothing about §2–§9 needs to know this
+is coming:
 
 ```scalascript
+def mapToRows[K, V](m: Map[K, V]): List[List[String]] =
+  m.toList.map { kv =>
+    val (k, v) = kv
+    List(s"$k", s"$v")
+  }
+
 def renderTableHtml(headers: List[String], rows: List[List[String]]): String =
   val head = headers.map(h => "<th>" + h + "</th>").mkString
   val body = rows.map(row => "<tr>" + row.map(v => "<td>" + v + "</td>").mkString + "</tr>").mkString
   "<table><thead><tr>" + head + "</tr></thead><tbody>" + body + "</tbody></table>"
 
-val counts = Map("apple" -> 3, "banana" -> 2, "cherry" -> 1)   // e.g. a groupBy(count) result
-val rows   = counts.toList.map((k, v) => List(k, v.toString))
-println(renderTableHtml(List("item", "count"), rows))
+val counts = Map("apple" -> 3, "banana" -> 2, "cherry" -> 1)   // e.g. a groupByAgg(count) result
+println(renderTableHtml(List("item", "count"), mapToRows(counts)))
 // => <table><thead><tr><th>item</th><th>count</th></tr></thead><tbody>
 //      <tr><td>apple</td><td>3</td></tr><tr><td>banana</td><td>2</td></tr>
 //      <tr><td>cherry</td><td>1</td></tr></tbody></table>
 ```
+
+Two front-portability gotchas found landing this, both worked around in the code above: a
+tuple-destructuring lambda PARAMETER (`(k, v) => ...`, as an earlier draft of this section had it)
+is exactly the shape §5.2 found miscompiling on the reference front — `mapToRows` destructures with
+a `val` binding inside the lambda body instead. And `v.toString` on a `Double` is not lane-portable
+— `13.0.toString` gives `"13.0"` on `run-jvm` (real Scala's own formatting) while every other lane
+renders `"13"`; `s"$v"` string interpolation gives `"13"` consistently everywhere, so `mapToRows`
+uses that, not `.toString`, for both `k` and `v`.
 
 The real `Table.render`/`staticDataTable` do more (styling, sorting, live updates from a
 `Signal`) but consume the identical `headers` + `rows` shape — this document's job stops at

@@ -73,8 +73,12 @@ itself scopes out of the first slice — queued here rather than attempted in th
   spec's own scoping (that needs plugin infrastructure beyond `std/aggregator.ssc`). A live
   integration test, if wanted, is real, separate work — not queued here since nothing about it is
   designed yet.
-- **§10 rendering** — `headers`/`rows` bridge to `std/ui/data.ssc`'s live table and JSON. §10.3's
-  chart renderer is explicitly out of scope for the whole document (§13), not just deferred here.
+- **§10 rendering — DONE** (claim `aggregator-rendering`, 2026-08-30). `mapToRows`/`renderTableHtml`
+  bridge a `groupByAgg` result to `std/ui/data.ssc`'s live-table shape; `jsonStringify` already
+  worked with no new code (§10.2). Found landing it: `v.toString` on a `Double` isn't lane-portable
+  (`"13.0"` on `run-jvm`'s real Scala vs `"13"` everywhere else) — `s"$v"` string interpolation is
+  consistent across every lane and is what `mapToRows` uses. §10.3's chart renderer stays explicitly
+  out of scope for the whole document (§13), not just deferred here.
 - **§11 effects** — `EffAggregator[F[_], In, Acc, Out]` (prepare/present in an effect `F`) composed
   via `Applicative.ap`; needs `std/functor-applicative-monad.ssc`'s `Applicative` as a real
   dependency, not just a design-doc reference.

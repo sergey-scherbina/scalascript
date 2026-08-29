@@ -13,7 +13,7 @@ below is `sum` and `count`, computed in a single pass via `zip`, then divided on
 aggregation logic. See [`std/aggregator.ssc`](../std/aggregator.ssc) and
 [`specs/aggregation-algebra.md`](../specs/aggregation-algebra.md) for the design.
 
-[Group, intSumGroup, Aggregator, runAggregator, ZipAgg, MapAgg, SumAgg, CountAgg, MinAgg, MaxAgg, VarianceAgg, populationVariance, sampleVariance, stddev, firstAgg, lastAgg, groupByAgg, SumGroupAgg, emptyWindow, aggregatorSeqOp, aggregatorCombOp](std/aggregator.ssc)
+[Group, intSumGroup, Aggregator, runAggregator, ZipAgg, MapAgg, SumAgg, CountAgg, MinAgg, MaxAgg, VarianceAgg, populationVariance, sampleVariance, stddev, firstAgg, lastAgg, groupByAgg, SumGroupAgg, emptyWindow, aggregatorSeqOp, aggregatorCombOp, mapToRows, renderTableHtml](std/aggregator.ssc)
 
 [Order](std/order.ssc)
 
@@ -67,4 +67,8 @@ val combOp    = aggregatorCombOp(wordAgg)
 val partition1 = List("a", "b", "c").foldLeft(wordAgg.monoid.empty)(seqOp)
 val partition2 = List("d", "e").foldLeft(wordAgg.monoid.empty)(seqOp)
 println(combOp(partition1, partition2))
+
+// rendering: a groupByAgg result becomes an HTML table with no Aggregator-specific renderer
+// needed - just the headers/rows shape std/ui/data.ssc's real table components already consume.
+println(renderTableHtml(List("region", "total"), mapToRows(groupByAgg(sales, SumAgg()))))
 ```
