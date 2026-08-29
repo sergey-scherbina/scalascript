@@ -736,10 +736,28 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # same `if/else` chain (`plainScalar`), needed the same multi-use clone every other by-value
 # position already gets: `error[E0382]: use of moved value: tag`. `cloneIfMoved` on the rendered
 # qualifier, inline in this arm.
+#
+# renderTerm 37389 -> 37393 (+4), continuing the uniml/yaml real `cargo build` pass, 37 -> 35 (the
+# while-loop-clone commit in between needed no bump). Two fixes: (1) the `.count(pred)` case
+# (added earlier this session) never passed `elemType` to `renderVecIterBody`, so a placeholder
+# predicate's `__p0` never got typed — a tiny inline addition, all four bytecodes of growth. (2)
+# `renderVecIterBody`'s OWN `Term.AnonymousFunction` branch: `find`/`filter`/`takeWhile`/
+# `dropWhile` wrapped the WHOLE rendered closure in an IIFE (`|__f| ($f)(__f.clone())`) to bridge
+# `Iterator::filter`'s `&Item` signature — but a closure LITERAL called like that is exactly the
+# shape rustc cannot infer a type through (this file's OWN documented doubly-nested-closure
+# limitation), and this was a PRE-EXISTING gap, not something this session introduced —
+# `ranges.filter(_.start == index)` (`blockRanges`) hit it too. Fixed by rendering `af.body`
+# SEPARATELY (replicating `_phCounters`, not reusing the wrapping case) and splicing it into a
+# `let`-binding instead, mirroring the sibling `Term.Function` branch's OWN already-working
+# convention for the identical `&Item` cases. Lives entirely in `renderVecIterBody`, a separate
+# function — the growth is `.count`'s own `elemType` argument alone. Full 403-test suite stayed
+# green with no golden changes despite the shape change touching every placeholder-predicate
+# `.filter`/`.find`/`.takeWhile`/`.dropWhile` call in the corpus. Re-verified uniml/xml and
+# uniml/json both still build clean (0 errors).
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-37389 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+37393 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

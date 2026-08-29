@@ -7304,13 +7304,18 @@ object RustCodeWalk:
     // String receiver; Rust's `Iterator` has no `.count(predicate)` either way, only `.count()`
     // (every element). Reuses `renderVecIterBody`'s OWN `.filter` dispatch (already correct for
     // whatever closure shape the predicate takes, the same dispatch `.filter`/`.exists` on a Vec
-    // already go through) rather than duplicating it, then wraps `.len()`.
+    // already go through) rather than duplicating it, then wraps `.len()`. `elemType` is passed
+    // through too — omitting it (an earlier version of this fix did) left a PLACEHOLDER predicate's
+    // `__p0` untyped, and `renderVecIterBody`'s own `Term.AnonymousFunction` branch falls back to a
+    // doubly-nested IIFE precisely when it cannot place the element type: `error[E0282]: type
+    // annotations needed` (`renderVecIterBody`'s own comment on that branch documents the same
+    // limitation for `.find`/`.exists`).
     case m.Term.Apply.After_4_6_0(
         m.Term.Select(qual, m.Term.Name("count")), args
     ) if args.values.size == 1 =>
       for
         q    <- renderTerm(qual, ctx)
-        body <- renderVecIterBody(args.values.head, q, ctx, method = "filter")
+        body <- renderVecIterBody(args.values.head, q, ctx, method = "filter", elemType = elementTypeOf(qual, ctx))
       yield s"($body.len() as i64)"
 
     // `prefix.fold(localName)(p => s"$p:$localName")` (`uniml/xml`'s `Doc.scala`'s `QName.toXml`)
@@ -9938,10 +9943,28 @@ object RustCodeWalk:
             localStrings = if t == "String" then ctx.localStrings + "__p0" else ctx.localStrings
           )
         case None => ctx
-      renderTerm(af, phCtx).map(f => method match
+      for
+        f <- renderTerm(af, phCtx)
+        // `lexed.tokens.count(_.kind == "yaml.anchor")` / `ranges.filter(_.start == index)`
+        // (`uniml/yaml`) — `find`/`filter`/`takeWhile`/`dropWhile` below wrap `$f` (the WHOLE
+        // closure literal, `move |__p0| { body }`) in an IIFE (`|__f| ($f)(__f.clone())`) to
+        // bridge `Iterator::filter`'s own `&Item` signature to the placeholder's by-value body —
+        // but a closure literal CALLED like this is exactly the shape rustc cannot infer `__p0`'s
+        // type through (the doubly-nested-closure limitation this whole file's `Term.Function`
+        // sibling cases avoid with a LET-BINDING instead): `error[E0282]: type annotations
+        // needed`. `bodyOnly` renders JUST `af.body` (the SAME `_phCounters` mechanism the
+        // `Term.AnonymousFunction` case up in `renderTerm` itself uses, replicated here rather
+        // than reused since that case also builds the closure WRAPPER this arm does not want),
+        // so the four `&Item`-shaped cases below can splice it into a `let`-binding instead —
+        // the identical fix, applied to the placeholder shape.
+        bodyOnly <- { _phCounters = 0 :: _phCounters
+                      val r = renderTerm(af.body, enteringClosure(phCtx, Set("__ph")))
+                      _phCounters = _phCounters.drop(1)
+                      r }
+      yield method match
         case "foreach"  => s"$q.iter().cloned().for_each($f);"
         case "map"      => s"$q.iter().cloned().map($f).collect::<Vec<_>>()"
-        case "find"     => s"$q.iter().cloned().find(|__f| ($f)(__f.clone()))"
+        case "find"     => s"$q.iter().cloned().find(|__f| { let __p0 = __f.clone(); $bodyOnly })"
         case "exists"   => s"$q.iter().cloned().any($f)"
         case "forall"   => s"$q.iter().cloned().all($f)"
         // `filter`/`takeWhile`/`dropWhile` render through Rust's `Iterator::filter`/`take_while`/
@@ -9950,9 +9973,9 @@ object RustCodeWalk:
         // shape, already shimmed the identical way) `namespaceDeclaration(_).isEmpty`
         // (`uniml/xml`'s `Doc.scala`'s `resolveElement`) passes the placeholder BY VALUE to a
         // function wanting an OWNED `Attr`: `error[E0308]: expected Attr, found &Attr`.
-        case "filter"    => s"$q.iter().cloned().filter(|__f| ($f)(__f.clone())).collect::<Vec<_>>()"
-        case "takeWhile" => s"$q.iter().cloned().take_while(|__f| ($f)(__f.clone())).collect::<Vec<_>>()"
-        case "dropWhile" => s"$q.iter().cloned().skip_while(|__f| ($f)(__f.clone())).collect::<Vec<_>>()"
+        case "filter"    => s"$q.iter().cloned().filter(|__f| { let __p0 = __f.clone(); $bodyOnly }).collect::<Vec<_>>()"
+        case "takeWhile" => s"$q.iter().cloned().take_while(|__f| { let __p0 = __f.clone(); $bodyOnly }).collect::<Vec<_>>()"
+        case "dropWhile" => s"$q.iter().cloned().skip_while(|__f| { let __p0 = __f.clone(); $bodyOnly }).collect::<Vec<_>>()"
         // `.sortBy(key)` — sorts a CLONE of the receiver in place by the key function's result
         // (`uniml/xml`'s `Doc.scala`'s `parseMarkup`: `...flatMap(...).sortBy(_.id)`), same
         // clone-then-mutate shape `.sorted`/`.distinct` two cases below this whole match's OTHER
@@ -9961,7 +9984,6 @@ object RustCodeWalk:
         case "sortBy"   => s"{ let mut __v = ($q).clone(); __v.sort_by_key($f); __v }"
         case "foldLeft" => s"$q.iter().cloned().fold(${zero.getOrElse("0")}, $f)"
         case other2     => s"$q.$other2($f)"
-      )
 
     // `closeBefore.foreach(close)` (`TreeVm.scala`'s `reframeProblem`) — a BARE method-value
     // reference to a def THIS lift lifted out of the enclosing body, not a call: the early

@@ -2528,3 +2528,28 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(g.contains("consume(value.clone(), cursor)"),
       s"a def param called inside a while-loop body must be cloned even with one syntactic use:\n$g")
+
+  test("`xs.count(_.field == x)` / `xs.filter(_.field == x)` — a placeholder predicate types cleanly"):
+    // `lexed.tokens.count(_.kind == "yaml.anchor")` / `ranges.filter(_.start == index)`
+    // (`uniml/yaml`) — `renderVecIterBody`'s `Term.AnonymousFunction` branch wrapped the WHOLE
+    // rendered closure in an IIFE (`|__f| ($f)(__f.clone())`) to bridge `Iterator::filter`'s own
+    // `&Item` signature — but a closure LITERAL called like that is exactly the shape rustc
+    // cannot infer a type through: `error[E0282]: type annotations needed`. This was a
+    // PRE-EXISTING gap in `.filter`/`.find`/`.takeWhile`/`.dropWhile` with a placeholder
+    // predicate, not specific to `.count` (which merely reuses the same dispatch).
+    val src =
+      """```scalascript
+        |case class Tok(kind: String)
+        |
+        |def anchorCount(tokens: List[Tok]): Int =
+        |  tokens.count(_.kind == "anchor")
+        |
+        |def anchors(tokens: List[Tok]): List[Tok] =
+        |  tokens.filter(_.kind == "anchor")
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("let __p0 = __f.clone();"),
+      s"a placeholder predicate for filter/count must use a let-binding, not a closure-literal IIFE:\n$g")
+    assert(!g.contains(")(__f.clone())"),
+      s"the closure-literal-call IIFE shape must not survive for a placeholder predicate:\n$g")
