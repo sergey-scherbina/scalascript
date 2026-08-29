@@ -397,6 +397,15 @@ object RustCodeWalk:
         (owner, d.name.value) -> d.decltpe.flatMap(ty => mapType(ty, d.name.value, userTypeNames).toOption).getOrElse("")
       }
     }.toMap
+    // The RAW-AST twin of `_ownedReturnTypes` — this corpus has FOUR distinct `def parse(...)`
+    // (`UniML`/`Xml`/`MarkupCodec`/`PureMarkupCodec`), so `_defBodies` (bare-name keyed, one entry
+    // per name, last-writer-wins) answers for only ONE of them; `eitherSideCtorName`'s qualified-call
+    // case needs the SPECIFIC `PureMarkupCodec.parse` to read its `Either[ParseError, Node]` decltpe
+    // and recover `ParseError` — the exact collision `(owner, member)` already disambiguates for
+    // `_ownedReturnTypes`, applied here to the whole def AST instead of just its mapped return type.
+    _ownedDefBodies = defs.flatMap { d =>
+      _defOwners.get(d.pos.start).map(owner => (owner, d.name.value) -> d)
+    }.toMap
 
     // Ambiguous topval names, BEFORE any topval is rendered: `contentTopVals` calls
     // `topValEmitName` on every val it finds, so the ambiguity set must already be complete by
@@ -1585,6 +1594,7 @@ object RustCodeWalk:
    *  renamed — see the note at the call site for the import-depth defect that forced it. */
   private var _ambiguousMembers: Set[String] = Set.empty
   private var _defBodies: Map[String, m.Defn.Def] = Map.empty
+  private var _ownedDefBodies: Map[(String, String), m.Defn.Def] = Map.empty
 
   /** A `def`/op body that is the effect-op marker (`effect E: def op(...) = __effectOp__`). */
   private def isEffectOpMarker(body: m.Term): Boolean = body match
@@ -1801,6 +1811,20 @@ object RustCodeWalk:
    *  which is what every `.ssc` in the corpus contains. */
   private def throwPayload(e: m.Term, ctx: Ctx): m.Term = e match
     case m.Term.New(m.Init.After_4_6_0(_, _, List(m.Term.ArgClause(List(arg), _)))) => arg
+    // `throw ParseError(msg, line, col)` (`uniml/xml`'s `Doc.scala`'s `Parser.err`) — a
+    // user-declared, MULTI-FIELD exception class (`case class ParseError(message: String, line:
+    // Int, column: Int) extends RuntimeException(...)`), so the single-arg case just below never
+    // matches it and it fell to the verbatim `case other => other` — `panic!("{}", ParseError {
+    // ... })`, `error[E0277]: ParseError doesn't implement Display` (no generated struct ever
+    // derives one). The `message` FIELD is this whole function's own premise applied one level
+    // deeper: exactly the field `.getMessage` already reads elsewhere for the SAME reason
+    // (`selectOrNiladicCtor`'s own `.getMessage` case) — extracted here so `panic!` gets a `String`
+    // it already knows how to format, matching every other exception this function handles.
+    case m.Term.Apply.After_4_6_0(m.Term.Name(n), args: m.Term.ArgClause) if args.values.size > 1 =>
+      ctx.ctorMap.get(n).flatMap { ec =>
+        val i = ec.fieldNames.indexOf("message")
+        if i >= 0 then args.values.lift(i) else None
+      }.getOrElse(e)
     case m.Term.Apply.After_4_6_0(m.Term.Name(n), m.Term.ArgClause(List(arg), _))
         if ctx.ctorMap.contains(n) => arg
     // `throw UnsupportedOperationException(msg)` — a STANDARD-LIBRARY exception built WITHOUT
@@ -2391,10 +2415,29 @@ object RustCodeWalk:
         case m.Type.Apply.After_4_6_0(m.Type.Name("Either"), argT) if argT.values.sizeIs == 2 =>
           if side == "left" then argT.values.head else argT.values(1)
       }.flatMap(ctorNameOfType).filter(sn => ctx.ctorMap.contains(sn))
+    // `PureMarkupCodec.parse(source).left.map(error => error.getMessage)` (`uniml/xml`'s
+    // `Doc.scala`'s `parseMarkup`) — a QUALIFIED call (an object member reached from OUTSIDE it),
+    // which the bare-name case above never matches at all (`Term.Select(…, Term.Name(fn))`, not
+    // `Term.Name(fn)`), so `error` never got typed and `.getMessage` on it fell through unresolved.
+    // `_ownedDefBodies`, NOT `_defBodies` — this corpus has FOUR distinct `def parse(...)`, and the
+    // bare-name table only ever holds ONE of them; `(owner, member)` is what the WRITTEN qualifier
+    // already disambiguates (`_ownedDefBodies`'s own comment).
+    case m.Term.Apply.After_4_6_0(m.Term.Select(m.Term.Name(owner), m.Term.Name(fn)), _) =>
+      _ownedDefBodies.get((owner, fn)).flatMap(_.decltpe).collect {
+        case m.Type.Apply.After_4_6_0(m.Type.Name("Either"), argT) if argT.values.sizeIs == 2 =>
+          if side == "left" then argT.values.head else argT.values(1)
+      }.flatMap(ctorNameOfType).filter(sn => ctx.ctorMap.contains(sn))
     case _ => None
 
   private def ctorNameOfExpr(t: m.Term, ctx: Ctx): Option[String] = t match
-    case m.Term.Name(n) => ctx.paramCtorNames.get(n)
+    // `paramCtorNames` FIRST (a QUALIFIED decltpe, `Markup.Element` — the more precise source, since
+    // it is read off the actual written type rather than a string this backend already mapped), THEN
+    // `paramTypes` — populated for a CLOSURE PARAM by `elemType` threading (`elementTypeOf`'s own
+    // comment: `.map { attribute => attribute.copy(…) }` over a `Vec<Attr>` receiver), which
+    // `paramCtorNames` never covers at all (only real DEF parameters, never a closure's). Guarded on
+    // `ctorMap.contains`: `paramTypes` also holds `"i64"`/`"String"`/… for everything else, and only
+    // a genuine struct/variant name should ever be handed back as a "ctor name" here.
+    case m.Term.Name(n) => ctx.paramCtorNames.get(n).orElse(ctx.paramTypes.get(n).filter(ctx.ctorMap.contains))
     case m.Term.Select(qual, m.Term.Name(field)) =>
       for
         qualCtor  <- ctorNameOfExpr(qual, ctx)
@@ -3238,7 +3281,18 @@ object RustCodeWalk:
       val paramVariantDestructures: Map[String, String] =
         d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).flatMap { p =>
           p.decltpe.collect {
-            case m.Type.Select(_, m.Type.Name(ctorName)) if ctorMap.get(ctorName).exists(_.fieldNames.nonEmpty) =>
+            // `parentName: Markup.QName` (`uniml/xml`'s `Doc.scala`'s `readContent`) — `QName` is a
+            // plain STRUCT (`ec.isStruct`), not an enum variant, so it needs no let-else destructure
+            // at all: `parentName.localName` already works, the ordinary Rust field access every
+            // OTHER struct-typed parameter already gets. Without `!isStruct` this matched it anyway
+            // (only `fieldNames.nonEmpty` was checked) and emitted `let QName::QName { … } = …`,
+            // which is not valid Rust for a struct at all — `error[E0223]: ambiguous associated
+            // type` (`QName::QName` parses as an associated-type path, since `QName` has no such
+            // enum variant to select). This destructure exists ONLY for the true enum-variant case
+            // (`instruction: VmInstruction.Reframe`), where an unchecked `.field` read on the whole
+            // enum type is genuinely illegal Rust.
+            case m.Type.Select(_, m.Type.Name(ctorName))
+                if ctorMap.get(ctorName).exists(ec => ec.fieldNames.nonEmpty && !ec.isStruct) =>
               p.name.value -> ctorName
           }
         }.toMap
@@ -4640,11 +4694,33 @@ object RustCodeWalk:
    *  resolve to anything — a bare name has no type of its own to read off. `None` for anything this
    *  narrow pass cannot place; the caller falls back to leaving the parameter untyped, exactly as
    *  it did before this existed. */
-  private def elementTypeOf(t: m.Term, ctx: Ctx): Option[String] =
-    val full = t match
-      case m.Term.Name(n) => inferCaptureType(n, ctx.bodyStats, ctx)
-      case _               => None
-    full.collect { case s if s.startsWith("Vec<") => s.stripPrefix("Vec<").stripSuffix(">") }
+  private def elementTypeOf(t: m.Term, ctx: Ctx): Option[String] = t match
+    // `element.attrs.filter(namespaceDeclaration(_).isEmpty).map { attribute => attribute.copy(…) }`
+    // (`uniml/xml`'s `Doc.scala`'s `resolveElement`) — the receiver is a CHAIN, not a bare name, so
+    // the `Term.Name` case below (the ONLY case this function originally had) always answered
+    // `None` for it, and `.map`'s own dispatch case did not even pass an `elemType` at all — the
+    // closure param `attribute` reached its body with no type, `attribute.copy(…)` had nothing to
+    // resolve the ctor from, and `error[E0599]: no method named copy found for struct Attr` blamed
+    // the STRUCT instead of the real gap. `.filter`/`.sorted`/`.distinct`/`.reverse` never change
+    // the element type, so this recurses straight through them to the base receiver.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(inner, m.Term.Name("filter")), args) if args.values.size == 1 =>
+      elementTypeOf(inner, ctx)
+    case m.Term.Select(inner, m.Term.Name("sorted" | "distinct" | "reverse")) =>
+      elementTypeOf(inner, ctx)
+    // `element.attrs` — a STRUCT FIELD access whose OWN declared type is `Vec<Attr>`
+    // (`ctorNameOfExpr` on the qualifier resolves `element`'s ctor, then this reads the field's
+    // type off THAT ctor's `fieldTypes` — the same two-step lookup `selectOrNiladicCtor`'s
+    // enum-variant field-read case already does, applied to a STRUCT field instead).
+    case m.Term.Select(qual, m.Term.Name(field)) =>
+      val vecTy = ctorNameOfExpr(qual, ctx).flatMap(ctx.ctorMap.get).flatMap { ec =>
+        val idx = ec.fieldNames.indexOf(field)
+        if idx >= 0 then ec.fieldTypes.lift(idx) else None
+      }
+      vecTy.collect { case s if s.startsWith("Vec<") => s.stripPrefix("Vec<").stripSuffix(">") }
+    case m.Term.Name(n) =>
+      inferCaptureType(n, ctx.bodyStats, ctx)
+        .collect { case s if s.startsWith("Vec<") => s.stripPrefix("Vec<").stripSuffix(">") }
+    case _ => None
 
   /** Is `qual` a `receiver.field` select where `field` is a known `String`-typed field of
    *  `receiver`'s type — where `receiver`'s type comes from `ctx.paramTypes`, so this covers both
@@ -5018,10 +5094,28 @@ object RustCodeWalk:
     // ordinary call machinery below has no notion of an implicit receiver at all, so this renders
     // it explicitly before falling through to that.
     case m.Term.Apply.After_4_6_0(m.Term.Name(n), args) if ctx.selfMethods.contains(n) =>
-      val rendered = args.values.toList.map(renderTerm(_, ctx))
-      val (errs, ok) = rendered.partitionMap(identity)
+      val argTerms0  = args.values.toList
+      val rendered0  = argTerms0.map(renderTerm(_, ctx))
+      val (errs, ok0) = rendered0.partitionMap(identity)
       if errs.nonEmpty then Left(errs.flatten)
       else
+        // `self.isXmlSpace(self.cur())` (`uniml/xml`'s `Doc.scala`'s `Parser`) — `cur`'s OWN
+        // `SscChar` result needed `.0` to become the plain `i64` `isXmlSpace(c: i64)` declares,
+        // exactly the coercion the ORDINARY call path already applies via `_paramTypes` a few
+        // hundred lines down (`needsAnyCoercion`'s `yieldsSscChar` case) — this arm bypasses that
+        // whole path entirely (it exists only to add the `self.` receiver, same as the default-fill
+        // a few lines below), so it needs its own copy of the SAME coercion, not just the same
+        // default-fill. `_paramTypes` already carries every CLASS method's own signature too, not
+        // only free functions (`collectDefs`'s own doc comment: template stats are walked, a def's
+        // OWN body is the only thing skipped), so `_paramTypes.get(n)` answers for a self-method
+        // exactly as it does for an ordinary sibling call.
+        val ok = _paramTypes.get(n) match
+          case Some(want) =>
+            argTerms0.zip(ok0).zipWithIndex.map { case ((argTerm, rendered), i) =>
+              if want.lift(i).contains("i64") && yieldsSscChar(argTerm, ctx) then s"($rendered).0"
+              else rendered
+            }
+          case None => ok0
         // `advance()` — Scala fills its own DEFAULT (`def advance(n: Int = 1)`); Rust has no
         // default parameters, so the CALLEE's signature demands the argument regardless. The
         // ordinary call path already fills omitted trailing defaults from `_defaultsMap` (a few
@@ -5082,11 +5176,27 @@ object RustCodeWalk:
       // read to bool; this one is what actually rendered `if loading()` inside a closure, so the
       // coercion had to be here as well. Two arms for one construct is why the first fix looked
       // like it had not applied at all.
+      //
+      // `private def cur: Char = if pos < src.length then src.charAt(pos) else 0.toChar`
+      // (`uniml/xml`'s `Doc.scala`'s `Parser`) — `.charAt` yields a genuine `SscChar` newtype,
+      // `.toChar` (after its own fix) yields a plain `i64`; Rust's `if`/`else` needs BOTH arms the
+      // SAME type, and neither this arm nor any return-position coercion existed to unify them —
+      // `error[E0308]` on whichever branch. Sound as a GENERAL rule, not a special case for `cur`:
+      // an if/else with EXACTLY ONE branch syntactically `.charAt(...)` and the other NOT gets that
+      // one branch's `.0` — the identical unwrap `needsAnyCoercion`'s own `yieldsSscChar` case
+      // already applies at a call ARGUMENT position, applied here at a branch position instead.
+      def isBareCharAt(t: m.Term): Boolean = t match
+        case m.Term.Apply.After_4_6_0(m.Term.Select(_, m.Term.Name("charAt")), a) => a.values.size == 1
+        case _ => false
+      val thenIsCharAt = isBareCharAt(ifExpr.thenp)
+      val elseIsCharAt = isBareCharAt(ifExpr.elsep)
       for
         c0 <- renderTerm(ifExpr.cond, ctx)
         c   = if isValueRead(ifExpr.cond, ctx) then coerceFromValue(c0, "bool") else c0
-        t1 <- renderTerm(ifExpr.thenp, ctx)
-        e1 <- renderTerm(ifExpr.elsep, ctx)
+        t0 <- renderTerm(ifExpr.thenp, ctx)
+        e0 <- renderTerm(ifExpr.elsep, ctx)
+        t1 = if thenIsCharAt && !elseIsCharAt then s"($t0).0" else t0
+        e1 = if elseIsCharAt && !thenIsCharAt then s"($e0).0" else e0
       yield
         s"if $c { $t1 } else { $e1 }"
 
@@ -5413,12 +5523,19 @@ object RustCodeWalk:
     //
     // Scoped to receivers whose type is KNOWN, for the same reason that one is: a field access on
     // anything else must keep passing through.
-    // `n.toChar` on a number, written without parentheses. A code point is a `char` here, and the
-    // fallback emitted it as a FIELD: `i64 is a primitive type and therefore doesn't have fields`.
-    // `from_u32` returns an Option because not every u32 is a scalar value; a lossy default is
-    // wrong for text, so an invalid code point becomes U+FFFD, which is what every decoder does.
+    // `n.toChar` on a number, written without parentheses. THIS LANE'S OWN `Char` REPRESENTATION IS
+    // `i64` (`SscChar`, everywhere `.charAt` yields one), not a real Rust `char` — `.toChar` used to
+    // be the one exception, rendering `char::from_u32(…).unwrap_or(…)`, and the exception is the
+    // bug: `private def cur: Char = if pos < src.length then src.charAt(pos) else 0.toChar`
+    // (`uniml/xml`'s `Doc.scala`'s `Parser`) has BOTH representations as sibling `if`/`else`
+    // branches of a function declared to return `i64` (`Char` maps to `i64` uniformly) —
+    // `error[E0308]: expected i64, found char`/`found SscChar` on whichever branch lost the
+    // mismatch. An `i64` cast is the direct equivalent (this lane's SscChar convention doesn't mask
+    // to 16 bits anywhere else either, so `.toChar` does not start doing so just because Scala's
+    // own semantics narrow); `String.valueOf(c.toChar)`, the one other call this corpus makes,
+    // widens the i64 back to a real `char` at ITS OWN call site instead (see that case).
     case m.Term.Select(qual, m.Term.Name("toChar")) =>
-      renderTerm(qual, ctx).map(q => s"char::from_u32(($q) as u32).unwrap_or('\\u{FFFD}')")
+      renderTerm(qual, ctx).map(q => s"(($q) as i64)")
 
     // The no-paren members that DO have an obvious lowering, taken before the refusal below. They
     // are the ones a loop is written with -- `while xs.nonEmpty do { … xs.head … xs.tail }` is
@@ -6027,7 +6144,7 @@ object RustCodeWalk:
     ) if args.values.size == 1 && !isOptionExpr(qual, ctx) && !isRangeExpr(qual) =>
       for
         q <- renderTerm(qual, ctx)
-        body <- renderVecIterBody(args.values.head, q, ctx, method = "map")
+        body <- renderVecIterBody(args.values.head, q, ctx, method = "map", elemType = elementTypeOf(qual, ctx))
       yield body
 
     // Range chains: filter on range/iterator → q.filter(move |&p| { body })
@@ -6080,6 +6197,26 @@ object RustCodeWalk:
         q    <- renderTerm(qual, ctx)
         pred <- renderTerm(args.values.head, ctx)
       yield s"$q.chars().$rustMeth(|__ch| ($pred)((__ch as u32) as i64))"
+
+    // `prefix.fold(localName)(p => s"$p:$localName")` (`uniml/xml`'s `Doc.scala`'s `QName.toXml`)
+    // — Scala's CURRIED `Option.fold(ifEmpty)(f)`, which parses as an Apply-of-an-Apply. Rust's
+    // `Option` has no `.fold` at all; `.map_or(ifEmpty, f)` is the direct equivalent, `opt.forall`'s
+    // own `.map_or` case a few lines below but with a real default value instead of the constant
+    // `true`. Matched on the OUTER Apply so the curried arg groups reach one call, never two.
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("fold")), ifEmptyArgs), fArgs
+    ) if ifEmptyArgs.values.size == 1 && fArgs.values.size == 1 && isOptionExpr(qual, ctx) =>
+      for
+        q        <- renderTerm(qual, ctx)
+        ifEmpty0 <- renderTerm(ifEmptyArgs.values.head, ctx)
+        f        <- renderTerm(fArgs.values.head, ctx)
+      yield
+        // `localName` (a case-class field alias, `String`) appears BOTH as `ifEmpty` and again
+        // inside `f`'s own closure body (`s"$p:$localName"`) — two reads of one non-Copy value in
+        // the SAME call, `error[E0382]: use of moved value`. The same `.clone()` decision every
+        // other multi-use argument in this file already gets.
+        val ifEmpty = cloneIfMoved(ifEmptyArgs.values.head, ifEmpty0, ctx)
+        s"$q.map_or($ifEmpty, $f)"
 
     // `opt.forall(p)` — true for `None`, `p(x)` for `Some(x)` (Scala's own contract); Rust's
     // `Option` has no `.forall` at all, `.map_or(true, p)` is the exact equivalent, and this is the
@@ -6560,14 +6697,20 @@ object RustCodeWalk:
     // static `String` factory, reached through Scala's implicit companion. This general Apply case
     // renders `String` (the QUALIFIER, a Rust TYPE name, not a value) via the generic `renderTerm`
     // path first and got `String.valueOf(…)`, a field access on a type — `error[E0423]: expected
-    // value, found struct String`. `.toChar` already lowers to a real Rust `char`
-    // (`char::from_u32(…).unwrap_or(…)`, this backend's own convention), so `.to_string()` is the
-    // exact equivalent for THIS corpus's one call shape (a `char` argument); a `String` argument
-    // would already be a `String` and need no wrapping at all, so this stays as narrow as the one
-    // shape actually reached.
+    // value, found struct String`. `.toChar` renders as `i64` (this lane's SscChar convention, see
+    // its own comment), so THIS is where the code point widens back to a real displayable `char` —
+    // the one other place `.toChar`'s own `char::from_u32` used to live, moved here since this is
+    // its only actual consumer. A `String` argument would already be a `String` and pass through
+    // `.to_string()` as a harmless no-op clone, so this stays correct for either argument shape.
     case m.Term.Apply.After_4_6_0(m.Term.Select(m.Term.Name("String"), m.Term.Name("valueOf")), args)
         if args.values.size == 1 =>
-      renderTerm(args.values.head, ctx).map(v => s"($v).to_string()")
+      val isToChar = args.values.head match
+        case m.Term.Select(_, m.Term.Name("toChar")) => true
+        case _                                        => false
+      renderTerm(args.values.head, ctx).map { v =>
+        if isToChar then s"char::from_u32(($v) as u32).unwrap_or('\\u{FFFD}').to_string()"
+        else s"($v).to_string()"
+      }
 
     // `math.max(a, b)` (`uniml/xml`'s `Doc.scala`'s `validatePi`) — the Scala `scala.math` package
     // object; `i64`/`f64` both carry `.max`/`.min` inherently in Rust, so this is a pure rename.
@@ -7206,6 +7349,17 @@ object RustCodeWalk:
     // line. Each refusal says which, so a reader is not left guessing what "unsupported" covered.
     case m.Term.Try.After_4_9_9(body, Some(handler), None) if handler.cases.sizeIs == 1 =>
       val arm  = handler.cases.head
+      // `case e: ParseError => Left(e)` (`uniml/xml`'s `Doc.scala`'s `parse`) — the bind carries a
+      // TYPE, and this whole mechanism only ever reconstructs a `String` message from the panic
+      // payload (the case just below, both typed and untyped, discards the type entirely). `Left(e)`
+      // then needed a `ParseError` — a struct with `message`/`line`/`column` — and got a `String`:
+      // `error[E0308]: expected ParseError, found String`. `ecOpt` recognizes THIS shape (a bound
+      // TYPE that is a known struct carrying a `message` field, same field `throwPayload`'s own
+      // multi-field case reads) and reconstructs the struct instead of binding the bare string.
+      val ecOpt = arm.pat match
+        case m.Pat.Typed(m.Pat.Var(_), m.Type.Name(tn)) =>
+          ctx.ctorMap.get(tn).filter(ec => ec.isStruct && ec.fieldNames.contains("message"))
+        case _ => None
       val bind = arm.pat match
         case m.Pat.Var(m.Term.Name(n))                    => Right(n)
         case m.Pat.Typed(m.Pat.Var(m.Term.Name(n)), _)    => Right(n)
@@ -7214,17 +7368,45 @@ object RustCodeWalk:
         case p => Left(List(unsupported(
           s"def `${ctx.defName}`: this target catches into a single bound name; " +
           s"`case ${p.syntax} =>` is a pattern it cannot decide without the exception's type")))
+      // A zero value per Rust FIELD TYPE, for every field besides `message` — this mechanism only
+      // ever recovers a STRING from a caught panic, so any OTHER field of the caught struct has no
+      // real value to reconstruct; a placeholder is the honest answer, not a guess at content.
+      def zeroFor(ty: String): Option[String] = ty match
+        case "i64"    => Some("0i64")
+        case "f64"    => Some("0.0f64")
+        case "String" => Some("String::new()")
+        case "bool"   => Some("false")
+        case _        => None
       for
         n <- bind
         b <- renderBody(body, ctx, isUnit = false)
         h <- renderBody(arm.body, ctx, isUnit = false)
+        zerosOpt = ecOpt.map(ec => ec.fieldNames.zip(ec.fieldTypes).filterNot(_._1 == "message").map((f, t) => f -> zeroFor(t)))
+        _ <- zerosOpt match
+               case Some(zs) if zs.exists(_._2.isEmpty) =>
+                 Left(List(unsupported(
+                   s"def `${ctx.defName}`: catching into `${ecOpt.get.enumName}` needs a placeholder " +
+                   s"value for a field this lane has no zero literal for"
+                 )))
+               case _ => Right(())
       yield
         val bindLine =
           if n == "_" then ""
-          else s"""let $n = __p.downcast_ref::<String>().cloned()
-             |          .or_else(|| __p.downcast_ref::<&str>().map(|s| s.to_string()))
-             |          .unwrap_or_else(|| "panic".to_string());
-             |        """.stripMargin
+          else ecOpt match
+            case Some(ec) =>
+              val fields = ec.fieldNames.zip(ec.fieldTypes).map { (f, t) =>
+                if f == "message" then s"$f: __msg" else s"$f: ${zeroFor(t).get}"
+              }.mkString(", ")
+              s"""let __msg = __p.downcast_ref::<String>().cloned()
+                 |          .or_else(|| __p.downcast_ref::<&str>().map(|s| s.to_string()))
+                 |          .unwrap_or_else(|| "panic".to_string());
+                 |        let $n = ${ec.enumName} { $fields };
+                 |        """.stripMargin
+            case None =>
+              s"""let $n = __p.downcast_ref::<String>().cloned()
+                 |          .or_else(|| __p.downcast_ref::<&str>().map(|s| s.to_string()))
+                 |          .unwrap_or_else(|| "panic".to_string());
+                 |        """.stripMargin
         s"""{
            |  match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| { $b })) {
            |    Ok(__v) => __v,
@@ -7717,7 +7899,13 @@ object RustCodeWalk:
         case _                                                  => false
       }
     // A NAME bound to any of the above. The pre-pass records it; see `collectLocalOptions`.
-    case m.Term.Name(n) => ctx.localOptions.contains(n)
+    // `ctx.paramTypes` is checked TOO, not just `localOptions`: a case class's OWN Option-typed
+    // FIELD, read inside one of its methods via the read-only `let prefix = self.prefix.clone();`
+    // alias `selfMethod` injects (`uniml/xml`'s `Doc.scala`'s `QName.toXml`'s `prefix.fold(…)(…)`),
+    // is a bare name too, but `collectLocalOptions`'s pre-pass never walks INTO a case class's own
+    // field declarations — only a method BODY's locals — while `paramTypes` already carries every
+    // self-field's mapped Rust type for exactly this reason (`renderDef`'s own `ownFieldTypes ++`).
+    case m.Term.Name(n) => ctx.localOptions.contains(n) || ctx.paramTypes.get(n).exists(_.startsWith("Option<"))
     // `val digits = if reference.startsWith("&#x") then Some(...) else if ... then Some(...) else
     // None` (`uniml/xml`'s `Doc.scala`'s `numericReferenceValue`) — an if/else CHAIN whose every
     // branch produces an Option is itself one, the same shape `collectLocalStrings`'s `isStr`
@@ -8808,7 +8996,16 @@ object RustCodeWalk:
    *  `.ssc_to_int()` to something that is already an `i64`, which does not compile either. */
   private def yieldsSscChar(t: m.Term, ctx: Ctx): Boolean = t match
     case m.Term.Apply.After_4_6_0(m.Term.Select(_, m.Term.Name("charAt")), args) => args.values.size == 1
-    case m.Term.Name(n) => ctx.localSscChars.contains(n)
+    case m.Term.Name(n) => ctx.localSscChars.contains(n) ||
+      // `sb.append(cur)` (`uniml/xml`'s `Doc.scala`'s `Parser.readContent` — `cur`, a bare
+      // self-method reference, Scala eliding both `self.` and `()` for a niladic zero-arg `def`).
+      // `cur`'s OWN declared Scala return type is `Char`, so the value here is this lane's SscChar
+      // convention (`i64`) too, exactly like a name `collectLocalSscChars` already tracks — the gap
+      // was that a SELF-METHOD's return type was never consulted, only a LOCAL binding's. Reads the
+      // RAW Scala decltpe off `_defBodies` (bare-name keyed, same collision caveat `_zeroArgDefNames`
+      // already carries) rather than the mapped Rust type string, which has already collapsed every
+      // `Char`-returning def to the same `i64` every ordinary number uses too.
+      _defBodies.get(n).exists(_.decltpe.contains(m.Type.Name("Char")))
     case _                                                                       => false
 
   private def needsAnyCoercion(arg: m.Term, target: String, ctx: Ctx): Boolean =

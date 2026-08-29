@@ -324,10 +324,24 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # `String.valueOf` arm plus the `qualifiedReferenced`-style guard widening; the two topval-inline
 # fixes sit in `bareNameOrNiladicCtor`/`selectOrNiladicCtor`, both outside `renderTerm`. Same terms
 # as every entry above. 50 errors remain.
+#
+# renderTerm 31044 -> 32105 (+1061), fixing everything remaining on uniml/xml per operator request
+# ("исправь все ошибки") — 50 -> 38 in two more commits. Largest single piece: the typed `catch case
+# e: ParseError => Left(e)` case gained a full struct-reconstruction path (`ecOpt`/`zeroFor`,
+# rebuilding `ParseError { message: <caught string>, line: 0i64, column: 0i64 }` instead of binding
+# a bare `String` a `Left(e): Either<ParseError, _>` cannot accept) — inline in `renderTerm`'s own
+# `Term.Try` arm, the biggest contributor. Also new/widened `renderTerm` arms: `.toChar` now
+# renders `i64` (this lane's SscChar convention) instead of a real `char`, with the ONE consumer
+# (`String.valueOf`) widening it back; the plain `Term.If` arm gained a "unify a lone `.charAt`
+# branch with `.0`" rule; a new curried `Option.fold` -> `.map_or` arm; the self-method-call arm
+# gained the SAME `_paramTypes`-driven SscChar coercion the ordinary call path already had. Several
+# other fixes (E0223 struct-vs-variant destructure, `.copy` element-type threading through
+# `.filter`, `eitherSideCtorName`'s qualified-call + collision-safe `_ownedDefBodies` case) sit
+# outside `renderTerm` and cost it nothing. Same terms as every entry above. 38 errors remain.
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-31044 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+32105 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

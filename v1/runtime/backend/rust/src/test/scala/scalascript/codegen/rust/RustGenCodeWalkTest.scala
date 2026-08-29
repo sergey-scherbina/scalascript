@@ -990,12 +990,171 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     // `String.valueOf(code.toChar)` (`uniml/xml`'s `Doc.scala`'s `numericReferenceValue`) — Java's
     // static factory reached through Scala's implicit companion. `String` is a Rust TYPE name, not
     // a value, so the generic Apply path rendered it as a field access on a type:
-    // `error[E0423]: expected value, found struct String`.
+    // `error[E0423]: expected value, found struct String`. `.toChar` itself renders as `i64` (this
+    // lane's SscChar convention, see its own test), so THIS call site is where the code point widens
+    // back to a real displayable `char` via `char::from_u32`.
     val src =
       """```scalascript
         |def toStr(code: Long): String = String.valueOf(code.toChar)
         |```
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
-    assert(g.contains(".to_string()"), s"String.valueOf(c) should lower to c.to_string():\n$g")
+    assert(g.contains("char::from_u32") && g.contains(".to_string()"),
+      s"String.valueOf(c.toChar) should widen the code point back to a char, then to_string():\n$g")
     assert(!g.contains("String.valueOf"), s"the Scala spelling must not survive verbatim:\n$g")
+
+  test("`.toChar` renders as `i64` (this lane's Char convention), not a real Rust `char`"):
+    // `private def cur: Char = if pos < src.length then src.charAt(pos) else 0.toChar`
+    // (`uniml/xml`'s `Doc.scala`'s `Parser`) — `.charAt` yields a genuine `SscChar` newtype (`i64`);
+    // `.toChar` used to render `char::from_u32(…).unwrap_or(…)`, a REAL Rust `char` — two different
+    // types as sibling `if`/`else` branches of a function declared to return `i64` (`Char` maps to
+    // `i64` uniformly on this lane). Both errors this test pins: `.toChar` now matches `i64`
+    // directly, and the `.charAt` branch gets its OWN `.0` unwrap to match it (the general
+    // "exactly one branch is a bare `.charAt` call" rule in the plain `Term.If` renderer).
+    val src =
+      """```scalascript
+        |class Scanner(src: String):
+        |  private var pos = 0
+        |  def cur: Long = if pos < src.length then src.charAt(pos) else 0.toChar
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("-> i64"), s"cur should return i64:\n$g")
+    assert(!g.contains("char::from_u32"), s".toChar should no longer produce a real char:\n$g")
+    assert(g.contains(").0"), s"the .charAt branch should get its own .0 unwrap to unify with .toChar's i64:\n$g")
+
+  test("a self-method call coerces an SscChar argument to i64, same as an ordinary call"):
+    // `self.isXmlSpace(self.cur())` (`uniml/xml`'s `Doc.scala`'s `Parser`) — `cur`'s OWN declared
+    // Scala return type is `Char` (this lane's SscChar/`i64` convention), and `isXmlSpace(c: Long)`
+    // declares a plain `i64` parameter — Scala's own `Char` unifies with nothing extra, but the
+    // self-method-call dispatch (added only to inject the `self.` receiver) bypassed the ordinary
+    // call path's `_paramTypes`-driven SscChar coercion entirely, so no `.0` unwrap ever reached
+    // this call: `error[E0308]: expected i64, found SscChar`.
+    val src =
+      """```scalascript
+        |class Scanner(src: String):
+        |  private var pos = 0
+        |  def cur: Long = if pos < src.length then src.charAt(pos) else 0L
+        |  def isSpace(c: Long): Boolean = c == 32L
+        |  def atSpace(): Boolean = isSpace(cur)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("self.isSpace(") && g.contains(").0"),
+      s"a self-method call with an SscChar-yielding argument should unwrap it with .0:\n$g")
+
+  test("`throw CustomError(msg, extra)` on a multi-field exception panics with just its `message` field"):
+    // `throw ParseError(msg, line, col)` (`uniml/xml`'s `Doc.scala`'s `Parser.err`) — a user-declared
+    // MULTI-FIELD exception (`case class ParseError(message: String, line: Int, column: Int)
+    // extends RuntimeException(...)`); the single-arg ctor case never matched it and it fell to a
+    // verbatim `panic!("{}", ParseError { ... })`, `error[E0277]: ParseError doesn't implement
+    // Display` (no generated struct derives one). The `message` field is exactly what `.getMessage`
+    // already reads elsewhere for the identical reason.
+    val src =
+      """```scalascript
+        |case class CustomError(message: String, code: Long) extends RuntimeException(message)
+        |
+        |def fail(msg: String, code: Long): Unit = throw CustomError(msg, code)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("""panic!("{}", msg)"""), s"the throw should panic with just the message field:\n$g")
+
+  test("catching into a multi-field exception TYPE reconstructs the struct, not a bare String"):
+    // `try ... catch case e: ParseError => Left(e)` (`uniml/xml`'s `Doc.scala`'s `parse`) — this
+    // target's catch mechanism only ever recovers a `String` message from a caught panic; a TYPED
+    // bind (`case e: ParseError`) used to discard the type entirely and bind `e` as that bare
+    // String, so `Left(e)` (needing a `ParseError`) got `error[E0308]: expected ParseError, found
+    // String`. Reconstructs the struct instead: `message` from the caught string, every OTHER field
+    // (no way to recover it from a caught panic) from a type-appropriate zero literal.
+    val src =
+      """```scalascript
+        |case class MyError(message: String, line: Long, column: Long) extends RuntimeException(message)
+        |
+        |def safeRun(f: () => Long): Either[MyError, Long] =
+        |  try Right(f())
+        |  catch case e: MyError => Left(e)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("MyError { message: __msg, line: 0i64, column: 0i64 }") ||
+           g.contains("MyError { message: __msg, column: 0i64, line: 0i64 }"),
+      s"the catch should reconstruct the full struct with a zero placeholder for non-message fields:\n$g")
+
+  test("`opt.fold(ifEmpty)(f)` lowers to `.map_or`, cloning a multi-use default"):
+    // `prefix.fold(localName)(p => s"$p:$localName")` (`uniml/xml`'s `Doc.scala`'s `QName.toXml`)
+    // — Scala's CURRIED `Option.fold`, which Rust's `Option` has no equivalent method for at all
+    // (`error[E0599]`). `.map_or(ifEmpty, f)` is the direct equivalent; `localName` appearing as
+    // BOTH the default value and again inside `f`'s own closure needed a `.clone()` on the first
+    // use — a genuine `error[E0382]: use of moved value` without it.
+    val src =
+      """```scalascript
+        |def describe(prefix: Option[String], localName: String): String =
+        |  prefix.fold(localName)(p => s"$p:$localName")
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".map_or("), s"Option.fold should lower to .map_or:\n$g")
+    assert(g.contains("localName.clone()"), s"the multi-use default should be cloned:\n$g")
+
+  test("a struct-typed (non-variant) parameter needs no let-else destructure"):
+    // `parentName: Markup.QName` (`uniml/xml`'s `Doc.scala`'s `readContent`) — `QName` is a plain
+    // STRUCT, not an enum variant, so `parentName.localName` already works as ordinary Rust field
+    // access. The destructure-preamble mechanism (built for a TRUE variant parameter, `instruction:
+    // VmInstruction.Reframe`, where an unchecked `.field` read on the whole enum is illegal) matched
+    // ANY qualified type with non-empty fields, missing the `!isStruct` check — `let QName::QName {
+    // ... } = ...`, `error[E0223]: ambiguous associated type` (not even valid Rust for a struct).
+    val src =
+      """```scalascript
+        |object Markup:
+        |  case class QName(prefix: Option[String], localName: String)
+        |
+        |def describe(parentName: Markup.QName): String = parentName.localName
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(!g.contains("QName::QName"), s"a struct parameter must not get an enum-variant destructure:\n$g")
+    assert(g.contains("parentName.localName") || g.contains("parentName.local_name"),
+      s"the struct field should be read via ordinary field access:\n$g")
+
+  test("`.copy` on a `.map` closure param resolves the element type through a `.filter` chain"):
+    // `element.attrs.filter(pred).map { attribute => attribute.copy(...) }` (`uniml/xml`'s
+    // `Doc.scala`'s `resolveElement`) — the receiver is a CHAIN (a struct field access piped
+    // through `.filter`), not a bare name, so the closure param `attribute` reached its body with
+    // no known type at all: `error[E0599]: no method named copy found for struct Attr` (blaming the
+    // struct for a gap in element-type propagation, not the struct itself).
+    val src =
+      """```scalascript
+        |case class Attr(name: String, value: String)
+        |case class Elem(attrs: List[Attr])
+        |
+        |def clean(e: Elem): List[Attr] =
+        |  e.attrs.filter(a => a.name != "").map { attribute => attribute.copy(value = attribute.value.trim) }
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(!g.contains("attribute.copy("), s"a resolved .copy() call should lower to a struct-update literal, not stay verbatim:\n$g")
+    assert(g.contains("Attr {"), s".copy should lower to a struct-update literal for the resolved Attr type:\n$g")
+
+  test("`.getMessage` on a closure param typed via a QUALIFIED `Either`-returning call resolves"):
+    // `PureMarkupCodec.parse(source).left.map(error => error.getMessage)` (`uniml/xml`'s
+    // `Doc.scala`'s `parseMarkup`) — `eitherSideCtorName`'s ORIGINAL case only matched a BARE call
+    // (`Term.Name(fn)`); `PureMarkupCodec.parse(...)` is QUALIFIED (`Term.Select(_, Term.Name(fn))`)
+    // and never matched at all, so `error`'s type was never recovered and `.getMessage` on it fell
+    // through unresolved: `error[E0609]: no field getMessage on type ParseError`. Reads the
+    // COLLISION-SAFE `_ownedDefBodies` (keyed by `(owner, member)`), not the bare-name `_defBodies`
+    // — this corpus has FOUR distinct `def parse(...)`, and the bare-name table only ever holds one.
+    val src =
+      """```scalascript
+        |case class MyError(message: String)
+        |
+        |object Codec:
+        |  def parse(s: String): Either[MyError, Long] = Right(s.length)
+        |
+        |def useIt(s: String): Either[String, Long] =
+        |  Codec.parse(s).left.map(error => error.getMessage)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".message"), s"error.getMessage should resolve to .message via the qualified call's Either type:\n$g")
+    assert(!g.contains(".getMessage"), s"the Scala spelling must not survive verbatim:\n$g")
