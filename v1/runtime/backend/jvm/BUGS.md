@@ -7,6 +7,50 @@ grepping for status.
 
 Newest first.
 
+## jvm-gen-emits-flatmap-on-an-unconstrained-generic-type-param — a `Monad[F]`-based extension call on `F[Acc]` transpiles to real Scala with no evidence `F` supports it
+
+<!-- status: open
+     lane: jvm
+     kind: bug
+     area: codegen
+     gate: tests/conformance/std-aggregator.ssc (known-red jvm)
+     reported-by: claude-code
+     reported-at: 2026-08-30
+     confirmed: yes -->
+
+Found landing `std/aggregator.ssc`'s `runEffAggregator` (`specs/aggregation-algebra.md` §11.1):
+
+```scalascript
+def runEffAggregator[F[_], In, Acc, Out](
+    xs: List[In], agg: EffAggregator[F, In, Acc, Out], m: Monad[F]
+): F[Out] =
+  val accF: F[Acc] = xs.foldLeft(m.pure(agg.monoid.empty)) { (accF, in) =>
+    accF.flatMap(acc => agg.prepare(in).flatMap(prepared => m.pure(agg.monoid.combine(acc, prepared))))
+  }
+  accF.flatMap(agg.present)
+```
+
+`flatMap` is declared as an `extension` method on `Monad[F]`'s `given` instance
+(`std/functor-applicative-monad.ssc`), reached here via the VALUE parameter `m: Monad[F]`, not a
+context bound — `int`/`native` both resolve `accF.flatMap(...)` correctly against whichever
+`Monad[F]` instance `m` holds at the call site. `run-jvm` (JvmGen: transpile to real Scala 3 source,
+compile with scala-cli) instead emits `F` as a completely bare, unconstrained type parameter and
+calls `.flatMap` on it directly — real Scala 3 rightly refuses:
+
+```
+value flatMap is not a member of F[Acc]
+where:    F is a type in method runEffAggregator with bounds <: [_] =>> Any
+```
+
+The generated Scala never threads `m`'s extension method into scope for `F` — it would need
+something like `m.flatMap(accF)(...)` (calling the value's own method) or a proper Scala `given`
+conversion, not a bare `accF.flatMap(...)` on an unconstrained `F`. Repro:
+`bin/ssc-tools run-jvm tests/conformance/std-aggregator.ssc` (the file's `known-red: jvm` entry
+names this bug); `bin/ssc-tools run --v1` and the default native lane both run the same source
+correctly. Not investigated further: whether this is specific to `Monad`/`flatMap`, or any
+extension method reached via a value-level (not context-bound) typeclass parameter on a
+higher-kinded generic.
+
 ## jvm-gen-row-payload-helpers-only-exist-for-serving-programs — `fieldsPayload` emits a call to a function it never defines
 
 <!-- status: fixed

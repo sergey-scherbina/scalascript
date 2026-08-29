@@ -1,17 +1,20 @@
 # Aggregation Algebra — `Monoid`, `Group`, and `Aggregator[In, Acc, Out]`
 
-Status: **§2.2–§5 and §7–§10 landed 2026-08-29–30** as
+Status: **§2.2–§10 and part of §11 landed 2026-08-29–30** as
 [`std/aggregator.ssc`](../std/aggregator.ssc) — `Group`, `Aggregator[In, Acc, Out]`, `zip`/`map`
 composition, `mean`-from-`sum`-and-`count`, `min`/`max` (any `Order[A]`), `variance`/`stddev`
 (Chan/Golub/LeVeque), `first`/`last` (`MinByAgg`/`MaxByAgg` generalized to a projected key, keyed
 on `.zipWithIndex`), a `Group`-backed `SlidingWindow` (§7 — see its own note on a type-checking gap
 this surfaced), `groupByAgg` (`Map[K, Acc]` as a `Monoid`), the `DStream`/`Dataset` bridge
-(`aggregatorSeqOp`/`aggregatorCombOp`), and the rendering bridge (`mapToRows`/`renderTableHtml`),
+(`aggregatorSeqOp`/`aggregatorCombOp`), the rendering bridge (`mapToRows`/`renderTableHtml`), and
+§11's base effect shape (`EffAggregator`, `runEffAggregator`, `ContramapAgg`/`dimapAgg` — `LiftAgg`
+and `ZipEffAgg` are NOT shipped, see §11's own note on a serious front defect this surfaced),
 runnable at [`examples/std-aggregator.ssc`](../examples/std-aggregator.ssc) and gated by
-`tests/conformance/std-aggregator.ssc` + `tests/conformance/std-order.ssc` (INT/JVM green; JS
-known-red against a filed codegen bug — `v1/runtime/backend/js/BUGS.md`
-`js-codegen-drops-generic-typeclass-resolution-when-multiple-instances-exist`). §6 (approximate
-aggregators) and §11 (effects) remain **design / planning** — queued in `BACKLOG.md`. Every code
+`tests/conformance/std-aggregator.ssc` + `tests/conformance/std-order.ssc` (INT green; JS and JVM
+both known-red against two independent, filed codegen bugs — `v1/runtime/backend/js/BUGS.md`
+`js-codegen-drops-generic-typeclass-resolution-when-multiple-instances-exist` and
+`v1/runtime/backend/jvm/BUGS.md` `jvm-gen-emits-flatmap-on-an-unconstrained-generic-type-param`).
+§6 (approximate aggregators) remains **design / planning** — queued in `BACKLOG.md`. Every code
 sample in this document has been run for real against this checkout's
 `bin/ssc-tools` to confirm it actually compiles and produces the stated result — see §12 for what
 that verification found (including one interpreter bug it surfaced, since fixed).
@@ -667,6 +670,22 @@ exists; it needs the same `headers`/`rows`-shaped bridge, or `slots`' existing e
 
 ## 11. Effects and asynchrony
 
+**§11.1's base shape and §11.3's `ContramapAgg`/`dimapAgg` landed 2026-08-30** as
+`std/aggregator.ssc`'s `EffAggregator`/`runEffAggregator`/`ContramapAgg`/`dimapAgg`. **§11.1's
+`LiftAgg` and §11.2's `ZipEffAgg` are NOT shipped**, despite being fully specified below and
+verified correct on the reference front — landing them found a serious, previously unknown front
+defect: a class parameterized by a higher-kinded `F[_]`, holding a constructor field whose type
+also involves `F` (`Applicative[F]` for `LiftAgg`, an `EffAggregator[F, ...]` field for
+`ZipEffAgg`), throws a bogus `arity: N expected, M given` at runtime — but ONLY once `VarianceAcc`
+(§5.1's `val`-fielded class, needed for the JVM lane) is anywhere in the same program's import
+graph, which after §5.1 landed, `std/aggregator.ssc` itself always is. Isolated to a minimal,
+fully standalone repro with no aggregator code at all — see `v2/BUGS.md`
+`higher-kinded-generic-field-corrupts-arity-of-an-unrelated-val-class-elsewhere-in-scope`. Every
+workaround tried (method-parameter passing, field aliasing, a top-level helper, a local class) either
+still failed or defeated the point of the combinator (dropping `F[_]` genericity entirely). This is
+filed as real, separate front-end work, not a design mistake in this section — `LiftAgg`/`ZipEffAgg`
+stay queued in `BACKLOG.md` until a fix exists or a working design is found that avoids the pattern.
+
 `Aggregator.prepare`/`present` (§3) are total, pure functions. Real records don't always cooperate:
 `prepare` may need to validate, parse-and-possibly-fail, or enrich a record with an external
 (asynchronous) lookup before it becomes accumulator state. This section asks the question the
@@ -733,6 +752,14 @@ class ValidatingSum() extends EffAggregator[Option, Int, Int, Int]:
 println(runEffAggregator(List(1, 2, 3), ValidatingSum(), optionMonad))    // => Some(6)
 println(runEffAggregator(List(1, -2, 3), ValidatingSum(), optionMonad))   // => None
 ```
+
+`runEffAggregator` itself found one more, independent codegen defect landing it: `run-jvm`
+(transpile to real Scala 3, compile with scala-cli) emits `accF.flatMap(...)` against a completely
+unconstrained `F`, which real Scala 3 rejects (`value flatMap is not a member of F[Acc]`) — `int`
+and the default native lane both run the identical source correctly. See
+`v1/runtime/backend/jvm/BUGS.md` `jvm-gen-emits-flatmap-on-an-unconstrained-generic-type-param`;
+`tests/conformance/std-aggregator.ssc` carries `known-red: jvm` against it (alongside the
+pre-existing `known-red: js`).
 
 and `LiftAgg` lifting an ordinary §3 `Aggregator` (no changes to it) into the same shape:
 

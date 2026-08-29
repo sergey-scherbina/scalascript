@@ -7,6 +7,84 @@ grepping for status.
 
 Newest first.
 
+## higher-kinded-generic-field-corrupts-arity-of-an-unrelated-val-class-elsewhere-in-scope — a class parameterized by `F[_]` holding an `F`-involving constructor field throws a bogus arity error, but only once ANY class with a `val` constructor parameter exists anywhere in a transitively imported module
+
+<!-- status: open
+     lane: native
+     kind: bug
+     area: front
+     gate: none
+     reported-by: claude-code
+     reported-at: 2026-08-30
+     confirmed: yes -->
+
+Found landing `specs/aggregation-algebra.md` §11's `LiftAgg`/`ZipEffAgg` — both are ordinary classes
+parameterized by a higher-kinded `F[_]`, holding a constructor field whose type also involves `F`
+(`app: Applicative[F]` for `LiftAgg`; an `EffAggregator[F, ...]` field for `ZipEffAgg`), calling a
+method on that field from an instance method. Both throw `arity: N expected, M given` at runtime —
+never a compile error, never in `ssc info --front-report` (which reports the ordinary `F`/`GAP`
+fallback dance, nothing about this). Minimal, fully standalone repro (two tiny files, no aggregator
+code involved):
+
+`std/valclass-repro.ssc` (an ordinary, completely UNUSED class — never referenced by name anywhere
+in the file below):
+
+```scalascript
+class Unused(val n: Int)
+```
+
+Importing program:
+
+```scalascript
+[Applicative, optionMonad](std/functor-applicative-monad.ssc)
+[Unused](std/valclass-repro.ssc)
+
+class Wrapper[F[_]](app: Applicative[F]):
+  def make(): F[Int] = app.pure(42)
+
+println(Wrapper(optionMonad).make())
+```
+
+Throws `arity: 0 expected, 1 given`. **Delete `val` from `Unused`'s constructor parameter
+(`class Unused(n: Int)`) and the exact same program runs correctly**, printing `Some(42)`. The
+`Unused` class is never constructed, never referenced, and has nothing to do with `Wrapper` or
+`Applicative` — its mere presence, with a `val` parameter, anywhere in the import graph is what
+flips this from working to broken. The "given" count in the error correlates with the offending
+val-class's field count in every case measured (one `val` field → `"1 given"`; `VarianceAcc`'s three
+`val` fields, found via `std/aggregator.ssc` → `"2 given"`) — suggestive of some shared/global arity
+or dispatch table that a val-class's synthesized accessors corrupt for an unrelated receiver, but
+not investigated to a root cause.
+
+**Both required to reproduce, isolated by bisection:**
+1. A class with a `val` constructor parameter, anywhere in a transitively imported module (does
+   NOT need to be referenced/constructed/used).
+2. A DIFFERENT class, parameterized by its own higher-kinded type `F[_]`, holding a constructor
+   field whose type involves that same `F` (`Applicative[F]`, or another `F[_]`-parameterized trait
+   like `EffAggregator[F, ...]`), calling any method on that field from an instance method.
+
+**Workarounds tried and their results** (all against the real `std/aggregator.ssc`, which now
+contains `VarianceAcc(val n, val mean, val m2)` — needed for JVM-lane field visibility, see
+`specs/aggregation-algebra.md` §5.1's own note, so it cannot simply be removed):
+- Passing the `F`-typed value as a **method parameter instead of a constructor field** — WORKS.
+  Not usable here without changing `EffAggregator`'s trait shape (`prepare`/`present` would need an
+  extra parameter every implementation carries, including ones that never need it).
+- Aliasing the constructor field to a body-level `val` under a different name — still fails.
+- Routing the call through a top-level helper function instead of inline — still fails.
+- Using a concrete, non-generic `Applicative[Option]` instead of `Applicative[F]` (i.e., dropping
+  the class's own `F[_]` type parameter) — WORKS, but defeats the entire point of an
+  effect-polymorphic combinator.
+- Local `class` defined inside a function body, to build the instance via closure instead of a
+  named top-level class — rejected by the parser entirely (`structural CoreIR contains parser
+  sentinel _err`), a different, unrelated limitation.
+
+**Impact:** this blocks shipping any *composable* effect-polymorphic combinator (one class wrapping
+another `F[_]`-parameterized value) as a plain class, in any file whose import graph includes a
+val-class — which after landing §5.1's `VarianceAcc` fix, includes `std/aggregator.ssc` itself.
+`specs/aggregation-algebra.md` §11.1's `LiftAgg` and §11.2's `ZipEffAgg` are queued in `BACKLOG.md`
+rather than shipped broken or contorted around this; `EffAggregator`'s trait definition,
+`runEffAggregator`, and a single concrete `EffAggregator` implementation (no wrapped `F`-typed
+field) all work correctly and are landed.
+
 ## trait-typed-parameter-accepts-a-non-conforming-argument — a function whose parameter requires trait `T` accepts a value whose static type only extends `T`'s SUPERTRAIT, and the mismatch surfaces at first method dispatch, not at the call site
 
 <!-- status: open

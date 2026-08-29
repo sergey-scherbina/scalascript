@@ -78,6 +78,7 @@ spa-demo	*	SKIP
 sql-h2-quickstart	js	FAIL
 sse-typed-client	*	SKIP
 std-aggregator	js	KNOWN-RED
+std-aggregator	jvm	KNOWN-RED
 std-order	js	KNOWN-RED
 streams	*	SKIP
 sync-todo	js	FAIL

@@ -79,9 +79,21 @@ itself scopes out of the first slice — queued here rather than attempted in th
   (`"13.0"` on `run-jvm`'s real Scala vs `"13"` everywhere else) — `s"$v"` string interpolation is
   consistent across every lane and is what `mapToRows` uses. §10.3's chart renderer stays explicitly
   out of scope for the whole document (§13), not just deferred here.
-- **§11 effects** — `EffAggregator[F[_], In, Acc, Out]` (prepare/present in an effect `F`) composed
-  via `Applicative.ap`; needs `std/functor-applicative-monad.ssc`'s `Applicative` as a real
-  dependency, not just a design-doc reference.
+- **§11 effects — base shape DONE** (claim `aggregator-effects`, 2026-08-30). `EffAggregator`,
+  `runEffAggregator`, and `ContramapAgg`/`dimapAgg` (§11.3's profunctor shape) all ship, verified
+  with `ValidatingSum` over `Option`. **`LiftAgg`/`ZipEffAgg` (composing effectful aggregators) do
+  NOT ship** — landing them found a serious front defect (a class parameterized by `F[_]`, holding
+  an `F`-involving constructor field, throws a bogus arity error once ANY `val`-fielded class exists
+  anywhere in the import graph — which `std/aggregator.ssc`'s own `VarianceAcc` now always is).
+  Filed: `v2/BUGS.md`
+  `higher-kinded-generic-field-corrupts-arity-of-an-unrelated-val-class-elsewhere-in-scope`. This
+  blocks `LiftAgg`/`ZipEffAgg` specifically until either that bug is fixed, or a different design
+  is found for composing effectful aggregators that avoids an `F[_]`-parameterized class holding an
+  `F`-involving field — worth thinking about explicitly rather than re-attempting the same shape.
+  Also found and filed: `run-jvm` emits `.flatMap` on a completely unconstrained generic `F`, which
+  real Scala 3 rejects — `v1/runtime/backend/jvm/BUGS.md`
+  `jvm-gen-emits-flatmap-on-an-unconstrained-generic-type-param`; `std-aggregator`'s conformance
+  case now carries `known-red: jvm` alongside its pre-existing `known-red: js`.
 - **`Arrow`/`Category`/a new `Future`/`Task`/`Result` type** — explicitly NOT queued here. §11.4
   gives the reason (`Either`/`! Async` already cover the latter; neither `Arrow` nor `Category` has
   a second concrete use beyond §11.3's `dimap`) and stands until a second genuine use surfaces —

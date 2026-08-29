@@ -42,6 +42,10 @@ exports:
   - aggregatorCombOp
   - renderTableHtml
   - mapToRows
+  - EffAggregator
+  - runEffAggregator
+  - ContramapAgg
+  - dimapAgg
 ---
 
 # Aggregator — the aggregation-algebra core primitive
@@ -50,14 +54,17 @@ Design: [`specs/aggregation-algebra.md`](../specs/aggregation-algebra.md). This 
 piece that document calls "the central primitive" (`Group`, `Aggregator[In, Acc, Out]`, `zip`/`map`
 composition — §2.2–§4), all of §5's canonical exact aggregators (`min`/`max`, `variance`/`stddev`,
 `first`/`last`), §7's `Group`-backed sliding window, §8's `groupBy` (`Map[K, Acc]` as a `Monoid`,
-pointwise), §9's `DStream`/`Dataset` bridge (`aggregatorSeqOp`/`aggregatorCombOp`), and §10's
-rendering bridge (`mapToRows`/`renderTableHtml`). Approximate aggregators (HyperLogLog, …) and
-effectful aggregators are out of scope for this module — see the spec's §13 and `BACKLOG.md` for
-what is deferred and why.
+pointwise), §9's `DStream`/`Dataset` bridge (`aggregatorSeqOp`/`aggregatorCombOp`), §10's rendering
+bridge (`mapToRows`/`renderTableHtml`), and PART of §11 (`EffAggregator`, `runEffAggregator`,
+`ContramapAgg`/`dimapAgg` — see this module's own note on what §11 leaves out and why).
+Approximate aggregators (HyperLogLog, …) are out of scope for this module — see the spec's §13 and
+`BACKLOG.md` for what is deferred and why.
 
 [Monoid, intSum](./semigroup-monoid.ssc)
 
 [Order, orderInt](./order.ssc)
+
+[Monad, optionMonad](./functor-applicative-monad.ssc)
 
 ## `Group` — invertible monoids
 
@@ -467,3 +474,75 @@ here only as a standalone, dependency-free way to verify the shape `mapToRows` p
 consumable, without requiring `std/ui/data.ssc`'s live-table machinery just to check a string.
 Charts remain the genuine gap (§10.3 of the spec) — no new mechanism is needed once one exists, but
 building it is real, separate work.
+
+## Effects — the base shape, not the composition
+
+`Aggregator.prepare`/`present` are total, pure functions; a real record's `prepare` may need to
+validate, parse-and-possibly-fail, or enrich from an effect. `EffAggregator` is the same three-part
+shape with `prepare`/`present` returning `F[_]` instead of a bare value — `monoid` stays pure, since
+merging accumulated state has no reason to become effectful just because producing one did:
+
+```scalascript
+trait EffAggregator[F[_], In, Acc, Out]:
+  def monoid: Monoid[Acc]
+  def prepare(in: In): F[Acc]
+  def present(acc: Acc): F[Out]
+
+def runEffAggregator[F[_], In, Acc, Out](
+    xs: List[In], agg: EffAggregator[F, In, Acc, Out], m: Monad[F]
+): F[Out] =
+  val accF: F[Acc] = xs.foldLeft(m.pure(agg.monoid.empty)) { (accF, in) =>
+    accF.flatMap(acc => agg.prepare(in).flatMap(prepared => m.pure(agg.monoid.combine(acc, prepared))))
+  }
+  accF.flatMap(agg.present)
+```
+
+Verified with `F = Option`, a `prepare` that fails the whole aggregation on a negative input:
+
+```scalascript
+class ValidatingSum() extends EffAggregator[Option, Int, Int, Int]:
+  def monoid: Monoid[Int] = intSum
+  def prepare(in: Int): Option[Int] = if in >= 0 then Some(in) else None
+  def present(acc: Int): Option[Int] = Some(acc)
+
+runEffAggregator(List(1, 2, 3), ValidatingSum(), optionMonad)    // => Some(6)
+runEffAggregator(List(1, -2, 3), ValidatingSum(), optionMonad)   // => None
+```
+
+**`LiftAgg` (lifting a pure `Aggregator` into `EffAggregator`) and `ZipEffAgg` (composing two
+effectful aggregators via `Applicative.ap`) are NOT shipped here**, despite being fully specified —
+both are ordinary classes parameterized by a higher-kinded `F[_]`, holding a constructor field whose
+type also involves `F` (`Applicative[F]` for the former, an `EffAggregator[F, ...]` field for the
+latter), and BOTH throw a bogus `arity: N expected, M given` at runtime the moment this module's own
+`VarianceAcc` (§5.1, needs its `val` fields for the JVM lane) is anywhere in the same program's
+import graph — confirmed via a minimal, fully standalone repro unrelated to aggregators at all. See
+`v2/BUGS.md` `higher-kinded-generic-field-corrupts-arity-of-an-unrelated-val-class-elsewhere-in-scope`
+and `BACKLOG.md` for what a fix (or a working design that avoids the pattern) would need.
+
+`ContramapAgg`/`dimapAgg` (§11.3's profunctor shape) are unaffected — `Aggregator` itself is not
+higher-kinded, so neither hits the pattern above:
+
+```scalascript
+class ContramapAgg[In2, In, Acc, Out](agg: Aggregator[In, Acc, Out], f: In2 => In)
+    extends Aggregator[In2, Acc, Out]:
+  def monoid: Monoid[Acc] = agg.monoid
+  def prepare(in: In2): Acc = agg.prepare(f(in))
+  def present(acc: Acc): Out = agg.present(acc)
+
+def dimapAgg[In2, In, Acc, Out, Out2](
+    agg: Aggregator[In, Acc, Out], f: In2 => In, g: Out => Out2
+): Aggregator[In2, Acc, Out2] =
+  MapAgg(ContramapAgg(agg, f), g)
+```
+
+Verified: adapting `SumAgg` to sum STRING LENGTHS instead — `ContramapAgg(SumAgg(), (s: String) =>
+s.length.toDouble)` run over `List("a", "bb", "ccc")` gives `6`; `dimapAgg` additionally formatting
+the output gives `"total=6"`. The formal `Profunctor[P[_, _]]` typeclass instance for `Aggregator`
+(spec §11.3) is not shipped as library code either — it was verified working via a standalone
+script earlier in this project's history (`v2/BUGS.md`
+`given-extension-typehead-mismatch-silently-returns-receiver`, fixed 2026-08-29), but no
+`std/profunctor.ssc` module exists yet to hold the formal `Profunctor` trait itself; `ContramapAgg`/
+`dimapAgg` above are, per the spec's own framing, not less "correct" for being ordinary functions.
+
+Arrows, `Category`, and a new `Future`/`Task`/`Result` value type stay deliberately out of scope —
+§11.4 of the spec gives the reason and it still holds.

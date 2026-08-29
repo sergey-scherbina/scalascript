@@ -1,7 +1,7 @@
 ---
 name: conformance-std-aggregator
 version: 1.0.0
-known-red: "js — summon[Order[Int]]/summon[Order[String]] (for MinAgg/MaxAgg) compile to a bare identifier matching the given's runtime-registry KEY text, which is never bound anywhere in the emitted module (v1/runtime/backend/js/BUGS.md js-codegen-drops-generic-typeclass-resolution-when-multiple-instances-exist). EXPIRES when that codegen bug is fixed."
+known-red: "jvm, js — two independent codegen defects, in two different backends. js: summon[Order[Int]]/summon[Order[String]] (for MinAgg/MaxAgg) compile to a bare identifier matching the given's runtime-registry KEY text, never bound anywhere in the emitted module (v1/runtime/backend/js/BUGS.md js-codegen-drops-generic-typeclass-resolution-when-multiple-instances-exist). jvm: runEffAggregator's Monad[F]-based .flatMap call on a generic F[Acc] transpiles to real Scala with F left completely unconstrained, so the real Scala 3 compiler rejects it (v1/runtime/backend/jvm/BUGS.md jvm-gen-emits-flatmap-on-an-unconstrained-generic-type-param). EXPIRES when both codegen bugs are fixed."
 ---
 
 # Std — Aggregator
@@ -9,13 +9,18 @@ known-red: "js — summon[Order[Int]]/summon[Order[String]] (for MinAgg/MaxAgg) 
 Exercises the aggregation-algebra core primitive: `Group` (retraction), `Aggregator`'s `zip`/`map`
 composition, the `mean`-from-`sum`-and-`count` worked example, `min`/`max` over any `Order[A]`,
 `variance`/`stddev` (population and sample), `first`/`last` (keyed by `.zipWithIndex`), `groupByAgg`
-(§8), the `Group`-backed `SlidingWindow` (§7), the `DStream`/`Dataset` bridge (§9), and the
-rendering bridge (§10) from
-[`specs/aggregation-algebra.md`](../../specs/aggregation-algebra.md) §4.3, §5, §7, §8, §9, and §10.
+(§8), the `Group`-backed `SlidingWindow` (§7), the `DStream`/`Dataset` bridge (§9), the rendering
+bridge (§10), and the effectful base shape (`EffAggregator`/`ContramapAgg`/`dimapAgg`, §11) from
+[`specs/aggregation-algebra.md`](../../specs/aggregation-algebra.md) §4.3, §5, §7, §8, §9, §10, and
+§11.
 
-[Group, intSumGroup, Aggregator, runAggregator, ZipAgg, MapAgg, SumAgg, CountAgg, MinAgg, MaxAgg, VarianceAgg, populationVariance, sampleVariance, stddev, firstAgg, lastAgg, groupByAgg, SumGroupAgg, emptyWindow, aggregatorSeqOp, aggregatorCombOp, mapToRows, renderTableHtml](std/aggregator.ssc)
+[Group, intSumGroup, Aggregator, runAggregator, ZipAgg, MapAgg, SumAgg, CountAgg, MinAgg, MaxAgg, VarianceAgg, populationVariance, sampleVariance, stddev, firstAgg, lastAgg, groupByAgg, SumGroupAgg, emptyWindow, aggregatorSeqOp, aggregatorCombOp, mapToRows, renderTableHtml, EffAggregator, runEffAggregator, ContramapAgg, dimapAgg](std/aggregator.ssc)
 
 [Order](std/order.ssc)
+
+[Monoid, intSum](std/semigroup-monoid.ssc)
+
+[optionMonad](std/functor-applicative-monad.ssc)
 
 ```scalascript
 val sumAndCount = ZipAgg(SumAgg(), CountAgg[Double]())
@@ -76,4 +81,16 @@ println(List("a", "b", "c", "d", "e").foldLeft(wordAgg.monoid.empty)(seqOp))
 val eastWestOnly = List(("east", 10.0), ("west", 5.0), ("east", 3.0))
 println(renderTableHtml(List("region", "total"), mapToRows(groupByAgg(eastWestOnly, SumAgg()))))
 println(mapToRows(Map[String, Int]()))
+
+class ValidatingSum() extends EffAggregator[Option, Int, Int, Int]:
+  def monoid: Monoid[Int] = intSum
+  def prepare(in: Int): Option[Int] = if in >= 0 then Some(in) else None
+  def present(acc: Int): Option[Int] = Some(acc)
+
+println(runEffAggregator(List(1, 2, 3), ValidatingSum(), optionMonad))
+println(runEffAggregator(List(1, -2, 3), ValidatingSum(), optionMonad))
+println(runEffAggregator(List[Int](), ValidatingSum(), optionMonad))
+
+println(runAggregator(List("a", "bb", "ccc"), ContramapAgg(SumAgg(), (s: String) => s.length.toDouble)))
+println(runAggregator(List("a", "bb", "ccc"), dimapAgg(SumAgg(), (s: String) => s.length.toDouble, (n: Double) => "total=" + n.toString)))
 ```
