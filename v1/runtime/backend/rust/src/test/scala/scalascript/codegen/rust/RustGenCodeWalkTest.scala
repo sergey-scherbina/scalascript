@@ -2655,3 +2655,44 @@ class RustGenCodeWalkTest extends AnyFunSuite:
       s"the map-pair key, used again in a sibling arg, must be cloned:\n$g")
     assert(g.contains("&[handle.clone()][..]") || g.contains("&[handle][..]"),
       s"the map-pair value must be present:\n$g")
+
+  test("`tokens.indices.map { ... tokens ... }` then `tokens` again later clones at the move-capture"):
+    // `tokens.indices.map { index => … tokens(index) … }` then `validateFlow(tokens)` AFTER the
+    // `.map` (`uniml/yaml`'s `YamlStructure.scala`'s `assign`) — the `move` closure takes
+    // OWNERSHIP of every name it reads from the enclosing scope, so a multi-use param (read again
+    // later in the same def) was gone the moment the closure was BUILT: `error[E0382]: use of
+    // moved value: tokens`.
+    val src =
+      """```scalascript
+        |def validateFlow(tokens: List[Int]): Boolean = tokens.nonEmpty
+        |
+        |def assign(tokens: List[Int]): (List[Int], Boolean) =
+        |  val assigned = tokens.indices.map { index => tokens(index) + 1 }.toList
+        |  (assigned, validateFlow(tokens))
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("let tokens = tokens.clone(); move |index|"),
+      s"a multi-use param captured by a move closure must be cloned at the capture point:\n$g")
+
+  test("the move-capture clone-prelude never mistakes an OPERATOR or CONSTRUCTOR name for a local"):
+    // Regression for a bug caught while testing the fix above: `ctx.multiUse` is a bare
+    // NAME-occurrence count with no kind filtering — it counts an infix operator
+    // (`Term.Name("-")`) or a constructor reference (`Term.Name("Range")`) exactly the same way
+    // it counts a real local/param binding, since both are `Term.Name` nodes. A closure body that
+    // ALSO uses `-`/a constructor (reused several times elsewhere in the def, satisfying
+    // `multiUse` on THOSE names too) produced `let - = -.clone(); let Range = Range.clone(); …` —
+    // not merely wrong, but not even valid Rust syntax at all.
+    val src =
+      """```scalascript
+        |case class Range(start: Int, end: Int)
+        |
+        |def build(xs: List[Int]): List[Range] =
+        |  val a = Range(0, 1)
+        |  val b = a.start - a.end
+        |  xs.indices.map { i => Range(i - b, i) }.toList
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(!g.contains("let - ") && !g.contains("let Range ="),
+      s"an operator or constructor name must never appear in the clone-prelude:\n$g")

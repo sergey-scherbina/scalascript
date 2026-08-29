@@ -7251,6 +7251,26 @@ object RustCodeWalk:
     case m.Term.Apply.After_4_6_0(
         m.Term.Select(qual, m.Term.Name("map")), args
     ) if isRangeExpr(qual) && args.values.size == 1 =>
+      // `tokens.indices.map { index => … tokens(index) … }` then `validateFlow(tokens)` AFTER the
+      // `.map` (`uniml/yaml`'s `YamlStructure.scala`'s `assign`) — the `move` closure below takes
+      // OWNERSHIP of every name it reads from the enclosing scope, so a multi-use one (read again
+      // later in the SAME def, exactly what `ctx.multiUse` already tracks) is gone the moment the
+      // closure is BUILT, not merely when it runs: `error[E0382]: use of moved value: tokens`. A
+      // `{ let $c = $c.clone(); … }` prelude — one `let` per multi-use name the body actually
+      // reads (`readsAnyOf`), skipping the closure's own bound param — gives the closure its OWN
+      // clone to move, leaving the outer binding intact for the later read.
+      def wrapMove(body: m.Term, bound: String, b: String): String =
+        // `ctx.multiUse` is a bare NAME-occurrence count with no kind filtering at all — it counts
+        // an INFIX OPERATOR (`Term.Name("-")`/`Term.Name("==")`) or a CONSTRUCTOR reference
+        // (`Term.Name("Vector")`/`Term.Name("VmInstruction")`) exactly the same way it counts a
+        // real local/param binding, since both are `Term.Name` nodes. Without intersecting against
+        // `ctx.defParams` first, a closure body that ALSO happens to use `-`/`==`/a constructor
+        // (`assign`'s own body does, building `VmInstruction.Reframe(...)`) produced `let - = -
+        // .clone(); let == = ==.clone(); …` — not merely wrong, but not even valid Rust syntax:
+        // `error: expected pattern, found =`.
+        val reborrow = readsAnyOf(body, ctx.multiUse.intersect(ctx.defParams) - bound).toList.sorted
+        if reborrow.isEmpty then s"move |$bound| { $b }"
+        else s"{ ${reborrow.map(c => s"let $c = $c.clone();").mkString(" ")} move |$bound| { $b } }"
       for
         q <- renderTerm(qual, ctx)
         f <- args.values.head match
@@ -7258,10 +7278,10 @@ object RustCodeWalk:
           // same unwrap, same reason.
           case m.Term.Block(List(fn2: m.Term.Function)) =>
             val p = fn2.paramClause.values.headOption.map(_.name.value).getOrElse("x")
-            renderTerm(fn2.body, enteringClosure(ctx, Set(p))).map(b => s"move |$p| { $b }")
+            renderTerm(fn2.body, enteringClosure(ctx, Set(p))).map(b => wrapMove(fn2.body, p, b))
           case fn2: m.Term.Function =>
             val p = fn2.paramClause.values.headOption.map(_.name.value).getOrElse("x")
-            renderTerm(fn2.body, enteringClosure(ctx, Set(p))).map(b => s"move |$p| { $b }")
+            renderTerm(fn2.body, enteringClosure(ctx, Set(p))).map(b => wrapMove(fn2.body, p, b))
           case other =>
             renderTerm(other, ctx).map(f => s"|x| ($f)(x)")
       yield s"$q.map($f)"
