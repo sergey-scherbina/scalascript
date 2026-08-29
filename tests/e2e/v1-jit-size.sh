@@ -667,10 +667,29 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # deferred, a genuinely new HashMap-shaped feature) and a tuple-destructured local's element type
 # (`val (a, b, c) = someCall()` then using `c` as an Option — two levels removed from the call that
 # would name its type, unlike the direct-destructure shape an earlier entry already covers).
+#
+# renderTerm 36885 -> 36921 (+36). Two fixes, continuing the uniml/yaml real `cargo build` pass
+# (two intervening commits — Unit-as-generic-type-argument, and the `continue`-keyword escape —
+# needed no bump, both living entirely in separate functions). (1) `scanBlockHeader(char, ...)`
+# where `char` is a known `SscChar` local and the CALLEE's own declared parameter is `Int`, not
+# `Char` — a lifted-local-def call builds its own argument list (bypassing the ordinary call
+# machinery's existing `.0`-unwrap for exactly this newtype-vs-`i64` mismatch), so the unwrap
+# never applied there. New `Ctx.liftedDefParamTypes` (def name -> its own declared, non-captured
+# parameter types, mirroring `liftedDefDefaults`'s shape) lets the call-rendering arm ask "does
+# position i expect i64" the same way the ordinary path already does; the growth is the arm's own
+# new per-argument check, inline in `renderTerm`'s match — `liftedDefParamTypes` itself is
+# populated in `liftLocalDefs`, a separate function, and costs nothing. (2) `match token.lexeme {
+# "[" | "{" => …, }` — a `|`-combined ALTERNATIVE pattern whose leaves are string literals is
+# still a string-literal match overall, but `hasStringPat` only ever checked a case's pattern
+# being DIRECTLY a `Lit.String`, never recursing through `Pat.Alternative` — the match subject
+# never got its `.as_str()` coercion, so string-literal ARMS (valid `&str` patterns) were matched
+# against an owned `String` subject: `error[E0308]: expected String, found &str`. Lives entirely
+# in `renderMatch`, a separate function, and costs nothing here. uniml/yaml: 85 -> 74 real cargo
+# errors. Re-verified uniml/xml and uniml/json both still build clean (0 errors).
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-36885 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+36921 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

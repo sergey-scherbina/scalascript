@@ -2295,3 +2295,46 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(g.contains("r#continue"), s"the reserved-keyword identifier must be escaped as a raw identifier:\n$g")
     assert(!g.contains("let mut continue") && !g.contains("while continue") && !g.contains(" continue ="),
       s"the raw keyword must never appear unescaped as an identifier:\n$g")
+
+  test("calling a lifted local def with an SscChar argument into a declared-Int parameter"):
+    // `scanBlockHeader(char, ...)` where `char` is a known `SscChar` local (`val char =
+    // input.charAt(...)`) and `scanBlockHeader`'s OWN first parameter is declared `Int`, not
+    // `Char` (`uniml/yaml`'s `YamlLexer.scala`) — a lifted-local-def CALL builds its own argument
+    // list rather than reaching the ordinary call machinery, which already applies the `.0` unwrap
+    // this newtype needs; this arm never did: `error[E0308]: expected i64, found SscChar`.
+    val src =
+      """```scalascript
+        |def scan(input: String): Int =
+        |  var total = 0
+        |
+        |  def consume(code: Int): Unit =
+        |    total += code
+        |
+        |  val char = input.charAt(0)
+        |  consume(char)
+        |  total
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("consume((char).0,") || g.contains("consume((char.clone()).0,"),
+      s"an SscChar argument into a declared-Int lifted-def parameter must get the .0 unwrap:\n$g")
+
+  test("`match x.field { \"a\" | \"b\" => … }` — a string-literal ALTERNATIVE pattern"):
+    // `match token.lexeme { "[" | "{" => …, "]" | "}" => …, … }` (`uniml/yaml`'s
+    // `YamlLexer.scala`) — `hasStringPat` only checked a case's pattern being DIRECTLY a
+    // `Lit.String`, never recursing through a `|`-combined `Pat.Alternative` — the match subject
+    // never got its `.as_str()` coercion, so string-literal arms (valid `&str` patterns) were
+    // matched against an owned `String` subject: `error[E0308]: expected String, found &str`.
+    val src =
+      """```scalascript
+        |case class Tok(lexeme: String)
+        |
+        |def classify(token: Tok): Int =
+        |  token.lexeme match
+        |    case "[" | "{" => 1
+        |    case "]" | "}" => 2
+        |    case _         => 0
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".as_str()"), s"a string-literal alternative pattern must coerce the subject to &str:\n$g")

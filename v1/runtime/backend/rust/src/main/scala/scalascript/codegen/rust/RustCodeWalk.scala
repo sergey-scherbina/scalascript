@@ -2939,6 +2939,17 @@ object RustCodeWalk:
       // default, and emitted 4 args against a 5-arg signature: `error[E0061]: this function takes
       // 5 arguments but 4 arguments were supplied`.
       liftedDefDefaults: Map[String, List[Option[m.Term]]] = Map.empty,
+      // `scanBlockHeader(char, ...)` where `char` is a known `SscChar` local (`val char =
+      // input.charAt(...)`) and `scanBlockHeader`'s OWN first parameter is declared `Int`, not
+      // `Char` (`uniml/yaml`'s `YamlLexer.scala`) — a lifted-local-def CALL builds its own
+      // argument list (same reason `Ctx.liftedDefDefaults`'s own comment gives) rather than
+      // reaching the ordinary call machinery, which already applies the `.0` unwrap this newtype
+      // needs whenever the CALLEE's declared parameter type is `i64` and the caller's argument
+      // `yieldsSscChar`. Def name -> its OWN declared (non-captured) parameter types, in order,
+      // Rust-mapped — mirrors `orderedCaptures`'s shape/lifetime exactly, so the call-rendering
+      // arm can look up "does position i expect i64" the same way the ordinary call path already
+      // does via `_paramTypes` (which, like `_defaultsMap`, never sees a local def at all).
+      liftedDefParamTypes: Map[String, List[String]] = Map.empty,
       // `parseNode` (lifted out of `flowParse`'s OWN body, a SECOND `liftLocalDefs` pass) calls
       // `quotedSingle` (lifted out of `parse`'s body one level UP, a sibling of `flowParse` itself)
       // — `quotedSingle` needs `diagnostics: &mut Vec<Diagnostic>` (its own capture from THAT
@@ -5356,6 +5367,11 @@ object RustCodeWalk:
         liftedDefDefaults     = ctx.liftedDefDefaults ++ localDefs.map { d =>
           d.name.value -> d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.default)
         }.toMap,
+        liftedDefParamTypes   = ctx.liftedDefParamTypes ++ localDefs.map { d =>
+          d.name.value -> d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).toList.map { p =>
+            p.decltpe.flatMap(t => mapType(t, d.name.value, ctx.enumNames).toOption).getOrElse("")
+          }
+        }.toMap,
         liftedDefMutWrites    = ctx.liftedDefMutWrites ++ localDefs.map { d =>
           d.name.value -> (writes.getOrElse(d.name.value, Set.empty) intersect captures.getOrElse(d.name.value, Set.empty))
         }.toMap
@@ -5817,8 +5833,13 @@ object RustCodeWalk:
         // already a harmless copy, no reborrow needed, and `&mut *c` would not even compile
         // against a `&T` binding (`error[E0596]`).
         val sharedByRefMut = ctx.liftedDefExtraArgs(n).toSet.filter(ctx.byRefMutWrite.contains)
-        val ok = origArgs.zip(okRaw).map { (arg, r0) =>
-          val r = cloneIfMoved(arg, r0, ctx)
+        val wantParams = ctx.liftedDefParamTypes.getOrElse(n, Nil)
+        val ok = origArgs.zip(okRaw).zipWithIndex.map { case ((arg, r0), i) =>
+          // `scanBlockHeader(char, ...)` — see `Ctx.liftedDefParamTypes`'s own comment: the ordinary
+          // call machinery's `.0` unwrap for an `SscChar` argument going into a declared-`Int`
+          // parameter, applied here since this arm bypasses that machinery entirely.
+          val r1 = if wantParams.lift(i).contains("i64") && yieldsSscChar(arg, ctx) then s"($r0).0" else r0
+          val r = cloneIfMoved(arg, r1, ctx)
           val isClosureArg = arg match
             case _: m.Term.Function | _: m.Term.AnonymousFunction => true
             case m.Term.Block(List(_: m.Term.Function))           => true
@@ -10763,9 +10784,18 @@ object RustCodeWalk:
     if subjectIsAny && hasStructCtorArm then return renderAnyMatch(subject, cases1, ctx, wrapArm, armTail)
     // A `String` subject must be matched as `&str` for string-literal patterns
     // (`match s.as_str() { "x" => … }`) — Rust won't match `String` against `&str`.
-    val hasStringPat = cases1.exists(c => c.pat match
-      case _: m.Lit.String => true
-      case _               => false)
+    // `match token.lexeme { "[" | "{" => …, "]" | "}" => …, … }` (`uniml/yaml`'s
+    // `YamlLexer.scala`) — a `|`-combined ALTERNATIVE pattern whose LEAVES are string literals is
+    // still a string-literal match overall; the original check only ever looked at a case's
+    // pattern being DIRECTLY a `Lit.String`, never recursing through `Pat.Alternative` first, so
+    // the subject never got its `.as_str()` coercion at all: `error[E0308]: expected String,
+    // found &str` at every arm (rustc matching bare string literals against an owned `String`
+    // subject, which only compiles against `&str`).
+    def isOrContainsStringLit(p: m.Pat): Boolean = p match
+      case _: m.Lit.String              => true
+      case m.Pat.Alternative(lhs, rhs)  => isOrContainsStringLit(lhs) || isOrContainsStringLit(rhs)
+      case _                            => false
+    val hasStringPat = cases1.exists(c => isOrContainsStringLit(c.pat))
     // A list pattern lowers to a SLICE pattern, and a slice pattern needs a slice subject. One
     // `Nil`/cons arm anywhere in the match is enough to make the whole subject a slice — the arms
     // of one match all see the same scrutinee.
