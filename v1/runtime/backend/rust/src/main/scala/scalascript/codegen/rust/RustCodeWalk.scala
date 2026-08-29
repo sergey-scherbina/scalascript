@@ -4533,6 +4533,19 @@ object RustCodeWalk:
         // but one that is STORED in a field does — `Rc::new(key)` on a bare `impl Fn` is E0310,
         // "may not live long enough". The closures this lane emits are `move |…|` over owned
         // captures, so the bound costs nothing and states what was already true.
+        //
+        // TRIED removing this for the non-field case, to fix `scanOpaque(…, validate, elements,
+        // …)` (`uniml/xml`'s `Doc.scala`'s `scanCData`): `validate` closes over `elements: &mut
+        // Vec<String>`, a `&mut` PARAMETER of the enclosing lifted def, not an owned capture — the
+        // closure is `move`, but the `&mut` REFERENCE it moves is only valid for `scanCData`'s own
+        // stack frame, not `'static`: `error[E0521]: borrowed data escapes outside of function`.
+        // REVERTED: broke two existing golden tests (`RustGenR24Test`) pinning the real, earlier
+        // `std/ui/input.ssc` E0310 fix this bound exists for — a function that takes `f: impl
+        // Fn(…)` and immediately `Rc::new(f)`s it into a stored field needs `f` to be `'static`,
+        // and that shape is common enough this lane cannot assume it away. A correct fix needs
+        // per-parameter escape analysis (does `d.body` ever `Rc::new` this specific parameter) that
+        // is out of scope here; left as a known, documented gap instead of trading one failure mode
+        // for the other.
         if inField then s"std::rc::Rc<dyn $sig>" else s"impl $sig + 'static"
     // R.2.5 — `List[T]` / `Vec[T]` / `Vector[T]` / `Seq[T]` / `IndexedSeq[T]` / `Iterable[T]` /
     // `Array[T]` all lower to `Vec<T>` (eager immutable sequences; identical in Rust's Vec-backed
