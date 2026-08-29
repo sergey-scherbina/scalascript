@@ -2505,3 +2505,26 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(g.contains("tag.clone()).is_some_and"), s"a multi-use Option must be cloned before is_some_and:\n$g")
+
+  test("a def param read once syntactically but inside a while-loop body is cloned per call"):
+    // `while cursor < end && failure.isEmpty do consumeComponentUnit(value, cursor, end,
+    // component) match { ... }` (`uniml/yaml`'s `YamlPropertySyntax.scala`'s `validateComponent`)
+    // — `value`/`component` (non-Copy DEF PARAMS) are read only ONCE *syntactically* (one call
+    // site, textually), so `multiUse` (a pure occurrence count over the body's text) never caught
+    // them — but the loop BODY runs once per iteration, and each run needs its own owned copy for
+    // a by-value callee parameter: the first iteration moves the value, and the second
+    // iteration's read is `error[E0382]: use of moved value`.
+    val src =
+      """```scalascript
+        |def consume(value: String, cursor: Int): Int = cursor + value.length
+        |
+        |def loop(value: String, end: Int): Int =
+        |  var cursor = 0
+        |  while cursor < end do
+        |    cursor = consume(value, cursor)
+        |  cursor
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("consume(value.clone(), cursor)"),
+      s"a def param called inside a while-loop body must be cloned even with one syntactic use:\n$g")

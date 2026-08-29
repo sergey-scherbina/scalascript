@@ -2846,6 +2846,16 @@ object RustCodeWalk:
        *  closure BINDS. A zero-argument closure binds nothing, so `closureParams.nonEmpty` was
        *  false inside `() => …` and the clone-at-use rule below never fired there. */
       inClosure: Boolean = false,
+      // `while cursor < end && failure.isEmpty do consumeComponentUnit(value, cursor, end,
+      // component) match { ... }` (`uniml/yaml`'s `YamlPropertySyntax.scala`'s `validateComponent`)
+      // — `value`/`component` (non-Copy DEF PARAMS) are read only ONCE *syntactically* (one call
+      // site, textually), so `multiUse` — a pure occurrence COUNT over the body's text — never
+      // caught them; but the loop body RUNS once per iteration, and each run needs its own owned
+      // copy to hand to `consumeComponentUnit` (which takes them by value): the first iteration
+      // moves `value`, and the second iteration's read is `error[E0382]: use of moved value`.
+      // Scoped to `ctx.defParams` in `cloneIfMoved`'s own check (not every name) — a `val`
+      // declared INSIDE the loop body is freshly bound each iteration and never has this problem.
+      inWhileLoop: Boolean = false,
       multiUse: Set[String] = Set.empty,
       // Local val/var names bound to a Signal → element type ("String"/"Int"/"Double"/
       // "Boolean").  A 0-arg apply on one — `x()` — is a signal READ and lowers to a
@@ -3967,7 +3977,16 @@ object RustCodeWalk:
           // of the borrow at a by-value position: `error[E0507]: cannot move out of *child, which
           // is behind a shared reference`. `(*n).clone()` is the fix, the identical shape this
           // function already gives a topval/multi-use/closure-captured name.
-          || ctx.byRefMut.contains(r))
+          || ctx.byRefMut.contains(r)
+          // `while cursor < end && failure.isEmpty do consumeComponentUnit(value, cursor, end,
+          // component) match { ... }` (`uniml/yaml`'s `YamlPropertySyntax.scala`'s
+          // `validateComponent`) — `value`/`component` (non-Copy DEF PARAMS) are read only ONCE
+          // *syntactically*, so `ctx.multiUse` (a pure occurrence count) never caught them, but the
+          // loop BODY runs once per iteration — the same "may run many times" reasoning the
+          // `inClosure` case just above already applies to a closure. Scoped to `ctx.defParams`,
+          // not every name: a `val` declared INSIDE the loop body is freshly bound each iteration
+          // and never has this problem.
+          || (ctx.inWhileLoop && ctx.defParams.contains(r)))
     arg match
       case m.Term.Name(n)
           if needs(n) && !rendered.matches(raw"-?\d+i64|-?\d+\.\d+f64|true|false") =>
@@ -5937,8 +5956,10 @@ object RustCodeWalk:
     case w: m.Term.While =>
       for
         c <- renderTerm(w.expr, ctx)
-        // Body is Unit-typed by construction.
-        b <- renderBody(w.body, ctx, isUnit = true)
+        // Body is Unit-typed by construction. `inWhileLoop = true` — see `cloneIfMoved`'s own
+        // comment on the field: a call inside a loop body runs once PER ITERATION, so a def
+        // param it reads needs cloning even though it appears only ONCE syntactically.
+        b <- renderBody(w.body, ctx.copy(inWhileLoop = true), isUnit = true)
       yield
         s"while $c {\n${indent(b)}\n}"
 
