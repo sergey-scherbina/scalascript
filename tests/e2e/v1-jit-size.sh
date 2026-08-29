@@ -447,10 +447,31 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # closure passed to a runtime helper (`scanOpaque`) whose OWN Rust signature needs a `'static`
 # bound it structurally cannot satisfy (`E0521`/`E0382: elements`) — a runtime-signature-level fix,
 # not a codegen one. Both left open; see the session's own commit history for the full analysis.
+#
+# renderTerm 33934 -> 33974 (+40), SOLVING the `scanOpaque` gap the entry above left open, 3 -> 1.
+# Root cause was deeper than "the closure captures a &mut param": `liftLocalDefs` gave EVERY
+# var-capture `&mut T` unconditionally, so `scanOpaque` (`uniml/xml`'s `Doc.scala`'s `scanCData`)
+# took `elements: &mut Vec<String>` even though it only ever READS `elements.nonEmpty` — the
+# reborrow-prelude fix from the entry above (`{ let elements = &mut *elements; move |_| … }`)
+# just traded E0521 for `error[E0499]: cannot borrow *elements as mutable more than once at a
+# time` (the closure's own reborrow and the trailing plain `elements` argument, both mutable,
+# alive simultaneously across the same call). Real fix: a SECOND fixed point (`writes`, parallel
+# to `captures`' own) over the local-def call graph, tracking which var-captures a def's
+# TRANSITIVE subtree actually WRITES (`collectDirectWrites` — direct reassignment AND the
+# `x += 1`-shaped `Term.ApplyInfix` form `computeMutatingSelfMethods` already had to solve the
+# identical problem for once, missed on the first pass here and caught by a fresh `E0594` sweep
+# across `index`/`nextTokenId`/`diagCount`/`rootCount` after the first attempt). A def that never
+# writes a var-capture now takes `&T` (shared, `Copy`) instead of `&mut T` — a `&T` can be copied
+# freely, so BOTH the closure's own capture and the trailing forward become harmless copies of the
+# same shared reference, no reborrow trick needed at all (new `Ctx.byRefMutWrite`, a strict subset
+# of `byRefMut`, narrows the reborrow-prelude fix to only the genuinely-mutable case it was
+# written for). Verified `std/ui/input.ssc`'s `selectFrom` — the real, earlier case the blanket
+# `+ 'static` bound exists for — still keeps it unchanged. 1 error remains: the untyped `.foreach`
+# closure param (`elemType` threading tried and reverted twice, still net-regresses elsewhere).
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-33934 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+33974 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

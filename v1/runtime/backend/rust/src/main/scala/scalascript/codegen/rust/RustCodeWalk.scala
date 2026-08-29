@@ -2881,6 +2881,14 @@ object RustCodeWalk:
       // for free) Rust's built-in operators (`<`, `+`, `==`, plain reassignment) do not — `diagCount
       // < limits.maxDiagnostics` on a `&mut i64` is `error[E0308]`, not autoderef.
       byRefMut: Set[String] = Set.empty,
+      // The STRICT subset of `byRefMut` that is genuinely `&mut T` (not `&T`) at THIS scope — a
+      // var-capture this def's own transitive call subtree actually WRITES (`liftLocalDefs`'s
+      // `writes` fixed point). A `byRefMut` name NOT in this set is `&T` (`Copy`, since `&T` always
+      // is), so forwarding it bare to ANOTHER argument in the same call (a closure argument that
+      // ALSO captures it, say) is a harmless copy, not a move/reborrow conflict — see the
+      // call-to-a-lifted-def rendering arm's own reborrow-prelude, which only needs the trick for a
+      // name IN this set.
+      byRefMutWrite: Set[String] = Set.empty,
       // Local-def lambda-lifting: def name -> its captured names, in the FIXED canonical order used
       // both at its own (lifted) parameter list and at every call site that must append them.
       liftedDefExtraArgs: Map[String, List[String]] = Map.empty,
@@ -3819,6 +3827,53 @@ object RustCodeWalk:
         s"$rendered.clone()"
       case _ => rendered
 
+  /** Which of `names` does `t` READ (as a value, not a binder and not a `Term.Select`'s field/
+   *  method-name component)? Deliberately narrower than `collectMultiUse`'s own walk — that one
+   *  also counts a `Term.Select`'s SECOND child (`x.name`'s "name") as a "use" of any local
+   *  coincidentally sharing that spelling, which is harmless where it is only used as a clone
+   *  trigger but was NOT safe for an earlier, abandoned attempt at inserting `let` bindings
+   *  keyed off it (see `cloneIfMoved`'s own `byRefMut` case history) — recursing into `qual` only
+   *  keeps this call site free of that class of false positive. */
+  private def readsAnyOf(t: m.Tree, names: Set[String]): Set[String] =
+    val found = scala.collection.mutable.Set.empty[String]
+    def walk(x: m.Tree): Unit = x match
+      case _: m.Pat.Var           => ()
+      case _: m.Term.Param        => ()
+      case m.Term.Select(qual, _) => walk(qual)
+      case m.Term.Name(n) if names.contains(n) => found += n
+      case _ => x.children.foreach(walk)
+    walk(t)
+    found.toSet
+
+  /** Which of `names` does `body` directly WRITE (a bare reassignment `n = …`, or a subscript
+   *  assignment `n(i) = …`) — narrow and syntactic, matching every other pre-pass in this file:
+   *  `elements = elements :+ name` / `elements.dropRight(1)` (this lane's own reassignment idiom
+   *  for an immutable-collection `var`) are the only write shapes this corpus's lifted defs
+   *  actually use. Used to tell a lifted def that only ever READS a captured `var` — `scanOpaque`
+   *  (`uniml/xml`'s `Doc.scala`'s `scanCData`) reads `elements.nonEmpty` but never reassigns it —
+   *  from one that mutates it, so the read-only one can take `&T` instead of `&mut T`. Always
+   *  recurses into children (a write inside a NESTED closure/lifted-def-call still counts, since
+   *  the fixed point above this call site propagates it through the call graph either way). */
+  private def collectDirectWrites(body: m.Term, names: Set[String]): Set[String] =
+    val CompoundAssignOps = Set("+=", "-=", "*=", "/=", "%=")
+    val found = scala.collection.mutable.Set.empty[String]
+    def walk(t: m.Tree): Unit =
+      t match
+        case m.Term.Assign(m.Term.Name(n), _) if names.contains(n) => found += n
+        case m.Term.Assign(m.Term.Apply.After_4_6_0(m.Term.Name(n), _), _) if names.contains(n) => found += n
+        // `index += 1` parses as `Term.ApplyInfix(index, "+=", Nil, List(1))`, NOT `Term.Assign` —
+        // `computeMutatingSelfMethods`'s own `directlyMutates` already found this the hard way
+        // (this is the identical shape, reused here for the identical reason: `cursor += 1i64` /
+        // `subsetDepth -= 1i64` inside `scanDoctype`, `uniml/xml`'s `Doc.scala`, missed this write
+        // entirely without this case — `error[E0594]: cannot assign to *index, which is behind a
+        // & reference`, the captureParams type wrongly downgraded to shared).
+        case m.Term.ApplyInfix.After_4_6_0(m.Term.Name(n), m.Term.Name(op), _, _)
+            if names.contains(n) && CompoundAssignOps.contains(op) => found += n
+        case _ => ()
+      t.children.foreach(walk)
+    walk(body)
+    found.toSet
+
   /** Local `val`/`var` names bound to a String-valued rhs (literal, `s"…"`,
    *  `.toString`/`.trim`/`.mkString`, an `if` whose branches are strings, a `+`
    *  with a string operand, `opt.getOrElse(<string>)`, a call to a def DECLARED
@@ -4619,6 +4674,40 @@ object RustCodeWalk:
         s"def `$defName` uses type `${other.syntax}`; R.2 accepts primitives, enums, function types, tuple, and List/Vec"
       )))
 
+  /** Does `body` pass the bare name `paramName` (positionally, or as a named arg) into a KNOWN
+   *  ctor call at a field position whose OWN declared type is `Rc<dyn …>` — the one shape that
+   *  actually needs the `Rc::new(f)` this lane's ctor-argument rendering inserts (`ec.fieldTypes
+   *  .lift(i).startsWith("std::rc::Rc<dyn ")`, a few hundred lines down), which is why a
+   *  closure-typed PARAMETER needs `+ 'static` at all: `Rc::new` demands its content be `'static`.
+   *  Narrow and syntactic like every other pre-pass in this file: a parameter forwarded to a
+   *  HELPER that itself stores it is not detected (this lane has no interprocedural analysis), so
+   *  a false `false` is possible — but a false `true` is not, since it only fires on an actual
+   *  `Rc<dyn` field type already computed for `ctorMap`. */
+  private def paramEscapesViaRcCtor(paramName: String, body: m.Term, ctx: Ctx): Boolean =
+    var found = false
+    def matchesParam(t: m.Term): Boolean = t match
+      case m.Term.Name(n) => n == paramName
+      case _              => false
+    def checkArgs(ctorName: String, args: List[m.Term]): Unit =
+      ctx.ctorMap.get(ctorName).foreach { ec =>
+        args.zipWithIndex.foreach {
+          case (m.Term.Assign(m.Term.Name(field), v), _) =>
+            val i = ec.fieldNames.indexOf(field)
+            if i >= 0 && matchesParam(v) && ec.fieldTypes.lift(i).exists(_.startsWith("std::rc::Rc<dyn "))
+            then found = true
+          case (v, i) =>
+            if matchesParam(v) && ec.fieldTypes.lift(i).exists(_.startsWith("std::rc::Rc<dyn "))
+            then found = true
+        }
+      }
+    def walk(t: m.Tree): Unit =
+      t match
+        case m.Term.Apply.After_4_6_0(m.Term.Name(n), args) => checkArgs(n, args.values.toList)
+        case _ => ()
+      t.children.foreach(walk)
+    walk(body)
+    found
+
   /** Map a list of types, accumulating diagnostics. */
   private def traverseTypes(
       ts: List[m.Type], defName: String, enumNames: Set[String]
@@ -4689,7 +4778,26 @@ object RustCodeWalk:
         // emits `let mut` for one; a parameter has no such let-binding for this to piggyback on.
         case Some(m.Type.Name("StringBuilder")) =>
           Right(s"mut ${p.name.value}: String")
-        case Some(t) => mapType(t, ctx.defName, ctx.enumNames).map(r => s"${p.name.value}: ${paramType(r)}")
+        case Some(t) =>
+          mapType(t, ctx.defName, ctx.enumNames).map { r =>
+            // `+ 'static` on a closure-typed parameter is only load-bearing when the def's OWN
+            // body stores it via `Rc::new` (a bare arg to a ctor whose field is `Rc<dyn …>` —
+            // `mapType`'s own comment on the flag). `scanOpaque(…, validate, elements, …)`
+            // (`uniml/xml`'s `Doc.scala`'s `scanCData`) never does that — `validate` is called
+            // synchronously and discarded — but `validate`'s OWN body closes over `elements: &mut
+            // Vec<String>`, a `&mut` PARAMETER of the ENCLOSING def, not an owned capture: the
+            // blanket bound demanded a `'static` lifetime a stack-local `&mut` reference can never
+            // have — `error[E0521]: borrowed data escapes outside of function`. Stripped here,
+            // per-parameter, only when this def's body never actually needs it — `selectFrom`'s
+            // `key`/`optionFn` (`std/ui/input.ssc`, passed bare into `SelectFromNode(...)`, an
+            // `Rc<dyn Fn>` field) keep the bound, unchanged.
+            val stripped =
+              if t.isInstanceOf[m.Type.Function] && r.endsWith(" + 'static")
+                  && !paramEscapesViaRcCtor(p.name.value, d.body, ctx)
+              then r.stripSuffix(" + 'static")
+              else r
+            s"${p.name.value}: ${paramType(stripped)}"
+          }
         case None    => Left(List(unsupported(
           s"def `${ctx.defName}` parameter `${p.name.value}` has no type annotation; R.2 requires explicit param types"
         )))
@@ -4988,6 +5096,27 @@ object RustCodeWalk:
       val orderedCaptures: Map[String, List[String]] = captures.map((k, v) => k -> v.toList.sorted)
       val allMutableCaptures: Set[String] = captures.values.flatten.toSet.intersect(varNames)
 
+      // A SECOND fixed point, parallel to `captures`' own: which var-captures does a def's
+      // TRANSITIVE call subtree actually WRITE (vs merely read)? `scanOpaque` (`uniml/xml`'s
+      // `Doc.scala`'s `scanCData`) captures `elements` (a `var` mutated elsewhere in the top-level
+      // enclosing def) but only ever reads `elements.nonEmpty` — every lifted def UNCONDITIONALLY
+      // took `&mut $t` for a var-capture regardless, so `scanCData`'s OWN closure argument to
+      // `scanOpaque` (`_ => elements.isEmpty`, forced to reborrow `elements` for its own capture —
+      // see the call-rendering arm's own comment) held a mutable reborrow at the SAME time
+      // `scanOpaque`'s trailing plain `elements` argument took another one: `error[E0499]: cannot
+      // borrow *elements as mutable more than once at a time`. A def that transitively never
+      // WRITES a var-capture can safely take `&$t` (shared) instead — Rust allows any number of
+      // simultaneous shared borrows, which is exactly what resolves this specific conflict.
+      var writes = localDefs.map(d => d.name.value -> collectDirectWrites(d.body, varNames)).toMap
+      var changedW = true
+      while changedW do
+        changedW = false
+        for name <- defNames do
+          val merged = writes(name) ++ callsOf(name).flatMap(callee => writes.getOrElse(callee, Set.empty))
+          if merged != writes(name) then
+            writes = writes.updated(name, merged)
+            changedW = true
+
       val baseCtx = ctx.copy(
         liftedDefExtraArgs    = orderedCaptures,
         liftedMutableCaptures = allMutableCaptures
@@ -5006,12 +5135,21 @@ object RustCodeWalk:
             s"explicit type annotation where it is declared"
           )))
         else
+          val myWrites = writes.getOrElse(d.name.value, Set.empty)
           val captureParams = myCaptures.zip(resolved.map(_._2.get)).map { (c, t) =>
-            if myByRefMut.contains(c) then s"$c: &mut $t" else s"$c: $t"
+            if myByRefMut.contains(c) && myWrites.contains(c) then s"$c: &mut $t"
+            // A var-capture this def's transitive call subtree never writes takes `&$t`
+            // (shared) instead — see the `writes` fixed point's own comment above for why.
+            // `childCtx.byRefMut` (below) is UNCHANGED by this — a bare read still derefs via
+            // `(*n)` identically for a `&T` or `&mut T` parameter, only the PARAMETER TYPE and
+            // the reborrow it allows at a call site differ.
+            else if myByRefMut.contains(c) then s"$c: &$t"
+            else s"$c: $t"
           }
           val childCtx = baseCtx.copy(
             defParams = ctx.defParams ++ ownParamNames ++ myCaptures.toSet,
             byRefMut  = myByRefMut,
+            byRefMutWrite = myByRefMut.filter(myWrites.contains),
             inLiftedFn = true,
             // `val char = input.charAt(cursor)` DECLARED INSIDE a lifted local def's OWN body
             // (`scanDoctype`, `uniml/xml`'s `Doc.scala`) — `ctx.localSscChars` was computed ONCE,
@@ -5358,7 +5496,35 @@ object RustCodeWalk:
         // caller-written args either (`extra`, the LIFT's OWN appended captures, already clones
         // correctly two lines below — only the args the user actually wrote were missing it):
         // `error[E0382]: use of moved value: lexeme`.
-        val ok = origArgs.zip(okRaw).map((arg, r) => cloneIfMoved(arg, r, ctx))
+        // `scanOpaque(validate, elements, …)` (`uniml/xml`'s `Doc.scala`'s `scanCData`) — `validate`
+        // is a CALLER-WRITTEN closure-literal argument that itself closes over `elements`, a
+        // `byRefMut` name ALSO among `scanOpaque`'s OWN appended captures (`extra`, forwarded bare
+        // a few lines below — "Rust reborrows a `&mut` passed to a `&mut` parameter" holds for a
+        // PLAIN argument, but not here): the closure is `move`, so building the closure LITERAL
+        // (evaluated first, since it is an earlier positional argument in the SAME call) MOVES
+        // `elements` outright, and the later bare `elements` in `extra` reads it after the move —
+        // `error[E0382]: borrow of moved value: elements`. Fix: reborrow explicitly for the
+        // closure's OWN capture (`{ let elements = &mut *elements; move |_| … }`), scoped to just
+        // that one argument, so the outer `elements` binding survives for the later forward.
+        //
+        // Scoped to `ctx.byRefMutWrite`, NOT the broader `ctx.byRefMut`: a capture this def's own
+        // transitive subtree never WRITES is `&T` at this scope (`liftLocalDefs`'s `writes` fixed
+        // point downgrades it there), and `&T` is `Copy` — using it twice in the same call is
+        // already a harmless copy, no reborrow needed, and `&mut *c` would not even compile
+        // against a `&T` binding (`error[E0596]`).
+        val sharedByRefMut = ctx.liftedDefExtraArgs(n).toSet.filter(ctx.byRefMutWrite.contains)
+        val ok = origArgs.zip(okRaw).map { (arg, r0) =>
+          val r = cloneIfMoved(arg, r0, ctx)
+          val isClosureArg = arg match
+            case _: m.Term.Function | _: m.Term.AnonymousFunction => true
+            case m.Term.Block(List(_: m.Term.Function))           => true
+            case _                                                => false
+          if isClosureArg && sharedByRefMut.nonEmpty then
+            val reborrow = readsAnyOf(arg, sharedByRefMut).toList.sorted
+            if reborrow.isEmpty then r
+            else s"{ ${reborrow.map(c => s"let $c = &mut *$c;").mkString(" ")} $r }"
+          else r
+        }
         val extra = ctx.liftedDefExtraArgs(n).map { c =>
           if ctx.byRefMut.contains(c) then c
           else if ctx.liftedMutableCaptures.contains(c) then s"&mut $c"

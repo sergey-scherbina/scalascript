@@ -34,7 +34,16 @@ class RustGenR24Test extends AnyFunSuite:
     // live long enough", which is what std/ui/input.ssc hit. The closures this lane emits are
     // `move |...|` over owned captures, so the bound states what was already true.
     // (rust-std-corpus-badrust-column.)
-    assert(g.contains("pub fn apply(f: impl Fn(i64) -> i64 + 'static, x: i64) -> i64 {"),
+    //
+    // NARROWED 2026-08-29 to a per-parameter check (`paramEscapesViaRcCtor`): the blanket bound
+    // broke `scanOpaque(…, validate, elements, …)` (`uniml/xml`'s `Doc.scala`'s `scanCData`) —
+    // `validate` closes over `elements: &mut Vec<String>`, a `&mut` PARAMETER of the ENCLOSING
+    // def, not an owned capture, and the closure is only ever CALLED (never stored), so the
+    // `'static` bound demanded a lifetime a stack-local `&mut` reference can never have
+    // (`error[E0521]`). `apply` here matches that "only called" shape — `f` never reaches an
+    // `Rc<dyn Fn>` ctor field — so it no longer gets the bound; see the test below for the case
+    // that still needs it.
+    assert(g.contains("pub fn apply(f: impl Fn(i64) -> i64, x: i64) -> i64 {"),
       s"function-type-emit not found in:\n$g")
     assert(g.contains("f(x)"),
       s"closure-param call not found in:\n$g")
@@ -46,8 +55,25 @@ class RustGenR24Test extends AnyFunSuite:
         |```
         |""".stripMargin
     val g = gen(src)
-    assert(g.contains("pub fn run(f: impl Fn(i64) + 'static, x: i64) {"),
+    assert(g.contains("pub fn run(f: impl Fn(i64), x: i64) {"),
       s"Unit-returning Fn not emitted as `impl Fn(i64)`:\n$g")
+
+  test("a closure-typed parameter STORED via an Rc<dyn Fn> ctor field keeps `+ 'static`"):
+    // `selectFrom(items, key, optionFn, …) = SelectFromNode(items, key, optionFn, …)`
+    // (`std/ui/input.ssc`) — `key`/`optionFn` are passed BARE into a ctor whose corresponding
+    // fields are closure-typed (`Rc<dyn Fn>`); the ctor-argument renderer wraps them in
+    // `Rc::new(...)`, which demands `'static` — `error[E0310]: may not live long enough` without
+    // the bound. `paramEscapesViaRcCtor` must still detect this and keep it.
+    val src =
+      """```scalascript
+        |case class Holder(onClick: Long => Long)
+        |
+        |def register(onClick: Long => Long): Holder = Holder(onClick)
+        |```
+        |""".stripMargin
+    val g = gen(src)
+    assert(g.contains("pub fn register(onClick: impl Fn(i64) -> i64 + 'static) -> Holder {"),
+      s"a param stored via an Rc<dyn Fn> ctor field must keep `+ 'static`:\n$g")
 
   test("(params) => body lowers to a Rust `move |params| { body }` closure"):
     val src =

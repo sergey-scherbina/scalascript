@@ -1453,6 +1453,35 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(!g.contains("move |__pf|"), s"a synchronously-consumed map closure must not `move`:\n$g")
 
+  test("a lifted def that only READS a captured var takes `&T`, not `&mut T`"):
+    // `scanOpaque(validate, elements, …)` (`uniml/xml`'s `Doc.scala`'s `scanCData`) — `scanOpaque`
+    // only ever reads `elements.nonEmpty`, but every lifted def took `&mut T` for ANY var-capture
+    // unconditionally, so its OWN closure argument (which also captures `elements`) needed a
+    // reborrow that collided with the trailing plain `elements` forward in the SAME call —
+    // `error[E0499]: cannot borrow *elements as mutable more than once at a time`. A def whose
+    // transitive call subtree never WRITES a var-capture now takes `&T` (shared, `Copy`) instead,
+    // so both uses in the same call become harmless copies.
+    val src =
+      """```scalascript
+        |def scan(input: String): Boolean =
+        |  var elements: List[String] = Nil
+        |
+        |  def helper(check: Int => Boolean): Boolean =
+        |    check(0) && elements.nonEmpty
+        |
+        |  def scanThing(): Boolean =
+        |    helper(_ => elements.isEmpty)
+        |
+        |  elements = elements :+ "x"
+        |  scanThing()
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("fn helper(check: impl Fn(i64) -> bool, elements: &Vec<String>)"),
+      s"a read-only capture should take &T, not &mut T:\n$g")
+    assert(g.contains("fn scanThing(elements: &Vec<String>)"),
+      s"a read-only capture should take &T, not &mut T:\n$g")
+
   test("`x.field.flatMap(f)` clones its receiver when the owning struct is read again"):
     // `QName { namespace: name.prefix.flatMap(bindings.get), ..name }` (`uniml/xml`'s `Doc.scala`'s
     // `resolveElement`) — `Option::and_then` takes its receiver BY VALUE, so `name.prefix` (a
