@@ -9,15 +9,15 @@ Newest first.
 
 ## point-free-class-method-never-eta-expands-on-native — `obj.method` passed bare always calls it with zero args
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      kind: bug
      area: runtime
-     gate: none
+     gate: tests/e2e/v2-unknown-member-refuses-gate.sh
      reported-by: claude-code
      reported-at: 2026-08-28
      confirmed: yes
-     fixed-in: - -->
+     fixed-in: ccd973ba9 -->
 
 Found while drafting `specs/aggregation-algebra.md` (a `Monoid`/`Aggregator` composition example
 passed `m.combine` point-free to `foldLeft`, where `m`'s runtime value was a plain `class`
@@ -82,6 +82,27 @@ No test anywhere (v1 or v2) covers point-free access to a plain class's own inst
 `MethodDispatchFailClosedTest` covers the closure/list-predicate eta-expansion path this bug's own
 fallback (§4b above) was built for, not a user-defined class's method. This is an untested gap,
 not a regression of a covered case.
+
+**FIXED 2026-08-29 (`ccd973ba9`), v2/native lane only** (the `int`/`--v1` lane above is a separate
+fix, not yet done). Added `V2PluginRegistry.taggedMethodArity`, recorded at `__regmethod__` time
+from the same `ClosV` `.arity`, and used it in the `DataV` tagged-method arm (§4a above) to build
+an arity-generic eta-closure (§4b's concern) instead of reusing the hardcoded-arity-1 fallback.
+
+**The first cut of this fix regressed `v2-unknown-member-refuses-gate`'s `class-method-nullary-call`
+row**, caught before landing: `R(0).k()` — an APPLIED zero-arg call with the WRONG arity — reaches
+the identical `DataV` arm via `__method0__`'s delegation (margs is empty either way; a bare
+selection and an applied zero-arg call are indistinguishable at this arm by args alone, same
+ambiguity as §1's `__method__`/`__method0__` split, but that split does not reach class-instance
+calls — both route through `resolveMethodCall`'s default case, and `__method0__` itself calls
+straight back into `methodDispatch1`). Fixed by threading an `applied: Boolean` flag from
+`__method0__`'s call site into `methodDispatch1`: only a non-applied (genuine bare-selection)
+zero-arg miss eta-expands; an applied one falls to the pre-fix behavior (invoke the real closure,
+let its `checked` wrapper throw the specific `"<Tag>.<method>: expected N argument(s), got M"`
+message) — regression test: `EtaExpandClassMethodTest`'s two `__method0__`-specific cases.
+
+New test coverage (the gap noted above): `v2/plugin-spi/src/test/scala/ssc/EtaExpandClassMethodTest.scala`
+(8 cases — both the `__method__` bare-selection eta path and the `__method0__` applied-call path,
+in both the right-arity and wrong-arity shapes).
 
 ## ref-front-refuses-a-qualified-constructor-pattern — `case JsonValue.Str(v)` killed the whole file
 
