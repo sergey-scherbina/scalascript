@@ -11564,9 +11564,17 @@ object RustCodeWalk:
                    else if all.sizeIs == 1 then s" if ${all.head}"
                    else s" if ${all.map(conj => s"($conj)").mkString(" && ")}"
                  }
+        // `case stream: YamlValue.Stream => stream` (`uniml/yaml`'s `YamlSemanticParser.scala`'s
+        // `validate`) — the pattern renders as `ref stream @ YamlValue::Stream { ref documents }`
+        // (a BORROW), so the arm's own body — the bare bound name, read back whole — needed the
+        // SAME `.clone()` every OTHER by-value position already gets via `cloneIfMoved`; this is
+        // the one arm-body position that never routed through it at all: `error[E0507]: cannot
+        // move out of *stream, which is behind a shared reference`. Only the plain `renderTerm`
+        // branch needs it — `renderValueTail`/`renderUnitTerm` build their own statement/tail
+        // shapes and are unaffected by this specific gap.
         bod   <- if armTail then renderValueTail(c.body, bodyCtx)
                  else if isUnit then renderUnitTerm(c.body, bodyCtx)
-                 else renderTerm(c.body, bodyCtx)
+                 else renderTerm(c.body, bodyCtx).map(r0 => cloneIfMoved(c.body, r0, bodyCtx))
       yield
         val bodW = if armTail then bod else wrapArm(bod)
         // A MULTI-STATEMENT ARM BODY NEEDS BRACES OF ITS OWN — but only on the `armTail` path,

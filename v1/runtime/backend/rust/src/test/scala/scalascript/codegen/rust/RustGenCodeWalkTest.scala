@@ -2732,6 +2732,29 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(g.contains("format!(\"{}{}\", withBreak") && g.contains(".unwrap_or(\"\".to_string()))"),
       s"an Option-pipeline .getOrElse(strLit) chained with + must flatten into one format!, not a bare +:\n$g")
 
+  test("a type-pattern match arm's bare-name body clones a ref-bound value"):
+    // `case stream: YamlValue.Stream => stream` (`uniml/yaml`'s `YamlSemanticParser.scala`'s
+    // `validate`) — the pattern renders as `ref stream @ YamlValue::Stream { ref documents }` (a
+    // BORROW), so the arm's own body — the bare bound name, read back whole — needed the same
+    // `.clone()` every other by-value position already gets via `cloneIfMoved`; this was the one
+    // arm-body position that never routed through it at all: `error[E0507]: cannot move out of
+    // *stream, which is behind a shared reference`.
+    val src =
+      """```scalascript
+        |enum YamlValue:
+        |  case Stream(documents: List[Int])
+        |  case Scalar(text: String)
+        |
+        |def asStream(v: YamlValue): YamlValue =
+        |  v match
+        |    case stream: YamlValue.Stream => stream
+        |    case _ => v
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("=> (*stream).clone(),"),
+      s"a type-pattern match arm returning its own ref-bound name must clone it:\n$g")
+
   test("`xs.count(_.field == x)` / `xs.filter(_.field == x)` — a placeholder predicate types cleanly"):
     // `lexed.tokens.count(_.kind == "yaml.anchor")` / `ranges.filter(_.start == index)`
     // (`uniml/yaml`) — `renderVecIterBody`'s `Term.AnonymousFunction` branch wrapped the WHOLE
