@@ -1,0 +1,11 @@
+slug: fix-etaexpand-int-lane
+branch: feature/fix-etaexpand-int-lane
+agent: claude-code
+started: 2026-08-29T05:28:00Z
+heartbeat: 2026-08-29T05:28:00Z
+status: claimed-before-planning
+items: point-free-class-method-never-eta-expands-on-int
+paths: file:v1/runtime/backend/interpreter/DispatchRuntime.scala file:v1/runtime/backend/interpreter/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement

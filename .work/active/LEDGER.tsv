@@ -1,2 +1,3 @@
-# generation: 3070
+# generation: 3071
 #slug	agent	started	items	paths
+fix-etaexpand-int-lane	claude-code	2026-08-29T05:28:00Z	point-free-class-method-never-eta-expands-on-int	file:v1/runtime/backend/interpreter/DispatchRuntime.scala file:v1/runtime/backend/interpreter/BUGS.md
