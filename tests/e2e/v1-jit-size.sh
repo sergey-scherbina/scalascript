@@ -500,10 +500,32 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # fallback, rendering an untyped catch-all `frame` while `bodyCtx` still believed it was
 # destructured — `error[E0425]: cannot find value state`) lives in `renderPattern`, a SEPARATE
 # function, and costs nothing here.
+#
+# renderTerm 34574 -> 34578 (+4), continuing on uniml/json, 17 -> 14. A `match`/`if` used as a
+# STATEMENT (its own value discarded) can have arms/branches whose NATURAL Rust types disagree
+# (`frame.state match { case A => closeObject(); case B => if cond then closeArray(…) else
+# consumeValue(…) }`, `uniml/json`'s `JsonStructure.scala` — `closeObject`/`closeArray` return
+# `()`, `consumeValue` returns `bool`) — Scala freely discards a mismatched branch/arm in
+# statement position, but Rust's `if`/`match` require ALL arms/branches to unify to ONE type
+# FIRST, regardless of whether the whole thing is later discarded with a trailing `;`.
+# `renderStmt`'s own top-level `renderTerm(t, ctx).map(_ + ";")` only appended `;` to the
+# OUTERMOST expression, which does nothing for arms that disagree internally: `error[E0308]: if
+# and else have incompatible types` / `match arms have incompatible types`. New recursive
+# `renderUnitTerm` (called from `renderStmt`'s Term case, `renderMatch` under a new `isUnit` flag,
+# and `renderBody`'s own single-expression-body case) descends into `if`/`match`/block so EVERY
+# leaf branch/arm gets its OWN unconditional trailing `;` — `expr;` is ALWAYS `()`-typed
+# regardless of `expr`'s own type, which is what makes every branch/arm agree. Needed a second,
+# smaller fix in `renderMatch` itself: its arm-body template is `pat => bod,` (a bare expression,
+# never `expr;`), so `isUnit`'s own leaf fallback needed its `needsBlock` decision widened to
+# ALWAYS brace-wrap on the `isUnit` path (`pat => { bod },` — always valid, whatever shape `bod`
+# is) — missing this exact case broke `RustGenMultiShotTest` first (`Some(x) => println(x);,`,
+# "expected one of `,` … found `;`"), caught before landing since the whole test suite runs before
+# every corpus re-measurement. Small growth here is just the `renderStmt` call-site change to
+# `renderUnitTerm`; the bulk of the new logic sits in the separate `renderUnitTerm` itself.
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-34574 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+34578 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

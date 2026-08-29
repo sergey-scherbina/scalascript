@@ -1360,6 +1360,27 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(!g.contains("localName: \"xmlns\""), s"the literal must not stay a struct-field literal pattern:\n$g")
     assert(g.contains("== \"xmlns\""), s"the literal should become an equality guard on the arm:\n$g")
 
+  test("a match used as a statement unifies arms whose natural Rust types disagree"):
+    // `frame.state match { case A => closeObject(); case B => if cond then closeArray(…) else
+    // consumeValue(…) }` (`uniml/json`'s `JsonStructure.scala`) — `closeObject`/`closeArray`
+    // return `()`, `consumeValue` returns `bool`; Scala freely discards the mismatch in
+    // statement position, but Rust's `match`/`if` require every arm/branch to unify to ONE type
+    // FIRST, before a trailing `;` can discard the whole thing: `error[E0308]: if and else have
+    // incompatible types`.
+    val src =
+      """```scalascript
+        |def closeIt(): Unit = ()
+        |def consumeValue(x: Int): Boolean = x > 0
+        |
+        |def step(x: Int, flag: Boolean): Unit =
+        |  x match
+        |    case 0 => closeIt()
+        |    case _ => if flag then closeIt() else consumeValue(x)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("consumeValue(x);"), s"a non-unit branch used as a statement must get a trailing `;`:\n$g")
+
   test("`xs.filterNot(p)` lowers via a negated predicate"):
     // `result.roots.filterNot(isTriviaNode)` (`uniml/json`'s `JsonProjection.scala`) — this
     // backend had no lowering for `filterNot` at all; it would have been emitted verbatim as a

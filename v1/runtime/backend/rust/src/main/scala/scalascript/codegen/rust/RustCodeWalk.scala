@@ -4912,7 +4912,12 @@ object RustCodeWalk:
       // Single-expression body — for Unit returns add the trailing `;`
       // so the emitted block matches the statement-oriented R.1 golden.
       // For non-Unit returns the expression IS the return value.
-      renderTerm(t, ctx).map(r => if isUnit then s"$r;" else r)
+      //
+      // `def step(): Unit = frame.state match { case A => …; case B => if cond then closeArray(…)
+      // else consumeValue(…) }` — a def whose body IS a bare if/else or match (no enclosing
+      // `Term.Block`) has the identical internal-arm-mismatch exposure `renderStmt`'s own fix
+      // documents; `renderUnitTerm` recurses the same way here.
+      if isUnit then renderUnitTerm(t, ctx) else renderTerm(t, ctx)
 
   /** A capture's Rust type, for a local-def lift's own parameter signature. Rust infers an
    *  ordinary `let`, so nothing needed this before — a lifted def's captured-`var` parameter needs
@@ -5198,7 +5203,12 @@ object RustCodeWalk:
     // `val name: T = init` → `let name: T = init;`.
     case v: m.Defn.Val =>
       renderLetBinding(v.pats, v.decltpe, v.rhs, mutable = false, ctx)
-    case t: m.Term => renderTerm(t, ctx).map(_ + ";")
+    // `frame.state match { case A => closeObject(); case B => if cond then closeArray(...) else
+    // consumeValue(...) }` (`uniml/json`'s `JsonStructure.scala`) — a bare statement's own VALUE
+    // is always discarded, so `renderUnitTerm` recurses into an `if`/`match` here (unlike the
+    // flat `renderTerm(t, ctx).map(_ + ";")` this replaced, which only appended `;` to the
+    // OUTERMOST expression and left mismatched arms/branches for rustc to reject on their own).
+    case t: m.Term => renderUnitTerm(t, ctx)
     case other     => Left(List(unsupported(
       s"def `${ctx.defName}` body contains an unsupported statement: ${other.productPrefix}"
     )))
@@ -10023,6 +10033,34 @@ object RustCodeWalk:
       )
     case _ => ctx
 
+  /** Render `t` KNOWING its own result is discarded (a bare statement, or a match/if arm inside
+   *  one) — recurses into `if`/`match`/block so EVERY leaf branch/arm independently becomes
+   *  `()`-typed, not just the outermost expression. `frame.state match { case A => closeObject();
+   *  case B => if cond then closeArray(...) else consumeValue(...) }` (`uniml/json`'s
+   *  `JsonStructure.scala`) — Scala freely discards a mismatched-type branch/arm in STATEMENT
+   *  position (nothing reads the match's own value), but Rust's `if`/`match` arms must ALWAYS
+   *  unify to ONE type first, REGARDLESS of whether a caller later discards the whole thing with a
+   *  trailing `;` — `renderStmt`'s OWN top-level `renderTerm(t, ctx).map(_ + ";")` only appends
+   *  `;` to the OUTER expression, which does nothing for arms that disagree internally
+   *  (`consumeValue(...)` returns `bool`, `closeArray(...)` returns `()`): `error[E0308]: if and
+   *  else have incompatible types` / `match arms have incompatible types`. A LEAF term (anything
+   *  that is not itself an `if`/`match`/block) unconditionally gets a trailing `;` — `expr;`
+   *  discards `expr`'s value and is ALWAYS `()`-typed in Rust, regardless of `expr`'s own type,
+   *  which is what makes every branch/arm agree. */
+  private def renderUnitTerm(t: m.Term, ctx: Ctx): Either[List[Diagnostic], String] = t match
+    case ifExpr: m.Term.If =>
+      for
+        c <- renderTerm(ifExpr.cond, ctx)
+        th <- renderUnitTerm(ifExpr.thenp, ctx)
+        el <- renderUnitTerm(ifExpr.elsep, ctx)
+      yield s"if $c { $th } else { $el }"
+    case mt: m.Term.Match =>
+      renderMatch(mt.expr, mt.casesBlock.cases.toList, ctx, isUnit = true)
+    case b: m.Term.Block =>
+      renderBody(b, ctx, isUnit = true)
+    case other =>
+      renderTerm(other, ctx).map(r => s"$r;")
+
   private def renderMatch(
       subject: m.Term, cases: List[m.Case], ctx: Ctx,
       // Applied to each arm's BODY. Identity everywhere except when the match sits in a tail
@@ -10030,7 +10068,14 @@ object RustCodeWalk:
       wrapArm: String => String = identity,
       // See `renderAnyMatch`: in a tail position the arm is RENDERED as a tail, not wrapped after
       // the fact, so an `if` inside it lifts per branch instead of as a whole.
-      armTail: Boolean = false
+      armTail: Boolean = false,
+      // The match ITSELF sits in a discarded-statement position (`renderStmt`'s own bare-Term
+      // case, or a `renderUnitTerm` recursion) — each arm's body renders via `renderUnitTerm`
+      // instead of the ordinary `renderTerm`, so a per-arm type mismatch (one arm a `bool` call,
+      // another a `()` call) resolves the same way `renderUnitTerm`'s own doc comment explains.
+      // Mutually exclusive with `armTail` in practice (a tail position is never also discarded);
+      // `armTail` wins if somehow both are set, matching the `bod` line below.
+      isUnit: Boolean = false
   ): Either[List[Diagnostic], String] =
     val subjRendered = renderTerm(subject, ctx)
     // An identity catch-all (`case x => x`, no guard) trailing a sealed-enum match is the
@@ -10275,7 +10320,9 @@ object RustCodeWalk:
                    else if all.sizeIs == 1 then s" if ${all.head}"
                    else s" if ${all.map(conj => s"($conj)").mkString(" && ")}"
                  }
-        bod   <- if armTail then renderValueTail(c.body, bodyCtx) else renderTerm(c.body, bodyCtx)
+        bod   <- if armTail then renderValueTail(c.body, bodyCtx)
+                 else if isUnit then renderUnitTerm(c.body, bodyCtx)
+                 else renderTerm(c.body, bodyCtx)
       yield
         val bodW = if armTail then bod else wrapArm(bod)
         // A MULTI-STATEMENT ARM BODY NEEDS BRACES OF ITS OWN — but only on the `armTail` path,
@@ -10297,7 +10344,15 @@ object RustCodeWalk:
         val bodyIsMultiStat = c.body match
           case b: m.Term.Block => b.stats.sizeIs > 1
           case _               => false
-        val needsBlock = prefix.nonEmpty || (bodyIsMultiStat && !bodW.trim.startsWith("{"))
+        // `isUnit`'s own leaf fallback (`renderUnitTerm`) ends `bod` with a bare `;` — valid
+        // inside a block or after a statement, but NOT as a match arm's own tail expression
+        // (`pat => expr;,` does not parse: "expected one of `,`, `.`, `?`, `}`, or an operator,
+        // found `;`", `uniml/json`'s `JsonStructure.scala` — `Some(x) => println(x);,`). Always
+        // brace-wrapping on the `isUnit` path sidesteps having to case on exactly which of
+        // `renderUnitTerm`'s OWN branches produced `bod` (a bare `expr;`, a self-contained `if …
+        // else …`, a nested `match …`, or multi-statement block content) — a brace pair around
+        // any of those is always valid Rust, so there is no case where this needs to be pickier.
+        val needsBlock = prefix.nonEmpty || (bodyIsMultiStat && !bodW.trim.startsWith("{")) || isUnit
         if !needsBlock then s"$pat$guard => $bodW,"
         else s"$pat$guard => { $prefix$bodW },"
     }
