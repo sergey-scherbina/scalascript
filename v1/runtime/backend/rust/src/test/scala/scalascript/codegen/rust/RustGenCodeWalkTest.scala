@@ -2755,6 +2755,46 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(g.contains("=> (*stream).clone(),"),
       s"a type-pattern match arm returning its own ref-bound name must clone it:\n$g")
 
+  test("a closure calling a lifted def reborrows &mut extras and pre-clones the rest"):
+    // `docsIn.foreach { document => def cloneValue(...) = ...; document.value.flatMap(v =>
+    // cloneValue(v, Set.empty)) }` (`uniml/yaml`'s `YamlSemanticParser.scala`'s `resolve`) —
+    // `cloneValue` is a LIFTED local def capturing `diagnostics`/`nodes` BY MUTABLE REFERENCE and
+    // `options` by clone; the closure passed to `.flatMap` never syntactically names any of them
+    // (they are spliced in only at render time), and being unconditionally `move`, rebuilding it
+    // every loop iteration re-moved the ALREADY-moved originals on the second iteration:
+    // `error[E0382]: use of moved value ... in previous iteration of loop`, for BOTH the `&mut`
+    // captures (needing a fresh reborrow each iteration) and the cloned ones (needing a fresh
+    // pre-clone each iteration).
+    val src =
+      """```scalascript
+        |case class Opts(maxNodes: Int)
+        |case class Doc(value: Option[Int])
+        |
+        |def resolveAll(docsIn: Vector[Doc], options: Opts): Either[Vector[String], Vector[Doc]] =
+        |  var diagnostics: Vector[String] = Vector.empty
+        |  var documents: Vector[Doc] = Vector.empty
+        |  var nodes = 0
+        |
+        |  docsIn.foreach { document =>
+        |    def cloneValue(value: Int, visiting: Set[Int]): Option[Int] =
+        |      nodes += 1
+        |      if nodes > options.maxNodes then
+        |        diagnostics = diagnostics :+ "too many nodes"
+        |        None
+        |      else if visiting.contains(value) then None
+        |      else Some(value)
+        |
+        |    val resolved = document.value.flatMap(v => cloneValue(v, Set.empty))
+        |    documents = documents :+ document.copy(value = resolved)
+        |  }
+        |  if diagnostics.nonEmpty then Left(diagnostics) else Right(documents)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("let diagnostics = &mut diagnostics;") && g.contains("let nodes = &mut nodes;")
+      && g.contains("let options = options.clone();"),
+      s"a closure calling a lifted def must reborrow &mut extras and pre-clone by-value extras:\n$g")
+
   test("`xs.count(_.field == x)` / `xs.filter(_.field == x)` — a placeholder predicate types cleanly"):
     // `lexed.tokens.count(_.kind == "yaml.anchor")` / `ranges.filter(_.start == index)`
     // (`uniml/yaml`) — `renderVecIterBody`'s `Term.AnonymousFunction` branch wrapped the WHOLE

@@ -10537,16 +10537,70 @@ object RustCodeWalk:
       val multiUseCaptures = readsAnyOf(body, (ctx.multiUse.filter(looksLikeBinding) -- localDeclNames(body)) -- paramNames)
         .filterNot(n => ctx.paramTypes.get(n).exists(_.startsWith("impl Fn")))
         .toList.sorted
-      for b <- renderTerm(body, bodyCtx)
+      // `document.value.flatMap(value => cloneValue(value, visiting))` where `cloneValue` is a
+      // LIFTED local def capturing `diagnostics`/`anchors`/... BY MUTABLE REFERENCE (`uniml/yaml`'s
+      // `YamlSemanticParser.scala`'s `resolve`, `cloneValue` called from a `.foreach` closure body
+      // — itself lowered to a Rust `for` loop) — the closure's SOURCE body never syntactically
+      // names `diagnostics` at all (it is spliced in only at RENDER TIME, by the lifted-call
+      // machinery a few hundred lines up), so `multiUseCaptures`/`capturedSignals` above — both
+      // walking the RAW SOURCE AST — can never see it. Once rendered, the call inside becomes
+      // `cloneValue(value, visiting, &mut diagnostics, ...)`, and because THIS closure is
+      // unconditionally `move`, Rust's capture inference — seeing only `&mut diagnostics` used
+      // inside — still MOVES the outer, plainly-owned `diagnostics` wholesale into the closure
+      // (a `move` closure captures the NAME, not just what the body does with it), and building
+      // the SAME closure literal again on the loop's next iteration re-moves an already-moved
+      // value: `error[E0382]: use of moved value: diagnostics, in previous iteration of loop`.
+      // `scanOpaque(validate, elements, …)`'s own comment a few hundred lines up already worked out
+      // the fix for the identical root cause one call-argument-nesting level over: reborrow
+      // explicitly (`let diagnostics = &mut *diagnostics;`) BEFORE the closure literal, so each
+      // loop iteration takes an independent fresh borrow instead of moving the original.
+      // `ctx.liftedDefMutWrites`, NOT `ctx.byRefMutWrite`: the latter describes what's `&mut` at
+      // THIS ctx's OWN scope (`resolve`'s ctx has none — `resolve` is a top-level def, not itself a
+      // lifted capture-receiver); `liftedDefMutWrites` is the map keyed the way this needs, callee
+      // name -> which of THAT callee's OWN captures it writes.
+      val liftedCallReborrows = body.collect {
+        case m.Term.Apply.After_4_6_0(m.Term.Name(callee), _) if ctx.liftedDefExtraArgs.contains(callee) =>
+          ctx.liftedDefExtraArgs(callee).toSet.filter(ctx.liftedDefMutWrites.getOrElse(callee, Set.empty))
+      }.flatten.distinct.sorted
+      // The NON-`&mut` half of the same extras (`options`, cloned rather than borrowed at the call
+      // — the lift's own `else s"$c.clone()"` branch) has the IDENTICAL "moved wholesale by a `move`
+      // closure rebuilt every loop iteration" problem `liftedCallReborrows` exists for, just without
+      // a `&mut` in the picture: `options.clone()` still READS the outer `options` first, and a
+      // `move` closure captures whatever it reads by MOVING the ORIGINAL variable in, regardless of
+      // read-only use inside — `error[E0382]: use of moved value: options, in previous iteration of
+      // loop`. Folded into `toClone` below (same "pre-clone into a shadow before the closure moves
+      // it" fix `capturedSignals`/`multiUseCaptures` already apply, for the identical reason).
+      val liftedCallClones = body.collect {
+        case m.Term.Apply.After_4_6_0(m.Term.Name(callee), _) if ctx.liftedDefExtraArgs.contains(callee) =>
+          ctx.liftedDefExtraArgs(callee).toSet -- ctx.liftedDefMutWrites.getOrElse(callee, Set.empty)
+      }.flatten.distinct.sorted
+      // The reborrow prelude below shadows each name with an already-`&mut` LOCAL — the extra-arg
+      // splice rendering (the `Term.Apply` case a few hundred lines up) must pass THAT bare, not
+      // wrap it in a SECOND `&mut` (`ctx.liftedMutableCaptures`, which still reflects the OUTER,
+      // plainly-owned binding, would otherwise do exactly that: `&mut &mut Vec<Diagnostic>` against
+      // a `&mut Vec<Diagnostic>` parameter, `error[E0308]`). Adding these names to `ctx.byRefMut`
+      // for JUST this body's own rendering reaches that case's existing `if ctx.byRefMut.contains(c)
+      // then c` branch (bare pass, relying on Rust's own auto-reborrow — the exact convention every
+      // OTHER already-reference capture already uses).
+      val reborrowCtx = bodyCtx.copy(byRefMut = bodyCtx.byRefMut ++ liftedCallReborrows)
+      for b <- renderTerm(body, reborrowCtx)
       yield
         val closure = s"move |${ok.mkString(", ")}| { $b }"
-        val toClone = (capturedSignals ++ multiUseCaptures).distinct
-        if toClone.isEmpty then closure
-        else
-          val clones = toClone
-            .map(n => s"let ${rustIdent(n)} = ${rustIdent(n)}.clone();")
-            .mkString(" ")
-          s"{ $clones $closure }"
+        val toClone = (capturedSignals ++ multiUseCaptures ++ liftedCallClones).distinct
+        // `&mut *n` reborrows an ALREADY-`&mut` name back to the SAME reference type (the
+        // `scanOpaque`/`elements` precedent: `elements` there is itself a lifted def's OWN `&mut`
+        // capture parameter). `diagnostics`/`nodes` here are the OPPOSITE — plainly OWNED locals/
+        // vars at THIS (non-lifted) ctx — so `*n` would deref straight past the `Vec` into its
+        // `[T]` slice body (`Vec`'s own `DerefMut` target), giving `&mut [T]` where `&mut Vec<T>`
+        // is wanted: `error[E0308]: expected &mut Vec<String>, found &mut [String]`. A plain
+        // `&mut n` (no deref) is correct for an owned name; only an ALREADY-reference name
+        // (`ctx.byRefMut.contains(n)`, checked against the OUTER ctx — this closure's own capture
+        // is what is being decided, not anything `reborrowCtx` already widened) needs the `*`.
+        val reborrows = liftedCallReborrows.map(n =>
+          if ctx.byRefMut.contains(n) then s"let $n = &mut *$n;" else s"let $n = &mut $n;")
+        val clones = toClone.map(n => s"let ${rustIdent(n)} = ${rustIdent(n)}.clone();")
+        val prelude = (reborrows ++ clones).mkString(" ")
+        if prelude.isEmpty then closure else s"{ $prelude $closure }"
 
   /** Extract the `case Eff.op(..) => …` arms from a `handle(body) { … }` cases argument
    *  (a partial function, possibly wrapped in a one-statement block). (R.4.2) */
