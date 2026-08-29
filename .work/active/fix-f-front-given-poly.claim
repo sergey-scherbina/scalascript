@@ -2,10 +2,10 @@ slug: fix-f-front-given-poly
 branch: feature/fix-f-front-given-poly
 agent: claude-code
 started: 2026-08-29T10:44:26Z
-heartbeat: 2026-08-29T12:59:19Z
+heartbeat: 2026-08-29T13:04:19Z
 status: in-progress
 items: fix-f-front-given-poly
-paths: file:v2/lib/ssc1-front.ssc0 file:v2/lib/ssc1-lower.ssc0 file:specs/v2.2-p6.5-fsub.ssc
+paths: file:v2/lib/ssc1-front.ssc0 file:v2/lib/ssc1-lower.ssc0 file:specs/v2.2-p6.5-fsub.ssc file:scripts/smoke-ci.ssc file:tests/e2e/v2-given-extension-typehead-gate.sh file:tests/e2e/v2-parametric-given-derivation-gate.sh file:specs/aggregation-algebra.md file:v2/BUGS.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: run board gates, commit, push
