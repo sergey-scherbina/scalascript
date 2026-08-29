@@ -11965,6 +11965,16 @@ object RustCodeWalk:
       }
       val pathPart = if ec.isStruct then ctorName else s"${ec.enumName}::$ctorName"
       Right(s"ref $n @ $pathPart { ${fieldBinds.mkString(", ")} }")
+    // `case YamlPropertyBoundary.Flow(value @ (']' | '}')) => …` (`uniml/yaml`'s
+    // `YamlPropertySyntax.scala`) — the SOURCE already parenthesizes the alternation, but the
+    // general `name @ Pattern` fallback just below renders `inner` bare and interpolates it
+    // straight after `@` with no parens: `value @ 93i64 | 125i64` — which Rust parses as `(value @
+    // 93i64) | 125i64`, an alternation of a BOUND pattern and an UNBOUND one, not a binding across
+    // the whole group. `error[E0408]: variable value is not bound in all patterns` (plus
+    // `error[E0381]` at every later read, since the binding is genuinely absent on the second
+    // arm). Rust requires explicit parens (`name @ (A | B)`) to bind across an alternation at all.
+    case m.Pat.Bind(m.Pat.Var(m.Term.Name(n)), inner: m.Pat.Alternative) =>
+      renderPattern(inner, ctx).map(p => s"$n @ ($p)")
     // `name @ Pattern` — the general pass-through for every OTHER shape (tuple ctor with no
     // fields, a nested sub-pattern, …). Rust has the identical construct, spelled identically.
     case m.Pat.Bind(m.Pat.Var(m.Term.Name(n)), inner) =>

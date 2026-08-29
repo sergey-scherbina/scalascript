@@ -2795,3 +2795,25 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(g.contains("(*lastSpan).clone().unwrap_or("),
       s"a byRefMut Option must be cloned before the consuming unwrap_or:\n$g")
+
+  test("`name @ (A | B)` — a bound pattern across an alternation keeps its parens"):
+    // `case YamlPropertyBoundary.Flow(value @ (']' | '}')) => …` (`uniml/yaml`'s
+    // `YamlPropertySyntax.scala`) — the source already parenthesizes the alternation, but the
+    // general `name @ Pattern` fallback rendered `inner` bare with no parens: `value @ 93i64 |
+    // 125i64`, which Rust parses as `(value @ 93i64) | 125i64` — a binding on only the FIRST arm:
+    // `error[E0408]: variable value is not bound in all patterns`, then `error[E0381]` at every
+    // later read.
+    val src =
+      """```scalascript
+        |enum Boundary:
+        |  case Flow(value: Char)
+        |  case Other
+        |
+        |def isCloser(b: Boundary): Boolean = b match
+        |  case Boundary.Flow(value @ (']' | '}')) => value == ']'
+        |  case _ => false
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("value @ (93i64 | 125i64)"),
+      s"a bound alternation pattern must keep explicit parens around the whole group:\n$g")
