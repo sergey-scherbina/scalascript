@@ -5619,6 +5619,21 @@ object RustCodeWalk:
             renderTerm(fn.body, ctx).map(b => s"|&$p| { $b }")
           case other => renderTerm(other, ctx).map(f => s"|&x| ($f)(*x)")
       yield s"$q.$rustMethod($f)"
+    // `value.drop(2).takeWhile(…)` on a STRING receiver (`uniml/xml`'s `Doc.scala`'s `validatePi`)
+    // — the Vec-shaped cases just below have no receiver-type guard at all, so a String reached
+    // `.into_iter()`, which `String` does not have (`error[E0599]`). `_str_substring_from`/
+    // `_str_substring` are this lane's own UTF-16-code-unit-indexed equivalents (matching
+    // `.charAt`/`.substring` everywhere else), the direct answer for `.drop`/`.take` too.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("drop")), a)
+        if a.values.size == 1 &&
+           (isStringExpr(qual) || (qual match { case m.Term.Name(n) => ctx.localStrings.contains(n); case _ => false })) =>
+      for q <- renderTerm(qual, ctx); k <- renderTerm(a.values.head, ctx)
+      yield s"crate::runtime::_str_substring_from(&$q, $k)"
+    case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("take")), a)
+        if a.values.size == 1 &&
+           (isStringExpr(qual) || (qual match { case m.Term.Name(n) => ctx.localStrings.contains(n); case _ => false })) =>
+      for q <- renderTerm(qual, ctx); k <- renderTerm(a.values.head, ctx)
+      yield s"crate::runtime::_str_substring(&$q, 0i64, $k)"
     // Vec `.take(n)` / `.drop(n)` (non-range): consume + re-collect. `.drop` must be
     // intercepted here or it resolves to Rust's `Drop::drop` destructor.
     case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("take")), a)
@@ -6304,6 +6319,14 @@ object RustCodeWalk:
     // walks forever.
     case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("mkString")), args) =>
       renderMkString(qual, args.values, ctx)
+    // `target.equalsIgnoreCase("xml")` (`uniml/xml`'s `Doc.scala`'s `validatePi`) — Rust has no
+    // direct equivalent; `.eq_ignore_ascii_case` is the closest built-in and is exact for THIS
+    // corpus's only call (comparing against the ASCII literal `"xml"`), the same "good enough for
+    // the actual argument" pragmatism `_str_matches`'s own comment already applies elsewhere.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("equalsIgnoreCase")), args)
+        if args.values.size == 1 =>
+      for q <- renderTerm(qual, ctx); a <- renderTerm(args.values.head, ctx)
+      yield s"$q.eq_ignore_ascii_case(&($a))"
     // `opt.getOrElse(default)` (one arg → native Option) → `opt.unwrap_or(default)`.  Map.getOrElse
     // takes two args (key, default) and is excluded by the arity guard. (rust-option-consumption)
     case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("getOrElse")), a) if a.values.size == 1 =>
@@ -6339,6 +6362,15 @@ object RustCodeWalk:
       val enriched = withTupleStringLocals(args.values.head, qual, ctx)
       for
         q <- renderTerm(qual, enriched)
+        // Deliberately NO `elemType` here, unlike `.map`'s own dispatch case just below: threading
+        // one through correctly typed `attribute` in `element.attrs.foreach { attribute => … }`
+        // (`uniml/xml`'s `Doc.scala`'s `validateNamespaces`), which fixed the ONE `error[E0599]:
+        // no method named flatMap` it targeted but surfaced several NEW `error[E0382]: borrow of
+        // moved value` sites at once elsewhere in the same body — a `move` closure nested inside
+        // this loop, reassigning a captured `HashMap` on every iteration, needing its own fix this
+        // lane does not have yet. Reverted after measuring net WORSE (17 -> 24 real errors) than
+        // leaving `attribute` untyped here; left as a known, narrower gap instead of trading one
+        // failure mode for a bigger one.
         body <- renderVecIterBody(args.values.head, q, enriched, method = "foreach")
       yield body
 
@@ -6384,6 +6416,22 @@ object RustCodeWalk:
         // exactly as it always was.
         body <- renderVecIterBody(args.values.head, q, ctx, method = "find", elemType = elementTypeOf(qual, ctx))
       yield body
+
+    // `value.drop(2).takeWhile(char => …)` on a STRING receiver (`uniml/xml`'s `Doc.scala`'s
+    // `validatePi`) — Scala's `String.takeWhile`/`.dropWhile` both return a `String`; the general
+    // Vec-shaped case a few hundred lines up has no receiver-type guard, so a String reached
+    // `.iter()`, which it does not have.
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(qual, m.Term.Name(mw @ ("takeWhile" | "dropWhile"))), args
+    ) if args.values.size == 1 && isStringReceiverChain(qual, ctx) =>
+      val rustMeth = if mw == "takeWhile" then "take_while" else "skip_while"
+      for
+        q    <- renderTerm(qual, ctx)
+        pred <- renderTerm(args.values.head, ctx)
+      // `Iterator::take_while`/`skip_while`'s OWN signature takes `&Item` (the SAME `.filter`
+      // shape `.count`'s own fix already found, not `.forall`/`.exists`'s by-value `Item`) — `__ch`
+      // here is `&char`, so `as u32` needs the SAME extra `*` `.count` needed.
+      yield s"$q.chars().$rustMeth(|__ch| ($pred)(((*__ch) as u32) as i64)).collect::<String>()"
 
     // `s.forall(p)` / `s.exists(p)` on a STRING receiver (`digits.forall(isHexDigit)`, `uniml/xml`'s
     // `Doc.scala`) — the general Vec-shaped case just below has no receiver-type guard at all, so a
@@ -6985,7 +7033,17 @@ object RustCodeWalk:
       for
         q    <- renderTerm(qual, ctx)
         from <- renderStrPatternArg(args.values(0), ctx)
-        to   <- renderStrPatternArg(args.values(1), ctx)
+        // `kind.replace('.', '-')` (`uniml/xml`'s `Doc.scala`) — UNLIKE `from` (a genuine
+        // `Pattern`, where `renderStrPatternArg`'s CHAR handling is correct), Rust's `str::replace`
+        // requires its SECOND argument to be `&str` specifically, never a bare `char` —
+        // `error[E0308]: expected &str, found char`. Wraps a char-shaped `to` in `.to_string()`
+        // (still borrowed, `&`, to match the parameter) instead of reusing `renderStrPatternArg`.
+        to0  <- renderTerm(args.values(1), ctx)
+        isCharTo = args.values(1) match
+                     case _: m.Lit.Char => true
+                     case other         => isConceptuallyChar(other, ctx)
+        to = if isCharTo then s"&char::from_u32(($to0) as u32).unwrap_or('\\u{FFFD}').to_string()"
+             else s"&($to0)"
       yield s"$q.replace($from, $to)"
 
     // Range methods: `(a until b)` -> Rust range `a..b`, `(a to b)` -> `a..=b`.
@@ -7816,6 +7874,12 @@ object RustCodeWalk:
       m.Term.Select(_, m.Term.Name("toString" | "trim")),
       args
     ) if args.values.isEmpty => true
+    // `inner.substring(1).forall(isEntityNameChar)` (`uniml/xml`'s `Doc.scala`) — `.substring`
+    // (either the one- or two-arg overload) always returns a `String`; without this case, the
+    // `.forall` a few hundred lines down never recognized ITS OWN qualifier as string-shaped and
+    // took the Vec-shaped `.iter()` lowering instead — `error[E0599]: no method named forall found
+    // for struct String`.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(_, m.Term.Name("substring")), _) => true
     // A call to a def DECLARED to return String. Without this, `"\\u" + hex(a) + hex(b)` lowered the
     // first link to `format!` and the rest to Rust's `+`, and `String + String` does not compile —
     // `Add<&str> for String` is the only impl, hence 7 x `expected &str, found String` on a real
@@ -7828,6 +7892,22 @@ object RustCodeWalk:
     case m.Term.ApplyInfix.After_4_6_0(l, m.Term.Name("+"), _, args) =>
       isStringExpr(l) || args.values.headOption.exists(isStringExpr)
     case _ => false
+
+  /** `isStringExpr` widened with a `ctx`, to follow a String-PRESERVING chain down to a BARE NAME
+   *  base (`value.drop(2)` — `isStringExpr` alone has no way to know a bare `Term.Name` like
+   *  `value` is a String; only `ctx.localStrings`, which it deliberately has no `ctx` parameter to
+   *  read, can answer that). `value.drop(2).takeWhile(…)` (`uniml/xml`'s `Doc.scala`'s
+   *  `validatePi`) needs exactly this one level of chaining `isStringExpr` could not do alone:
+   *  `.takeWhile`'s own guard checked `isStringExpr(qual) || (qual match { case Name(n) => …})`,
+   *  which only ever looked at the OUTERMOST link (`value.drop(2)`, not itself a `Name`) — never
+   *  the CHAIN's base. Scoped to the two String-preserving methods this corpus's own chain uses
+   *  (`.drop`/`.take`); a chain through more of them can extend this list the same way, not by
+   *  guessing at the general case up front. */
+  private def isStringReceiverChain(t: m.Term, ctx: Ctx): Boolean = t match
+    case m.Term.Name(n) => ctx.localStrings.contains(n) || isStringExpr(t)
+    case m.Term.Apply.After_4_6_0(m.Term.Select(inner, m.Term.Name("drop" | "take")), _) =>
+      isStringReceiverChain(inner, ctx)
+    case other => isStringExpr(other)
 
   /** Best-effort check that a term is an `Either`-shaped expression so we can
    *  route `.map/.flatMap/.fold` to Rust `Either`.

@@ -385,10 +385,26 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # lifted local def's OWN `.charAt`-bound locals were invisible to `yieldsSscChar` (the enclosing
 # function's `localSscChars` pre-pass does not descend into a nested def's body at all), now
 # recomputed from the lifted def's own body. Same terms as every entry above. 17 errors remain.
+#
+# renderTerm 33150 -> 33726 (+576), continuing "fix everything remaining" on uniml/xml, 17 -> 14
+# across one more commit. New/widened arms: `.drop`/`.take` on a KNOWN String receiver (UTF-16-
+# indexed `_str_substring_from`/`_str_substring`, not the Vec-shaped `.into_iter()` a few lines
+# below with no receiver-type guard at all); `.takeWhile`/`.dropWhile` widened to the same String
+# case (with the SAME `&Item`-vs-`Item` deref `.count`'s own fix already needed, for
+# `take_while`/`skip_while` specifically); `.replace(from, to)` keeps `to` a `&str` even when it is
+# a char literal (only `from` is a genuine `Pattern`); `.equalsIgnoreCase` renamed to
+# `.eq_ignore_ascii_case`. Also tried and REVERTED after measuring net WORSE (17 -> 24 errors):
+# threading `elemType` through the generic `.foreach` dispatch the way `.map`'s own case already
+# does — it fixed the one `.flatMap`-on-Option case it targeted but surfaced a `move`-closure-
+# reassigning-a-captured-HashMap issue this lane does not have a fix for yet; left as a documented,
+# narrower gap instead. `isStringExpr` gained a `.substring` case, and a new `isStringReceiverChain`
+# helper (which does NOT touch `renderTerm`) follows a `.drop`/`.take` chain down to a bare-name
+# base via `ctx.localStrings`, something `isStringExpr` alone (no `ctx`) cannot do. Same terms as
+# every entry above. 14 errors remain.
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-33150 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+33726 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

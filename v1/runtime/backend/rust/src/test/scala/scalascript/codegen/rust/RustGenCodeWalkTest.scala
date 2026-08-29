@@ -1380,3 +1380,65 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(g.contains("ref e @"), s"the typed bind should still render as a ref-bound pattern:\n$g")
+
+  test("`s.replace(from, to)` keeps `to` a `&str` even when it's a char literal"):
+    // `kind.replace('.', '-')` (`uniml/xml`'s `Doc.scala`) — Rust's `str::replace` requires its
+    // SECOND argument to be `&str` specifically (unlike `from`, a genuine `Pattern` where a `char`
+    // is fine) — `error[E0308]: expected &str, found char` without the wrap.
+    val src =
+      """```scalascript
+        |def dashIt(kind: String): String = kind.replace('.', '-')
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".replace("), s".replace should still lower:\n$g")
+    assert(!g.contains("'-')") && !g.contains(", '-'"),
+      s"the `to` argument must not stay a bare char literal (needs &str):\n$g")
+
+  test("`.drop(n)`/`.take(n)`/`.takeWhile(p)` on a String use UTF-16-indexed substrings, not `.iter()`"):
+    // `value.drop(2).takeWhile(char => …)` (`uniml/xml`'s `Doc.scala`'s `validatePi`) — the
+    // Vec-shaped `.drop`/`.take`/`.takeWhile` cases have no receiver-type guard, so a String
+    // reached `.into_iter()`/`.iter()`, which it does not have.
+    val src =
+      """```scalascript
+        |def target(value: String): String = value.drop(2).takeWhile(c => c != '?')
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("_str_substring_from"), s".drop on a String should use the UTF-16-indexed substring helper:\n$g")
+    assert(g.contains(".chars().take_while("), s".takeWhile on a String should use .chars().take_while(...):\n$g")
+
+  test("`.substring(i)` makes its receiver known as a String for a chained `.forall`"):
+    // `inner.substring(1).forall(isEntityNameChar)` (`uniml/xml`'s `Doc.scala`) — `isStringExpr`
+    // had no case for `.substring` at all, so `.forall`'s own String-receiver guard never
+    // recognized its OWN qualifier: `error[E0599]: no method named forall found for struct String`.
+    val src =
+      """```scalascript
+        |def isAllLetters(inner: String): Boolean = inner.substring(1).forall(c => c != 63L)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".chars().all("), s".forall on a .substring(...) receiver should use .chars().all(...):\n$g")
+
+  test("`s.equalsIgnoreCase(other)` renames to `.eq_ignore_ascii_case`"):
+    // `target.equalsIgnoreCase("xml")` (`uniml/xml`'s `Doc.scala`'s `validatePi`) — Rust has no
+    // direct equivalent at all: `error[E0599]: no method named equalsIgnoreCase found for String`.
+    val src =
+      """```scalascript
+        |def isXml(target: String): Boolean = target.equalsIgnoreCase("xml")
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".eq_ignore_ascii_case("), s".equalsIgnoreCase should rename to .eq_ignore_ascii_case:\n$g")
+
+  test("`.takeWhile`/`.dropWhile` on a String deref the `&char` predicate argument"):
+    // Regression check on `.count`'s own fix, applied to the SAME `Iterator::take_while`/
+    // `skip_while` shape (`&Item`, not `.forall`/`.exists`'s by-value `Item`) — a bare `(__ch as
+    // u32)` on the `&char` these two get would be `error[E0606]: casting &char as u32 is invalid`.
+    val src =
+      """```scalascript
+        |def target(value: String): String = value.takeWhile(c => c != '?')
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("(*__ch)"), s"the &char predicate argument needs a deref before casting:\n$g")
