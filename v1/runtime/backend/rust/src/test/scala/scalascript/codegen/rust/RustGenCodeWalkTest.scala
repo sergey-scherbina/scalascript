@@ -2946,6 +2946,26 @@ class RustGenCodeWalkTest extends AnyFunSuite:
       && g.contains("fn consume(buffering: bool) -> i64"),
       s"a lifted def's captured type must resolve through .mkString/.length/a bool ApplyInfix:\n$g")
 
+  test("a bare no-paren .isEmpty on a case class's OWN String field resolves via paramTypes"):
+    // `titleLex.isEmpty` inside `def title: Option[String] = …` (`uniml/markdown`'s
+    // `MarkdownBlocks.scala`'s `RefDef`) — `titleLex` is the case class's OWN constructor param,
+    // read bare (implicit `this.`) from one of its own methods; it is never added to
+    // `ctx.localStrings` (that set only ever collects LOCAL `val`s a method's own body declares),
+    // but `ctx.paramTypes` already carries it as `"String"` (`renderDef`'s own `ownFieldTypes`,
+    // folded into `paramTypes` at `Ctx`-construction time) — the same table `isKnownStringField`'s
+    // `check` function already reads for the identical reason. Without this: "reads isEmpty
+    // without parentheses ... it is a collection member, not a field".
+    val src =
+      """```scalascript
+        |case class RefDef(titleLex: String):
+        |  def title: Option[String] =
+        |    if titleLex.isEmpty then None else Some(titleLex.substring(1, titleLex.length - 1))
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("if titleLex.is_empty() { None }"),
+      s"a bare no-paren .isEmpty on a case class's own String field must resolve via paramTypes:\n$g")
+
   test("`xs.count(_.field == x)` / `xs.filter(_.field == x)` — a placeholder predicate types cleanly"):
     // `lexed.tokens.count(_.kind == "yaml.anchor")` / `ranges.filter(_.start == index)`
     // (`uniml/yaml`) — `renderVecIterBody`'s `Term.AnonymousFunction` branch wrapped the WHOLE

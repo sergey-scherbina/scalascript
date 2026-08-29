@@ -876,10 +876,19 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # rather than shared, since that function's own dispatch is Vec-specific throughout. The lookup
 # itself (`optionElementTypeOf`, the `Option` twin of `elementTypeOf`) is a separate function and
 # costs nothing. Re-verified uniml/xml, uniml/json, and uniml/yaml all still build clean (0 errors).
+#
+# renderTerm 39137 -> 39241 (+104), continuing uniml/markdown, 26 -> 25. `titleLex.isEmpty` inside
+# `def title: Option[String] = …` (`MarkdownBlocks.scala`'s `RefDef`) — `titleLex` is the case
+# class's OWN constructor param, read bare (implicit `this.`) from one of its own methods; it is
+# never added to `ctx.localStrings` (that set only ever collects LOCAL `val`s a method's own body
+# declares), but `ctx.paramTypes` already carries it as `"String"` (`renderDef`'s own
+# `ownFieldTypes`, folded into `paramTypes` at `Ctx`-construction time). Widened the existing
+# `.nonEmpty`/`.isEmpty` guard's bare-name disjunct — inline in this arm's own case, the growth.
+# Re-verified uniml/xml, uniml/json, and uniml/yaml all still build clean (0 errors).
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-39137 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+39241 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

@@ -6763,7 +6763,16 @@ object RustCodeWalk:
               case m.Term.Apply.After_4_6_0(m.Term.Name(n), idx) if idx.values.sizeIs == 1 =>
                 ctx.paramTypes.get(n).contains("Vec<String>")
               case _ => false
-            })) &&
+            }) ||
+            // `titleLex.isEmpty` inside `def title: Option[String] = …` (`uniml/markdown`'s
+            // `MarkdownBlocks.scala`'s `RefDef`) — `titleLex` is the case class's OWN constructor
+            // param, read bare (implicit `this.`) from one of its own methods; it is never added
+            // to `ctx.localStrings` (that set only ever collects LOCAL `val`s a method's own body
+            // declares), but `ctx.paramTypes` already carries it as `"String"` — `renderDef`'s own
+            // `ownFieldTypes` folds every self field into `paramTypes` at `Ctx`-construction time,
+            // the same table `isKnownStringField`'s `check` function already reads for the
+            // identical reason.
+            (qual match { case m.Term.Name(n) => ctx.paramTypes.get(n).contains("String"); case _ => false })) &&
            Set("nonEmpty", "isEmpty").contains(meth) =>
       renderTerm(qual, ctx).map(q => if meth == "isEmpty" then s"$q.is_empty()" else s"!$q.is_empty()")
 
