@@ -872,11 +872,21 @@ way, and builds the instance directly as CoreIR. Verified: the tuple case answer
 single-param wrapper case answers `7`; a TWO-LEVEL nested case (a tuple instance wrapped in
 another parametric given) answers `(3, ab)` too.
 
-F (`specs/v2.2-p6.5-fsub.ssc`) is a SEPARATE self-hosted compiler, not a type-checking pass over
-the reference front's output — it does not parse this parametric-given syntax yet, so a file using
-it compiles via F's own designed fallback target (`bin/ssc1-run.ssc0`) instead, an honest gap
-(`ssc info --front-report` names it), not a regression. Porting the derivation into F itself is a
-separate, tracked follow-up in the same BUGS.md entry.
+**FIXED 2026-08-29, in F too.** F (`specs/v2.2-p6.5-fsub.ssc`) is a SEPARATE self-hosted compiler,
+not a type-checking pass over the reference front's output; it initially fell back to its own
+designed fallback target (`bin/ssc1-run.ssc0`) for this syntax, an honest gap, not a regression, but
+now parses and resolves it directly — `ssc info --front-report` on every repro above now names `F`,
+not a fallback. The port mirrors `ssc1-lower.ssc0`'s algorithm exactly (string-structure unification
+of a declared pattern against a concrete request, recursive `using` resolution, an `(app (lam n
+dict) args...)` closure in place of `IrApp(IrLam(n,...), args)` — F emits pre-rendered IR strings
+directly, so the resolved instance is one too) in F's own point-free, no-`let` style. Two defects
+surfaced and were fixed along the way, both silent: a paren-count error in the new `cx`-tuple slot
+(`polyGivenTabOf`) that broke even ORDINARY, non-parametric givens — found by bisecting a "some
+givens now fail" symptom down to the simplest possible case, since F's own self-hosting means a
+single stray parenthesis anywhere corrupts everything parsed after it, not just the new code path —
+and `parseUsingParam` checking for the numeric token code F uses for the `def` keyword instead of
+"any lowercase identifier", which silently failed to consume a `using` clause and produced a
+misaligned re-parse (`unbound global: ma`, not a parse error) rather than a clean refusal.
 
 The type-lambda `Profunctor` case in §11.3 is a DIFFERENT mechanism (extension-method dispatch by
 receiver type, not `summon[TC[X]]`) and was **also fixed, in the same commit** — see

@@ -629,6 +629,10 @@ def binPrecK(k) = if k == 57 then 1 else (if k == 47 then 1 else (if k == 46 the
 // G3: innermost is now `(objReg, (funcDflts, givenTab))`; givenTab = [((tc, typeName), gname)] built from
 // given_obj decls (collectGivenTable), used to resolve `summon[TC[T]]` → the given (findGivenF). funcDfltsOf
 // now takes `fst` of the pair after objReg; givenTabOf its `snd`.
+// G3: innermost is now `(objReg, (funcDflts, givenTab))`; the 13th positional param IS that whole
+// nested tail (givenTab, (usingSig, (extMethods, (mangle, (objVarargs, (retTab, (curObj, (curried,
+// polyGivenTab)))))))) — every accessor above reads one slot of it. Callers build that tail with
+// the SAME nesting `mkCx` expects; there is no separate constructor per slot.
 def mkCx(dq, ccNames, fldNames, valNames, ecn, ereg, varNames, bs, pless, sub, objReg, funcDflts, givenTab) = (dq, (ccNames, (fldNames, (valNames, (ecn, (ereg, (varNames, (bs, (pless, (sub, (objReg, (funcDflts, givenTab))))))))))))
 def dqOf(cx) = fst(cx)
 def bsOf(cx) = fst(snd(snd(snd(snd(snd(snd(snd(cx))))))))
@@ -663,7 +667,14 @@ def retTabOf(cx) = fst(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(s
 // accessor written one `snd` short here once cost an afternoon, and the symptom was a match failure
 // nowhere near this line.
 def curObjOf(cx) = fst(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(cx)))))))))))))))))))
-def curriedOf(cx) = snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(cx)))))))))))))))))))
+// KC-poly (2026-08-29): the deepest cell became `(curried, polyGivenTab)` — curriedOf gained a
+// `fst` (was the bare tail, now the first half of one more pair) and polyGivenTabOf reads the new
+// second half. polyGivenTab = [(tc, (typeParams, (pattern, (usingParams, (gname, bodyToks)))))],
+// one entry per `given gname[T,...](using u: Ty, ...): tc[pattern] with { bodyToks }` — mirrors
+// ssc1-lower's kc5PolyGivenCell, resolved at each `summon[tc[concrete]]` call site instead of at
+// its own declaration (see resolveTcRequest / resolvePolyGiven below).
+def curriedOf(cx) = fst(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(cx))))))))))))))))))))
+def polyGivenTabOf(cx) = snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(cx))))))))))))))))))))
 // True when `nm` is a `var` member of the object being lowered right now. Locals are checked BEFORE
 // this at every call site, so a parameter or a nested val still shadows the member, as in Scala.
 // OBJ-SCOPE payload is `(name, (varMemberNames, defMemberNames))`. It carried only the var list
@@ -681,7 +692,7 @@ def curObjCell(nm, cx) = fst(curObjOf(cx)) ++ "_" ++ nm ++ "__cell"
 // `isObjMember` reads for the qualified case, so no new bookkeeping is introduced.
 def isCurObjMethod(nm, cx) = if fst(curObjOf(cx)) == "" then false else memL(nm, snd(snd(curObjOf(cx))))
 def curObjMethod(nm, cx) = fst(curObjOf(cx)) ++ "_" ++ nm
-def withCurObj(o, cx) = mkCx(dqOf(cx), ccNamesOf(cx), fldNamesOf(cx), valNamesOf(cx), enumCaseNamesOf(cx), enumRegOf(cx), varNamesOf(cx), bsOf(cx), plessOf(cx), subInfoOf(cx), objRegOf(cx), funcDfltsOf(cx), (givenTabOf(cx), (usingSigOf(cx), (extMethodsOf(cx), (mangleOf(cx), (objVarargsOf(cx), (retTabOf(cx), (o, curriedOf(cx)))))))))
+def withCurObj(o, cx) = mkCx(dqOf(cx), ccNamesOf(cx), fldNamesOf(cx), valNamesOf(cx), enumCaseNamesOf(cx), enumRegOf(cx), varNamesOf(cx), bsOf(cx), plessOf(cx), subInfoOf(cx), objRegOf(cx), funcDfltsOf(cx), (givenTabOf(cx), (usingSigOf(cx), (extMethodsOf(cx), (mangleOf(cx), (objVarargsOf(cx), (retTabOf(cx), (o, (curriedOf(cx), polyGivenTabOf(cx))))))))))
 def ccNamesOf(cx) = fst(snd(cx))
 def fldNamesOf(cx) = fst(snd(snd(cx)))
 def valNamesOf(cx) = fst(snd(snd(snd(cx))))
@@ -2919,7 +2930,14 @@ def isObjVarMember(name, m, cx) = if name == "" then false else memL(m, objVarMe
 // erasing branches use it instead. It also covers heads skipStmt cannot see: `given [T] …` opens on `[`.
 def isGivenHead(ts) = isWord(hd(ts), "given")
 def givenItem(ts, cx) = if fst(hd(tl(ts))) == 1 then givenNamed(snd(hd(tl(ts))), tl(tl(ts)), ts, cx) else (("", ""), skipGivenDecl(ts))
-def givenNamed(gname, t2, ts, cx) = if isTok(hd(t2), 2, 20) then givenValItem(gname, tl(t2), cx) else (if isTok(hd(t2), 2, 34) then givenAfterColon(gname, skipTypeRef(tl(t2)), ts, cx) else (("", ""), skipGivenDecl(ts)))
+// KC-poly (2026-08-29): `given gname[T,...](using u: Ty, ...): TargetTC[pattern] with { body }` —
+// a `given` that is itself generic and takes another `given` as a `using` parameter. Recognized by
+// `[` right after the name (an ordinary given's name is followed by `:` or `=`). Emits NOTHING at
+// its own declaration site — every use is resolved, and its instance built inline, at the
+// `summon[TargetTC[Concrete]]` call site instead (resolveTcRequest/resolvePolyGiven below), because
+// the concrete type — and therefore which `using` instances it needs — isn't known until then.
+// collectPolyGivenTable (a separate pre-pass, mirroring collectGivenTable) records the metadata.
+def givenNamed(gname, t2, ts, cx) = if isTok(hd(t2), 2, 20) then givenValItem(gname, tl(t2), cx) else (if isTok(hd(t2), 2, 34) then givenAfterColon(gname, skipTypeRef(tl(t2)), ts, cx) else (if isTok(hd(t2), 2, 50) then (("", ""), skipPolyGivenDecl(t2)) else (("", ""), skipGivenDecl(ts))))
 def givenAfterColon(gname, t3, ts, cx) = if isWord(hd(t3), "with") then givenObjItem(gname, objBodyToks(t3), cx) else (if isTok(hd(t3), 2, 20) then givenValItem(gname, tl(t3), cx) else (("", ""), skipGivenDecl(ts)))
 def givenValItem(gname, ts, cx) = bodyExpr(ts, Nil, cx) match { case (b, r) => (("(def " ++ gname ++ " " ++ erase(b, cx) ++ ")", ""), r) }
 def givenObjItem(gname, ts, cx) = if isTok(hd(ts), 2, 28) then givenObjEmit(gname, collectObjMembers(tl(ts)), cx, skipBrace(tl(ts), 1)) else (("", ""), ts)
@@ -2982,14 +3000,169 @@ def findGivenF1(h, r, tc, tn) = h match { case (gtype, gname) => gtype match { c
 // the bound desugared into — before any table lookup. Without this the abstract type `A` matches no
 // given and summonEmit fell through to the bare `(global summon)`.
 def parseSummon(ts, env, cx) = summonCtx(lookup("__tc_" ++ fst(parseTCTypeD(tl(ts))), env), ts, env, cx)
-def summonCtx(i, ts, env, cx) = if i >= 0 then ("(local " ++ i ++ ")", skipGen(ts)) else summonEmit(findGivenF(givenTabOf(cx), fst(parseTCTypeD(tl(ts))), snd(parseTCTypeD(tl(ts)))), skipGen(ts), cx)
+def summonCtx(i, ts, env, cx) = if i >= 0 then ("(local " ++ i ++ ")", skipGen(ts)) else summonEmit(fst(parseTCTypeD(tl(ts))), snd(parseTCTypeD(tl(ts))), findGivenF(givenTabOf(cx), fst(parseTCTypeD(tl(ts))), snd(parseTCTypeD(tl(ts)))), skipGen(ts), cx)
 // bareCtor: a resolved given that is a top-level VAL (derived `__derived_TC_T`) reads via cell.get; a DEF
 // (given_obj/given-val/`__mirror_T`) reads as a bare global — exactly the oracle's `(var gname)` resolution.
-def summonEmit(gopt, rest, cx) = gopt match { case Some(g) => (bareCtor(g, cx), rest) case None => ("(global summon)", rest) }
+// A miss in the PLAIN table tries KC-poly derivation before falling back to the bare `(global
+// summon)` refusal — mirrors ssc1-lower's resolveTcRequest: the plain table first (unchanged, exact
+// match, the path every non-derived given already used), derivation only on a miss there, so a
+// request that already resolved before KC-poly existed resolves exactly the same way, unchanged.
+def summonEmit(tc, tn, gopt, rest, cx) = gopt match { case Some(g) => (bareCtor(g, cx), rest) case None => (summonEmitPoly(tc, tn, cx), rest) }
+def summonEmitPoly(tc, tn, cx) = resolvePolyGiven(tc, tn, cx, 8) match { case Some(expr) => expr case None => "(global summon)" }
 // A QUALIFIED TC head for summon: `Mirror.Of[Person]` -> ("Mirror.Of", "Person") (dotted name joined),
 // `Csv[Person]` -> ("Csv", "Person"). parseTCType alone stops at the `.` and mis-keys dotted TCs.
 def parseTCTypeD(ts) = parseTCTypeD1(snd(hd(ts)), tl(ts))
 def parseTCTypeD1(acc, ts) = if isTok(hd(ts), 2, 31) then parseTCTypeD1(acc ++ "." ++ snd(hd(tl(ts))), tl(tl(ts))) else (acc, innerTypeStr(ts))
+
+// -- KC-poly: parametric `given` derivation (mirrors ssc1-lower :862-1191; same algorithm, F's own
+//    token-stream parsing style and String API instead of the #s* primitives and IrApp/IrLam nodes
+//    — F emits pre-rendered IR STRINGS directly, so the resolved instance is one too) -------------
+
+// "[T1, T2, ...]" starting AT "[" -> ([names], restTokens). Names are UPPERCASE (kind 3), same as
+// every other type reference in this front. They matter ONLY to the unifier below — the given's
+// body never references them as values (types are erased everywhere else in this front too).
+def parseTypeParamNames(ts) = if isTok(hd(ts), 2, 50) then parseTPN(tl(ts)) else (Nil, ts)
+def parseTPN(ts) = if fst(hd(ts)) == 3 then parseTPN1(snd(hd(ts)), tl(ts)) else (Nil, ts)
+def parseTPN1(nm, ts) = if isTok(hd(ts), 2, 27) then (parseTPN(tl(ts)) match { case (rest, r) => (Cons(nm, rest), r) }) else (Cons(nm, Nil), (if isTok(hd(ts), 2, 51) then tl(ts) else ts))
+
+// "(using p1: Ty1, p2: Ty2, ...)" — ts starts right after "(using". typeText (:3758, already used
+// by skipParamType/collectField1) reads a raw type as source text, stopping at the same depth-0
+// `,`/`)`/`=` a using-param's type is bounded by.
+def parseUsingParams(ts) = if isTok(hd(ts), 2, 22) then (Nil, tl(ts)) else parseUsingParam(ts)
+def parseUsingParam(ts) = if fst(hd(ts)) == 1 then parseUsingParam1(snd(hd(ts)), tl(ts)) else (Nil, ts)
+def parseUsingParam1(pname, ts) = if isColonTok(hd(ts)) then (typeText(tl(ts), 0, "") match { case (pty, r) => parseUsingParam2(pname, pty, r) }) else (Nil, ts)
+def parseUsingParam2(pname, pty, ts) = if isTok(hd(ts), 2, 27) then (parseUsingParams(tl(ts)) match { case (rest, r) => (Cons((pname, pty), rest), r) }) else (Cons((pname, pty), Nil), tl(ts))
+
+// Emission-pass skip: a poly given emits NOTHING at its own declaration (every use is resolved,
+// and its instance built inline, at the summon call site) — just skip past the whole declaration.
+def skipPolyGivenDecl(t2) = skipPGDAfterTP(skipGen(t2))
+def skipPGDAfterTP(ts) = if isTok(hd(ts), 2, 21) then (if isWord(hd(tl(ts)), "using") then (parseUsingParams(tl(tl(ts))) match { case (up, r) => skipPGDColon(r) }) else skipPGDColon(ts)) else skipPGDColon(ts)
+def skipPGDColon(ts) = if isColonTok(hd(ts)) then skipPGDWith(skipTypeRef(tl(ts))) else ts
+def skipPGDWith(ts) = if isWord(hd(ts), "with") then skipBrace(tl(objBodyToks(ts)), 1) else ts
+
+// Table pre-pass (mirrors collectGivenTable's own shape): [(tc, (typeParams, (pattern, (usingParams,
+// (gname, bodyToks)))))], one entry per poly given. bodyToks are the RAW member tokens (right after
+// the opening brace) — re-parsed fresh at EACH summon call site, since different concrete requests
+// bind the type params differently (only the VALUES a using-param resolves to differ; the body's
+// own emitted code does not depend on which concrete type was requested, since types are erased).
+def collectPolyGivenTable(ts) = if isEmpty(ts) then Nil else (if isGivenHead(ts) then collectPGT(ts) else collectPolyGivenTable(tl(ts)))
+def collectPGT(ts) = if fst(hd(tl(ts))) == 1 then collectPGT1(snd(hd(tl(ts))), tl(tl(ts)), ts) else collectPolyGivenTable(tl(ts))
+def collectPGT1(gname, t2, ts) = if isTok(hd(t2), 2, 50) then (parseTypeParamNames(t2) match { case (tparams, t3) => collectPGT2(gname, tparams, t3, ts) }) else collectPolyGivenTable(tl(ts))
+def collectPGT2(gname, tparams, t3, ts) = if isTok(hd(t3), 2, 21) then (if isWord(hd(tl(t3)), "using") then (parseUsingParams(tl(tl(t3))) match { case (uparams, t4) => collectPGT3(gname, tparams, uparams, t4, ts) }) else collectPolyGivenTable(tl(ts))) else collectPolyGivenTable(tl(ts))
+def collectPGT3(gname, tparams, uparams, t4, ts) = if isColonTok(hd(t4)) then (parseTCType(tl(t4)) match { case (tc, pattern) => collectPGT4(gname, tparams, uparams, tc, pattern, skipTypeRef(tl(t4)), ts) }) else collectPolyGivenTable(tl(ts))
+def collectPGT4(gname, tparams, uparams, tc, pattern, t5, ts) = if isWord(hd(t5), "with") then collectPGT5(gname, tparams, uparams, tc, pattern, objBodyToks(t5)) else collectPolyGivenTable(tl(ts))
+def collectPGT5(gname, tparams, uparams, tc, pattern, bts) = if isTok(hd(bts), 2, 28) then Cons((tc, (tparams, (pattern, (uparams, (gname, tl(bts)))))), collectPolyGivenTable(skipBrace(tl(bts), 1))) else collectPolyGivenTable(tl(bts))
+def polyEntriesForTc(entries, tc) = entries match { case Nil => Nil case e :: rest => e match { case (etc, edata) => if etc == tc then Cons(edata, polyEntriesForTc(rest, tc)) else polyEntriesForTc(rest, tc) } }
+
+// String-structure unification of a poly given's declared pattern against a concrete summon
+// request — both are just strings (parseTCType's own format), so there is no full type here to
+// unify structurally; split on the delimiters a type string can contain (tuples, `Name[...]`
+// applications) and recurse, treating a piece that IS one of the given's own type-param names as a
+// hole to bind rather than compare. `unifyGivenType(["A","B"], "(A,B)", "(Int,String)")` ->
+// `Some([("A","Int"),("B","String")])`; `unifyGivenType(["A"], "Box[A]", "Box[Int]")` ->
+// `Some([("A","Int")])`. A literal (non-hole, no brackets) piece must match EXACTLY.
+def trimStr(s) = trimStrL(s, 0, s.length)
+def trimStrL(s, i, n) = if i >= n then s.substring(n, n) else (if s.charAt(i) == 32 then trimStrL(s, i + 1, n) else trimStrR(s, i, n - 1))
+def trimStrR(s, i, j) = if j < i then s.substring(i, i) else (if s.charAt(j) == 32 then trimStrR(s, i, j - 1) else s.substring(i, j + 1))
+// Split at DEPTH-0 commas only ("(A, B), C" splits as ["(A, B)", " C"], never inside the parens).
+def splitTopLevelCommas(s) = splitTLC(s, 0, 0, 0, s.length)
+def splitTLC(s, i, depth, start, n) = if i >= n then Cons(s.substring(start, n), Nil) else splitTLC1(s, i, depth, start, n, s.charAt(i))
+def splitTLC1(s, i, depth, start, n, c) = if c == 40 then splitTLC(s, i + 1, depth + 1, start, n) else (if c == 91 then splitTLC(s, i + 1, depth + 1, start, n) else (if c == 41 then splitTLC(s, i + 1, depth - 1, start, n) else (if c == 93 then splitTLC(s, i + 1, depth - 1, start, n) else (if c == 44 then splitTLC2(s, i, depth, start, n) else splitTLC(s, i + 1, depth, start, n)))))
+def splitTLC2(s, i, depth, start, n) = if depth == 0 then Cons(s.substring(start, i), splitTLC(s, i + 1, 0, i + 1, n)) else splitTLC(s, i + 1, depth, start, n)
+def lookupBinding(binds, name) = binds match { case Nil => None case h :: rest => lookupBinding1(h, rest, name) }
+def lookupBinding1(h, rest, name) = h match { case (n, v) => (if n == name then Some(v) else lookupBinding(rest, name)) }
+// Union two binding sets, requiring the SAME hole to bind to the SAME concrete string wherever it
+// appears more than once (`Monoid[(A,A)]` unified against `Monoid[(Int,String)]` must fail).
+def mergeBindings(a, b) = a match { case Nil => Some(b) case h :: rest => mergeBindings0(h, rest, b) }
+def mergeBindings0(h, rest, b) = h match { case (n, v) => mergeBindings1(n, v, rest, b) }
+def mergeBindings1(n, v, rest, b) = lookupBinding(b, n) match { case None => mergeBindings2(n, v, rest, b) case Some(v2) => (if v == v2 then mergeBindings(rest, b) else None) }
+def mergeBindings2(n, v, rest, b) = mergeBindings(rest, b) match { case None => None case Some(m) => Some(Cons((n, v), m)) }
+def unifyGivenTypeList(typeParams, pParts, cParts) = pParts match { case Nil => unifyGTLNil(cParts) case p :: pRest => unifyGivenTypeList1(typeParams, p, pRest, cParts) }
+def unifyGTLNil(cParts) = cParts match { case Nil => Some(Nil) case _ => None }
+def unifyGivenTypeList1(typeParams, p, pRest, cParts) = cParts match { case Nil => None case c :: cRest => unifyGivenTypeList1b(typeParams, p, c, pRest, cRest) }
+def unifyGivenTypeList1b(typeParams, p, c, pRest, cRest) = unifyGivenType(typeParams, p, c) match { case None => None case Some(binds1) => unifyGivenTypeList2(typeParams, pRest, cRest, binds1) }
+def unifyGivenTypeList2(typeParams, pRest, cRest, binds1) = unifyGivenTypeList(typeParams, pRest, cRest) match { case None => None case Some(binds2) => mergeBindings(binds1, binds2) }
+def unifyGivenType(typeParams, pattern0, concrete0) = unifyGT(typeParams, trimStr(pattern0), trimStr(concrete0))
+def unifyGT(typeParams, pattern, concrete) = if memL(pattern, typeParams) then Some(Cons((pattern, concrete), Nil)) else unifyGT2(typeParams, pattern, concrete, pattern.length, concrete.length)
+def unifyGT2(typeParams, pattern, concrete, plen, clen) = if plen == 0 then (if clen == 0 then Some(Nil) else None) else (if pattern.charAt(0) == 40 then unifyGTTuple(typeParams, pattern, concrete, plen, clen) else unifyGTHead(typeParams, pattern, concrete, plen, clen))
+def unifyGTTuple(typeParams, pattern, concrete, plen, clen) = if clen < 1 then None else (if concrete.charAt(0) == 40 then unifyGivenTypeList(typeParams, splitTopLevelCommas(pattern.substring(1, plen - 1)), splitTopLevelCommas(concrete.substring(1, clen - 1))) else None)
+def unifyGTHead(typeParams, pattern, concrete, plen, clen) = unifyGTHead1(typeParams, pattern, concrete, plen, clen, findBrIdx(pattern, 0, plen))
+def unifyGTHead1(typeParams, pattern, concrete, plen, clen, bi) = if bi < 0 then (if pattern == concrete then Some(Nil) else None) else unifyGTHead2(typeParams, pattern.substring(bi + 1, plen - 1), concrete, clen, pattern.substring(0, bi))
+def unifyGTHead2(typeParams, pInner, concrete, clen, head) = unifyGTHead3(typeParams, pInner, concrete, clen, head, head.length)
+def unifyGTHead3(typeParams, pInner, concrete, clen, head, headLen) = if clen < headLen + 2 then None else (if concrete.substring(0, headLen) == head then unifyGTHead4(typeParams, pInner, concrete, clen, headLen) else None)
+def unifyGTHead4(typeParams, pInner, concrete, clen, headLen) = if concrete.charAt(headLen) == 91 then unifyGivenTypeList(typeParams, splitTopLevelCommas(pInner), splitTopLevelCommas(concrete.substring(headLen + 1, clen - 1))) else None
+def findBrIdx(s, i, n) = if i >= n then 0 - 1 else (if s.charAt(i) == 91 then i else findBrIdx(s, i + 1, n))
+// Splits an already-assembled type STRING (not tokens) into (head, innerArgStr) — "Monoid[Box[A]]"
+// -> ("Monoid", "Box[A]"); "Int" -> ("Int", "*"). Mirrors parseTCType's OWN (tc, typeName) shape, so
+// a resolved `using` requirement's substituted type feeds straight back into resolveTcRequest.
+def splitTcHead(s) = splitTcHead1(s, s.length, findBrIdx(s, 0, s.length))
+def splitTcHead1(s, n, bi) = if bi < 0 then (s, "*") else (s.substring(0, bi), s.substring(bi + 1, n - 1))
+def joinCommaStrs(ss) = ss match { case Nil => "" case s :: t => joinCommaStrs1(s, t) }
+def joinCommaStrs1(s, t) = t match { case Nil => s case _ => s ++ "," ++ joinCommaStrs(t) }
+def mapSubstType(parts, bindings) = parts match { case Nil => Nil case p :: rest => Cons(substType(p, bindings), mapSubstType(rest, bindings)) }
+// The substitution twin of unifyGivenType: rebuild a pattern string with its holes replaced by
+// their bound concrete strings — `substType("Monoid[A]", [("A","Int")])` -> `"Monoid[Int]"`. Turns
+// a `using` requirement's declared type into the CONCRETE type it needs once the given's own type
+// params are bound, before recursively resolving it.
+def substType(typeStr0, bindings) = substType1(trimStr(typeStr0), bindings)
+def substType1(typeStr, bindings) = lookupBinding(bindings, typeStr) match { case Some(v) => v case None => substType2(typeStr, bindings, typeStr.length) }
+def substType2(typeStr, bindings, len) = if len == 0 then typeStr else (if typeStr.charAt(0) == 40 then substTypeTuple(typeStr, bindings, len) else substTypeHead(typeStr, bindings, len))
+def substTypeTuple(typeStr, bindings, len) = "(" ++ joinCommaStrs(mapSubstType(splitTopLevelCommas(typeStr.substring(1, len - 1)), bindings)) ++ ")"
+def substTypeHead(typeStr, bindings, len) = substTypeHead1(typeStr, bindings, len, findBrIdx(typeStr, 0, len))
+def substTypeHead1(typeStr, bindings, len, bi) = if bi < 0 then typeStr else (typeStr.substring(0, bi) ++ "[" ++ joinCommaStrs(mapSubstType(splitTopLevelCommas(typeStr.substring(bi + 1, len - 1)), bindings)) ++ "]")
+
+def mapFst(prs) = prs match { case Nil => Nil case h :: rest => mapFst1(h, rest) }
+def mapFst1(h, rest) = h match { case (a, b) => Cons(a, mapFst(rest)) }
+
+// Emit ONE poly-given member as a (name, "(lam ar body)") pair — an ANONYMOUS lambda, not a global
+// `(def ...)`, since the instance is spliced inline at the summon site — with `outerScope` (the
+// given's OWN `using` param names, reversed, see resolvePolyFinal) visible to the member's body
+// AFTER its own params. Mirrors objDefE1/emitDefBody, parameterized on the base env instead of
+// always starting from Nil. Only "def"/"val" members are supported (matches what a PLAIN given's
+// dictionary already supports — givenDef1 above does not build extdef members into it either).
+def polyGivenMember1(outerScope, m, cx) = m match { case (kind, nt) => (if kind == "def" then polyGivenMemberDef(outerScope, nt, cx) else (if kind == "val" then polyGivenMemberVal(outerScope, nt, cx) else None)) }
+def polyGivenMemberDef(outerScope, nt, cx) = nt match { case (mname, toks) => Some((mname, polyGivenDefE(outerScope, toks, cx))) }
+def polyGivenMemberVal(outerScope, nt, cx) = nt match { case (mname, toks) => Some((mname, fst(bodyExpr(toks, outerScope, cx)))) }
+def polyGivenDefE(outerScope, ts, cx) = polyGivenDefE1(outerScope, skipGen(ts), cx)
+def polyGivenDefE1(outerScope, ts, cx) = if isTok(hd(ts), 2, 21) then (paramsAllC(ts, outerScope) match { case (env, r) => polyGivenLam(env, dlen(env) - dlen(outerScope), skipToEq(r), cx) }) else polyGivenLam(outerScope, 0, skipToEq(ts), cx)
+def polyGivenLam(env, ar, ts, cx) = bodyExpr(ts, env, cx) match { case (body, rest) => "(lam " ++ ar ++ " " ++ erase(body, cx) ++ ")" }
+def polyGivenMembers(outerScope, ms, cx) = ms match { case Nil => Nil case h :: t => polyGivenMembers1(outerScope, h, t, cx) }
+def polyGivenMembers1(outerScope, h, t, cx) = polyGivenMember1(outerScope, h, cx) match { case None => polyGivenMembers(outerScope, t, cx) case Some(pr) => Cons(pr, polyGivenMembers(outerScope, t, cx)) }
+def flattenMemberArgs(dq, prs) = prs match { case Nil => "" case h :: rest => flattenMemberArgs1(dq, h, rest) }
+def flattenMemberArgs1(dq, h, rest) = h match { case (name, lamStr) => " (lit (str " ++ dq ++ name ++ dq ++ ")) " ++ lamStr ++ flattenMemberArgs(dq, rest) }
+def polyDictExpr(outerScope, ms, cx) = "(prim __mk_method_obj__" ++ flattenMemberArgs(dqOf(cx), polyGivenMembers(outerScope, ms, cx)) ++ ")"
+
+// Resolve ONE concrete typeclass request ("Monoid[Int]") to an IR-string expression: the plain
+// given table first (unchanged, exact match — the path every non-derived given already used), and
+// only on a miss there, poly derivation — this is what makes a chain terminate at an ordinary
+// given rather than recursing forever looking for another derived one.
+def resolveTcRequest(typeStr, cx, fuel) = splitTcHead(typeStr) match { case (tc, tn) => resolveTcRequest1(tc, tn, cx, fuel) }
+def resolveTcRequest1(tc, tn, cx, fuel) = findGivenF(givenTabOf(cx), tc, tn) match { case Some(gname) => Some(bareCtor(gname, cx)) case None => resolvePolyGiven(tc, tn, cx, fuel) }
+// Resolve every `using` requirement IN ORDER, substituting the given's own type-param bindings
+// into each one's declared type first (`ma: Monoid[A]` with A->"Int" needs "Monoid[Int]"). Fails
+// closed: ANY unresolved requirement fails the WHOLE derivation for this given (tried again against
+// the next candidate entry by the caller) rather than constructing a partial instance.
+def resolveUsingParams(usingParams, bindings, cx, fuel) = usingParams match { case Nil => Some("") case h :: rest => resolveUsingParams0(h, rest, bindings, cx, fuel) }
+def resolveUsingParams0(h, rest, bindings, cx, fuel) = h match { case (pname, ptype) => resolveUsingParams1(ptype, rest, bindings, cx, fuel) }
+def resolveUsingParams1(ptype, rest, bindings, cx, fuel) = resolveTcRequest(substType(ptype, bindings), cx, fuel) match { case None => None case Some(argStr) => resolveUsingParams2(argStr, rest, bindings, cx, fuel) }
+def resolveUsingParams2(argStr, rest, bindings, cx, fuel) = resolveUsingParams(rest, bindings, cx, fuel) match { case None => None case Some(restStr) => Some(" " ++ argStr ++ restStr) }
+def resolvePolyGivenEntries(entries, concreteTypeName, cx, fuel) = entries match { case Nil => None case e :: rest => resolvePGE1(e, rest, concreteTypeName, cx, fuel) }
+def resolvePGE1(e, rest, concreteTypeName, cx, fuel) = e match { case (typeParams, e2) => resolvePGE1b(typeParams, e2, rest, concreteTypeName, cx, fuel) }
+def resolvePGE1b(typeParams, e2, rest, concreteTypeName, cx, fuel) = e2 match { case (pattern, e3) => resolvePGE1c(typeParams, pattern, e3, rest, concreteTypeName, cx, fuel) }
+def resolvePGE1c(typeParams, pattern, e3, rest, concreteTypeName, cx, fuel) = e3 match { case (usingParams, e4) => resolvePGE1d(typeParams, pattern, usingParams, e4, rest, concreteTypeName, cx, fuel) }
+def resolvePGE1d(typeParams, pattern, usingParams, e4, rest, concreteTypeName, cx, fuel) = e4 match { case (gname, bodyToks) => resolvePGE2(typeParams, pattern, usingParams, bodyToks, rest, concreteTypeName, cx, fuel) }
+def resolvePGE2(typeParams, pattern, usingParams, bodyToks, rest, concreteTypeName, cx, fuel) = unifyGivenType(typeParams, pattern, concreteTypeName) match { case None => resolvePolyGivenEntries(rest, concreteTypeName, cx, fuel) case Some(bindings) => resolvePGE3(usingParams, bodyToks, bindings, rest, concreteTypeName, cx, fuel) }
+def resolvePGE3(usingParams, bodyToks, bindings, rest, concreteTypeName, cx, fuel) = if fuel < 1 then None else resolvePGE4(usingParams, bodyToks, bindings, rest, concreteTypeName, cx, fuel)
+def resolvePGE4(usingParams, bodyToks, bindings, rest, concreteTypeName, cx, fuel) = resolveUsingParams(usingParams, bindings, cx, fuel - 1) match { case None => resolvePolyGivenEntries(rest, concreteTypeName, cx, fuel) case Some(argsStr) => Some(resolvePolyFinal(usingParams, bodyToks, cx, argsStr)) }
+// `(app (lam n <dict>) arg1 arg2 ...)` when there ARE using params (a real closure — the dict's
+// member lambdas close over the resolved args via ordinary nested-scope indexing, same as any other
+// nested lambda in this language); the bare dict when there are none (nothing to close over).
+// outerScope = reversed using-names — same "params pushed left-to-right" convention emitDefBody's
+// own comment describes (:443), applied to the using names instead of a def's own parameter list.
+def resolvePolyFinal(usingParams, bodyToks, cx, argsStr) = resolvePolyFinal1(mapFst(usingParams), bodyToks, cx, argsStr)
+def resolvePolyFinal1(usingNames, bodyToks, cx, argsStr) = if isEmpty(usingNames) then polyDictExpr(Nil, collectObjMembers(bodyToks), cx) else ("(app (lam " ++ dlen(usingNames) ++ " " ++ polyDictExpr(revL(usingNames), collectObjMembers(bodyToks), cx) ++ ")" ++ argsStr ++ ")")
+def resolvePolyGiven(tc, concreteTypeName, cx, fuel) = resolvePolyGivenEntries(polyEntriesForTc(polyGivenTabOf(cx), tc), concreteTypeName, cx, fuel)
+
 // G4: pre-pass building the named-`using` signature registry [(defName, (usingTCs, fullCount))]. Scans
 // def heads; a def with a trailing `(using ..)` clause records its using TC heads (source order) + the
 // full arity (regular+using). fullCount gates call-site injection (only under-applied calls inject).
@@ -4084,7 +4257,7 @@ def isUserPfx(w) = if isInterpPfx(w) then false else (if w == "s" then false els
 // is (you cannot declare `case object A` and `object A` in one file). The FIELD list is untouched:
 // only the name list grows, so nothing starts believing this tag has fields.
 def caseObjNamesF(ts) = if isEmpty(ts) then Nil else (if isCaseObjectHead(ts) then Cons(snd(hd(tl(tl(ts)))), caseObjNamesF(tl(tl(tl(ts))))) else caseObjNamesF(tl(ts)))
-def mkCxE(cs, tcs, ts, dq, vals, vars, bs, pless) = mkCx(dq, appEnv(ccNamesL(cs), caseObjNamesF(ts)), allFieldNames(tcs), vals, collectEnumCaseNames(ts), collectEnumReg(ts), vars, bs, pless, (collectSubReg(ts), collectEnumAllReg(ts)), collectObjReg(ts), appEnv(collectFuncDflts(ts), collectObjDflts(ts)), (collectGivenTable(ts), (collectUsingSig(ts), (collectExtMethods(ts), (mangleExtMethods(ts), (collectObjVarargs(ts), (collectRetTab(ts), (("", Nil), collectCurried(ts)))))))))
+def mkCxE(cs, tcs, ts, dq, vals, vars, bs, pless) = mkCx(dq, appEnv(ccNamesL(cs), caseObjNamesF(ts)), allFieldNames(tcs), vals, collectEnumCaseNames(ts), collectEnumReg(ts), vars, bs, pless, (collectSubReg(ts), collectEnumAllReg(ts)), collectObjReg(ts), appEnv(collectFuncDflts(ts), collectObjDflts(ts)), (collectGivenTable(ts), (collectUsingSig(ts), (collectExtMethods(ts), (mangleExtMethods(ts), (collectObjVarargs(ts), (collectRetTab(ts), (("", Nil), (collectCurried(ts), collectPolyGivenTable(ts))))))))))
 def compile2(ts, cs, tcs, dq, bs) = compile2b(ts, cs, tcs, dq, bs, mkCxE(cs, tcs, ts, dq, Nil, Nil, bs, Nil))
 def compile2b(ts, cs, tcs, dq, bs, base) = compile3(ts, cs, tcs, dq, mkCxE(cs, tcs, ts, dq, collectTopVals(ts, base), collectTopVars(ts, base), bs, collectPlessDefs(ts, base)))
 def compile3(ts, cs, tcs, dq, cx) = walkTop(ts, cx) match { case (strs, nDoc) => compile4(strs, nDoc, ts, tcs, dq, cx) }
