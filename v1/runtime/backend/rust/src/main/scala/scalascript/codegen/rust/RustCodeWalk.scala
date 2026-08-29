@@ -5537,6 +5537,15 @@ object RustCodeWalk:
       case m.Term.Apply.After_4_6_0(m.Term.Name(fn), args) if args.values.size == 1 =>
         elementTypeOf(m.Term.Name(fn), ctx).orElse(_returnTypes.get(fn))
       case m.Term.Apply.After_4_6_0(m.Term.Name(fn), _) => _returnTypes.get(fn)
+      // `var nodes = input` where `input: Vector[WDelim]` is the ENCLOSING def's OWN parameter
+      // (`uniml/markdown`'s `MarkdownInlines.scala`'s `processEmphasis`) — a bare-name initializer
+      // referencing ANOTHER already-typed name (a param here; `ctx.paramTypes` already carries
+      // every def param's own mapped type) had no case at all — every case above matches a
+      // SHAPE (a field, a call, a literal), never a lone `Term.Name`. Without this, `nodes` never
+      // resolved as a Vec, and `nodes(i) match { case closer if closer.lexeme.nonEmpty => … }`'s
+      // bind-all `closer` had no element type to seed from either (`variantBodyCtxExtra`'s own
+      // indexing case recurses into `elementTypeOf` on `nodes` specifically for this reason).
+      case m.Term.Name(other) => ctx.paramTypes.get(other)
       case _                                         => None
     val fromLocalDecl: Option[String] = stats.collectFirst {
       case v: m.Defn.Var if matches(v.pats) =>
@@ -11927,6 +11936,22 @@ object RustCodeWalk:
         // REST OF THIS ARM's body only, so `yieldsSscChar(c, ctx)` answers correctly there.
         case m.Pat.Var(m.Term.Name(n)) if yieldsSscChar(subject, ctx) =>
           ctx.copy(localSscChars = ctx.localSscChars + n)
+        // `nodes(i) match { case closer if closer.lexeme.nonEmpty => … }` (`uniml/markdown`'s
+        // `MarkdownInlines.scala`'s `processEmphasis`) — the SAME bind-all shape the `charAt`
+        // case just above already covers for `SscChar`, generalized: a BARE bind (no type
+        // ascription needed in Scala, since `nodes(i)` is ALREADY statically the element type)
+        // whose SUBJECT is an INDEXING call on a known Vec. `closer`'s type is nowhere in the
+        // pattern's own syntax at all — `elementTypeOf` on the indexed RECEIVER (`nodes`, not the
+        // call) is exactly what `nodes(i)` itself yields. Without this: `closer.lexeme.nonEmpty`
+        // (no-paren) reached `isKnownStringField` with nothing to check.
+        case m.Pat.Var(m.Term.Name(n)) =>
+          val ctorName = subject match
+            case m.Term.Apply.After_4_6_0(base: m.Term.Name, args) if args.values.sizeIs == 1 =>
+              elementTypeOf(base, ctx)
+            case _ => None
+          ctorName.filter(ctx.ctorMap.contains) match
+            case Some(cn) => ctx.copy(paramCtorNames = ctx.paramCtorNames + (n -> cn))
+            case None     => ctx
         // `case instruction @ VmInstruction.Reframe(closeBefore, open, closeAfter, role) => …` —
         // `renderPattern`'s twin case (its own comment has the full reasoning) renders this with
         // `ref instruction @ … { ref closeBefore, … }`, a BORROW: `instruction` is `&VmInstruction`
@@ -11976,10 +12001,21 @@ object RustCodeWalk:
         // `strRebind`'s own `.to_string()` prefix only reaches the arm BODY (see `guardRawStrVars`'s
         // own comment); the guard renders against a ctx where the pattern's bind-all name is marked
         // raw so a guard call needing an owned `String` still typechecks.
+        //
+        // Based on `bodyCtx`, NOT bare `ctx` — `nodes(i) match { case closer if closer.lexeme.
+        // nonEmpty => … }` (`uniml/markdown`'s `MarkdownInlines.scala`'s `processEmphasis`) puts
+        // the no-paren `.nonEmpty` call INSIDE THE GUARD ITSELF, not the arm body; `bodyCtx`
+        // (built a few lines up, from THIS same `c.pat`) is exactly where `closer`'s inferred
+        // ctor name (this file's various `variantBodyCtxExtra`-style enrichments) already lives —
+        // building `guardCtx` from bare `ctx` instead threw all of that away for every guard in
+        // the corpus, not just this one: "reads nonEmpty without parentheses ... it is a
+        // collection member, not a field", with the enrichment RIGHT THERE and simply never
+        // reaching this position. `bodyCtx` is a strict superset of what `ctx` already offered, so
+        // this changes nothing for a guard that never needed the enrichment in the first place.
         guardCtx = (if hasStringPat then c.pat match
-                      case m.Pat.Var(m.Term.Name(n)) => ctx.copy(guardRawStrVars = ctx.guardRawStrVars + n)
-                      case _                         => ctx
-                    else ctx)
+                      case m.Pat.Var(m.Term.Name(n)) => bodyCtx.copy(guardRawStrVars = bodyCtx.guardRawStrVars + n)
+                      case _                         => bodyCtx
+                    else bodyCtx)
         guard <- (c.cond match
                     case Some(g) => renderTerm(g, guardCtx).map(gr => List(gr))
                     case None    => Right(Nil)

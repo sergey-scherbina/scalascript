@@ -3314,6 +3314,32 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(g.contains("}).filter(|__p0| { !__p0.is_empty() })"),
       s"xs.collectFirst { case p => body }.filter(_.pred) must seed from the arms' own body type:\n$g")
 
+  test("a match arm's own GUARD sees the same pattern-derived ctx enrichment as its body"):
+    // `nodes(i) match { case closer if closer.lexeme.nonEmpty => … }` (`uniml/markdown`'s
+    // `MarkdownInlines.scala`'s `processEmphasis`) — a bare bind-all pattern whose element type
+    // comes from the SUBJECT being an indexing call on a known Vec (a new `renderMatch` ctx-
+    // enrichment case, generalizing the existing `charAt`-and-`SscChar` one for any known ctor).
+    // But the enrichment landed in `bodyCtx`, and `guardCtx` (used to render `c.cond`, the GUARD
+    // — a SEPARATE position from the arm's own body) was built from bare `ctx` instead: EVERY
+    // guarded arm in the corpus that needed pattern-derived type info in its OWN guard (not just
+    // this one shape) silently never got it. `closer.lexeme.nonEmpty` (no-paren, inside the
+    // guard) reached `isKnownStringField` with nothing to check: "reads nonEmpty without
+    // parentheses ... it is a collection member, not a field".
+    val src =
+      """```scalascript
+        |case class WDelim(ch: Char, lexeme: String)
+        |
+        |def processEmphasis(input: Vector[WDelim]): Int =
+        |  var nodes = input
+        |  nodes(0) match
+        |    case closer if closer.lexeme.nonEmpty => 1
+        |    case _ => 0
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("closer if !closer.lexeme.is_empty() => 1i64,"),
+      s"a match arm's own guard must see the same pattern-derived ctx enrichment as its body:\n$g")
+
   test("`xs.count(_.field == x)` / `xs.filter(_.field == x)` — a placeholder predicate types cleanly"):
     // `lexed.tokens.count(_.kind == "yaml.anchor")` / `ranges.filter(_.start == index)`
     // (`uniml/yaml`) — `renderVecIterBody`'s `Term.AnonymousFunction` branch wrapped the WHOLE
