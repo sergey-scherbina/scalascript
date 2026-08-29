@@ -798,10 +798,29 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # the same def (`uniml/yaml`'s `YamlStructure.scala`'s `streamAndDocuments`) moved it out from
 # under the later read: `error[E0382]: borrow of moved value: tokens`. Inline in both arms' own
 # `yield`, the growth. Re-verified uniml/xml and uniml/json both still build clean (0 errors).
+#
+# renderTerm 37637 -> 37817 (+180), continuing the uniml/yaml real `cargo build` pass, 23 -> 18 —
+# the single biggest win of this whole pass. `tokens.indices.groupBy(index =>
+# tokens(index).span.start.line)` (`uniml/yaml`'s `YamlStructure.scala`'s `blockRanges`) —
+# genuinely no lowering existed for `.groupBy` at all, deliberately deferred much earlier this
+# session as "a new HashMap-shaped feature" — but it turned out to be the SOLE root cause behind
+# FIVE of the remaining errors, not one: `byLine`'s own type staying unresolved (rustc had nothing
+# to lower `.groupBy` to at all) cascaded through every local built from it three and four `.map`/
+# `.filter` chains deep, each surfacing as its OWN `error[E0282]: type annotations needed`. Two new
+# cases (a Vec-receiver one, and a SEPARATE Range-receiver one — `Range<i64>` has no `.iter()` at
+# all, so routing it through the Vec case's own `renderVecIterBody` dispatch would just trade one
+# `error[E0599]` for another) both render `Vec<(K, Vec<V>)>` — this lane's OWN Map convention,
+# INSERTION order, not a genuine `std::collections::HashMap` — since the group key's type is never
+# independently known here the way a real HashMap's turbofish would need; inferred instead from
+# how the Vec is used, the same way a bare `Vec::new()` already is throughout this file. The Range
+# case is the growth (both its own dispatch and its full loop-based grouping algorithm sit inline
+# in `renderTerm`'s own match); the Vec case's OWN algorithm lives in `renderVecIterBody`, a
+# separate function, and costs nothing here. Re-verified uniml/xml and uniml/json both still build
+# clean (0 errors).
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-37637 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+37817 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

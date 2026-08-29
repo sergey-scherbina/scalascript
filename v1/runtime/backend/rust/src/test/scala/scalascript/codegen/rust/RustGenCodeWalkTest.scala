@@ -2731,3 +2731,24 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(g.contains("xs.clone().into_iter().take("),
       s"a multi-use Vec receiver must be cloned before the consuming .into_iter().take:\n$g")
+
+  test("`xs.groupBy(f)` on a Vec and on a Range both compile and group correctly"):
+    // `tokens.indices.groupBy(index => tokens(index).span.start.line)` (`uniml/yaml`'s
+    // `YamlStructure.scala`'s `blockRanges`) — genuinely no lowering existed for `.groupBy` at
+    // all; turned out to be the sole root cause behind several downstream `error[E0282]`s, not
+    // one. Two cases (Vec receiver, Range receiver — `Range<i64>` has no `.iter()`, so it needs
+    // its own rendering) both build `Vec<(K, Vec<V>)>`.
+    val src =
+      """```scalascript
+        |def byLine(tokens: List[Int]): List[(Int, List[Int])] =
+        |  tokens.indices.groupBy(index => tokens(index)).toList
+        |
+        |def byLen(xs: List[String]): List[(Int, List[String])] =
+        |  xs.groupBy(s => s.length).toList
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("__groups: Vec<(_, Vec<_>)> = Vec::new()"),
+      s"groupBy on either receiver must build a Vec<(K, Vec<V>)> group accumulator:\n$g")
+    assert(g.contains("for index in (0i64.."), s"the Range receiver must iterate directly, not via .iter():\n$g")
+    assert(g.contains("for s in xs.iter().cloned()"), s"the Vec receiver must iterate via .iter().cloned():\n$g")

@@ -7300,6 +7300,32 @@ object RustCodeWalk:
             renderTerm(other, ctx).map(f => s"|x| ($f)(x)")
       yield s"$q.map($f)"
 
+    // `tokens.indices.groupBy(index => tokens(index).span.start.line)` (`uniml/yaml`'s
+    // `YamlStructure.scala`'s `blockRanges`) — genuinely no lowering existed for `.groupBy` at
+    // all (deliberately deferred earlier this session as "a new HashMap-shaped feature", but it
+    // turned out to be the SOLE root cause blocking several downstream E0282s — `byLine`'s own
+    // type staying unresolved cascades through everything built from it). Rendered as `Vec<(K,
+    // Vec<V>)>` (this lane's OWN Map convention — INSERTION order, not a real `HashMap`, matching
+    // `Value::Map`'s own comment), the SAME shape the Vec-receiver `.groupBy` case (a few hundred
+    // lines up) uses, for the identical reason (the group key's type is never independently known
+    // here). `Range<i64>` has no `.iter()` at all — it already IS an iterator, yielding OWNED
+    // (`Copy`) values directly — so `$p` is read twice below (once for the key, once stored) with
+    // no clone needed, unlike the Vec case's own `.clone()`-per-read.
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(qual, m.Term.Name("groupBy")), args
+    ) if isRangeExpr(qual) && args.values.size == 1 =>
+      for
+        q <- renderTerm(qual, ctx)
+        pb <- args.values.head match
+          case fn2: m.Term.Function =>
+            val p = fn2.paramClause.values.headOption.map(_.name.value).getOrElse("x")
+            renderTerm(fn2.body, enteringClosure(ctx, Set(p))).map(b => (p, b))
+          case other =>
+            renderTerm(other, ctx).map(f => ("__x", s"($f)(__x)"))
+      yield
+        val (p, b) = pb
+        s"{ let mut __groups: Vec<(_, Vec<_>)> = Vec::new(); for $p in $q { let __k = { $b }; match __groups.iter_mut().find(|(k, _)| *k == __k) { Some((_, v)) => v.push($p), None => __groups.push((__k, vec![$p])) } } __groups }"
+
     // xs.find(p) → xs.iter().cloned().find(…) — an Option, as in Scala.
     //
     // This and the two below were being emitted VERBATIM as `xs.find(...)` / `xs.indexOf(...)` /
@@ -7556,7 +7582,7 @@ object RustCodeWalk:
     ) if args.values.size == 1 && !isOptionExpr(qual, ctx) && !isRangeExpr(qual) =>
       for
         q <- renderTerm(qual, ctx)
-        body <- renderVecIterBody(args.values.head, q, ctx, method = "filter")
+        body <- renderVecIterBody(args.values.head, q, ctx, method = "filter", elemType = elementTypeOf(qual, ctx))
       yield body
 
     // `xs.filterNot(p)` (`uniml/json`'s `JsonProjection.scala`: `result.roots.filterNot(
@@ -7595,6 +7621,21 @@ object RustCodeWalk:
       for
         q <- renderTerm(qual, ctx)
         body <- renderVecIterBody(args.values.head, q, ctx, method = "sortBy")
+      yield body
+
+    // `xs.groupBy(f)` on a VEC — same dispatch shape as `.sortBy` just above; see
+    // `renderVecIterBody`'s own `"groupBy"` case for the actual `Vec<(K, Vec<V>)>` lowering.
+    // Excludes a Range receiver — `tokens.indices.groupBy(...)` (this corpus's OWN occurrence) —
+    // which gets its own case, a few hundred lines up alongside the Range `.map`/`.filter` arms:
+    // `renderVecIterBody`'s `$q.iter().cloned()` doesn't exist on `Range<i64>` at all (a Range
+    // already IS an iterator, yielding owned values directly), so routing it through here would
+    // just trade one `error[E0599]` for another.
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(qual, m.Term.Name("groupBy")), args
+    ) if args.values.size == 1 && !isOptionExpr(qual, ctx) && !isRangeExpr(qual) =>
+      for
+        q <- renderTerm(qual, ctx)
+        body <- renderVecIterBody(args.values.head, q, ctx, method = "groupBy", elemType = elementTypeOf(qual, ctx))
       yield body
 
     // `builder.result()` — finishes a `Vector.newBuilder[T]` (`uniml/xml`'s `Doc.scala`'s
@@ -9981,6 +10022,20 @@ object RustCodeWalk:
           // convention as the other `sortBy` case in this file (avoids sorting a moved-from `xs`
           // when the receiver is later reassigned from its own sorted result).
           case "sortBy"   => s"{ let mut __v = ($q).clone(); __v.sort_by_key(|$p0| { $b }); __v }"
+          // `tokens.indices.groupBy(index => tokens(index).span.start.line)` (`uniml/yaml`'s
+          // `YamlStructure.scala`'s `blockRanges`) — genuinely no lowering existed for `.groupBy`
+          // at all (deliberately deferred earlier this session as "a new HashMap-shaped feature"
+          // — but it turned out to be the SOLE root cause blocking six of the E0282s downstream of
+          // it, `byLine`'s own type staying unresolved cascades through everything built from it).
+          // Rendered as `Vec<(K, Vec<V>)>` (this lane's OWN Map convention — INSERTION order, not
+          // a real `HashMap`, matching `Value::Map`'s own comment) rather than a genuine
+          // `std::collections::HashMap`, since the group KEY's type is never independently known
+          // here the way a real HashMap's turbofish would need — inferred instead from how the
+          // Vec is later used, the same way `Vec::new()` already is throughout this file. A
+          // linear-scan `.find` for the existing group (not a real hash lookup) is the honest
+          // trade for a source line-count small enough that this never runs hot.
+          case "groupBy"  =>
+            s"{ let mut __groups: Vec<(_, Vec<_>)> = Vec::new(); for $p0 in $q.iter().cloned() { let __e = $p0.clone(); let __k = { $b }; match __groups.iter_mut().find(|(k, _)| *k == __k) { Some((_, v)) => v.push(__e), None => __groups.push((__k, vec![__e])) } } __groups }"
           case other      => s"$q.$other(|$p0| { $b })"
       }
     // Method reference `obj.method` → wrap in a closure so it's a callable value.
