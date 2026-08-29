@@ -5,7 +5,7 @@ started: 2026-08-29T18:15:31Z
 heartbeat: 2026-08-29T18:15:31Z
 status: in-progress
 items: aggregation-algebra-canonical-and-effectful
-paths: file:std/aggregator.ssc file:examples/std-aggregator.ssc file:specs/aggregation-algebra.md file:BACKLOG.md file:tests/conformance/std-aggregator.ssc file:tests/conformance/expected/std-aggregator.txt file:std/order.ssc file:tests/conformance/std-order.ssc file:tests/conformance/expected/std-order.txt file:tests/conformance/contract-roster.tsv file:v2/BUGS.md
+paths: file:std/aggregator.ssc file:examples/std-aggregator.ssc file:specs/aggregation-algebra.md file:BACKLOG.md file:tests/conformance/std-aggregator.ssc file:tests/conformance/expected/std-aggregator.txt file:std/order.ssc file:tests/conformance/std-order.ssc file:tests/conformance/expected/std-order.txt file:tests/conformance/contract-roster.tsv file:tests/conformance/corpus-baseline.tsv file:v2/BUGS.md file:v1/runtime/backend/js/BUGS.md
 scope: |
   Take the first slice of BACKLOG.md's "aggregation-algebra-canonical-and-effectful" item: §5
   canonical exact aggregators from specs/aggregation-algebra.md, minus first/last (see below).
@@ -27,4 +27,4 @@ scope: |
 
   Also not taking: HyperLogLog/Count-Min/T-Digest (§6, real algorithmic work), groupBy helper (§8),
   DStream/Dataset bridge (§9), rendering (§10), effects (§11) - all stay queued as before.
-next: fix std/order.ssc (named givens + compare-based helpers), file compiler bug for anonymous-given resolution, then finish min/max/variance in aggregator.ssc
+next: fix VarianceAcc field visibility, file JS using-param-dropped bug + known-red, land
