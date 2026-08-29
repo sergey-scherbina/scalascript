@@ -5600,6 +5600,17 @@ object RustCodeWalk:
       _returnTypes.get(fn).collect { case s if s.startsWith("Option<") => s.stripPrefix("Option<").stripSuffix(">") }
     case m.Term.Name(n) =>
       ctx.paramTypes.get(n).collect { case s if s.startsWith("Option<") => s.stripPrefix("Option<").stripSuffix(">") }
+    // `refLabel.map(extractRefLabel).filter(_.nonEmpty)` (`uniml/markdown`'s
+    // `MarkdownProjection.scala`'s `projectLink`) — `.map`/`.flatMap` TRANSFORM the element, so
+    // the result's element type is the mapping FUNCTION's own return type, not `refLabel`'s.
+    // Scoped to a bare METHOD-REFERENCE argument (`extractRefLabel`, not an inline closure) —
+    // that shape's return type is a direct `_returnTypes` lookup; an inline closure would need
+    // inferring its OWN body's type, a strictly harder problem this narrow pass does not attempt.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(_, m.Term.Name("map" | "flatMap")), args)
+        if args.values.sizeIs == 1 =>
+      args.values.head match
+        case m.Term.Name(fn) => _returnTypes.get(fn).map(_.stripPrefix("Option<").stripSuffix(">"))
+        case _                => None
     case _ => None
 
   /** Seed a `Term.Function` argument's single named param with `qual`'s Option element type
@@ -5618,6 +5629,15 @@ object RustCodeWalk:
           val p0 = fn.paramClause.values.head.name.value
           ctx.copy(paramTypes = ctx.paramTypes + (p0 -> t),
                    localStrings = if t == "String" then ctx.localStrings + p0 else ctx.localStrings)
+        case None => ctx
+    // `refLabel.map(extractRefLabel).filter(_.nonEmpty)` — the PLACEHOLDER shorthand of the same
+    // one-arg predicate, seeded under `"__p0"` (the name `_` renders as once substituted), the
+    // SAME convention `renderVecIterBody`'s own `Term.AnonymousFunction` branch already uses.
+    case _: m.Term.AnonymousFunction =>
+      optionElementTypeOf(qual, ctx) match
+        case Some(t) =>
+          ctx.copy(paramTypes = ctx.paramTypes + ("__p0" -> t),
+                   localStrings = if t == "String" then ctx.localStrings + "__p0" else ctx.localStrings)
         case None => ctx
     case _ => ctx
 
@@ -7901,6 +7921,22 @@ object RustCodeWalk:
         q    <- renderTerm(qual, ctx)
         pred <- renderTerm(args.values.head, ctx)
       yield s"$q.map_or(true, $pred)"
+
+    // `refLabel.map(extractRefLabel).filter(_.nonEmpty)` (`uniml/markdown`'s
+    // `MarkdownProjection.scala`'s `projectLink`) — Rust's `Option::filter` is a direct
+    // name-for-name match; the Vec `.filter` case a few hundred lines up explicitly EXCLUDES an
+    // Option receiver (`!isOptionExpr(qual, ctx)`), but nothing filled in the Option side at all:
+    // "reads nonEmpty without parentheses ... it is a collection member, not a field" (the
+    // placeholder predicate's own param never got a type, since `.filter` never even reached a
+    // case that would call `seedOptionElemParam`).
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(qual, m.Term.Name("filter")), args
+    ) if args.values.size == 1 && isOptionExpr(qual, ctx) =>
+      val predCtx = seedOptionElemParam(args.values.head, qual, ctx)
+      for
+        q0   <- renderTerm(qual, ctx)
+        pred <- renderTerm(args.values.head, predCtx)
+      yield s"${cloneIfMoved(qual, q0, ctx)}.filter($pred)"
 
     // `opt.exists(p)` — Rust's `Option::is_some_and` is the exact match: false for `None`, `p(x)`
     // for `Some(x)`, consuming the Option (this lane's clone-liberal convention already pays for

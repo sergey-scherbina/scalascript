@@ -3269,6 +3269,28 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(g.contains("keepText.is_empty()"),
       s"a tuple-destructured val whose rhs is an if/else with a call in one branch must resolve String positions:\n$g")
 
+  test("`opt.map(fnRef).filter(_.pred)` implements Option's own .filter, seeded from the map's return type"):
+    // `refLabel.map(extractRefLabel).filter(_.nonEmpty)` (`uniml/markdown`'s
+    // `MarkdownProjection.scala`'s `projectLink`) — Rust's `Option::filter` is a direct
+    // name-for-name match, but the Vec `.filter` case explicitly EXCLUDES an Option receiver and
+    // nothing filled in the Option side at all. Also needed `optionElementTypeOf` to see THROUGH
+    // a `.map(bareFnRef)` chain (the mapping function's own return type, not the original
+    // receiver's element type) and `seedOptionElemParam` to handle the PLACEHOLDER shorthand
+    // (`_.nonEmpty`), not just a named closure param.
+    val src =
+      """```scalascript
+        |def extractRefLabel(s: String): String = s.trim
+        |
+        |def rawLabel(x: Int): String = "fallback"
+        |
+        |def projectLink(refLabel: Option[String]): String =
+        |  refLabel.map(extractRefLabel).filter(_.nonEmpty).getOrElse(rawLabel(0))
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".filter(|__p0| { !__p0.is_empty() })"),
+      s"opt.map(fnRef).filter(_.pred) must implement Option's own .filter, seeded from the map's return type:\n$g")
+
   test("`xs.count(_.field == x)` / `xs.filter(_.field == x)` — a placeholder predicate types cleanly"):
     // `lexed.tokens.count(_.kind == "yaml.anchor")` / `ranges.filter(_.start == index)`
     // (`uniml/yaml`) — `renderVecIterBody`'s `Term.AnonymousFunction` branch wrapped the WHOLE
