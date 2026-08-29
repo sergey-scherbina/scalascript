@@ -2889,6 +2889,15 @@ object RustCodeWalk:
       // call-to-a-lifted-def rendering arm's own reborrow-prelude, which only needs the trick for a
       // name IN this set.
       byRefMutWrite: Set[String] = Set.empty,
+      // A string-literal-pattern match's bind-all arm binds `n` as `&str` (the whole `match`
+      // subject is coerced `.as_str()` — `hasStringPat`'s own comment), but that coercion only
+      // reaches the arm's BODY via `strRebind`'s `let n = n.to_string();` PREFIX — a Rust match
+      // guard (`case n if f(n) => …`) can't hold a preceding `let`, so a guard reading `n` still
+      // sees the raw `&str`. Scoped ONLY to rendering that one guard expression (`uniml/json`'s
+      // `JsonLexer.scala`'s `startsNumber(value) && validNumber(value)`); `bareNameOrNiladicCtor`
+      // checks this set and emits `n.to_string()` instead of the bare name so a call expecting an
+      // owned `String` parameter typechecks (`error[E0308]: expected String, found &str`).
+      guardRawStrVars: Set[String] = Set.empty,
       // Local-def lambda-lifting: def name -> its captured names, in the FIXED canonical order used
       // both at its own (lifted) parameter list and at every call site that must append them.
       liftedDefExtraArgs: Map[String, List[String]] = Map.empty,
@@ -3666,7 +3675,15 @@ object RustCodeWalk:
     // explicit `Vector[T]`/`List[T]`/`Array[T]` annotation is the one signal that can't be wrong.
     def declIsSeq(t: m.Type): Option[Boolean] = t match
       case m.Type.Apply.After_4_6_0(m.Type.Name("Array"), _) => Some(true)
-      case m.Type.Apply.After_4_6_0(m.Type.Name("Vector" | "List" | "Seq" | "IndexedSeq"), _) => Some(false)
+      // `Set[T]` maps to `Vec<T>` throughout this backend (`mapType`'s own comment: no uniqueness
+      // enforced for ANY collection type here — the `xs + x`-lowering case's comment repeats the
+      // same fact), so a `var seen: Set[String] = Set.empty` (`uniml/json`'s `JsonProjection.
+      // scala`'s `duplicateDiagnostics`) needs the identical DECLARED-type recognition `Vector[T]`/
+      // `List[T]` already get — `Set.empty`'s rhs shape matches neither `seqCtor` nor
+      // `rootedInSeq`, so without this `seen` was never recorded as a seq and `seen + member.name`
+      // fell past the Set-add rewrite (gated on `isKnownVecReceiver`) straight to ordinary
+      // numeric/string `+`: `error[E0369]: cannot add String to Vec<String>`.
+      case m.Type.Apply.After_4_6_0(m.Type.Name("Vector" | "List" | "Seq" | "IndexedSeq" | "Set"), _) => Some(false)
       case _ => None
     def record(n: String, rhs: m.Term, decltpe: Option[m.Type]): Unit =
       (decltpe.flatMap(declIsSeq) orElse seqCtor(rhs)) match
@@ -3844,7 +3861,18 @@ object RustCodeWalk:
       case m.Term.Name(n)
           if needs(n) && !rendered.matches(raw"-?\d+i64|-?\d+\.\d+f64|true|false") =>
         s"$rendered.clone()"
-      case sel: m.Term.Select if !rendered.contains("(") && selectRoot(sel).exists(needs) =>
+      // `Some(JsonDialect.id)` inside a `while` loop (`uniml/json`'s `JsonProjection.scala`'s
+      // `duplicateDiagnostics`) — a QUALIFIED reference to an AMBIGUOUS topval (`JsonDialect.id`,
+      // contested with another topval also named `id`) doesn't render as a field projection at
+      // all; `selectOrNiladicCtor`'s own qualified-topval case rewrites the WHOLE select to a
+      // single flat identifier, `JsonDialect_id` — the renamed topval's OWN name, not a field read
+      // off `JsonDialect`. `selectRoot(sel)` still answers "JsonDialect" (the ORIGINAL qualifier),
+      // which is not itself a topval, so `needs` on it was always false, and the loop's second
+      // iteration hit `error[E0382]: use of moved value`. `rendered` is that final flat name
+      // already (checked bare, `!rendered.contains("(")`, exactly like the ordinary field-
+      // projection case above) — asking `needs` about IT TOO catches this rewritten shape without
+      // duplicating `_ambiguousTopValNames`/`topValEmitName`'s own lookup here.
+      case sel: m.Term.Select if !rendered.contains("(") && (selectRoot(sel).exists(needs) || needs(rendered)) =>
         s"$rendered.clone()"
       case _ => rendered
 
@@ -5988,6 +6016,25 @@ object RustCodeWalk:
     case m.Term.Select(qual, m.Term.Name("toChar")) =>
       renderTerm(qual, ctx).map(q => s"(($q) as i64)")
 
+    // `lexeme.head != '"' || lexeme.last != '"'` (`uniml/json`'s `JsonProjection.scala`'s
+    // `unquote`) — a bare no-paren `.head`/`.last` on a STRING means its FIRST/LAST CHAR (Scala's
+    // `StringOps`), a different method entirely from the Vec case just below (which needs a
+    // receiver this lane can place as a `Vec` — the two guards are mutually exclusive, in either
+    // order). Falling through to the generic no-paren refusal rendered a bare Rust FIELD ACCESS,
+    // `$q.head`, on a `String`: `error[E0609]: no field head on type String`. Lowered via the same
+    // `_str_char_at` runtime helper `.charAt` already uses (see that case's own comment) — it hands
+    // back the `SscChar` newtype, which already has `PartialEq<i64>`/`PartialOrd<i64>` impls, so a
+    // comparison against a `Lit.Char` (`!= '"'`, rendered as a bare `i64` code point) typechecks
+    // with no further coercion needed, exactly like `.charAt(i) == 'c'` already does everywhere
+    // else in this corpus.
+    case m.Term.Select(qual, m.Term.Name(meth @ ("head" | "last")))
+        if isStringExpr(qual) || (qual match { case m.Term.Name(n) => ctx.localStrings.contains(n); case _ => false }) =>
+      renderTerm(qual, ctx).map { q =>
+        meth match
+          case "head" => s"crate::runtime::_str_char_at(&$q, 0i64)"
+          case "last" => s"crate::runtime::_str_char_at(&$q, crate::runtime::_str_length(&$q) - 1i64)"
+      }
+
     // The no-paren members that DO have an obvious lowering, taken before the refusal below. They
     // are the ones a loop is written with -- `while xs.nonEmpty do { … xs.head … xs.tail }` is
     // std/scljet/text.ssc, three of them on one line -- so refusing them would be honest and
@@ -7222,7 +7269,8 @@ object RustCodeWalk:
         q  <- renderTerm(qual, ctx)
         z  <- renderTerm(zArgs.values.head, ctx)
         fb <- renderVecIterBody(fArgs.values.head, q, ctx, method = "foldLeft", zero = Some(z),
-                accumEither = isEitherExpr(zArgs.values.head, ctx))
+                accumEither = isEitherExpr(zArgs.values.head, ctx),
+                accumMap = isMapExpr(zArgs.values.head))
       yield fb
 
     // `xs.foldLeft[T](z)(f)` — the same shape, with an explicit accumulator type argument on the
@@ -7243,7 +7291,8 @@ object RustCodeWalk:
         q  <- renderTerm(qual, ctx)
         z  <- renderTerm(zArgs.values.head, ctx)
         fb <- renderVecIterBody(fArgs.values.head, q, ctx, method = "foldLeft", zero = Some(z),
-                accumEither = isEitherExpr(zArgs.values.head, ctx))
+                accumEither = isEitherExpr(zArgs.values.head, ctx),
+                accumMap = isMapExpr(zArgs.values.head))
       yield fb
     // `trim` can appear as zero-arg apply too: `s.trim()`.
     case m.Term.Apply.After_4_6_0(
@@ -8269,6 +8318,19 @@ object RustCodeWalk:
   /** Best-effort check that a term is an `Either`-shaped expression so we can
    *  route `.map/.flatMap/.fold` to Rust `Either`.
    */
+  /** Is `term` (a `foldLeft`'s ZERO argument) syntactically a `Map` value — `Map.empty[K, V]` or
+   *  `Map(...)` — so the closure's own accumulator param can be registered in `localMaps` the same
+   *  way `accumEither`/`eitherLocals` handles an Either-shaped zero, just above. `objectMap`
+   *  (`uniml/json`'s `JsonProjection.scala`) folds into `Map.empty[String, JsonValue]` and calls
+   *  `result.contains(member.name)` inside the closure — without this, `result` is invisible to
+   *  `isKnownMapReceiver` and the call falls to the str lowering: `error[E0599]: no method named
+   *  contains found for struct HashMap`. */
+  private def isMapExpr(term: m.Term): Boolean = term match
+    case m.Term.Select(m.Term.Name("Map"), m.Term.Name("empty")) => true
+    case m.Term.ApplyType.After_4_6_0(m.Term.Select(m.Term.Name("Map"), m.Term.Name("empty")), _) => true
+    case m.Term.Apply.After_4_6_0(m.Term.Name("Map"), _) => true
+    case _ => false
+
   private def isEitherExpr(term: m.Term, ctx: Ctx): Boolean = term match
     case m.Term.Apply.After_4_6_0(m.Term.Name("Left" | "Right"), args)
         if args.values.size == 1 => true
@@ -8910,9 +8972,23 @@ object RustCodeWalk:
           // this scope` (the walker fell all the way through to treating `Markup` as a value to
           // read, since nothing here recognised the qualified-constructor shape at all). Same
           // fallback the pattern side already uses (`renderPattern`'s twin case, same comment).
+          // `JsonValue.StringValue(value, token.lexeme)` (`uniml/json`'s `JsonProjection.scala`'s
+          // `projectToken`) — TWO enums in the same module (`JsonValue`, `JsonMode`) each declare
+          // their own `StringValue` case, one with fields, one bare; the bare-keyed `ctx.ctorMap`
+          // this rewrite delegates to keeps only the LAST one registered, so the qualifier that
+          // told us WHICH one — the entire reason `_qualifiedCtors` exists (see the comment just
+          // above) — was being looked up successfully here and then THROWN AWAY: the delegation
+          // re-resolved `ctorName` bare, landed on `JsonMode::StringValue` (a zero-field variant),
+          // and silently dropped both constructor arguments. Overriding `ctorName`'s entry in the
+          // delegatee's OWN `ctx.ctorMap` with the disambiguated one keeps every downstream fill-
+          // defaults/box/struct-vs-tuple decision the unqualified path already makes correctly,
+          // while pointing it at the RIGHT `EnumCtor` when the qualifier resolved one.
           case m.Term.Select(m.Term.Name(enumName), m.Term.Name(ctorName))
               if _qualifiedCtors.contains((enumName, ctorName)) || ctx.ctorMap.contains(ctorName) =>
-            renderTerm(m.Term.Apply.After_4_6_0(m.Term.Name(ctorName), m.Term.ArgClause(argTerms)), ctx)
+            val delegateCtx = _qualifiedCtors.get((enumName, ctorName)) match
+              case Some(ec) => ctx.copy(ctorMap = ctx.ctorMap.updated(ctorName, ec))
+              case None     => ctx
+            renderTerm(m.Term.Apply.After_4_6_0(m.Term.Name(ctorName), m.Term.ArgClause(argTerms)), delegateCtx)
           case m.Term.Select(qual, m.Term.Name(meth)) =>
             renderTerm(qual, ctx).map { q =>
               externMemberTarget(qual, meth, ctx) match
@@ -9099,13 +9175,16 @@ object RustCodeWalk:
       // in `Dialect.scala`'s `DialectRegistry.apply`) — so the closure's OWN accumulator param
       // (`p0` below) is too, even though nothing about the bare NAME says so at any of its uses
       // inside the body. See `Ctx.eitherLocals`.
-      accumEither: Boolean = false
+      accumEither: Boolean = false,
+      // `foldLeft`-only, the `Map`-typed twin of `accumEither` just above — see `isMapExpr`'s
+      // own comment for the call it fixes.
+      accumMap: Boolean = false
   ): Either[List[Diagnostic], String] = fn match
     // `xs.map { x => … }` (brace-block syntax) parses as a Block wrapping the Function;
     // unwrap + re-dispatch so it takes the borrow-not-move Function path below, not the
     // generic fallback (which renders the inner closure with `move` and re-moves captures).
     case m.Term.Block(List(f: m.Term.Function)) =>
-      renderVecIterBody(f, q, ctx, method, zero, elemType, accumEither)
+      renderVecIterBody(f, q, ctx, method, zero, elemType, accumEither, accumMap)
     // Single or two-param closure `(p: T) => body` or `(a, b) => body`.
     case fn2: m.Term.Function =>
       val params = fn2.paramClause.values.toList
@@ -9123,6 +9202,7 @@ object RustCodeWalk:
         case _ => bodyCtx0
       val bodyCtx =
         if method == "foldLeft" && accumEither then bodyCtx1.copy(eitherLocals = bodyCtx1.eitherLocals + p0)
+        else if method == "foldLeft" && accumMap then bodyCtx1.copy(localMaps = bodyCtx1.localMaps + p0)
         else bodyCtx1
       val bodyResult = fn2.body match
         case blk: m.Term.Block => renderBody(blk, bodyCtx, isUnit = isUnitCtx)
@@ -10141,6 +10221,19 @@ object RustCodeWalk:
           if ctx.ctorMap.get(ctorName).exists(_.fieldNames.nonEmpty) => true
       case m.Pat.Typed(m.Pat.Var(_), m.Type.Select(_, m.Type.Name(ctorName)))
           if ctx.ctorMap.get(ctorName).exists(_.fieldNames.nonEmpty) => true
+      // `pendingKey match { case Some((name, keyToken)) => …; case None => … }` inside a `while`
+      // loop, where `pendingKey` is a reassigned `var` (`uniml/json`'s `JsonProjection.scala`'s
+      // `projectNode`) — the SAME move-vs-clone problem the ctor cases above solve, one level of
+      // nesting different: `Some((a, b))` destructures a TUPLE, not a struct/enum ctor, so none of
+      // those three cases recognise it, and the subject was matched BY VALUE. Across loop
+      // iterations that reads as rustc "these 2 reinitializations might get skipped" (the two
+      // branches that reassign `pendingKey` live in a DIFFERENT arm of the outer edge-kind match,
+      // so neither is provably on every path) — `error[E0382]: use of moved value`, on the second
+      // iteration's `name`/`keyToken` reads. Cloning the subject gives each iteration's match its
+      // own independent tuple to destructure, leaving `pendingKey` itself untouched for that same
+      // iteration's later `pendingKey = …` assignment.
+      case m.Pat.Extract.After_4_6_0(m.Term.Name("Some"), argClause)
+          if argClause.values.exists { case _: m.Pat.Tuple => true; case _ => false } => true
       case _ => false)
     val cases1 =
       if hasCtorArm && cases.lastOption.exists(isIdentityCatchAll)
@@ -10337,8 +10430,15 @@ object RustCodeWalk:
         litGuards = _pendingPatternGuards
         // Type tests FIRST, so `&&` short-circuits before a user guard that assumes the narrowed
         // type ever runs — `case Some(s: String) if s.length > 2` reads the guard on a `Value`.
+        // `strRebind`'s own `.to_string()` prefix only reaches the arm BODY (see `guardRawStrVars`'s
+        // own comment); the guard renders against a ctx where the pattern's bind-all name is marked
+        // raw so a guard call needing an owned `String` still typechecks.
+        guardCtx = (if hasStringPat then c.pat match
+                      case m.Pat.Var(m.Term.Name(n)) => ctx.copy(guardRawStrVars = ctx.guardRawStrVars + n)
+                      case _                         => ctx
+                    else ctx)
         guard <- (c.cond match
-                    case Some(g) => renderTerm(g, ctx).map(gr => List(gr))
+                    case Some(g) => renderTerm(g, guardCtx).map(gr => List(gr))
                     case None    => Right(Nil)
                  ).map { userGuards =>
                    // `litGuards` — a struct-field STRING LITERAL pattern bubbled up as an equality
@@ -10732,6 +10832,7 @@ object RustCodeWalk:
    *
    *  Replaces the `Right(n)` that was here rather than adding an arm — `renderTerm` is frozen. */
   private def bareNameOrNiladicCtor(n: String, ctx: Ctx): String =
+    if ctx.guardRawStrVars.contains(n) then s"$n.to_string()" else
     if ctx.trueSelfFields.contains(n) then s"self.${rustIdent(n)}" else
     // `cur` (`private def cur: Char = ...`, `uniml/xml`'s `Doc.scala`'s `Parser`) — a Scala
     // PARAMETERLESS method, called with no `()` at the use site, reaches here as a bare name

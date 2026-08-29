@@ -535,10 +535,31 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # accepted alongside qualified `Type.Select` (`ObjectFrame` is a top-level case class). Both
 # paramCtorNames fixes live in `renderDef`/`liftLocalDefs`, separate functions, costing nothing
 # here. Re-verified uniml/xml still builds clean (0 errors) after every step in this entry.
+# renderTerm 34630 -> 34814 (+184), finishing uniml/json, 12 -> 0 (clean `cargo build`). Six
+# fixes this round, most in SEPARATE functions (guard-only `.to_string()` coercion via a new
+# `Ctx.guardRawStrVars` in `renderMatch`; `isMapExpr`/`accumMap` threading a `foldLeft` zero's Map-
+# ness into its closure's `localMaps` in `renderVecIterBody`; `declIsSeq` widened to recognise
+# `Set[T]` as a seq-typed DECLARATION, `collectLocalSeqs`; the qualified-enum-ctor-construction
+# case now overriding `ctx.ctorMap` with the disambiguated `_qualifiedCtors` entry before
+# delegating, instead of re-resolving the bare name ambiguously — `JsonValue.StringValue(value,
+# lexeme)` collided with `JsonMode`'s own bare `StringValue` case and silently dropped both
+# constructor args; `cloneIfMoved`'s `Term.Select` case now also asks `needs(rendered)`, not just
+# `needs(selectRoot(sel))`, catching a QUALIFIED AMBIGUOUS-topval reference — `Some(JsonDialect.
+# id)` inside a loop rewrites to the flat local `JsonDialect_id`, and only the REWRITTEN name, not
+# the original qualifier `JsonDialect`, is ever a topval; `hasFieldDestructurePat` widened to
+# `Some((a, b))` — a var-typed `Option[(K, V)]` matched by value across loop iterations moved its
+# tuple out from under itself, `error[E0382]`). The one INLINE growth is a genuinely NEW match arm
+# directly in `renderTerm`'s own match: bare no-paren `.head`/`.last` on a STRING (`lexeme.head !=
+# '"'`, `uniml/json`'s `JsonProjection.scala`'s `unquote`) had no lowering at all — the existing
+# no-paren-Vec-member case explicitly excludes strings — and fell to a bare Rust field access:
+# `error[E0609]: no field head on type String`. Lowered via the same `_str_char_at` runtime helper
+# `.charAt` already uses; `SscChar`'s existing `PartialEq<i64>` impl makes the comparison against a
+# `Lit.Char` (rendered as a bare `i64` code point) typecheck with no further coercion. Re-verified
+# uniml/xml still builds clean (0 errors) after every step in this entry.
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-34630 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+34814 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

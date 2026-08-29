@@ -1837,3 +1837,123 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(g.contains("(*__ch)"), s"the &char predicate argument needs a deref before casting:\n$g")
+
+  test("a string-literal-pattern match GUARD reading the bound name coerces it to owned String"):
+    // `case value if (startsNumber(value) && validNumber(value)) => …` (`uniml/json`'s
+    // `JsonLexer.scala`) — the subject is coerced `.as_str()` for the string-literal arms
+    // elsewhere in the SAME match, so the bind-all arm's `value` is `&str`; `startsNumber`/
+    // `validNumber` are declared to take an owned `String`. `strRebind`'s own `.to_string()` fix
+    // only reaches the arm BODY (a `let` prefix), never the GUARD (Rust guards can't hold a
+    // preceding `let`) — without `guardRawStrVars`, `error[E0308]: expected String, found &str`.
+    val src =
+      """```scalascript
+        |def startsNumber(value: String): Boolean = value.nonEmpty
+        |def classify(kind: String): String = kind match
+        |  case "atom" => "A"
+        |  case value if startsNumber(value) => "N"
+        |  case other => "?"
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("startsNumber(value.to_string())") || g.contains("startsNumber(value.to_string().clone())"),
+      s"a string-pattern guard reading the bind-all name should coerce it to an owned String:\n$g")
+
+  test("a `foldLeft` into `Map.empty[K, V]` knows its accumulator is a Map, not a Vec"):
+    // `members.foldLeft(Map.empty[String, JsonValue]) { (result, member) => if result.contains
+    // (member.name) then result else result.updated(member.name, member.value) }` (`uniml/json`'s
+    // `JsonProjection.scala`'s `objectMap`) — the closure's accumulator param `result` had no way
+    // to learn its zero value was Map-shaped, so `.contains` fell to the String/list lowering
+    // instead of `contains_key`: `error[E0599]: no method named contains found for struct HashMap`.
+    val src =
+      """```scalascript
+        |case class Member(name: String, value: Int)
+        |def toMap(members: List[Member]): Map[String, Int] =
+        |  members.foldLeft(Map.empty[String, Int]) { (result, member) =>
+        |    if result.contains(member.name) then result else result.updated(member.name, member.value)
+        |  }
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("result.contains_key("), s"the fold accumulator should be known as a Map:\n$g")
+
+  test("a `var` DECLARED `Set[T]` supports `+` (single-element add), not just a Vec/List one"):
+    // `var seen: Set[String] = Set.empty; … seen = seen + member.name` (`uniml/json`'s
+    // `JsonProjection.scala`'s `duplicateDiagnostics`) — `Set[T]` maps to `Vec<T>` throughout this
+    // backend, and the `xs + x` Set-add rewrite is gated on `isKnownVecReceiver`, which only ever
+    // recognised an EXPLICIT `Vector[T]`/`List[T]` declared type, never `Set[T]` — `seen` was
+    // never recorded as a seq at all: `error[E0369]: cannot add String to Vec<String>`.
+    val src =
+      """```scalascript
+        |def dedupe(names: List[String]): List[String] =
+        |  var seen: Set[String] = Set.empty
+        |  var out: List[String] = List.empty
+        |  for name <- names do
+        |    if !seen.contains(name) then
+        |      seen = seen + name
+        |      out = out :+ name
+        |  out
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(!g.contains("seen + name"), s"a Set-typed var's `+` should lower via the Set-add rewrite, not string/numeric `+`:\n$g")
+    assert(g.contains("seen.contains_key(") || g.contains(".concat()"), s"seen should be known as a seq/map receiver:\n$g")
+
+  test("a QUALIFIED enum constructor resolves through the disambiguated ctor, not a same-named collision"):
+    // `JsonValue.StringValue(value, lexeme)` where a SECOND enum in the same module (`JsonMode`)
+    // also declares a bare, zero-field `StringValue` case — the qualified-ctor delegation used to
+    // rewrite to the BARE spelling and re-resolve through `ctx.ctorMap` (keyed by bare name alone,
+    // last-writer-wins), landing on the WRONG enum's zero-field variant and silently dropping both
+    // constructor arguments: `error[E0308]: expected JsonValue, found JsonMode`.
+    val src =
+      """```scalascript
+        |enum JsonValue:
+        |  case StringValue(value: String, lexeme: String)
+        |  case NullValue
+        |enum JsonMode:
+        |  case StringValue
+        |  case Other
+        |def wrap(value: String, lexeme: String): JsonValue = JsonValue.StringValue(value, lexeme)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("JsonValue::StringValue { value:") || g.contains("JsonValue::StringValue{value:"),
+      s"the qualified constructor should build the JsonValue variant with both fields, not JsonMode's:\n$g")
+
+  test("a qualified AMBIGUOUS-topval reference clones itself across loop iterations"):
+    // `Some(JsonDialect.id)` inside a `while` loop, where `id` is a topval name CONTESTED by two
+    // different owning objects (`_ambiguousTopValNames`) — the reference rewrites to a flat local,
+    // `JsonDialect_id`, not a field projection off `JsonDialect`; `cloneIfMoved`'s `Term.Select`
+    // case only ever asked `needs` about the ORIGINAL qualifier (`JsonDialect`, never itself a
+    // topval), so the rewritten name was never protected: `error[E0382]: use of moved value` on
+    // the loop's second iteration.
+    val src =
+      """```scalascript
+        |object A:
+        |  val id: String = "a"
+        |object B:
+        |  val id: String = "b"
+        |def tag(n: Int): Option[String] =
+        |  var out: Option[String] = None
+        |  var i = 0
+        |  while i < n do
+        |    out = Some(A.id)
+        |    i += 1
+        |  out
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("Some(A_id.clone())"), s"a qualified ambiguous-topval reference reused across loop iterations should clone:\n$g")
+
+  test("bare no-paren `.head`/`.last` on a String read its first/last char"):
+    // `lexeme.head != '"' || lexeme.last != '"'` (`uniml/json`'s `JsonProjection.scala`'s
+    // `unquote`) — the no-paren-Vec-member case explicitly excludes String receivers, so `.head`/
+    // `.last` on one fell through to a bare Rust field access: `error[E0609]: no field head on
+    // type String`.
+    val src =
+      """```scalascript
+        |def isQuoted(lexeme: String): Boolean = lexeme.head == '"' && lexeme.last == '"'
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("_str_char_at(&lexeme, 0i64)"), s".head on a String should read its first char:\n$g")
+    assert(g.contains("_str_length(&lexeme) - 1i64"), s".last on a String should read its last char:\n$g")
