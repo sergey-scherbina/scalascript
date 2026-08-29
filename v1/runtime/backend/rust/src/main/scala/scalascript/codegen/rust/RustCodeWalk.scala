@@ -9954,6 +9954,19 @@ object RustCodeWalk:
     // it — `tokens.iterator.map(…)` was judged NOT a known Vec, and the trailing bare `.mkString`
     // fell to the generic no-paren refusal.
     case m.Term.Select(q, m.Term.Name("iterator")) => isKnownVecReceiver(q, ctx)
+    // `segs.iterator.zipWithIndex.map { (s, idx) => … }.mkString` (`uniml/markdown`'s
+    // `MarkdownBlocks.scala`'s `emitSetextUnderline`) — SAME gap as `.iterator` just above,
+    // for a SECOND no-arg (parenthesis-free) combinator: `.zipWithIndex` changes the ELEMENT
+    // type (`Vec<T>` to `Vec<(T, i64)>`) but is still a `Vec`, the same fact
+    // `collectLocalSeqs`'s own `SeqMethods` set already trusts for a `var`/`val` initializer's
+    // DECLARED type. First tried as a case in the `Term.Apply` alternation just above (matching
+    // its siblings there) but `.zipWithIndex` — unlike `filter`/`map`/`collect`/etc, which all
+    // take an argument — is NEVER written with parens, so it parses as a bare `Term.Select`,
+    // never a `Term.Apply`, and that case silently never fired. Needs its OWN `Term.Select` case,
+    // exactly like `.iterator`'s: without it, `.map{...}` chained after `.zipWithIndex` recursed
+    // into `isKnownVecReceiver(segs.iterator.zipWithIndex, ctx)`, which fell through to `false`,
+    // and the trailing bare `.mkString` hit the generic no-paren "collection member" refusal.
+    case m.Term.Select(q, m.Term.Name("zipWithIndex")) => isKnownVecReceiver(q, ctx)
     // A FIELD whose declared type is a sequence — `f.specs` on `case class Form(specs: List[…])` —
     // OR a zero-arg CALL to a known method/trait-default whose declared return type is a sequence:
     // `adapter.aliases` (`DialectAdapter.aliases: Set[String]`, `Dialect.scala`) — WITHOUT parens,
