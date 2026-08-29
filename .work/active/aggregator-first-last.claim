@@ -3,9 +3,24 @@ branch: feature/aggregator-first-last
 agent: claude-code
 started: 2026-08-29T18:51:00Z
 heartbeat: 2026-08-29T18:51:00Z
-status: claimed-before-planning
+status: in-progress
 items: aggregation-algebra-canonical-and-effectful
 paths: file:std/aggregator.ssc file:examples/std-aggregator.ssc file:specs/aggregation-algebra.md file:BACKLOG.md file:tests/conformance/std-aggregator.ssc file:tests/conformance/expected/std-aggregator.txt
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  Finish §5 of specs/aggregation-algebra.md: first/last, the one item left after the
+  aggregator-canonical-exact claim (min/max, variance/stddev).
+
+  Design decision (was open, deciding now): generalize min/max into a keyed MinByAgg[A, K]/
+  MaxByAgg[A, K] (explicit Order[K] + a key: A => K function, additive - MinAgg/MaxAgg stay as
+  they are, not refactored to be defined in terms of these, to avoid touching already-shipped/
+  tested code for no behavioral gain). first/last are then MinByAgg/MaxByAgg keyed on a caller-
+  attached index: the caller runs xs.zipWithIndex (-> List[(A, Int)], element first per this
+  codebase's existing convention) before folding, and firstAgg[A]()/lastAgg[A]() do
+  MinByAgg/MaxByAgg on the index, mapped back to just the element. This is what makes it a real
+  Aggregator usable in parallel/combine (the ordering key travels WITH the value instead of being
+  implicit in fold order), matching the spec's own warning ("do not merge unordered partitions
+  naively").
+
+  Also: verify variance/min/max/mean interop is undisturbed (regression), and don't touch
+  std/order.ssc further - it's stable now.
+next: implement MinByAgg/MaxByAgg + firstAgg/lastAgg, test, land
