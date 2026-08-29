@@ -3345,9 +3345,19 @@ object RustCodeWalk:
       val stringParams = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
         .collect { case p if p.decltpe.exists { case m.Type.Name("String") => true; case _ => false } => p.name.value }
         .toSet
+      // Params DECLARED `Vector[String]`/`List[String]`/etc — `collectLocalStrings`'s own
+      // `vecStringParams` fact for a bare-name INDEX read (`values(position)`, `foldLines`'s own
+      // `values: Vector[String]`).
+      val vecStringParams = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
+        .collect { case p if p.decltpe.exists {
+            case m.Type.Apply.After_4_6_0(m.Type.Name("Vector" | "List" | "Seq" | "IndexedSeq" | "Array"), argClause) =>
+              argClause.values match { case List(m.Type.Name("String")) => true; case _ => false }
+            case _ => false
+          } => p.name.value
+        }.toSet
       // Seeded with `stringParams` so a chain rooted in one (`value.drop(2).takeWhile(…)`) is
       // recognised too — see `collectLocalStrings`'s own comment.
-      val lstrings = collectLocalStrings(d.body, stringParams) ++ stringParams ++ _moduleStrings
+      val lstrings = collectLocalStrings(d.body, stringParams, vecStringParams) ++ stringParams ++ _moduleStrings
       // Params DECLARED `StringBuilder` (`serializeNode(node, sb: StringBuilder, opts, depth)`,
       // `uniml/xml`'s `Doc.scala`) — the parameter-side twin of `mapType`'s own new case for the
       // bare type name: without this, `sb.append(...)` inside the BODY had no way to know `sb`
@@ -3632,6 +3642,15 @@ object RustCodeWalk:
       // receiver the walker could have known was a Vec all along.
       case m.Term.Select(m.Term.Name(r), m.Term.Name(f)) if seqFields.get(r).exists(_.contains(f)) =>
         Some(false)
+      // `val ranges = streamAndDocuments(tokens) ++ blockRanges(tokens) ++ flowRanges(tokens)`
+      // (`uniml/yaml`'s `YamlStructure.scala`'s `assign`) — an INFIX `++` CHAIN of calls each
+      // declared to return a `Vector[Range]`, none of the cases above match an `ApplyInfix` at
+      // all (they all key off `Term.Apply`/`Term.Select`), so `ranges` itself was never recorded
+      // — cascading to `opening`/`closing`, two locals FILTERED from it inside a nested closure,
+      // also going unrecorded: `error: reads nonEmpty … collection member, not a field`. Either
+      // side being seq-shaped (by this SAME recursive check) makes the whole `++` a seq too.
+      case m.Term.ApplyInfix.After_4_6_0(l, m.Term.Name("++"), _, r) if r.values.sizeIs == 1 =>
+        if seqCtor(l).isDefined || seqCtor(r.values.head).isDefined then Some(false) else None
       case _ => None
     // A SEQ-PRESERVING CALL ON SOMETHING ALREADY KNOWN TO BE A SEQ.
     //
@@ -4029,7 +4048,16 @@ object RustCodeWalk:
     walk(body)
     names.toSet
 
-  private def collectLocalStrings(body: m.Term, seed: Set[String]): Set[String] =
+  private def collectLocalStrings(
+      body: m.Term, seed: Set[String],
+      // Names DECLARED `Vector[String]`/`List[String]`/etc — indexing one (`values(position)`,
+      // `uniml/yaml`'s `YamlSemanticParser.scala`'s `foldLines`, `values: Vector[String]`) yields a
+      // `String` element, a fact `isStr` had no way to see: none of its cases recognise a bare
+      // INDEX call at all. Optional, defaulted empty, so the OTHER call site (`collectCopyNames`,
+      // which only asks "is this a String" for Copy-exclusion and has no comparable Vec-of-String
+      // param table computed) is unaffected.
+      vecStringParams: Set[String] = Set.empty
+  ): Set[String] =
     val strs = scala.collection.mutable.Set.empty[String] ++ seed
     // STRING-PRESERVING methods, the same idea `collectLocalSeqs`'s `SeqPreserving`/`rootedInSeq`
     // already apply to `Vec` — `value.drop(2).takeWhile(pred)` (`uniml/xml`'s `Doc.scala`'s
@@ -4062,6 +4090,13 @@ object RustCodeWalk:
         // lowered to `format!` and printed 71 where every other lane printed 8. Compiled clean,
         // ran clean, wrong answer.
         args.values.lastOption.exists(isStr)
+      // `values(position)` where `values: Vector[String]` is a DECLARED param (`foldLines`'s own
+      // signature) — indexing a known `Vec<String>` yields a `String` element. Checked BEFORE the
+      // "call to a def" case just below: `values(position)` matches that shape too (`Term.Apply
+      // (Term.Name(n), _)`), and would silently answer `false` there (`values` is a parameter,
+      // never itself a def `_defBodies` knows), never reaching this more specific fact.
+      case m.Term.Apply.After_4_6_0(m.Term.Name(n), args)
+          if args.values.sizeIs == 1 && vecStringParams.contains(n) => true
       // A call to a def whose DECLARED return type is `String`. Mirrors `defReturnsEither`
       // below — the declaration is stated, so this reads it rather than guessing.
       case m.Term.Apply.After_4_6_0(m.Term.Name(n), _)                => defReturnsString(n)
@@ -4080,6 +4115,27 @@ object RustCodeWalk:
         case v: m.Defn.Val => v.pats match
           case List(m.Pat.Var(m.Term.Name(n))) =>
             if declaresString(v.decltpe) || isStr(v.rhs) then strs += n
+          // `val (_, rest) = splitPropertiesNoDiagnostic(text)` (`uniml/yaml`'s
+          // `YamlSemanticParser.scala`'s `blockHeader`) — a TUPLE-PATTERN destructure from a call
+          // whose declared return type is itself a tuple; `rest`'s String-ness lives only in
+          // `splitPropertiesNoDiagnostic`'s OWN signature, `(Properties, String)`, which the
+          // single-name case just above never reads at all (`v.pats` there is a one-element list,
+          // never matching a `Pat.Tuple`). Without it, `rest.isEmpty`/`.head` fell to the
+          // by-name-only "collection member" refusal — `rest.isEmpty` reached rustc as a raw
+          // field access. Read the RAW Scala return-type AST off `_defBodies` (same convention
+          // `defReturnsString` uses for the single-value case), matching each tuple pattern
+          // BINDER against its POSITIONAL declared type.
+          case List(m.Pat.Tuple(elems)) =>
+            v.rhs match
+              case m.Term.Apply.After_4_6_0(m.Term.Name(fn), _) =>
+                _defBodies.get(fn).flatMap(_.decltpe).collect { case m.Type.Tuple(elemTypes) => elemTypes }
+                  .foreach { elemTypes =>
+                    elems.zip(elemTypes).foreach {
+                      case (m.Pat.Var(m.Term.Name(n)), m.Type.Name("String")) => strs += n
+                      case _ => ()
+                    }
+                  }
+              case _ => ()
           case _                               => ()
         case v: m.Defn.Var => v.pats match
           case List(m.Pat.Var(m.Term.Name(n))) =>
@@ -5020,6 +5076,13 @@ object RustCodeWalk:
       // is neither a bare name nor a field select, so neither of the two cases above can place it.
       case m.Term.ApplyInfix.After_4_6_0(m.Term.Select(_, m.Term.Name(meth)), m.Term.Name("+"), _, _) =>
         _returnTypes.get(meth).filter(_.startsWith("Vec<"))
+      // `val lines = splitLines(input)` (`uniml/yaml`'s `YamlSemanticParser.scala`'s `parse`) — a
+      // call to an ORDINARY user-defined function, whose declared return type `_returnTypes`
+      // already holds (the exact fact `collectLocalSeqs`'s own `seqCtor` already trusts for the
+      // SAME shape). None of the cases above fire for a bare `fn(args)` call at all — only a
+      // field-select, a companion constant, a literal, `.map`, or a Set's `+` — so `lines` (later
+      // captured by nine lifted defs: `skipBlank`, `parseValue`, …) had no way to resolve at all.
+      case m.Term.Apply.After_4_6_0(m.Term.Name(fn), _) => _returnTypes.get(fn)
       case _                                         => None
     val fromLocalDecl: Option[String] = stats.collectFirst {
       case v: m.Defn.Var if matches(v.pats) =>
@@ -5083,6 +5146,18 @@ object RustCodeWalk:
       // `_.kind` — the placeholder itself, still unresolved to `__p0` at this point (see the
       // `Term.Placeholder`-and-`isEmpty` arm above; same reason, same fixed name).
       case m.Term.Select(_: m.Term.Placeholder, m.Term.Name(f)) => check("__p0", f)
+      // `lines.last.lineBreak.nonEmpty` (`uniml/yaml`'s `YamlSemanticParser.scala`'s `parse`) —
+      // the base of the field-select is ITSELF a `.last`/`.head` on a `Vec<Line>`, not a bare
+      // name `check` can look up directly; `elementTypeOf` already answers "what does `.last`/
+      // `.head` on THIS receiver yield" for the `Vec` case (its own `sorted`/`distinct`/`reverse`
+      // cases recurse the same way, just without changing the element — `.last`/`.head` narrows
+      // a `Vec<Line>` receiver down to the single `Line` this field-read is off).
+      case m.Term.Select(m.Term.Select(base, m.Term.Name("last" | "head")), m.Term.Name(f)) =>
+        elementTypeOf(base, ctx).flatMap(ctx.ctorMap.get).exists { ec =>
+          ec.fieldNames.indexOf(f) match
+            case -1 => false
+            case i  => ec.fieldTypes.lift(i).contains("String")
+        }
       case _ => false
 
   /** Lambda-lift local `def`s that appear as direct statements in a block — `TreeVm.scala`'s
@@ -5218,6 +5293,21 @@ object RustCodeWalk:
                 case m.Type.Select(_, m.Type.Name(ctorName)) if ctx.ctorMap.contains(ctorName) => p.name.value -> ctorName
                 case m.Type.Name(ctorName) if ctx.ctorMap.contains(ctorName) => p.name.value -> ctorName
               }
+            },
+            // `def flowParse(text: String, span: SourceSpan, depth: Int, isSequence: Boolean) = …
+            // def parseNode(...) = … skipSpaces() …` (`uniml/yaml`'s `YamlSemanticParser.scala`) —
+            // TWO-DEEP local-def lifting: `flowParse` is ITSELF a def lifted out of `parse`, and
+            // `parseNode`/`skipSpaces`/etc. are lifted out of `flowParse`'s OWN body by a SECOND,
+            // nested call to this same function. That inner call's `inferCaptureType` resolves a
+            // captured name via `ctx.paramTypes.get(name)` as its last resort — but `childCtx` here
+            // never added `d`'s OWN parameters (`text`, `span`, `depth`) to `paramTypes` at all, the
+            // same gap `paramCtorNames` just above already closed for a lifted def's OWN parameters
+            // needing a CTOR name; this is the identical gap for the PARAMETER'S TYPE itself. Without
+            // it, `flowParse`'s own parameters were invisible one nesting level down: "def `parseNode`
+            // captures `depth, span, text` and this lane cannot infer its type — give it an explicit
+            // type annotation where it is declared" — on parameters that already carry one.
+            paramTypes = ctx.paramTypes ++ d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).flatMap { p =>
+              p.decltpe.flatMap(t => mapType(t, d.name.value, ctx.enumNames).toOption).map(p.name.value -> _)
             },
             inLiftedFn = true,
             // `val char = input.charAt(cursor)` DECLARED INSIDE a lifted local def's OWN body
@@ -5849,6 +5939,13 @@ object RustCodeWalk:
 
     case m.Term.Select(qual, m.Term.Name("trim")) =>
       renderTerm(qual, ctx).map(q => s"$q.trim().to_string()")
+    // `stripComment(line.raw).stripTrailing()` (`uniml/yaml`'s `YamlSemanticParser.scala`'s
+    // `clean`) — Java/Scala's `String.stripTrailing` trims trailing WHITESPACE only (unlike
+    // Scala's OWN `.trim`, which also strips other control characters) — `trim_end()` is Rust's
+    // direct equivalent, whitespace-only in the same sense.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("stripTrailing")), args)
+        if args.values.isEmpty =>
+      renderTerm(qual, ctx).map(q => s"$q.trim_end().to_string()")
     // ── String indexing, in UTF-16 CODE UNITS ──────────────────────────────
     // These had no arm at all, so they fell through to the generic method-call rendering and came
     // out as `s.charAt(i)` — a Rust `String` method that does not exist (E0599, 32 of the 37 errors
@@ -6035,6 +6132,22 @@ object RustCodeWalk:
           case "last" => s"crate::runtime::_str_char_at(&$q, crate::runtime::_str_length(&$q) - 1i64)"
       }
 
+    // `tokens.indices.map { index => … }` (`uniml/yaml`'s `YamlStructure.scala`, five call
+    // sites) — Scala's `IndexedSeqOps.indices`, a `Range` over `0 until xs.length`, needing its
+    // own shape (a Rust `Range<i64>`, not a Vec) rather than the shared `meth match` just below
+    // (every OTHER member there stays Vec-shaped). Falling through to the generic no-paren
+    // refusal reported "reads `indices` on a List … would be emitted as a Rust FIELD".
+    case m.Term.Select(qual, m.Term.Name("indices")) if isKnownVecReceiver(qual, ctx) =>
+      renderTerm(qual, ctx).map(q => s"(0i64..($q).len() as i64)")
+
+    // `tokens.iterator.map(_.lexeme).mkString` (`uniml/yaml`'s `YamlProjection.scala`'s
+    // `project`) — a pure VIEW conversion on this lane, identity pass-through: `isKnownVecReceiver`
+    // was taught `.iterator` doesn't break a Vec chain (its own comment), but nothing RENDERED it
+    // — it fell to the generic no-paren "collection member" refusal on its own account, once the
+    // `.mkString` chained after it got far enough to try rendering its receiver.
+    case m.Term.Select(qual, m.Term.Name("iterator")) if isKnownVecReceiver(qual, ctx) =>
+      renderTerm(qual, ctx)
+
     // The no-paren members that DO have an obvious lowering, taken before the refusal below. They
     // are the ones a loop is written with -- `while xs.nonEmpty do { … xs.head … xs.tail }` is
     // std/scljet/text.ssc, three of them on one line -- so refusing them would be honest and
@@ -6073,9 +6186,28 @@ object RustCodeWalk:
     // of widening `isStringExpr` itself (17 call sites, several of them recursive) — this is the
     // one site the gap was actually reported from.
     case m.Term.Select(qual, m.Term.Name(meth))
-        if (isStringExpr(qual) || (qual match { case m.Term.Name(n) => ctx.localStrings.contains(n); case _ => false })) &&
+        if (isStringExpr(qual) || (qual match { case m.Term.Name(n) => ctx.localStrings.contains(n); case _ => false }) ||
+            // `values(position + 1).isEmpty` (`uniml/yaml`'s `YamlSemanticParser.scala`'s
+            // `foldLines`) — an INDEX EXPRESSION into a `Vector[String]` PARAMETER, not a bare
+            // name `ctx.localStrings` tracks: `values` itself is a String-of-elements Vec, never
+            // registered there (`localStrings` holds STRING-typed names, not their containers).
+            // `ctx.paramTypes` already carries the def's own param types in mapped-Rust form.
+            (qual match {
+              case m.Term.Apply.After_4_6_0(m.Term.Name(n), idx) if idx.values.sizeIs == 1 =>
+                ctx.paramTypes.get(n).contains("Vec<String>")
+              case _ => false
+            })) &&
            Set("nonEmpty", "isEmpty").contains(meth) =>
       renderTerm(qual, ctx).map(q => if meth == "isEmpty" then s"$q.is_empty()" else s"!$q.is_empty()")
+
+    // `withBreak.reverse.dropWhile(_ == '\n').reverse` (`uniml/yaml`'s `YamlSemanticParser.
+    // scala`'s `parseBlockScalar`) — a bare no-paren `.reverse` on a STRING reverses its
+    // CHARACTERS (Scala's `StringOps.reverse`), a different result from the Vec-shaped `.reverse`
+    // case a few lines below (in-place element reversal) — falling through to it would need a
+    // receiver this lane can place as a Vec, which a String never is, so it fell all the way to
+    // the generic no-paren refusal instead.
+    case m.Term.Select(qual, m.Term.Name("reverse")) if isStringReceiverChain(qual, ctx) =>
+      renderTerm(qual, ctx).map(q => s"$q.chars().rev().collect::<String>()")
 
     // `elements.nonEmpty` / `elements.isEmpty` (`XmlDialect.scala`'s `XmlScanner.scan`, `var
     // elements: Vector[String]`) — the STRING-receiver case just above never claims a known Vec,
@@ -6449,6 +6581,45 @@ object RustCodeWalk:
           }.mkString(", ")
           s"(match &($recvR) { ${ec.enumName}::$cn { $bindPat, .. } => ${ec.enumName}::$cn { $fields }, _ => unreachable!() })"
 
+    // `Right(copy(handles = ..., declared = ...))` (`uniml/yaml`'s `YamlTagEnvironment.scala`'s
+    // `register`) — a case class's OWN method calling `copy(...)` BARE, on the IMPLICIT `this`;
+    // both `.copy` cases just above require an EXPLICIT `Term.Select` receiver (`x.copy(...)`),
+    // a different AST shape entirely (`Term.Apply(Term.Name("copy"), args)`, no `Select` at all),
+    // so this fell all the way to the generic "calls copy, which this crate does not define"
+    // refusal. NOT gated on `ctx.trueSelfFields` (that set is empty for an ORDINARY, immutable
+    // case class — only a genuinely MUTABLE `class` populates it, per `renderDef`'s own `trueSelf`
+    // comment): an ordinary case class's own method reads each field through a CLONE-ALIAS
+    // prelude (`ownFieldTypes`'s mechanism, `selfMethod`), so `handles`/`declared` are already
+    // ordinary LOCAL bindings inside `register`'s body, never `self.field` — which is also why
+    // the un-overridden fallback below reads the bare aliased LOCAL (`${rustIdent(f)}.clone()`),
+    // not `self.field.clone()`. `Self` (Rust's alias for "the type this `impl` block is for")
+    // sidesteps needing this struct's OWN name; `ctx.selfFields` has every field NAME (Rust
+    // struct-literal fields need not be listed in declaration order), just not their TYPES, so —
+    // unlike the two `.copy` cases above — this cannot box a recursive field override; no case in
+    // this corpus needs that yet.
+    case m.Term.Apply.After_4_6_0(m.Term.Name("copy"), args) if ctx.selfFields.nonEmpty =>
+      val named = args.values.toList.collect {
+        case m.Term.Assign(m.Term.Name(field), value) if ctx.selfFields.contains(field) => field -> value
+      }
+      if named.size != args.values.size then
+        Left(List(unsupported(
+          s"def `${ctx.defName}` calls bare `copy(...)` with an argument that is not a " +
+          s"`field = value` naming a real field — only that form is lowered"
+        )))
+      else
+        for
+          rendered <- named.map { (f, v) => renderTerm(v, ctx).map(vr => f -> cloneIfMoved(v, vr, ctx)) }
+                        .partitionMap(identity) match
+            case (errs, _) if errs.nonEmpty => Left(errs.flatten)
+            case (_, ok)                    => Right(ok.toMap)
+        yield
+          val fields = ctx.selfFields.toList.map { f =>
+            rendered.get(f) match
+              case Some(v) => s"$f: $v"
+              case None    => s"$f: ${rustIdent(f)}.clone()"
+          }
+          s"Self { ${fields.mkString(", ")} }"
+
     case m.Term.Apply.After_4_6_0(
       m.Term.Select(qual, m.Term.Name("updated")),
       args
@@ -6691,6 +6862,43 @@ object RustCodeWalk:
     // wrong Rust until `isKnownVecReceiver` on `inner` was fixed to recognize `element.children` —
     // at which point the SAME shape started reaching a diagnostic refusal instead, but the shadow
     // was the actual bug, present even for the OLD (unrecognized) receivers too, just invisibly.
+    // `tokens.indices.foreach { index => … }` (`uniml/yaml`'s `YamlStructure.scala`'s
+    // `flowRanges`/`validateFlow`) — the general `.foreach` case just below has no `isRangeExpr`
+    // guard at all (unlike `.map`/`.filter`, each split into a Vec-shaped and a range-shaped
+    // case), so it unconditionally rendered `$q.iter().cloned()` — `Range<i64>` has no `.iter()`
+    // method (it IS its own `Iterator`, not a collection to borrow one from): `error[E0599]`. A
+    // `Range` iterates BY VALUE directly, so this needs its own template, not `renderVecIterBody`'s
+    // shared one (which always assumes a borrow-then-clone receiver).
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(qual, m.Term.Name("foreach")), args
+    ) if isRangeExpr(qual) && args.values.size == 1 =>
+      for
+        q <- renderTerm(qual, ctx)
+        pb <- args.values.head match
+          // `{ index => … }` (brace-block syntax) parses as a `Block` wrapping the `Function` —
+          // `renderVecIterBody`'s own unwrap case has the full reasoning; without it here, `tokens.
+          // indices.foreach { index => … }` fell to the `case other` method-reference branch below
+          // and rendered the whole closure as a doubly-wrapped IIFE instead of a plain `for` body.
+          case m.Term.Block(List(fn2: m.Term.Function)) =>
+            val p = fn2.paramClause.values.headOption.map(_.name.value).getOrElse("x")
+            val bodyCtx = enteringClosure(ctx, Set(p))
+            val rendered = fn2.body match
+              case blk: m.Term.Block => renderBody(blk, bodyCtx, isUnit = true)
+              case t                 => renderTerm(t, bodyCtx).map(r => s"$r;")
+            rendered.map(b => (p, b))
+          case fn2: m.Term.Function =>
+            val p = fn2.paramClause.values.headOption.map(_.name.value).getOrElse("x")
+            val bodyCtx = enteringClosure(ctx, Set(p))
+            val rendered = fn2.body match
+              case blk: m.Term.Block => renderBody(blk, bodyCtx, isUnit = true)
+              case t                 => renderTerm(t, bodyCtx).map(r => s"$r;")
+            rendered.map(b => (p, b))
+          case other =>
+            renderTerm(other, ctx).map(f => ("x", s"($f)(x);"))
+      yield
+        val (p, b) = pb
+        s"for $p in $q {\n${indent(b)}\n}"
+
     case m.Term.Apply.After_4_6_0(
         m.Term.Select(qual, m.Term.Name("foreach")), args
     ) if args.values.size == 1 && (qual match { case m.Term.Select(_, m.Term.Name("reverseIterator")) => false; case _ => true }) =>
@@ -6736,6 +6944,30 @@ object RustCodeWalk:
           case other =>
             renderTerm(other, ctx).map(f => s"|x| ($f)(*x)")
       yield s"$q.filter($f)"
+
+    // `tokens.indices.map { index => … }.toVector` (`uniml/yaml`'s `YamlStructure.scala`'s
+    // `assign`) — the SAME range-vs-Vec split `.filter` just above already has; the Vec `.map`
+    // case a few lines up excludes ranges (`!isRangeExpr`) but nothing filled the range side in.
+    // `Range<i64>`'s own `Iterator::map` takes each item BY VALUE (no `&p` destructure, unlike
+    // `.filter`'s predicate), and stays a lazy iterator — `.toVector`/`.toList` (both already
+    // `isRangeExpr`-aware) do the collecting.
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(qual, m.Term.Name("map")), args
+    ) if isRangeExpr(qual) && args.values.size == 1 =>
+      for
+        q <- renderTerm(qual, ctx)
+        f <- args.values.head match
+          // `{ index => … }` (brace-block syntax) — see the range `.foreach` case's own comment,
+          // same unwrap, same reason.
+          case m.Term.Block(List(fn2: m.Term.Function)) =>
+            val p = fn2.paramClause.values.headOption.map(_.name.value).getOrElse("x")
+            renderTerm(fn2.body, enteringClosure(ctx, Set(p))).map(b => s"move |$p| { $b }")
+          case fn2: m.Term.Function =>
+            val p = fn2.paramClause.values.headOption.map(_.name.value).getOrElse("x")
+            renderTerm(fn2.body, enteringClosure(ctx, Set(p))).map(b => s"move |$p| { $b }")
+          case other =>
+            renderTerm(other, ctx).map(f => s"|x| ($f)(x)")
+      yield s"$q.map($f)"
 
     // xs.find(p) → xs.iter().cloned().find(…) — an Option, as in Scala.
     //
@@ -7931,16 +8163,36 @@ object RustCodeWalk:
     // `xs :+ x` — append a single element to the end, producing a NEW collection (Scala
     // collections are immutable). Reuse the same borrowed-slice-concat shape as `++`/`:::`,
     // wrapping the single element in a one-element array so it lines up as a second slice.
+    //
+    // `stack = stack :+ (token.charAt(0), token)` (`uniml/yaml`'s `YamlStructure.scala`'s
+    // `flowRanges`) — an INFIX operator followed by a parenthesized, comma-separated group
+    // parses the SAME way a method call's argument LIST does: `rargs.values` comes back as TWO
+    // separate positional terms (`token.charAt(0)`, `token`), never one `Term.Tuple` — the
+    // `size == 1` guard never matched a tuple-shaped appended element at all, so this fell to the
+    // generic infix fallback: `error: unsupported infix operator ':+'` (`mapInfixOp` has no entry
+    // for it). Reassembling `rargs.values` into a `Term.Tuple` when there is more than one
+    // recovers exactly the term this arm already knows how to render.
     case m.Term.ApplyInfix.After_4_6_0(lhs, m.Term.Name(":+"), _, rargs)
-        if rargs.values.size == 1 =>
+        if rargs.values.nonEmpty =>
+      val appended = if rargs.values.sizeIs == 1 then rargs.values.head else m.Term.Tuple(rargs.values)
       for
         l  <- renderTerm(lhs, ctx)
-        r0 <- renderTerm(rargs.values.head, ctx)
+        r0 <- renderTerm(appended, ctx)
       // `attributes = attributes :+ attribute` then `attribute` read again afterward (`uniml/xml`'s
       // `Doc.scala`'s `scan`: `format!("… '{}'", attribute)`) — the one-element array literal
       // `[$r]` OWNS its element, MOVING it out of `attribute`: `error[E0382]: borrow of moved
       // value: attribute`. Same fix as every other bare-argument-position move this session.
-      yield s"[&($l)[..], &[${cloneIfMoved(rargs.values.head, r0, ctx)}][..]].concat()"
+      yield s"[&($l)[..], &[${cloneIfMoved(appended, r0, ctx)}][..]].concat()"
+
+    // `x +: xs` — prepend a single element, the MIRROR of `:+` just above (element on the LEFT,
+    // collection on the right — `0 +: documentStarts`, `uniml/yaml`'s `YamlStructure.scala`'s
+    // `streamAndDocuments`). Same borrowed-slice-concat shape, element array first.
+    case m.Term.ApplyInfix.After_4_6_0(lhs, m.Term.Name("+:"), _, rargs)
+        if rargs.values.sizeIs == 1 =>
+      for
+        l0 <- renderTerm(lhs, ctx)
+        r  <- renderTerm(rargs.values.head, ctx)
+      yield s"[&[${cloneIfMoved(lhs, l0, ctx)}][..], &($r)[..]].concat()"
 
     // `xs + x` — a Scala `Set`'s single-element add, spelled the same `+` as numeric addition
     // (`adapter.aliases + adapter.id`, `Dialect.scala`'s `DialectRegistry.register`, where
@@ -7972,6 +8224,19 @@ object RustCodeWalk:
         l <- renderTerm(lhs, ctx)
         r <- renderTerm(rargs.values.head, ctx)
       yield s"$l.push($r);"
+
+    // `hasTab ||= input.charAt(index) == '\t'` (`uniml/yaml`'s `YamlLexer.scala`'s `scan`) — Rust
+    // has NO `||=`/`&&=` operator at all (unlike `+=`/`-=`/etc, which `mapInfixOp` passes straight
+    // through because Rust's own compound-assignment operators exist and mean the same thing):
+    // `error: unsupported infix operator '||='`, `mapInfixOp`'s catch-all. Desugared to the plain
+    // reassignment it stands for.
+    case m.Term.ApplyInfix.After_4_6_0(lhs, m.Term.Name(op @ ("||=" | "&&=")), _, rargs)
+        if rargs.values.sizeIs == 1 =>
+      val boolOp = if op == "||=" then "||" else "&&"
+      for
+        l <- renderTerm(lhs, ctx)
+        r <- renderTerm(rargs.values.head, ctx)
+      yield s"$l = $l $boolOp ($r)"
 
     // Infix operators: arithmetic, comparison, boolean.
     case infix @ m.Term.ApplyInfix.After_4_6_0(_, _, _, _) =>
@@ -8313,6 +8578,13 @@ object RustCodeWalk:
     case m.Term.Name(n) => ctx.localStrings.contains(n) || isStringExpr(t)
     case m.Term.Apply.After_4_6_0(m.Term.Select(inner, m.Term.Name("drop" | "take")), _) =>
       isStringReceiverChain(inner, ctx)
+    // `withBreak.reverse.dropWhile(_ == '\n').reverse` (`uniml/yaml`'s `YamlSemanticParser.
+    // scala`'s `parseBlockScalar`) — the OUTER `.reverse`'s own qualifier is this WHOLE chain,
+    // never a bare name; `.reverse`/`.dropWhile`/`.takeWhile` are String-preserving the same way
+    // `.drop`/`.take` are, just not in this function's list yet.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(inner, m.Term.Name("dropWhile" | "takeWhile")), _) =>
+      isStringReceiverChain(inner, ctx)
+    case m.Term.Select(inner, m.Term.Name("reverse")) => isStringReceiverChain(inner, ctx)
     case other => isStringExpr(other)
 
   /** Best-effort check that a term is an `Either`-shaped expression so we can
@@ -8593,6 +8865,14 @@ object RustCodeWalk:
            // `validateNamespaces`), which chains `.reverseIterator` right after it.
            "collect")), _) =>
       isKnownVecReceiver(q, ctx)
+    // `tokens.iterator.map(_.lexeme).mkString` (`uniml/yaml`'s `YamlProjection.scala`'s
+    // `project`) — `.iterator` is a no-op VIEW conversion on this lane (nothing downstream
+    // distinguishes a `Vec` from "the same `Vec`, as an iterator"), but it broke the Vec-chain
+    // recognition above: unlike every combinator in that list, `.iterator` is a bare, no-arg
+    // `Term.Select` (never a `Term.Apply`), so the recursive case just above never even tried
+    // it — `tokens.iterator.map(…)` was judged NOT a known Vec, and the trailing bare `.mkString`
+    // fell to the generic no-paren refusal.
+    case m.Term.Select(q, m.Term.Name("iterator")) => isKnownVecReceiver(q, ctx)
     // A FIELD whose declared type is a sequence — `f.specs` on `case class Form(specs: List[…])` —
     // OR a zero-arg CALL to a known method/trait-default whose declared return type is a sequence:
     // `adapter.aliases` (`DialectAdapter.aliases: Set[String]`, `Dialect.scala`) — WITHOUT parens,
@@ -8722,6 +9002,11 @@ object RustCodeWalk:
   private def isRangeExpr(term: m.Term): Boolean = term match
     case m.Term.ApplyInfix.After_4_6_0(_, m.Term.Name("until" | "to"), _, rhs)
         if rhs.values.size == 1 => true
+    // `tokens.indices` — no receiver-type guard needed here (unlike the RENDERING case, which
+    // needs `isKnownVecReceiver`/`ctx` to place `tokens` as a Vec): `.indices` exists on no other
+    // Scala type, so the bare syntactic shape alone is enough to know a `.map`/`.filter`/`.foreach`
+    // chained onto it is chaining onto a `Range`, not a `Vec`.
+    case m.Term.Select(_, m.Term.Name("indices")) => true
     // Source.range(lo, hi) — backpressured range source (R.6 streams)
     case m.Term.Apply.After_4_6_0(
         m.Term.Select(m.Term.Name("Source"), m.Term.Name("range")), args)
@@ -11008,9 +11293,21 @@ object RustCodeWalk:
     // treats the qualifier as decoration to ignore for this exact reason (see its own comment); a
     // bare `ctx.ctorMap` hit is the same permissiveness applied here, and safe for the identical
     // reason: Scala already resolved this qualified name before this backend ever saw it.
+    // `case YamlValue.Alias(name) => …` colliding bare-name with `YamlPropertyKind`'s own
+    // zero-field `case Tag, Anchor, Alias` (`uniml/yaml`'s `YamlValue.scala`/`YamlPropertySyntax.
+    // scala`) — the SAME ambiguous-bare-ctorMap defect the QUALIFIED CONSTRUCTOR side already hit
+    // and fixed (`renderTerm`'s own qualified-ctor case, same comment in full): delegating to the
+    // bare spelling re-resolves `ctorName` through `ctx.ctorMap`, keyed by name alone, last-writer-
+    // wins — landing on `YamlPropertyKind::Alias` (0 fields) and refusing the real 1-arg pattern:
+    // `error: extracts 'Alias' with 1 args, expected 0`. Overriding the delegatee's OWN `ctx.
+    // ctorMap` entry with the disambiguated `_qualifiedCtors` one keeps every downstream struct-
+    // vs-tuple/field-fill decision the unqualified path already makes correctly.
     case m.Pat.Extract.After_4_6_0(m.Term.Select(m.Term.Name(enumName), m.Term.Name(ctorName)), argClause)
         if _qualifiedCtors.contains((enumName, ctorName)) || ctx.ctorMap.contains(ctorName) =>
-      renderPattern(m.Pat.Extract.After_4_6_0(m.Term.Name(ctorName), argClause), ctx)
+      val delegateCtx = _qualifiedCtors.get((enumName, ctorName)) match
+        case Some(ec) => ctx.copy(ctorMap = ctx.ctorMap.updated(ctorName, ec))
+        case None     => ctx
+      renderPattern(m.Pat.Extract.After_4_6_0(m.Term.Name(ctorName), argClause), delegateCtx)
     // A FIELD-LESS variant carries no argument list, so it does not arrive as an extractor at all:
     // `case Shape.Dot` is a `Term.Select` and bare `case Dot` is a `Term.Name`. NEITHER was
     // supported — the field-less case could not be matched in ANY spelling, which is a more basic
@@ -11400,6 +11697,17 @@ object RustCodeWalk:
     // `<<` (surrogate-pair code-point assembly: `(high << 10) + low`, `uniml/xml`'s
     // `Unicode.scala`/`XmlScanner.scan`) — an `i64` shift, spelled identically in Rust.
     case "<<" => Right(op)
+    // `&` — bitwise AND (`adjusted & 0x3ff`, `uniml/yaml`'s `YamlSemanticParser.scala`'s
+    // `codePointToString`, the OTHER half of the same surrogate-pair assembly `<<` above
+    // exists for). Spelled identically in Rust; `&&`'s own case just above never widened to
+    // cover the single-`&` bitwise spelling.
+    case "&" => Right(op)
+    // `>>>` — Java/Scala's UNSIGNED right shift. This lane has no unsigned integer type (every
+    // number is `i64`), and every operand this corpus actually shifts (Unicode code-point
+    // arithmetic — `adjusted` is `value - 0x10000` where `value` is a valid, non-negative code
+    // point) is non-negative, where an unsigned and a signed right-shift agree bit-for-bit — so
+    // Rust's plain `>>` is the exact answer here, not an approximation of one.
+    case ">>>" => Right(">>")
     case other => Left(List(unsupported(
       s"def `$defName` uses unsupported infix operator `$other`"
     )))

@@ -556,10 +556,50 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # `.charAt` already uses; `SscChar`'s existing `PartialEq<i64>` impl makes the comparison against a
 # `Lit.Char` (rendered as a bare `i64` code point) typecheck with no further coercion. Re-verified
 # uniml/xml still builds clean (0 errors) after every step in this entry.
+# renderTerm 34814 -> 36133 (+1319), starting uniml/yaml: first a genuine PARSER-level trap (not
+# this file at all) — a `'${expr}'`-shaped string-interpolation splice, bare-quote-wrapped with no
+# other text between the quote and `${`, trips this toolchain's parser somewhere downstream in a
+# large enough merged program (`` `)` expected but `macro` found `` at the interpolation's own
+# position) — fixed at the SOURCE level (plain concatenation) in `YamlStructure.scala`/
+# `YamlProjection.scala`, two occurrences; a SECOND, unrelated parser trap in the same module,
+# `!"lit"` (a unary op with NO SPACE against a non-numeric literal, tokenized as one combined node
+# the same way `-1` becomes a negative literal), fixed the same way in `YamlSemanticParser.scala`
+# (one occurrence, explicit parens). Then eleven real codegen fixes, taking `--print-only` on the
+# merged module from a hard parse failure to 0 diagnostics: (1) `xs :+ (a, b)`/`x +: xs` — an infix
+# operator followed by a parenthesized group parses as MULTIPLE positional args, not one tuple term,
+# so `:+`'s existing `rargs.size == 1` guard silently refused a tuple-shaped append; widened to
+# reassemble into a `Term.Tuple`, and `+:` (prepend, unhandled at all) added the same way. (2)
+# `xs.indices` (a `Range`, not a `Vec`) plus its OWN `.map`/`.filter`/`.foreach` chain rendering —
+# `.filter` already had a range lane, `.map`/`.foreach` did not and fell through to the shared
+# Vec-shaped template, which calls `.iter()`, a method `Range<i64>` does not have. (3) `hasTab ||=
+# …` — Rust has no `||`/`&&`-assign operator at all, unlike `+=`/`-=` (which exist and this lane
+# already passes through); desugared to `l = l || r`. (4) `&`/`>>>` bitwise ops, absent from
+# `mapInfixOp` entirely. (5) `.stripTrailing()` on a String. (6) a case class's OWN method calling
+# bare `copy(...)` on the implicit `this` — both existing `.copy` cases require an explicit
+# `Term.Select` receiver, a different AST shape; rendered via `Self { .. }` field-by-field (each
+# un-overridden field read from the case-class-method alias prelude's OWN local, not `self.field`
+# — an ordinary immutable case class never populates `Ctx.trueSelfFields`). (7) the QUALIFIED
+# ENUM-CONSTRUCTOR-PATTERN twin of an already-fixed construction-side bug: `case YamlValue.Alias
+# (name) =>` delegated to the bare spelling and re-resolved through the ambiguous bare-keyed
+# `ctorMap`, landing on a DIFFERENT same-named zero-field case (`YamlPropertyKind`'s own `Alias`)
+# and refusing the real 1-arg pattern — same `_qualifiedCtors`-override fix the constructor side
+# already got. Four fixes live in SEPARATE functions, costing nothing here: `collectLocalStrings`
+# widened for a TUPLE-PATTERN destructure from a call returning a declared tuple type, AND for
+# indexing into a `Vector[String]` parameter; `seqCtor` widened for an INFIX `++` chain of
+# Vec-returning calls (neither shape any existing case matched, both syntactically distinct from a
+# bare call/select); `isKnownStringField` widened to resolve a field read off a `.last`/`.head` on
+# a `Vec<Struct>` receiver (`elementTypeOf` already answers this, just was never asked here); and
+# `isStringReceiverChain` widened past `.drop`/`.take` to also chain through `.reverse`/
+# `.dropWhile`/`.takeWhile` (INCLUDING the already-existing `.takeWhile`/`.dropWhile`-on-String
+# lowering a few lines down, which reuses the SAME chain check for free once widened — an early,
+# now-reverted attempt to duplicate that case here regressed an established IIFE-avoidance test,
+# `s.takeWhile(char => …)` on a String, and was caught before landing since the full suite runs
+# before every corpus re-measurement). Re-verified uniml/xml and uniml/json both still build clean
+# (0 errors) after every step in this entry.
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-34814 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+36133 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

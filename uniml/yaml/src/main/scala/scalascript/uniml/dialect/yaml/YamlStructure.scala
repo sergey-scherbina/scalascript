@@ -168,7 +168,15 @@ private[yaml] object YamlStructure:
           if stack.isEmpty || stack.last._1 != expected then
             diagnostics = diagnostics :+ Diagnostic(
               "uniml.yaml.unexpected-flow-close",
-              s"unexpected YAML flow delimiter '${token.lexeme}'",
+              // NOT `s"… '${token.lexeme}' …"`: a string-interpolation splice immediately
+              // wrapped in a bare `'…'` (no other text between the quote and the `${`) trips
+              // this toolchain's parser somewhere downstream of this file in a large enough
+              // merged program — `` `)` expected but `macro` found `` at the interpolation's
+              // OWN position, reproducible only in combination with unrelated preceding
+              // content (see the sibling occurrence in `YamlProjection.scala`'s `validateCst`,
+              // same shape, same fix). Plain concatenation sidesteps whatever in the parser
+              // that pattern confuses.
+              "unexpected YAML flow delimiter '" + token.lexeme + "'",
               Severity.Error,
               Some(token.span),
               Some(YamlDialect.id),

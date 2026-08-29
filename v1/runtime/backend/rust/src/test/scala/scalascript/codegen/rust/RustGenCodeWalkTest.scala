@@ -1957,3 +1957,110 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(g.contains("_str_char_at(&lexeme, 0i64)"), s".head on a String should read its first char:\n$g")
     assert(g.contains("_str_length(&lexeme) - 1i64"), s".last on a String should read its last char:\n$g")
+
+  test("`xs :+ (a, b)` appends a TUPLE literal element, not two positional infix args"):
+    // `stack = stack :+ (token.charAt(0), token)` (`uniml/yaml`'s `YamlStructure.scala`'s
+    // `flowRanges`) — an infix operator followed by a parenthesized comma-group parses as TWO
+    // separate positional args, never one `Term.Tuple`, so `:+`'s `rargs.size == 1` guard missed
+    // it entirely: `error: unsupported infix operator ':+'`.
+    val src =
+      """```scalascript
+        |def push(stack: List[(Char, String)], c: Char, token: String): List[(Char, String)] =
+        |  stack :+ (c, token)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("[&(stack)[..], &[(c, token)][..]].concat()"), s":+ should append the tuple as one element:\n$g")
+
+  test("`x +: xs` prepends a single element, the mirror of `:+`"):
+    // `0 +: documentStarts` (`uniml/yaml`'s `YamlStructure.scala`'s `streamAndDocuments`) — had no
+    // lowering at all before.
+    val src =
+      """```scalascript
+        |def prepend(xs: List[Int]): List[Int] = 0 +: xs
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("[&[0i64][..], &(xs)[..]].concat()"), s"+: should prepend the element:\n$g")
+
+  test("`xs.indices` lowers to a Range, and `.map`/`.foreach` on it don't call `.iter()`"):
+    // `tokens.indices.map { index => … }` / `tokens.indices.foreach { index => … }` (`uniml/yaml`'s
+    // `YamlStructure.scala`) — `Range<i64>` has no `.iter()` method; the general `.map`/`.foreach`
+    // cases assume a Vec-shaped receiver and call `.iter().cloned()` unconditionally.
+    val src =
+      """```scalascript
+        |def mapped(tokens: List[String]): List[Int] = tokens.indices.map { i => i + 1L }.toVector
+        |def visited(tokens: List[String]): Int =
+        |  var total = 0L
+        |  tokens.indices.foreach { i => total = total + i }
+        |  total
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("(0i64..(tokens).len() as i64)"), s".indices should lower to a Range:\n$g")
+    assert(!g.contains(".indices).iter()"), s".indices chain must not call .iter() on a Range:\n$g")
+    assert(g.contains("for i in (0i64..(tokens).len() as i64)"), s".foreach on a Range should be a plain for-loop:\n$g")
+
+  test("`x ||= y` / `x &&= y` desugar to plain reassignment (Rust has neither operator)"):
+    val src =
+      """```scalascript
+        |def f(input: String, index: Long): Boolean =
+        |  var hasTab = false
+        |  hasTab ||= input.charAt(index) == 9L
+        |  hasTab
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("hasTab = hasTab ||"), s"||= should desugar to a plain reassignment:\n$g")
+    assert(!g.contains("||="), s"Rust has no ||= operator, must not appear verbatim:\n$g")
+
+  test("a case class's own method calling bare `copy(...)` on the implicit `this`"):
+    // `Right(copy(handles = ..., declared = ...))` (`uniml/yaml`'s `YamlTagEnvironment.scala`'s
+    // `register`) — both existing `.copy` cases require an explicit `Term.Select` receiver; a
+    // BARE `copy(...)` (implicit self) is a different AST shape and fell to the generic "calls
+    // copy, which this crate does not define" refusal.
+    val src =
+      """```scalascript
+        |case class Config(handles: Long, declared: Long):
+        |  def bump(): Config = copy(handles = handles + 1L)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("Self {"), s"bare self copy(...) should build via Self { .. }:\n$g")
+    assert(g.contains("declared: declared.clone()"), s"an un-overridden field should fall back to its own aliased local:\n$g")
+
+  test("a QUALIFIED enum-constructor PATTERN resolves through the disambiguated ctor, not a same-named collision"):
+    // `case YamlValue.Alias(name) => …` where a SECOND enum (`YamlPropertyKind`) also declares a
+    // bare, zero-field `Alias` case — the pattern-side twin of the construction-side collision
+    // fixed for `uniml/json`'s `JsonValue.StringValue`/`JsonMode.StringValue`. Delegating to the
+    // bare spelling re-resolved through the ambiguous bare-keyed `ctorMap` and refused the real
+    // 1-arg pattern: `error: extracts 'Alias' with 1 args, expected 0`.
+    val src =
+      """```scalascript
+        |enum YamlValue:
+        |  case Alias(name: String)
+        |  case NullValue
+        |enum YamlPropertyKind:
+        |  case Tag, Anchor, Alias
+        |def describe(v: YamlValue): String = v match
+        |  case YamlValue.Alias(name) => name
+        |  case YamlValue.NullValue => "null"
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("YamlValue::Alias { name }") || g.contains("YamlValue::Alias{name}") || g.contains("YamlValue::Alias { name: name }"),
+      s"the qualified pattern should destructure YamlValue's own Alias, not YamlPropertyKind's:\n$g")
+
+  test("a `String` no-paren `.reverse`/`.dropWhile` chain (not rooted in a bare name) is still known as a String"):
+    // `withBreak.reverse.dropWhile(_ == '\\n').reverse` (`uniml/yaml`'s `YamlSemanticParser.scala`'s
+    // `parseBlockScalar`) — the OUTER `.reverse`'s own qualifier is a `.dropWhile(...)` chain
+    // rooted at ANOTHER `.reverse`, never a bare name; `isStringReceiverChain` only chained
+    // through `.drop`/`.take` before.
+    val src =
+      """```scalascript
+        |def chomp(withBreak: String): String = withBreak.reverse.dropWhile(c => c == 10L).reverse
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".chars().rev().collect::<String>()"), s"a chained .reverse should still lower as a String reverse:\n$g")
+    assert(!g.contains(".iter()"), s"a String .reverse/.dropWhile chain must not take the Vec .iter() path:\n$g")

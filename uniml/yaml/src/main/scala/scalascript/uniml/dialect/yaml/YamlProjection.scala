@@ -58,7 +58,10 @@ object YamlProjection:
       val head = tokens.head
       tokens.find(_.span.source != head.span.source).foreach { other =>
         reject(
-          s"the CST spans two sources — '${head.span.source.value}' and '${other.span.source.value}'",
+          // NOT `s"… '${…}' …"`: a bare `'…'`-wrapped interpolation splice trips this
+          // toolchain's parser in a large enough merged program (`YamlStructure.scala`'s
+          // `validateFlow` has the identical fix, same reasoning). Plain concatenation instead.
+          "the CST spans two sources — '" + head.span.source.value + "' and '" + other.span.source.value + "'",
           Some(other.span))
       }
       if tokens.map(_.id).distinct.size != tokens.size then

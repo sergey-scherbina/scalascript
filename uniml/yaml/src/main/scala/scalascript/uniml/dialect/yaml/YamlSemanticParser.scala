@@ -397,7 +397,14 @@ private[yaml] object YamlSemanticParser:
             val name = text.substring(start + 1, scanned.end)
             YamlValue.Alias(name)
           case _ =>
-            while cursor < text.length && !",]}".contains(text.charAt(cursor)) &&
+            // NOT `!",]}".contains(...)`: a unary op written with NO SPACE directly against a
+            // literal (`!",]}"`) is tokenized by this toolchain's parser as one combined
+            // "unary-prefixed literal" node — the same adjacency rule that turns `-1` into a
+            // NEGATIVE literal rather than `ApplyUnary(-, 1)`, applied here even though `!` means
+            // nothing for a `String` — and `.contains(...)` then chains onto that INNER node,
+            // which nothing in the Rust backend renders: `error: unsupported expression: Lit.
+            // WithUnary (!",]}")`. Explicit parens force the intended grouping regardless.
+            while cursor < text.length && !(",]}".contains(text.charAt(cursor))) &&
                 !(stopAtColon && text.charAt(cursor) == ':') do cursor += 1
             parseInline(text.substring(start, cursor).trim, span, depth + 1)
 
