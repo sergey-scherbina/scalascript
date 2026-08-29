@@ -2817,3 +2817,52 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(g.contains("value @ (93i64 | 125i64)"),
       s"a bound alternation pattern must keep explicit parens around the whole group:\n$g")
+
+  test("a generic closure-value path clones a multi-use LOCAL VAL captured by move, not just params"):
+    // `(*plainContinuationIndent).clone().is_some_and(move |parent| { … indentation … })` then
+    // `indentation` again LATER (`uniml/yaml`'s `YamlSemanticParser.scala`) — `indentation` is a
+    // LOCAL VAL, not a def param; an earlier version of this fix intersected the move-capture
+    // clone-prelude against `ctx.defParams` alone and missed it: `error[E0382]: borrow of moved
+    // value: indentation`.
+    val src =
+      """```scalascript
+        |def check(parent: Option[Int], input: String, start: Int, idx: Int): Int =
+        |  val indentation = input.substring(start, idx)
+        |  val flag = parent.exists(p => indentation.length > p)
+        |  indentation.length + (if flag then 1 else 0)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("let indentation = indentation.clone();"),
+      s"a multi-use local val captured by a move closure must be cloned at the capture point:\n$g")
+
+  test("a move-closure clone-prelude never clones a name declared or bound INSIDE that same closure"):
+    // Regression for a real bug found while widening the move-capture fix beyond `ctx.defParams`:
+    // `opening.map(range => FrameSpec(range.kind, Some(range.rank)))` (`uniml/yaml`'s
+    // `YamlStructure.scala`'s `assign`) — `opening`/`closing` are `val`s declared INSIDE the
+    // enclosing `.map { index => … }` closure and read more than once WITHIN it; `range` is a
+    // closure PARAMETER of a nested `.map`; `role` is a NAMED-ARGUMENT LABEL, a bare `Term.Name`
+    // on an `Assign`'s LHS, not a value read at all. A name-shape filter alone (lowerCamelCase)
+    // cannot tell any of these apart from a genuine OUTER capture — cloning them before the
+    // closure that declares them even runs is not just wrong, it does not compile:
+    // `error[E0425]: cannot find value opening in this scope`. Caught by testing this fixture's
+    // own real `cargo build` output, not by the test suite alone (a narrower fixture used while
+    // developing the fix happened not to exercise any of the three shapes).
+    val src =
+      """```scalascript
+        |case class Range(start: Int, end: Int, rank: Int)
+        |case class FrameSpec(kind: String, role: Option[String])
+        |case class Instr(open: List[FrameSpec])
+        |
+        |def assign(tokens: List[Int], ranges: List[Range]): List[Instr] =
+        |  tokens.indices.map { index =>
+        |    val opening = ranges.filter(_.start == index)
+        |    val closing = ranges.filter(_.end == index)
+        |    Instr(open = opening.map(range => FrameSpec(range.rank.toString, Some(range.rank.toString))))
+        |  }.toList
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(!g.contains("let opening = opening.clone()") && !g.contains("let closing = closing.clone()") &&
+           !g.contains("let range = range.clone()") && !g.contains("let role = role.clone()"),
+      s"a name declared or bound inside the closure must never appear in its own clone-prelude:\n$g")

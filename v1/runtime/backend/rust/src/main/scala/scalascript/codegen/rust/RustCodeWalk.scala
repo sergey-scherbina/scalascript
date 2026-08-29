@@ -4021,6 +4021,46 @@ object RustCodeWalk:
         s"$rendered.clone()"
       case _ => rendered
 
+  /** Is `n` a plausible LOCAL/PARAM binding name, as opposed to an INFIX OPERATOR
+   *  (`Term.Name("-")`/`Term.Name("==")`) or a CONSTRUCTOR/TYPE reference
+   *  (`Term.Name("Vector")`/`Term.Name("VmInstruction")`) — both are `Term.Name` nodes just like a
+   *  real binding, so `ctx.multiUse` (a bare occurrence COUNT with no kind filtering at all)
+   *  counts all three identically. A move-closure clone-prelude that intersects `multiUse` against
+   *  `ctx.defParams` alone (the first fix for this class of bug) is safe but too NARROW — it
+   *  misses a multi-use LOCAL VAL, which is never in `defParams`. Scala's own naming convention
+   *  (lowerCamelCase values, UpperCamelCase types/constructors, symbolic operators) is a reliable
+   *  enough signal to widen the check to every local, not just params, without reopening the
+   *  original bug: `error: expected pattern, found =` from `let - = -.clone(); let Vector =
+   *  Vector.clone(); …`. */
+  private def looksLikeBinding(n: String): Boolean =
+    n.nonEmpty && n.head.isLower && n.forall(c => c.isLetterOrDigit || c == '_')
+
+  /** Every name a `val`/`var` DECLARES anywhere inside `t` — used to EXCLUDE a closure's own
+   *  locally-declared names from its move-capture clone-prelude. `val opening = ranges.filter(…)…
+   *  if opening.nonEmpty || closing.nonEmpty …` INSIDE a `.map { index => … }` closure
+   *  (`uniml/yaml`'s `YamlStructure.scala`'s `assign`) — `opening`/`closing` are read more than
+   *  once, so `ctx.multiUse` (computed for the WHOLE enclosing def, with no notion of "declared
+   *  inside THIS closure specifically") counted them, and the move-capture fix's own name-shape
+   *  filter (`looksLikeBinding`) cannot tell "captured from outside" from "declared right here"
+   *  either — both are lowerCamelCase. Without this, the clone-prelude tried to clone a value that
+   *  does not exist yet at the point the closure is BUILT: `let opening = opening.clone(); …
+   *  move |index| { let opening = … }` — `error[E0425]: cannot find value opening in this scope`. */
+  private def localDeclNames(t: m.Tree): Set[String] =
+    def patNames(pats: List[m.Pat]): Set[String] = pats.collect { case m.Pat.Var(m.Term.Name(n)) => n }.toSet
+    t.collect {
+      case v: m.Defn.Val => patNames(v.pats)
+      case v: m.Defn.Var => patNames(v.pats)
+      // `opening.map(range => FrameSpec(range.kind, range.role))` (`uniml/yaml`'s
+      // `YamlStructure.scala`'s `assign`) — `range` is a CLOSURE PARAMETER, not a `val`/`var`, and
+      // `val`/`var` alone missed it: `let range = range.clone(); …` before `range` exists yet —
+      // `error[E0425]: cannot find value range in this scope`, the identical failure mode
+      // `val`/`var` exclusion above exists to prevent, one binder shape wider.
+      case fn: m.Term.Function => fn.paramClause.values.map(_.name.value).toSet
+      // A match-arm or `for`-generator bind (`case Some(x) => …`, `for x <- xs …`) is a local
+      // binding the SAME way, by the SAME reasoning.
+      case m.Pat.Var(m.Term.Name(n)) => Set(n)
+    }.flatten.toSet
+
   /** Which of `names` does `t` READ (as a value, not a binder and not a `Term.Select`'s field/
    *  method-name component)? Deliberately narrower than `collectMultiUse`'s own walk — that one
    *  also counts a `Term.Select`'s SECOND child (`x.name`'s "name") as a "use" of any local
@@ -4034,6 +4074,13 @@ object RustCodeWalk:
       case _: m.Pat.Var           => ()
       case _: m.Term.Param        => ()
       case m.Term.Select(qual, _) => walk(qual)
+      // `VmInstruction.Reframe(role = tokenRole(...), ...)` — a NAMED-ARGUMENT LABEL is a bare
+      // `Term.Name` on an `Assign`'s LHS, not a value read at all; the generic `case _ =>
+      // x.children.foreach(walk)` fallback below would otherwise walk into it exactly like any
+      // other child and count it as a "read" of a same-spelled outer name that happens to also be
+      // a genuine field/param label here — `role`, `uniml/yaml`'s `YamlStructure.scala`'s
+      // `assign`, is exactly this collision.
+      case m.Term.Assign(_: m.Term.Name, v) => walk(v)
       case m.Term.Name(n) if names.contains(n) => found += n
       case _ => x.children.foreach(walk)
     walk(t)
@@ -7276,7 +7323,7 @@ object RustCodeWalk:
             // move-capture gap the Range `.map` case just above already fixes, for `.filter`'s
             // OWN `move |&p| { … }` closure shape: `error[E0382]: use of moved value: tokens`.
             renderTerm(fn2.body, ctx).map { b =>
-              val reborrow = readsAnyOf(fn2.body, ctx.multiUse.intersect(ctx.defParams) - p).toList.sorted
+              val reborrow = readsAnyOf(fn2.body, (ctx.multiUse.filter(looksLikeBinding) -- localDeclNames(fn2.body)) - p).toList.sorted
               if reborrow.isEmpty then s"move |&$p| { $b }"
               else s"{ ${reborrow.map(c => s"let $c = $c.clone();").mkString(" ")} move |&$p| { $b } }"
             }
@@ -7305,12 +7352,15 @@ object RustCodeWalk:
         // `ctx.multiUse` is a bare NAME-occurrence count with no kind filtering at all — it counts
         // an INFIX OPERATOR (`Term.Name("-")`/`Term.Name("==")`) or a CONSTRUCTOR reference
         // (`Term.Name("Vector")`/`Term.Name("VmInstruction")`) exactly the same way it counts a
-        // real local/param binding, since both are `Term.Name` nodes. Without intersecting against
-        // `ctx.defParams` first, a closure body that ALSO happens to use `-`/`==`/a constructor
-        // (`assign`'s own body does, building `VmInstruction.Reframe(...)`) produced `let - = -
-        // .clone(); let == = ==.clone(); …` — not merely wrong, but not even valid Rust syntax:
-        // `error: expected pattern, found =`.
-        val reborrow = readsAnyOf(body, ctx.multiUse.intersect(ctx.defParams) - bound).toList.sorted
+        // real local/param binding, since both are `Term.Name` nodes — `looksLikeBinding` filters
+        // those out by Scala's own naming convention (a closure body that ALSO uses `-`/`==`/a
+        // constructor, `assign`'s own body does building `VmInstruction.Reframe(...)`, produced
+        // `let - = -.clone(); let == = ==.clone(); …` without it — not merely wrong, not even
+        // valid Rust: `error: expected pattern, found =`). `localDeclNames` filters out the
+        // CLOSURE'S OWN locally-declared names too (`val opening = …` INSIDE this very closure is
+        // ALSO multi-use within it, but there is nothing OUTSIDE to clone — without this,
+        // `error[E0425]: cannot find value opening in this scope`, cloning a name before it exists).
+        val reborrow = readsAnyOf(body, (ctx.multiUse.filter(looksLikeBinding) -- localDeclNames(body)) - bound).toList.sorted
         if reborrow.isEmpty then s"move |$bound| { $b }"
         else s"{ ${reborrow.map(c => s"let $c = $c.clone();").mkString(" ")} move |$bound| { $b } }"
       for
@@ -10300,12 +10350,27 @@ object RustCodeWalk:
       val capturedSignals = body.collect {
         case m.Term.Name(n) if ctx.localSignals.contains(n) && !paramNames.contains(n) => n
       }.distinct
+      // `(*plainContinuationIndent).clone().is_some_and(move |parent| { … indentation … })` then
+      // `indentation` again LATER in the same def (`uniml/yaml`'s `YamlSemanticParser.scala`) —
+      // the SAME move-capture gap the Range `.map`/`.filter` cases already fix (see `wrapMove`'s
+      // own comment for the full `looksLikeBinding`/`localDeclNames` story), for THIS generic
+      // closure-value path (reached by `.exists`/`.is_some_and`'s own predicate argument, among
+      // others): `error[E0382]: borrow of moved value: indentation`. `indentation` here is a LOCAL
+      // VAL, not a param — an earlier version of this fix intersected against `ctx.defParams`
+      // alone and missed it entirely; `looksLikeBinding` catches both. ALSO excludes a `Fn`-typed
+      // param specifically, the SAME exclusion `capturedSignals` just above already documents:
+      // `impl Fn(...)` has no `Clone` bound, so blindly cloning every captured multi-use name
+      // broke std/ui/component.ssc once already.
+      val multiUseCaptures = readsAnyOf(body, (ctx.multiUse.filter(looksLikeBinding) -- localDeclNames(body)) -- paramNames)
+        .filterNot(n => ctx.paramTypes.get(n).exists(_.startsWith("impl Fn")))
+        .toList.sorted
       for b <- renderTerm(body, bodyCtx)
       yield
         val closure = s"move |${ok.mkString(", ")}| { $b }"
-        if capturedSignals.isEmpty then closure
+        val toClone = (capturedSignals ++ multiUseCaptures).distinct
+        if toClone.isEmpty then closure
         else
-          val clones = capturedSignals
+          val clones = toClone
             .map(n => s"let ${rustIdent(n)} = ${rustIdent(n)}.clone();")
             .mkString(" ")
           s"{ $clones $closure }"
