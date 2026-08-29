@@ -5,7 +5,7 @@ started: 2026-08-29T22:48:17Z
 heartbeat: 2026-08-29T22:48:17Z
 status: in-progress
 items: aggregation-algebra-canonical-and-effectful
-paths: file:std/aggregator.ssc file:examples/std-aggregator.ssc file:specs/aggregation-algebra.md file:BACKLOG.md file:tests/conformance/std-aggregator.ssc file:tests/conformance/expected/std-aggregator.txt file:v2/BUGS.md file:v1/runtime/backend/jvm/BUGS.md
+paths: file:std/aggregator.ssc file:examples/std-aggregator.ssc file:specs/aggregation-algebra.md file:BACKLOG.md file:tests/conformance/std-aggregator.ssc file:tests/conformance/expected/std-aggregator.txt file:v2/BUGS.md file:v1/runtime/backend/jvm/BUGS.md file:tests/conformance/contract-roster.tsv file:tests/conformance/corpus-baseline.tsv
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: file jvm-gen flatMap-on-generic-F bug, add jvm known-red, test all lanes, land
+next: recompute roster baseline-sha256, test all lanes, land
