@@ -1,0 +1,11 @@
+slug: fix-f-front-given-poly
+branch: feature/fix-f-front-given-poly
+agent: claude-code
+started: 2026-08-29T10:44:26Z
+heartbeat: 2026-08-29T10:44:26Z
+status: claimed-before-planning
+items: fix-f-front-given-poly
+paths: file:v2/lib/ssc1-check.ssc0
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
