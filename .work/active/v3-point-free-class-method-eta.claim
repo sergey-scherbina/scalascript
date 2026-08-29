@@ -1,0 +1,12 @@
+slug: v3-point-free-class-method-eta
+branch: feature/v3-point-free-class-method-eta
+agent: claude-code
+started: 2026-08-29T06:48:45Z
+heartbeat: 2026-08-29T06:48:45Z
+status: claimed-before-planning
+items: v3-point-free-class-method-eta
+paths: mod:v3/src
+broad: type-directed eta-expansion touches Lower.scala's type resolution, Ir.scala's instruction set, and both backends (Exec.scala, BridgeV2.scala) that consume it
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
