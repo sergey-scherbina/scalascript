@@ -5420,6 +5420,24 @@ object RustCodeWalk:
         Some("Vec<String>")
       case m.Term.Apply.After_4_6_0(m.Term.Select(_, m.Term.Name("split")), _) =>
         Some("Vec<String>")
+      // `val joined = window.iterator.map(_.raw).mkString` / `val n = joined.length`
+      // (`uniml/markdown`'s `MarkdownBlocks.scala`'s `scanRefDef`, captured by three LIFTED local
+      // defs — `skipWs`/`onlySpacesTo`/`endOfLine`) — `.mkString` (no args) and `.length` are each
+      // UNAMBIGUOUS about their OWN result type regardless of receiver (every Scala collection's
+      // `.mkString` yields `String`; `.length` — on a `String` or any collection — yields `Int`),
+      // so neither needs to know anything about `joined`'s own type first. Without these, both
+      // locals had no way to resolve at all: "captures `joined, n` and this lane cannot infer its
+      // type".
+      case m.Term.Select(_, m.Term.Name("mkString")) => Some("String")
+      case m.Term.Select(_, m.Term.Name("length"))    => Some("i64")
+      // `val buffering = open == OpenLeaf.Paragraph || open == OpenLeaf.IndentedCode`
+      // (`uniml/markdown`'s `MarkdownBlocks.scala`'s `parse`, captured by the LIFTED local def
+      // `consume`) — a comparison/logical `ApplyInfix` is UNAMBIGUOUSLY `Boolean`, the same fact
+      // `_: m.Lit.Boolean => Some("bool")` a few lines up already trusts for a literal; this is the
+      // identical answer for the COMPUTED case. Without it: "captures `buffering` and this lane
+      // cannot infer its type".
+      case m.Term.ApplyInfix.After_4_6_0(_, m.Term.Name("==" | "!=" | "<" | ">" | "<=" | ">=" | "&&" | "||"), _, _) =>
+        Some("bool")
       // `val lines = splitLines(input)` (`uniml/yaml`'s `YamlSemanticParser.scala`'s `parse`) — a
       // call to an ORDINARY user-defined function, whose declared return type `_returnTypes`
       // already holds (the exact fact `collectLocalSeqs`'s own `seqCtor` already trusts for the

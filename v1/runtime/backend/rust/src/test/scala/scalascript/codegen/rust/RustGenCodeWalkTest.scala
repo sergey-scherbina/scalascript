@@ -2915,6 +2915,37 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(g.contains("|m| { (!m.is_empty() && "),
       s"opt.exists(namedParam => ...) must seed the param's type from the Option's declared element, for a no-paren .nonEmpty:\n$g")
 
+  test("a lifted local def's captured type resolves through .mkString / .length / a bool ApplyInfix"):
+    // `val joined = window.iterator.map(_.trim).mkString`, `val n = joined.length`, `val
+    // buffering = open || indented` (`uniml/markdown`'s `MarkdownBlocks.scala`'s `scanRefDef`/
+    // `parse`, each captured by a LIFTED local def) — `.mkString` (no args) and `.length` are
+    // each unambiguous about their OWN result type regardless of receiver (every collection's
+    // `.mkString` yields `String`; `.length` yields `Int`), and a comparison/logical `ApplyInfix`
+    // is unambiguously `Boolean` — none of these needed `inferCaptureType` to already know the
+    // RECEIVER's type first, but no case existed for any of the three: "captures `joined, n`"/
+    // "captures `buffering`" "and this lane cannot infer its type".
+    val src =
+      """```scalascript
+        |def scanRefDef(window: Vector[String]): Int =
+        |  val joined = window.iterator.map(_.trim).mkString
+        |  val n = joined.length
+        |
+        |  def skipWs(from: Int, maxBreaks: Int): Int =
+        |    if from < n then from + 1 else n
+        |
+        |  skipWs(0, 1)
+        |
+        |def parseParagraph(open: Boolean, indented: Boolean): Int =
+        |  val buffering = open || indented
+        |  def consume(): Int = if buffering then 1 else 0
+        |  consume()
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("fn skipWs(from: i64, maxBreaks: i64, n: i64) -> i64")
+      && g.contains("fn consume(buffering: bool) -> i64"),
+      s"a lifted def's captured type must resolve through .mkString/.length/a bool ApplyInfix:\n$g")
+
   test("`xs.count(_.field == x)` / `xs.filter(_.field == x)` — a placeholder predicate types cleanly"):
     // `lexed.tokens.count(_.kind == "yaml.anchor")` / `ranges.filter(_.start == index)`
     // (`uniml/yaml`) — `renderVecIterBody`'s `Term.AnonymousFunction` branch wrapped the WHOLE
