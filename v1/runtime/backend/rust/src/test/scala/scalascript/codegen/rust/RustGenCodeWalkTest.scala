@@ -2854,6 +2854,25 @@ class RustGenCodeWalkTest extends AnyFunSuite:
       && g.contains("\"markdown.paragraph\" => \"a paragraph\".to_string(),"),
       s"a stable-identifier pattern over a String-valued topval must match by its literal value:\n$g")
 
+  test("a val bound to `.split(...).toVector` is known to hold Strings"):
+    // `val segments = domain.split("\\.", -1).toVector` (`uniml/markdown`'s `MarkdownInlines.
+    // scala`'s `validEmailDomain`) — `.split` is unambiguously a `String` method, always
+    // returning `Array[String]`; `.toVector`/`.toList`/`.toArray` on top changes only the outer
+    // collection shape, never the element type. Without this, `segments`'s element type never
+    // resolved, and `segments.forall(_.nonEmpty)`'s placeholder `_` reached `isKnownStringField`/
+    // `isStringExpr` with no type of its own to check: "reads nonEmpty without parentheses ... it
+    // is a collection member, not a field".
+    val src =
+      """```scalascript
+        |def validEmailDomain(domain: String): Boolean =
+        |  val segments = domain.split("\\.", -1).toVector
+        |  segments.length >= 2 && segments.forall(_.nonEmpty)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("all(|__p0| { !__p0.is_empty() })"),
+      s"a val bound to .split(...).toVector must be known String-elemented, for a no-paren .nonEmpty on its placeholder:\n$g")
+
   test("`xs.count(_.field == x)` / `xs.filter(_.field == x)` — a placeholder predicate types cleanly"):
     // `lexed.tokens.count(_.kind == "yaml.anchor")` / `ranges.filter(_.start == index)`
     // (`uniml/yaml`) — `renderVecIterBody`'s `Term.AnonymousFunction` branch wrapped the WHOLE

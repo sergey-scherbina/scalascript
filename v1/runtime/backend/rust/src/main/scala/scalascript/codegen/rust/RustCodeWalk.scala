@@ -5408,6 +5408,18 @@ object RustCodeWalk:
       // is neither a bare name nor a field select, so neither of the two cases above can place it.
       case m.Term.ApplyInfix.After_4_6_0(m.Term.Select(_, m.Term.Name(meth)), m.Term.Name("+"), _, _) =>
         _returnTypes.get(meth).filter(_.startsWith("Vec<"))
+      // `val segments = domain.split("\\.", -1).toVector` (`uniml/markdown`'s
+      // `MarkdownInlines.scala`'s `validEmailDomain`) — `.split` is UNAMBIGUOUSLY a `String`
+      // method (no other Scala collection has it), always returning `Array[String]`; `.toVector`/
+      // `.toList`/`.toArray` on top of that changes only the OUTER collection shape (all `Vec<_>`
+      // on this lane anyway), never the ELEMENT type. Without this, `segments`'s element type
+      // never resolved, and `segments.forall(_.nonEmpty)`'s placeholder `_` reached
+      // `isKnownStringField`/`isStringExpr` with no type of its own to check: "reads `nonEmpty`
+      // without parentheses ... it is a collection member, not a field".
+      case m.Term.Select(m.Term.Apply.After_4_6_0(m.Term.Select(_, m.Term.Name("split")), _), m.Term.Name("toVector" | "toList" | "toArray")) =>
+        Some("Vec<String>")
+      case m.Term.Apply.After_4_6_0(m.Term.Select(_, m.Term.Name("split")), _) =>
+        Some("Vec<String>")
       // `val lines = splitLines(input)` (`uniml/yaml`'s `YamlSemanticParser.scala`'s `parse`) — a
       // call to an ORDINARY user-defined function, whose declared return type `_returnTypes`
       // already holds (the exact fact `collectLocalSeqs`'s own `seqCtor` already trusts for the
