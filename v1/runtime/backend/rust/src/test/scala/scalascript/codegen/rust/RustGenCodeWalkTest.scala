@@ -1315,3 +1315,68 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(g.contains("parse(src, ") || g.contains("parse(src,"),
       s"the qualified call should get its default argument filled:\n$g")
+
+  test("`opt.orElse(other)` renames to `.or_else(|| other)`"):
+    // `name.prefix.flatMap(…).orElse(bindings.get(""))` (`uniml/xml`'s `Doc.scala`'s
+    // `resolveElement`) — `Option::orElse` is not Rust's spelling at all: `error[E0599]: no method
+    // named orElse found`.
+    val src =
+      """```scalascript
+        |def pick(a: Option[String], b: Option[String]): Option[String] = a.orElse(b)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".or_else(|| "), s"Option.orElse should rename to .or_else(|| ...):\n$g")
+
+  test("`s.count(p)` on a String lowers via `.chars().filter(p).count()`"):
+    // `lexeme.count(|__p0| ...)` (`uniml/xml`'s `Doc.scala`) — Rust's `Iterator` has no
+    // `.count(predicate)`, only `.count()`; `Iterator::filter`'s OWN signature takes `&Item`
+    // (unlike `.all`/`.any`), so the predicate's own `__ch` needs an EXTRA deref its
+    // `.forall`/`.exists` siblings do not.
+    val src =
+      """```scalascript
+        |def countColons(s: String): Long = s.count(c => c == ':')
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".filter(") && g.contains(".count()"), s"String.count(p) should lower via .chars().filter(p).count():\n$g")
+    assert(g.contains("(*__ch)") || g.contains("*__ch"), s"the filter closure's own &char param needs a deref:\n$g")
+
+  test("a struct-field STRING LITERAL pattern bubbles an equality guard into the arm"):
+    // `case QName(None, "xmlns", _) =>` (`uniml/xml`'s `Doc.scala`'s `namespaceDeclaration`) — a
+    // string LITERAL matched against a struct field whose Rust type is an OWNED `String`; only
+    // `&str`/`str` support a literal pattern at all: `error[E0308]: expected String, found &str`.
+    val src =
+      """```scalascript
+        |object Markup:
+        |  case class QName(prefix: Option[String], localName: String, namespace: Option[String])
+        |
+        |def isXmlnsDecl(q: Markup.QName): Boolean = q match
+        |  case Markup.QName(None, "xmlns", _) => true
+        |  case _ => false
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(!g.contains("localName: \"xmlns\""), s"the literal must not stay a struct-field literal pattern:\n$g")
+    assert(g.contains("== \"xmlns\""), s"the literal should become an equality guard on the arm:\n$g")
+
+  test("`.map { case x: Variant => x }` (a PartialFunction dispatcher) applies the SAME byRefMut enrichment `renderMatch` gives a standalone match"):
+    // `element.children.collect { case child: Markup.Element => child }` (`uniml/xml`'s
+    // `Doc.scala`'s `validateNamespaces`) — this shape reaches a SEPARATE, simpler renderer (for a
+    // PartialFunction passed directly to `.map`/`.filter`/`.collect`) that never applied
+    // `renderMatch`'s own per-arm enrichment (byRefMut, paramTypes, …) at all — a REF-BOUND typed
+    // match-arm binder used at a by-value position (returned bare here) needs it the same way a
+    // standalone `match` statement's arm does.
+    val src =
+      """```scalascript
+        |object Markup:
+        |  sealed trait Node
+        |  case class Elem(name: String, children: List[Node] = Nil) extends Node
+        |  case class Text(chars: String) extends Node
+        |
+        |def onlyElems(xs: List[Markup.Node]): List[Markup.Elem] =
+        |  xs.collect { case e: Markup.Elem => e }
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("ref e @"), s"the typed bind should still render as a ref-bound pattern:\n$g")

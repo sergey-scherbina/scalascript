@@ -369,10 +369,26 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # field) and `ctorNameOfExpr` itself gained a `destructuredCtorNames` fallback; `collectLocalMaps`
 # gained the tuple-destructure-position case `collectTupleDestructureCtorNames` already has for
 # ctor names. Same terms as every entry above. 24 errors remain.
+#
+# renderTerm 32890 -> 33150 (+260), continuing "fix everything remaining" on uniml/xml, 24 -> 17
+# across one more commit. New/widened arms: `opt.orElse(other)` (a pure `or_else` rename);
+# `lexeme.count(pred)` on a String (`.chars().filter(pred).count() as i64`, `Iterator::filter`'s
+# own `&Item` signature needing an extra deref its `.forall`/`.exists` siblings do not); a struct-
+# field STRING LITERAL pattern (`QName(None, "xmlns", _)` / `Some("xmlns")` nested one level in) now
+# binds a fresh name and bubbles an equality guard up into the arm via a new `_pendingPatternGuards`
+# scratch channel (`renderPattern`'s own signature carries only pattern text, no guard channel back
+# to the caller); `Term.Assign`'s fallback and `renderStrPatternArg` (`.contains('<')`/`.startsWith`/
+# `.endsWith`) both gained the SscChar/`char` coercion an if/else branch and a call argument already
+# had. `variantBodyCtxExtra` (a new shared helper, the ONE enrichment `renderMatch`'s own per-arm
+# bodyCtx applies for a with-fields-variant typed bind) is now ALSO applied by the separate
+# PartialFunction-in-`.map`/`.filter`/`.collect` renderer, which never had it before. Also fixed: a
+# lifted local def's OWN `.charAt`-bound locals were invisible to `yieldsSscChar` (the enclosing
+# function's `localSscChars` pre-pass does not descend into a nested def's body at all), now
+# recomputed from the lifted def's own body. Same terms as every entry above. 17 errors remain.
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-32890 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+33150 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

@@ -1553,6 +1553,21 @@ object RustCodeWalk:
    *  `impl Trait for X` block). */
   private var _dispatchTraits: Map[String, DispatchTrait] = Map.empty
 
+  // A STRING LITERAL matched against a struct FIELD (`QName(None, "xmlns", _)` /
+  // `UniNode.Branch("xml.element", _, _, _)`, `uniml/xml`'s `Doc.scala`) — the field's Rust type is
+  // an OWNED `String`, and only `&str`/`str` support a literal pattern at all, so `renderPattern`'s
+  // OWN `Lit.String` case (correct where the MATCH SUBJECT itself is a string) is not valid syntax
+  // here: `error[E0308]: expected String, found &str`. `renderPattern`'s signature carries only
+  // pattern TEXT, with no channel back to the enclosing match ARM (which alone can add an `if`
+  // guard) — so the with-fields-ctor Extract case binds such a field to a FRESH name instead and
+  // pushes an equality guard here; every call site that renders ONE ARM's whole pattern resets this
+  // list first, then reads it back to splice into that arm's own guard. Safe as a per-arm scratch
+  // channel (not a structural risk despite being mutable state) because `renderPattern` for one
+  // arm's pattern always completes, synchronously and to exhaustion, inside the ONE top-level call
+  // each site makes before reading this back — nothing else runs between reset and read.
+  private var _pendingPatternGuards: List[String] = Nil
+  private var _pendingPatternGuardCounter: Int = 0
+
   /** Names of `object`s extending a dispatch trait that got a `renderValueObjectImpl` unit-struct
    *  + forwarding impl (`PureMarkupCodec extends MarkupCodec`, `uniml/xml`'s `Doc.scala`) — read by
    *  `bareNameOrNiladicCtor` so a BARE reference to the object AS A VALUE (`case "pure" =>
@@ -4964,7 +4979,17 @@ object RustCodeWalk:
           val childCtx = baseCtx.copy(
             defParams = ctx.defParams ++ ownParamNames ++ myCaptures.toSet,
             byRefMut  = myByRefMut,
-            inLiftedFn = true
+            inLiftedFn = true,
+            // `val char = input.charAt(cursor)` DECLARED INSIDE a lifted local def's OWN body
+            // (`scanDoctype`, `uniml/xml`'s `Doc.scala`) — `ctx.localSscChars` was computed ONCE,
+            // from the ENCLOSING function's body, BEFORE `liftLocalDefs` ever split `scanDoctype`
+            // out — and that collection, like most of this file's own pre-passes, does not descend
+            // into a NESTED `Defn.Def`'s own body (`collectDefs`'s own documented convention), so a
+            // `.charAt`-bound local declared entirely inside the lifted def was invisible to it:
+            // `quote = char` (both `i64`) had no `.0` unwrap and reached rustc as `error[E0308]:
+            // expected i64, found SscChar`. Recomputed here, from `d.body` (the lifted def's OWN
+            // body) specifically, and merged so a capture that WAS visible outside still is too.
+            localSscChars = baseCtx.localSscChars ++ collectLocalSscChars(d.body)
           )
           for
             ownParams <- renderParams(d, childCtx, None)
@@ -5370,9 +5395,19 @@ object RustCodeWalk:
               yield s"$n.${insertOwning(k, r)};"
             case None =>
               for
-                l <- renderTerm(a.lhs, ctx)
-                r <- renderTerm(a.rhs, ctx)
-              yield s"$l = $r"
+                l  <- renderTerm(a.lhs, ctx)
+                r0 <- renderTerm(a.rhs, ctx)
+              yield
+                // `quote = char` (`uniml/xml`'s `Doc.scala`'s `scanDoctype`: `var quote: Char = ' '`,
+                // `val char = input.charAt(cursor)`) — the RHS is a genuine `SscChar` newtype
+                // (`val char = …charAt(…)`), the LHS a plain `i64` var (this lane's `Char`
+                // convention) — assignment is ANOTHER position (alongside a call argument, an
+                // if/else branch) needing the SAME `.0` unwrap, applied here whenever the RHS
+                // `yieldsSscChar` and the LHS is NOT itself an SscChar-holding name (so `c1 = c2`
+                // between two genuine SscChar locals stays untouched).
+                val lhsIsSscChar = a.lhs match { case m.Term.Name(n) => ctx.localSscChars.contains(n); case _ => false }
+                val r = if yieldsSscChar(a.rhs, ctx) && !lhsIsSscChar then s"($r0).0" else r0
+                s"$l = $r"
 
     // `subject match { case … => …; … }` — Rust `match` expression.
     case mt: m.Term.Match =>
@@ -6111,13 +6146,27 @@ object RustCodeWalk:
     case pf: m.Term.PartialFunction =>
       val arms = pf.cases.map { c =>
         // The arm body runs inside the closure: `__pf` + the pattern binders are
-        // closure-locals; everything else it touches is captured.
-        val bodyCtx = enteringClosure(ctx, patBoundNames(c.pat) + "__pf")
+        // closure-locals; everything else it touches is captured. `variantBodyCtxExtra`
+        // additionally covers `case child: Markup.Element => …` — a WITH-FIELDS-VARIANT typed
+        // bind, the SAME shape `renderMatch`'s own per-arm bodyCtx already enriches (byRefMut,
+        // paramTypes, destructuredCtorNames, seqFields/mapFields) for a STANDALONE `match`
+        // statement, but this SEPARATE PartialFunction-in-`.map`/`.filter`/… renderer never
+        // applied at all: `.map { case child: Markup.Element => resolveElement(child, …) }`
+        // (`uniml/xml`'s `Doc.scala`'s `resolveElement`) left `child` looking like a plain owned
+        // name here, when `renderPattern`'s OWN twin case renders it `ref child @ …` — a BORROW —
+        // so `resolveElement(child, …)`, wanting an OWNED `Node`, got `error[E0308]: expected
+        // Node, found &Node`.
+        val bodyCtx = variantBodyCtxExtra(c.pat, enteringClosure(ctx, patBoundNames(c.pat) + "__pf"))
+        _pendingPatternGuards = Nil
         for
-          pat   <- renderPattern(c.pat, ctx)
-          guard <- c.cond match
-                     case Some(g) => renderTerm(g, bodyCtx).map(gr => s" if $gr")
-                     case None    => Right("")
+          pat      <- renderPattern(c.pat, ctx)
+          litGuards = _pendingPatternGuards
+          userGuard <- c.cond match
+                     case Some(g) => renderTerm(g, bodyCtx).map(gr => Some(gr))
+                     case None    => Right(None)
+          guard = (litGuards ++ userGuard.toList) match
+                     case Nil => ""
+                     case gs  => s" if ${gs.mkString(" && ")}"
           bod   <- renderTerm(c.body, bodyCtx)
         yield s"$pat$guard => $bod,"
       }
@@ -6260,6 +6309,13 @@ object RustCodeWalk:
     case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("getOrElse")), a) if a.values.size == 1 =>
       for q <- renderTerm(qual, ctx); d <- renderTerm(a.values.head, ctx)
       yield s"$q.unwrap_or($d)"
+    // `opt.orElse(other)` — a pure rename to Rust's snake_case `or_else` (`uniml/xml`'s
+    // `Doc.scala`'s `resolveElement`: `name.prefix.flatMap(…).orElse(bindings.get(""))`). Scoped to
+    // an Option receiver — `orElse` is not a name any other type on this lane spells the same way.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("orElse")), a)
+        if a.values.size == 1 && isOptionExpr(qual, ctx) =>
+      for q <- renderTerm(qual, ctx); d <- renderTerm(a.values.head, ctx)
+      yield s"$q.or_else(|| $d)"
 
     // ── Vec method chaining via Term.Apply ─────────────────────────────────
     // Matches: xs.foreach(f), xs.map(f), xs.filter(f), xs.foldLeft(z)(f).
@@ -6345,6 +6401,23 @@ object RustCodeWalk:
         q    <- renderTerm(qual, ctx)
         pred <- renderTerm(args.values.head, ctx)
       yield s"$q.chars().$rustMeth(|__ch| ($pred)((__ch as u32) as i64))"
+
+    // `lexeme.count(p)` on a STRING receiver (`uniml/xml`'s `Doc.scala`'s `readName`'s own
+    // `validXmlName`-adjacent check) — the SAME `.chars()` shape `.forall`/`.exists` just above use;
+    // Rust's `Iterator` has no `.count(predicate)` at all, only `.count()` (every element) — the
+    // direct equivalent is `.filter(p).count()`, cast back to `i64` since Rust's own `.count()`
+    // returns `usize` and Scala's `count` returns `Int`.
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(qual, m.Term.Name("count")), args
+    ) if args.values.size == 1 &&
+        (isStringExpr(qual) || (qual match { case m.Term.Name(n) => ctx.localStrings.contains(n); case _ => false })) =>
+      for
+        q    <- renderTerm(qual, ctx)
+        pred <- renderTerm(args.values.head, ctx)
+      // `Iterator::filter`'s OWN signature takes `&Item` (unlike `.all`/`.any`, which take `Item` by
+      // value — `.forall`/`.exists` two arms up need no deref for exactly that reason) — `__ch` here
+      // is `&char`, so `as u32` needs the EXTRA `*` this shape alone among its siblings does.
+      yield s"($q.chars().filter(|__ch| ($pred)(((*__ch) as u32) as i64)).count() as i64)"
 
     // `prefix.fold(localName)(p => s"$p:$localName")` (`uniml/xml`'s `Doc.scala`'s `QName.toXml`)
     // — Scala's CURRIED `Option.fold(ifEmpty)(f)`, which parses as an Apply-of-an-Apply. Rust's
@@ -6602,12 +6675,17 @@ object RustCodeWalk:
       args.values.head match
         case pf: m.Term.PartialFunction =>
           val arms = pf.cases.map { c =>
-            val bodyCtx = enteringClosure(ctx, patBoundNames(c.pat) + "__c")
+            val bodyCtx = variantBodyCtxExtra(c.pat, enteringClosure(ctx, patBoundNames(c.pat) + "__c"))
+            _pendingPatternGuards = Nil
             for
-              pat   <- renderPattern(c.pat, ctx)
-              guard <- c.cond match
-                         case Some(g) => renderTerm(g, bodyCtx).map(gr => s" if $gr")
-                         case None    => Right("")
+              pat      <- renderPattern(c.pat, ctx)
+              litGuards = _pendingPatternGuards
+              userGuard <- c.cond match
+                         case Some(g) => renderTerm(g, bodyCtx).map(gr => Some(gr))
+                         case None    => Right(None)
+              guard = (litGuards ++ userGuard.toList) match
+                         case Nil => ""
+                         case gs  => s" if ${gs.mkString(" && ")}"
               bod   <- renderTerm(c.body, bodyCtx)
             yield s"$pat$guard => Some($bod),"
           }
@@ -7678,7 +7756,16 @@ object RustCodeWalk:
   // value coerces to &str.
   private def renderStrPatternArg(t: m.Term, ctx: Ctx): Either[List[Diagnostic], String] = t match
     case m.Lit.String(s) => Right("\"" + escapeRustString(s) + "\"")
-    case other           => renderTerm(other, ctx).map(e => s"&($e)")
+    // `content.contains('<')` (`uniml/xml`'s `Doc.scala`'s `validateContent`) — a Rust `str`
+    // method taking a `Pattern`, which `&i64` does not implement at all (`error[E0277]`): `'<'`
+    // renders as its `i64` code point (`renderTerm`'s own `Lit.Char` case, this lane's SscChar
+    // convention), same as `.charAt` and everywhere else — but a `Pattern` needs an actual `char`
+    // here, not the borrowed number the fallback below gives every OTHER argument type.
+    case lit: m.Lit.Char =>
+      renderTerm(lit, ctx).map(e => s"char::from_u32(($e) as u32).unwrap_or('\\u{FFFD}')")
+    case other if isConceptuallyChar(other, ctx) =>
+      renderTerm(other, ctx).map(e => s"char::from_u32(($e) as u32).unwrap_or('\\u{FFFD}')")
+    case other => renderTerm(other, ctx).map(e => s"&($e)")
 
   private def collectTupleConcat(t: m.Term): Option[List[m.Term]] = t match
     case m.Term.Tuple(values) =>
@@ -8102,6 +8189,17 @@ object RustCodeWalk:
     // field declarations — only a method BODY's locals — while `paramTypes` already carries every
     // self-field's mapped Rust type for exactly this reason (`renderDef`'s own `ownFieldTypes ++`).
     case m.Term.Name(n) => ctx.localOptions.contains(n) || ctx.paramTypes.get(n).exists(_.startsWith("Option<"))
+    // `attribute.name.prefix` (`uniml/xml`'s `Doc.scala`'s `resolveElement`) — a MULTI-LEVEL field
+    // projection chain (`attribute` a `.map` closure param, `.name` a `QName`, `.prefix` the actual
+    // `Option[String]`), which every case above misses: they only ever look at a BARE name's own
+    // type, never a chain more than one `.field` deep. `ctorNameOfExpr` already resolves a chain
+    // like this (the SAME lookup `isKnownStringField`/`isKnownVecReceiver` use for their own
+    // multi-level cases) — read its target ctor's OWN field type here instead of re-deriving it.
+    case m.Term.Select(qual, m.Term.Name(f)) =>
+      ctorNameOfExpr(qual, ctx).flatMap(ctx.ctorMap.get).exists { ec =>
+        val i = ec.fieldNames.indexOf(f)
+        i >= 0 && ec.fieldTypes.lift(i).exists(_.startsWith("Option<"))
+      }
     // `val digits = if reference.startsWith("&#x") then Some(...) else if ... then Some(...) else
     // None` (`uniml/xml`'s `Doc.scala`'s `numericReferenceValue`) — an if/else CHAIN whose every
     // branch produces an Option is itself one, the same shape `collectLocalStrings`'s `isStr`
@@ -8699,9 +8797,15 @@ object RustCodeWalk:
         case "find"     => s"$q.iter().cloned().find(|__f| ($f)(__f.clone()))"
         case "exists"   => s"$q.iter().cloned().any($f)"
         case "forall"   => s"$q.iter().cloned().all($f)"
-        case "filter"    => s"$q.iter().cloned().filter($f).collect::<Vec<_>>()"
-        case "takeWhile" => s"$q.iter().cloned().take_while($f).collect::<Vec<_>>()"
-        case "dropWhile" => s"$q.iter().cloned().skip_while($f).collect::<Vec<_>>()"
+        // `filter`/`takeWhile`/`dropWhile` render through Rust's `Iterator::filter`/`take_while`/
+        // `skip_while`, whose OWN signatures always take `&Item` — REGARDLESS of `.cloned()` already
+        // having made the iterator's items owned — unlike `.find` two lines up (the SAME `&Item`
+        // shape, already shimmed the identical way) `namespaceDeclaration(_).isEmpty`
+        // (`uniml/xml`'s `Doc.scala`'s `resolveElement`) passes the placeholder BY VALUE to a
+        // function wanting an OWNED `Attr`: `error[E0308]: expected Attr, found &Attr`.
+        case "filter"    => s"$q.iter().cloned().filter(|__f| ($f)(__f.clone())).collect::<Vec<_>>()"
+        case "takeWhile" => s"$q.iter().cloned().take_while(|__f| ($f)(__f.clone())).collect::<Vec<_>>()"
+        case "dropWhile" => s"$q.iter().cloned().skip_while(|__f| ($f)(__f.clone())).collect::<Vec<_>>()"
         // `.sortBy(key)` — sorts a CLONE of the receiver in place by the key function's result
         // (`uniml/xml`'s `Doc.scala`'s `parseMarkup`: `...flatMap(...).sortBy(_.id)`), same
         // clone-then-mutate shape `.sorted`/`.distinct` two cases below this whole match's OTHER
@@ -9502,6 +9606,31 @@ object RustCodeWalk:
       s"{ let __any = $s; $chain$fallthrough }"
     }
 
+  /** The ONE enrichment `renderMatch`'s own per-arm bodyCtx applies for a `case n: Qualified.Ctor
+   *  =>` WITH-FIELDS-VARIANT typed bind (its own inline case has the full reasoning), extracted so
+   *  the SEPARATE PartialFunction-in-`.map`/`.filter`/… renderer (`{ case p => body }` passed
+   *  directly to a Vec combinator, NOT a standalone `match` statement) can apply the SAME
+   *  enrichment — that renderer builds its OWN, much simpler bodyCtx (just the pattern's bound
+   *  names) and never had this at all. Deliberately just this one case, not the whole of
+   *  `renderMatch`'s own bodyCtx match: the rest (untyped ctor destructures, `Some`/`Right`
+   *  unwraps, …) has never been reported missing from THIS renderer, and copying the entire thing
+   *  speculatively would be guessing at a shape no failing corpus has shown yet. */
+  private def variantBodyCtxExtra(pat: m.Pat, ctx: Ctx): Ctx = pat match
+    case m.Pat.Typed(m.Pat.Var(m.Term.Name(n)), ty)
+        if ctorNameOfType(ty).flatMap(ctx.ctorMap.get).exists(_.fieldNames.nonEmpty) =>
+      val ctorName = ctorNameOfType(ty).get
+      val ec = ctx.ctorMap(ctorName)
+      val vecFields = ec.fieldNames.zip(ec.fieldTypes).collect { case (f, t) if t.startsWith("Vec<") => f }.toSet
+      val hmapFields = ec.fieldNames.zip(ec.fieldTypes).collect { case (f, t) if t.startsWith("std::collections::HashMap<") => f }.toSet
+      ctx.copy(
+        paramTypes             = ctx.paramTypes + (n -> ec.enumName),
+        destructuredCtorNames  = ctx.destructuredCtorNames + (n -> ctorName),
+        byRefMut                = ctx.byRefMut + n,
+        seqFields               = if vecFields.isEmpty then ctx.seqFields else ctx.seqFields + (n -> vecFields),
+        mapFields               = if hmapFields.isEmpty then ctx.mapFields else ctx.mapFields + (n -> hmapFields)
+      )
+    case _ => ctx
+
   private def renderMatch(
       subject: m.Term, cases: List[m.Case], ctx: Ctx,
       // Applied to each arm's BODY. Identity everywhere except when the match sits in a tail
@@ -9730,15 +9859,20 @@ object RustCodeWalk:
             localMaps    = ctx.localMaps ++ mapNames
           )
         case _ => ctx
+      _pendingPatternGuards = Nil
       for
-        pat   <- renderPattern(c.pat, ctx)
+        pat      <- renderPattern(c.pat, ctx)
+        litGuards = _pendingPatternGuards
         // Type tests FIRST, so `&&` short-circuits before a user guard that assumes the narrowed
         // type ever runs — `case Some(s: String) if s.length > 2` reads the guard on a `Value`.
         guard <- (c.cond match
                     case Some(g) => renderTerm(g, ctx).map(gr => List(gr))
                     case None    => Right(Nil)
                  ).map { userGuards =>
-                   val all = typedBinders.map(_._3) ++ userGuards
+                   // `litGuards` — a struct-field STRING LITERAL pattern bubbled up as an equality
+                   // guard (`_pendingPatternGuards`'s own comment); placed with the type tests, for
+                   // the SAME short-circuit-before-a-guard-that-assumes-the-narrowed-shape reason.
+                   val all = typedBinders.map(_._3) ++ litGuards ++ userGuards
                    // Parenthesised only where the parens DO something — joining two conjuncts. A
                    // lone guard was wrapped as well, and since `renderTerm` already brackets a
                    // comparison the arm came out `x if ((x > 0i64)) =>`: valid Rust, an
@@ -10381,6 +10515,17 @@ object RustCodeWalk:
     case m.Lit.Boolean(b)           => Right(b.toString)
     case m.Lit.String(s)            => Right("\"" + escapeRustString(s) + "\"")
     // Option patterns over a native Rust `Option` — `Some(x)` / `None`. (rust-option-consumption)
+    // `QName(Some("xmlns"), prefix, _)` — a STRING LITERAL nested one level inside a `Some(...)`
+    // extractor, itself one positional arg of a with-fields ctor Extract (`_pendingPatternGuards`'s
+    // own comment has the base-case story; this is that SAME fix, one level deeper, since the
+    // outer Extract's own rewrite only ever looks at its DIRECT positional args and never recurses
+    // into a `Some(literal)` sub-pattern).
+    case m.Pat.Extract.After_4_6_0(m.Term.Name("Some"), argClause) if argClause.values.headOption.exists(_.isInstanceOf[m.Lit.String]) =>
+      val lit = argClause.values.head.asInstanceOf[m.Lit.String]
+      _pendingPatternGuardCounter += 1
+      val fresh = s"__litpat${_pendingPatternGuardCounter}"
+      _pendingPatternGuards :+= s"""$fresh == "${escapeRustString(lit.value)}""""
+      Right(s"Some($fresh)")
     case m.Pat.Extract.After_4_6_0(m.Term.Name("Some"), argClause) =>
       argClause.values match
         case List(inner) => renderPattern(inner, ctx).map(p => s"Some($p)")
@@ -10407,7 +10552,16 @@ object RustCodeWalk:
             s"def `${ctx.defName}` extracts `$ctor` which is not a known enum constructor"
           )))
         case Some(ec) =>
-          val argPats = args.map(renderPattern(_, ctx))
+          val argPats = args.map {
+            // `_pendingPatternGuards`'s own comment has the full E0308 story and why this is a
+            // fresh-name-plus-guard rewrite rather than a text change.
+            case lit: m.Lit.String =>
+              _pendingPatternGuardCounter += 1
+              val fresh = s"__litpat${_pendingPatternGuardCounter}"
+              _pendingPatternGuards :+= s"""$fresh == "${escapeRustString(lit.value)}""""
+              Right(fresh)
+            case other => renderPattern(other, ctx)
+          }
           val (errs, ok) = argPats.partitionMap(identity)
           if errs.nonEmpty then Left(errs.flatten)
           else
