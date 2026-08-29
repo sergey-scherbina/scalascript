@@ -1,0 +1,12 @@
+slug: fix-parametric-given-derivation
+branch: feature/fix-parametric-given-derivation
+agent: claude-code
+started: 2026-08-29T08:36:25Z
+heartbeat: 2026-08-29T08:36:25Z
+status: claimed-before-planning
+items: fix-parametric-given-derivation
+paths: mod:v1
+broad: diagnosing a generic-given-with-using-derivation defect likely touches the interpreter's type checker and/or generic instance resolution; scope narrows once root-caused
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
