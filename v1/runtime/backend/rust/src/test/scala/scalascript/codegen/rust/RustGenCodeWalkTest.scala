@@ -2698,6 +2698,40 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(g.contains("pred((crate::runtime::_str_char_at(&s, i)).0)"),
       s"a call to a function-typed parameter must unwrap an SscChar argument via .0:\n$g")
 
+  test("`.head`/`.last` on a String yields SscChar, unwrapped in a tuple literal"):
+    // `Option.when(valid)((rest.head, chomping, indentation))` (`uniml/yaml`'s
+    // `YamlSemanticParser.scala`'s `blockHeader`) — `.head`/`.last` on a STRING render through the
+    // exact same `crate::runtime::_str_char_at(...)` runtime call `.charAt` does (both return the
+    // same `SscChar` newtype), but `yieldsSscChar` only recognized `.charAt`; a tuple-literal
+    // `.head` element consequently never got its `.0` unwrap: `error[E0308]: expected i64, found
+    // SscChar`.
+    val src =
+      """```scalascript
+        |def maybe(valid: Boolean, rest: String, chomping: Option[Char], indentation: Option[Int]): Option[(Char, Option[Char], Option[Int])] =
+        |  Option.when(valid)((rest.head, chomping, indentation))
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("(crate::runtime::_str_char_at(&rest, 0i64)).0"),
+      s"a String's .head in a tuple literal must unwrap via .0, same as .charAt:\n$g")
+
+  test("an Option-pipeline `.getOrElse(strLit)` is recognized as string-shaped in a + chain"):
+    // `withBreak.reverse.dropWhile(...).reverse + Option.when(withBreak.nonEmpty)("\n").getOrElse("")`
+    // (`uniml/yaml`'s `YamlSemanticParser.scala`'s `parseBlockScalar`) — an Option PIPELINE's
+    // `.getOrElse(default)` is itself a String whenever its DEFAULT argument is, but `isStringExpr`
+    // had no case for this shape at all. The RHS of the outer `+` was consequently unrecognized as
+    // string-shaped, the String-concat guard failed entirely, and it fell through to a generic +,
+    // which is `Add<&str> for String` only: `error[E0308]: expected &str, found String`.
+    val src =
+      """```scalascript
+        |def cook(withBreak: String): String =
+        |  withBreak.reverse.dropWhile(_ == '\n').reverse + Option.when(withBreak.nonEmpty)("\n").getOrElse("")
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("format!(\"{}{}\", withBreak") && g.contains(".unwrap_or(\"\".to_string()))"),
+      s"an Option-pipeline .getOrElse(strLit) chained with + must flatten into one format!, not a bare +:\n$g")
+
   test("`xs.count(_.field == x)` / `xs.filter(_.field == x)` — a placeholder predicate types cleanly"):
     // `lexed.tokens.count(_.kind == "yaml.anchor")` / `ranges.filter(_.start == index)`
     // (`uniml/yaml`) — `renderVecIterBody`'s `Term.AnonymousFunction` branch wrapped the WHOLE

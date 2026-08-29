@@ -9269,6 +9269,16 @@ object RustCodeWalk:
     // LHS is one, or the outer link falls through to `+`.
     case m.Term.ApplyInfix.After_4_6_0(l, m.Term.Name("+"), _, args) =>
       isStringExpr(l) || args.values.headOption.exists(isStringExpr)
+    // `withBreak.reverse.dropWhile(...).reverse + Option.when(withBreak.nonEmpty)("\n").getOrElse("")`
+    // (`uniml/yaml`'s `YamlSemanticParser.scala`'s `parseBlockScalar`) — an Option PIPELINE's
+    // `.getOrElse(default)` is itself a String whenever its DEFAULT argument is (Scala's own
+    // typechecking already guarantees both branches agree), regardless of what the option-yielding
+    // side looks like syntactically. Without this, the RHS of the outer `+` was unrecognized as
+    // string-shaped, the `strOp` guard on the String-concat `ApplyInfix "+"` case failed entirely,
+    // and it fell through to a generic `+`, which is `Add<&str> for String` only:
+    // `error[E0308]: expected &str, found String`.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(_, m.Term.Name("getOrElse")), args)
+        if args.values.size == 1 && isStringExpr(args.values.head) => true
     case _ => false
 
   /** `isStringExpr` widened with a `ctx`, to follow a String-PRESERVING chain down to a BARE NAME
@@ -10886,6 +10896,14 @@ object RustCodeWalk:
    *  `.ssc_to_int()` to something that is already an `i64`, which does not compile either. */
   private def yieldsSscChar(t: m.Term, ctx: Ctx): Boolean = t match
     case m.Term.Apply.After_4_6_0(m.Term.Select(_, m.Term.Name("charAt")), args) => args.values.size == 1
+    // `Option.when(valid)((rest.head, chomping, indentation))` (`uniml/yaml`'s
+    // `YamlSemanticParser.scala`'s `blockHeader`) — `.head`/`.last` on a STRING render through the
+    // exact same `crate::runtime::_str_char_at(...)` runtime call `.charAt` does (both return the
+    // SAME `SscChar` newtype), but only `.charAt` was recognized here; a tuple-literal `.head`
+    // element consequently never got its `.0` unwrap: `error[E0308]: expected i64, found SscChar`.
+    // Guarded on the RECEIVER being string-shaped, since `.head`/`.last` on a `Vec` yields the
+    // element type unchanged, not a `Char` at all.
+    case m.Term.Select(qual, m.Term.Name("head" | "last")) if isStringReceiverChain(qual, ctx) => true
     case m.Term.Name(n) => ctx.localSscChars.contains(n)
     case _                                                                       => false
 
