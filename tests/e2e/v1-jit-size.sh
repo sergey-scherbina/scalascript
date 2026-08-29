@@ -863,10 +863,23 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # short-circuiting" — no trailing `.collect()` needed, since `find_map` itself returns the
 # `Option<T>` `collectFirst` means. Re-verified uniml/xml, uniml/json, and uniml/yaml all still
 # build clean (0 errors).
+#
+# renderTerm 38205 -> 39137 (+932), continuing uniml/markdown, 29 -> 28. `firstMarker(edges).
+# exists(m => m.nonEmpty && …)` — a bare `Term.Function` argument to Option's `.exists` renders
+# through PLAIN `renderTerm` (there is no `renderVecIterBody`-style dispatch for Option methods,
+# the way there is for a Vec receiver's `.exists`/`.forall`), so `m`'s own type never got seeded
+# from `firstMarker`'s declared `Option[String]` return type — `m.nonEmpty` (no-paren) reached
+# `isKnownStringField`/`isStringExpr` with nothing to check: "reads nonEmpty without parentheses
+# ... it is a collection member, not a field". Fixed with a `predCtx` computed inline in this arm's
+# own case (the growth: a pattern match plus a `Ctx.copy(...)` call), seeding the closure param the
+# SAME way `renderVecIterBody`'s `Term.Function` branch already does for a Vec receiver — mirrored
+# rather than shared, since that function's own dispatch is Vec-specific throughout. The lookup
+# itself (`optionElementTypeOf`, the `Option` twin of `elementTypeOf`) is a separate function and
+# costs nothing. Re-verified uniml/xml, uniml/json, and uniml/yaml all still build clean (0 errors).
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-38205 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+39137 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

@@ -5487,6 +5487,21 @@ object RustCodeWalk:
         .collect { case s if s.startsWith("Vec<") => s.stripPrefix("Vec<").stripSuffix(">") }
     case _ => None
 
+  /** The ELEMENT type of an `Option<T>`-typed expression — the `Option` twin of `elementTypeOf`
+   *  just above, for the identical reason: `firstMarker(edges).exists(m => m.nonEmpty && …)`
+   *  (`uniml/markdown`'s `MarkdownProjection.scala`'s `listOrdered`) — `firstMarker`'s declared
+   *  return type, `Option[String]`, is right there in `_returnTypes`, but nothing fed it to the
+   *  `.exists` closure's own parameter `m`, which then reached `m.nonEmpty` (a no-paren call)
+   *  with no type of its own to check: "reads nonEmpty without parentheses ... it is a collection
+   *  member, not a field". `None` for anything this narrow pass cannot place, same contract as
+   *  `elementTypeOf`. */
+  private def optionElementTypeOf(t: m.Term, ctx: Ctx): Option[String] = t match
+    case m.Term.Apply.After_4_6_0(m.Term.Name(fn), _) =>
+      _returnTypes.get(fn).collect { case s if s.startsWith("Option<") => s.stripPrefix("Option<").stripSuffix(">") }
+    case m.Term.Name(n) =>
+      ctx.paramTypes.get(n).collect { case s if s.startsWith("Option<") => s.stripPrefix("Option<").stripSuffix(">") }
+    case _ => None
+
   /** Is `qual` a `receiver.field` select where `field` is a known `String`-typed field of
    *  `receiver`'s type — where `receiver`'s type comes from `ctx.paramTypes`, so this covers both
    *  an ordinary def parameter AND (via `elementTypeOf` feeding a lambda parameter's inferred
@@ -7735,9 +7750,22 @@ object RustCodeWalk:
     case m.Term.Apply.After_4_6_0(
         m.Term.Select(qual, m.Term.Name("exists")), args
     ) if args.values.size == 1 && isOptionExpr(qual, ctx) =>
+      // `firstMarker(edges).exists(m => m.nonEmpty && …)` — see `optionElementTypeOf`'s own
+      // comment. Seeded the SAME way `renderVecIterBody`'s `Term.Function` branch seeds a Vec
+      // closure's own single param, since a bare `Term.Function` argument here renders through
+      // plain `renderTerm` (there is no `renderVecIterBody`-style dispatch for Option methods).
+      val predCtx = args.values.head match
+        case fn: m.Term.Function if fn.paramClause.values.sizeIs == 1 =>
+          optionElementTypeOf(qual, ctx) match
+            case Some(t) =>
+              val p0 = fn.paramClause.values.head.name.value
+              ctx.copy(paramTypes = ctx.paramTypes + (p0 -> t),
+                       localStrings = if t == "String" then ctx.localStrings + p0 else ctx.localStrings)
+            case None => ctx
+        case _ => ctx
       for
         q0   <- renderTerm(qual, ctx)
-        pred <- renderTerm(args.values.head, ctx)
+        pred <- renderTerm(args.values.head, predCtx)
       yield
         // `Option::is_some_and` consumes `self` — unlike `.contains`'s own `.as_ref()` two cases
         // down, which only borrows. `tag.exists(...)`, read AGAIN later in the same `if/else`

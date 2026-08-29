@@ -2895,6 +2895,26 @@ class RustGenCodeWalkTest extends AnyFunSuite:
       && g.contains("}).unwrap_or(1i64)"),
       s"xs.collectFirst { case p if g => v } must lower to find_map with no trailing .collect():\n$g")
 
+  test("`opt.exists(namedParam => ...)` seeds the param's type from the Option's declared element"):
+    // `firstMarker(edges).exists(m => m.nonEmpty && ...)` (`uniml/markdown`'s
+    // `MarkdownProjection.scala`'s `listOrdered`) — a bare `Term.Function` argument to Option's
+    // `.exists` renders through PLAIN `renderTerm` (no `renderVecIterBody`-style dispatch exists
+    // for Option methods), so `m`'s own type never got seeded from `firstMarker`'s declared
+    // `Option[String]` return type — `m.nonEmpty` (no-paren) reached `isKnownStringField`/
+    // `isStringExpr` with nothing to check: "reads nonEmpty without parentheses ... it is a
+    // collection member, not a field".
+    val src =
+      """```scalascript
+        |def firstMarker(x: Int): Option[String] = if x > 0 then Some("m") else None
+        |
+        |def listOrdered(x: Int): Boolean =
+        |  firstMarker(x).exists(m => m.nonEmpty && m.charAt(0) == '5')
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("|m| { (!m.is_empty() && "),
+      s"opt.exists(namedParam => ...) must seed the param's type from the Option's declared element, for a no-paren .nonEmpty:\n$g")
+
   test("`xs.count(_.field == x)` / `xs.filter(_.field == x)` — a placeholder predicate types cleanly"):
     // `lexed.tokens.count(_.kind == "yaml.anchor")` / `ranges.filter(_.start == index)`
     // (`uniml/yaml`) — `renderVecIterBody`'s `Term.AnonymousFunction` branch wrapped the WHOLE
