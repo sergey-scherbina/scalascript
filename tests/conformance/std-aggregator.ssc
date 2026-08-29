@@ -1,0 +1,25 @@
+---
+name: conformance-std-aggregator
+version: 1.0.0
+---
+
+# Std — Aggregator
+
+Exercises the aggregation-algebra core primitive: `Group` (retraction), `Aggregator`'s `zip`/`map`
+composition, and the `mean`-from-`sum`-and-`count` worked example from
+[`specs/aggregation-algebra.md`](../../specs/aggregation-algebra.md) §4.3.
+
+[Group, intSumGroup, Aggregator, runAggregator, ZipAgg, MapAgg, SumAgg, CountAgg](std/aggregator.ssc)
+
+```scalascript
+val sumAndCount = ZipAgg(SumAgg(), CountAgg[Double]())
+val mean        = MapAgg(sumAndCount, (p: (Double, Int)) => p._1 / p._2.toDouble)
+
+println(runAggregator(List(1.0, 2.0, 3.0, 4.0, 5.0), mean))
+println(runAggregator(List(10.0), SumAgg()))
+println(runAggregator(List("a", "b", "c"), CountAgg[String]()))
+
+val total   = intSumGroup.combine(intSumGroup.combine(10, 20), 30)
+val minus20 = intSumGroup.combine(total, intSumGroup.inverse(20))
+println(minus20)
+```

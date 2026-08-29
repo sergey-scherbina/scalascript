@@ -1,3 +1,54 @@
+## aggregation-algebra-canonical-and-effectful — §5–§11 of the aggregation-algebra spec, queued after landing the core
+
+<!-- status: open
+     lane: multi
+     area: runtime
+     kind: feature
+     gate: none
+     fixed-in: -
+     reported-by: self (claim aggregator-core-impl)
+     reported-at: 2026-08-29
+     ssc-version: bin/ssc-tools built from e6b956e47+
+     repro: n/a
+     impact: none — deliberate scope cut, not a defect
+     confirmed: no -->
+
+`specs/aggregation-algebra.md` §2.2 (`Group`) and §3–§4 (`Aggregator[In, Acc, Out]`, `zip`/`map`
+composition) landed as [`std/aggregator.ssc`](std/aggregator.ssc) (this claim). Everything past that
+is real, separate work the spec itself scopes out of the first slice — queued here rather than
+attempted in the same pass, per "central primitive first":
+
+- **§5 canonical exact aggregators** — `sum`/`count`/`mean` already ship (§4.3); `min`/`max` (needs
+  a `Top`/`Bottom` sentinel for `empty`), `variance`/`stddev` (the Chan/Golub/LeVeque merge, §5.1 —
+  the one exact statistic that is not simply "zip two simpler monoids"), and `first`/`last` (needs
+  an explicit ordering key) do not.
+- **§6 approximate aggregators** — `ApproxAggregator` (adds `errorBound`) plus HyperLogLog,
+  Count-Min Sketch, and T-Digest as parameterized classes. Real algorithmic work (hashing, register
+  arrays), not a straightforward port of the spec's sketch.
+- **§7's `Group`-backed sliding window** — the concrete payoff of §2.2's `inverse`: retract an
+  expired value from a window's accumulator instead of recomputing from what remains. `Group` ships
+  now; the windowing structure that uses it does not yet.
+- **§8 `groupBy`** — spec's own claim is "no new concept, it's `Map[K, Acc]` pointwise"; still needs
+  the actual helper (`groupByAgg[K, In, Acc, Out](xs: List[(K, In)], agg: Aggregator[In, Acc, Out]):
+  Map[K, Out]`, or similar) to exist as code a caller can reach.
+- **§9 bridge to `DStream`/`Pipeline` and `Dataset`** — `aggregatorSeqOp`/`aggregatorCombOp` helpers
+  that turn an `Aggregator`'s `(monoid, prepare)` into the `zero`/`seqOp`/`combOp` triple
+  `aggregatePerKey`/`runFold` already accept. `DStream`/`Dataset` are already real and implemented;
+  only the bridge functions are missing.
+- **§10 rendering** — `headers`/`rows` bridge to `std/ui/data.ssc`'s live table and JSON. §10.3's
+  chart renderer is explicitly out of scope for the whole document (§13), not just deferred here.
+- **§11 effects** — `EffAggregator[F[_], In, Acc, Out]` (prepare/present in an effect `F`) composed
+  via `Applicative.ap`; needs `std/functor-applicative-monad.ssc`'s `Applicative` as a real
+  dependency, not just a design-doc reference.
+- **`Arrow`/`Category`/a new `Future`/`Task`/`Result` type** — explicitly NOT queued here. §11.4
+  gives the reason (`Either`/`! Async` already cover the latter; neither `Arrow` nor `Category` has
+  a second concrete use beyond §11.3's `dimap`) and stands until a second genuine use surfaces —
+  revisit the reason, not just the deferral, before picking this up.
+
+No gate yet because none of the above has code to gate — the first item taken from this list should
+get its own conformance case the same way `std/aggregator.ssc` got
+`tests/conformance/std-aggregator.ssc`, mirroring `std/semigroup-monoid.ssc`'s existing pattern.
+
 ## process-needs-a-detached-spawn — std/process can only run children it WAITS for, so a served program cannot start anything that outlives the request
 
 <!-- status: fixed

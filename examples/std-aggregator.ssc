@@ -1,0 +1,28 @@
+#!/usr/bin/env ssc
+---
+name: std-aggregator
+version: 1.0.0
+description: Aggregator[In, Acc, Out] — compose sum and count into mean for free
+---
+
+# Aggregator — compose, don't hand-roll
+
+`Aggregator` splits an aggregation into three parts (`monoid`, `prepare`, `present`) so that a new
+statistic can be built by combining smaller ones instead of writing a new fold each time. `mean`
+below is `sum` and `count`, computed in a single pass via `zip`, then divided on `present` — no new
+aggregation logic. See [`std/aggregator.ssc`](../std/aggregator.ssc) and
+[`specs/aggregation-algebra.md`](../specs/aggregation-algebra.md) for the design.
+
+[Group, intSumGroup, Aggregator, runAggregator, ZipAgg, MapAgg, SumAgg, CountAgg](std/aggregator.ssc)
+
+```scalascript
+val sumAndCount = ZipAgg(SumAgg(), CountAgg[Double]())
+val mean        = MapAgg(sumAndCount, (p: (Double, Int)) => p._1 / p._2.toDouble)
+
+println(runAggregator(List(1.0, 2.0, 3.0, 4.0, 5.0), mean))
+
+// Group: retract a value from a running sum without recomputing from what remains.
+val total  = intSumGroup.combine(intSumGroup.combine(10, 20), 30)
+val minus20 = intSumGroup.combine(total, intSumGroup.inverse(20))
+println(minus20)
+```

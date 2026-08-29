@@ -1,9 +1,14 @@
 # Aggregation Algebra — `Monoid`, `Group`, and `Aggregator[In, Acc, Out]`
 
-Status: **design / planning**. No implementation yet; every code sample in this document has been
-run for real against this checkout's `bin/ssc-tools` to confirm it actually compiles and produces
-the stated result — see §12 for what that verification found (including one interpreter bug it
-surfaced).
+Status: **§2.2–§4 landed 2026-08-29** as [`std/aggregator.ssc`](../std/aggregator.ssc) —
+`Group`, `Aggregator[In, Acc, Out]`, `zip`/`map` composition, and the `mean`-from-`sum`-and-`count`
+worked example, runnable at [`examples/std-aggregator.ssc`](../examples/std-aggregator.ssc) and
+gated by `tests/conformance/std-aggregator.ssc` (passes on all three v1 lanes: INT/JS/JVM). §5–§11
+(canonical/approximate aggregators, the `DStream`/`Dataset` bridge, rendering, effects) remain
+**design / planning** — queued in `BACKLOG.md`. Every code sample in this document has been run for
+real against this checkout's `bin/ssc-tools` to confirm it actually compiles and produces the
+stated result — see §12 for what that verification found (including one interpreter bug it
+surfaced, since fixed).
 
 Companion documents:
 - [`std/semigroup-monoid.ssc`](../std/semigroup-monoid.ssc) — `Semigroup`/`Monoid` already ship

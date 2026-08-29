@@ -1,0 +1,135 @@
+---
+name: std-aggregator
+version: 1.0.0
+description: Group and Aggregator[In, Acc, Out] — the aggregation-algebra core primitive
+package: std.aggregator
+exports:
+  - Group
+  - intSumGroup
+  - doubleSum
+  - Aggregator
+  - runAggregator
+  - PairMonoid
+  - zipMonoid
+  - ZipAgg
+  - MapAgg
+  - SumAgg
+  - CountAgg
+---
+
+# Aggregator — the aggregation-algebra core primitive
+
+Design: [`specs/aggregation-algebra.md`](../specs/aggregation-algebra.md). This module ships the
+piece that document calls "the central primitive": `Group` (an invertible `Monoid`) and
+`Aggregator[In, Acc, Out]` (prepare / merge / present), plus the two composition combinators
+(`zip`, `map`) that let statistics build from smaller ones instead of a hand-written fold each
+time. Canonical exact/approximate aggregators (variance, HyperLogLog, …), the `DStream`/`Dataset`
+bridge, and effectful aggregators are out of scope for this module — see the spec's §13 and
+`BACKLOG.md` for what is deferred and why.
+
+[Monoid, intSum](./semigroup-monoid.ssc)
+
+## `Group` — invertible monoids
+
+```scalascript
+trait Group[A] extends Monoid[A]:
+  def inverse(a: A): A
+```
+
+A `Group` additionally guarantees `combine(a, inverse(a)) == empty` — the property that makes
+*retraction* possible (removing a value from an accumulator without recomputing from what remains;
+see the spec's §7). `Int` addition is a group; string concatenation, `min`/`max`, and every
+approximate sketch are not — there is no way to "un-concat" a suffix or "un-see" a value from a
+running max.
+
+```scalascript
+given intSumGroup: Group[Int] with
+  def empty: Int = 0
+  def combine(a: Int, b: Int): Int = a + b
+  def inverse(a: Int): Int = -a
+```
+
+## `Aggregator[In, Acc, Out]`
+
+A `Monoid[Acc]` alone says how to *merge* accumulated state. An aggregation also needs how to turn
+one raw input record into that state (`prepare`) and how to read a final answer back out of it once
+merging is done (`present`). Splitting these three concerns is what makes aggregators composable —
+this is the same shape Twitter's Algebird calls `Aggregator` and the "Fold" pattern elsewhere.
+
+```scalascript
+trait Aggregator[In, Acc, Out]:
+  def monoid: Monoid[Acc]
+  def prepare(in: In): Acc
+  def present(acc: Acc): Out
+```
+
+Running one over a finite, in-memory sequence — the reference semantics every backend must agree
+with:
+
+```scalascript
+def runAggregator[In, Acc, Out](xs: List[In], agg: Aggregator[In, Acc, Out]): Out =
+  val acc = xs.foldLeft(agg.monoid.empty)((a, in) => agg.monoid.combine(a, agg.prepare(in)))
+  agg.present(acc)
+```
+
+## Composition
+
+### Product (`zip`) — two aggregators, one pass, one answer
+
+```scalascript
+class PairMonoid[A, B](ma: Monoid[A], mb: Monoid[B]) extends Monoid[(A, B)]:
+  def empty: (A, B) = (ma.empty, mb.empty)
+  def combine(x: (A, B), y: (A, B)): (A, B) =
+    (ma.combine(x._1, y._1), mb.combine(x._2, y._2))
+
+def zipMonoid[A, B](ma: Monoid[A], mb: Monoid[B]): Monoid[(A, B)] = PairMonoid(ma, mb)
+
+class ZipAgg[In, AccA, AccB, OutA, OutB](
+    aggA: Aggregator[In, AccA, OutA],
+    aggB: Aggregator[In, AccB, OutB]
+) extends Aggregator[In, (AccA, AccB), (OutA, OutB)]:
+  def monoid: Monoid[(AccA, AccB)] = zipMonoid(aggA.monoid, aggB.monoid)
+  def prepare(in: In): (AccA, AccB) = (aggA.prepare(in), aggB.prepare(in))
+  def present(acc: (AccA, AccB)): (OutA, OutB) = (aggA.present(acc._1), aggB.present(acc._2))
+```
+
+`ZipAgg` generalizes to any fixed N by nesting (`zip(zip(a, b), c)`) — there is no need for it to be
+a language primitive beyond this one class.
+
+### `map` over the output
+
+```scalascript
+class MapAgg[In, Acc, Out, Out2](agg: Aggregator[In, Acc, Out], f: Out => Out2)
+    extends Aggregator[In, Acc, Out2]:
+  def monoid: Monoid[Acc] = agg.monoid
+  def prepare(in: In): Acc = agg.prepare(in)
+  def present(acc: Acc): Out2 = f(agg.present(acc))
+```
+
+## Two minimal aggregators, and `mean` for free
+
+`sum` and `count` are the simplest possible `Aggregator`s — each wraps one `Monoid` directly, with
+`prepare`/`present` doing no work. `doubleSum` is the canonical additive `Monoid[Double]` (the
+counterpart to `semigroup-monoid.ssc`'s `intSum`, needed here because `SumAgg` accumulates
+`Double`); `count` reuses `intSum` as-is.
+
+```scalascript
+given doubleSum: Monoid[Double] with
+  def empty: Double = 0.0
+  def combine(a: Double, b: Double): Double = a + b
+
+class SumAgg() extends Aggregator[Double, Double, Double]:
+  def monoid: Monoid[Double] = doubleSum
+  def prepare(in: Double): Double = in
+  def present(acc: Double): Double = acc
+
+class CountAgg[In]() extends Aggregator[In, Int, Int]:
+  def monoid: Monoid[Int] = intSum
+  def prepare(in: In): Int = 1
+  def present(acc: Int): Int = acc
+```
+
+`mean` needs no new aggregation logic — it is `sum` and `count`, computed in one pass via `zip`,
+divided on `present`: `MapAgg(ZipAgg(SumAgg(), CountAgg[Double]()), (p: (Double, Int)) => p._1 /
+p._2.toDouble)`. See [`examples/std-aggregator.ssc`](../examples/std-aggregator.ssc) for this wired
+up and run end to end.
