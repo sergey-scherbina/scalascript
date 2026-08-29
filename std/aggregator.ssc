@@ -31,16 +31,19 @@ exports:
   - MaxByAgg
   - firstAgg
   - lastAgg
+  - MapMonoid
+  - groupByAgg
 ---
 
 # Aggregator — the aggregation-algebra core primitive
 
 Design: [`specs/aggregation-algebra.md`](../specs/aggregation-algebra.md). This module ships the
 piece that document calls "the central primitive" (`Group`, `Aggregator[In, Acc, Out]`, `zip`/`map`
-composition — §2.2–§4) plus all of §5's canonical exact aggregators: `min`/`max`,
-`variance`/`stddev`, and `first`/`last`. Approximate aggregators (HyperLogLog, …), the
-`DStream`/`Dataset` bridge, and effectful aggregators are out of scope for this module — see the
-spec's §13 and `BACKLOG.md` for what is deferred and why.
+composition — §2.2–§4), all of §5's canonical exact aggregators (`min`/`max`, `variance`/`stddev`,
+`first`/`last`), and §8's `groupBy` (`Map[K, Acc]` as a `Monoid`, pointwise). Approximate
+aggregators (HyperLogLog, …), §7's `Group`-backed sliding window, the `DStream`/`Dataset` bridge,
+rendering, and effectful aggregators are out of scope for this module — see the spec's §13 and
+`BACKLOG.md` for what is deferred and why.
 
 [Monoid, intSum](./semigroup-monoid.ssc)
 
@@ -285,3 +288,42 @@ def lastAgg[A](): Aggregator[(A, Int), Option[(A, Int)], Option[A]] =
 
 `runAggregator(xs.zipWithIndex, firstAgg[Double]())` is `first`; swap in `lastAgg` for `last`. Both
 return `None` on empty input, for the same reason `min`/`max` do.
+
+## `groupBy` — no new primitive, `Map[K, Acc]` is a `Monoid` too
+
+If `Acc` is a `Monoid`, `Map[K, Acc]` is a `Monoid`: combine two maps key-by-key, using `Acc`'s
+`combine` on keys present in both, passing through keys present in only one. "Group by key,
+aggregate per group" is this `Map`-monoid wrapping any `Aggregator`'s own monoid — not a separate
+concept the language needs. Tuples are destructured with a `val` binding inside the lambda body
+(`val (k, v) = kv`), not as lambda parameters, matching this module's own §5.2 finding about a
+tuple-destructuring lambda parameter miscompiling on the reference front. `Map[K, V]()` builds the
+empty map, not `Map.empty` — see `v1/runtime/backend/interpreter/BUGS.md`
+`map-dot-empty-reads-empty-as-a-literal-key-not-the-companion-accessor`:
+
+```scalascript
+class MapMonoid[K, Acc](inner: Monoid[Acc]) extends Monoid[Map[K, Acc]]:
+  def empty: Map[K, Acc] = Map[K, Acc]()
+  def combine(a: Map[K, Acc], b: Map[K, Acc]): Map[K, Acc] =
+    b.toList.foldLeft(a) { (acc, kv) =>
+      val (k, v) = kv
+      acc.get(k) match
+        case Some(existing) => acc.updated(k, inner.combine(existing, v))
+        case None           => acc.updated(k, v)
+    }
+
+def groupByAgg[K, In, Acc, Out](xs: List[(K, In)], agg: Aggregator[In, Acc, Out]): Map[K, Out] =
+  val monoid = MapMonoid[K, Acc](agg.monoid)
+  val acc = xs.foldLeft(monoid.empty) { (m, kv) =>
+    val (k, in) = kv
+    monoid.combine(m, Map(k -> agg.prepare(in)))
+  }
+  acc.toList.foldLeft(Map[K, Out]()) { (m, kv) =>
+    val (k, v) = kv
+    m.updated(k, agg.present(v))
+  }
+```
+
+`groupByAgg` runs any `Aggregator` per key in one pass — e.g. `groupByAgg(sales.map(s => (s.region,
+s.amount)), SumAgg())` gives total sales per region. This is exactly what `keyBy` + `aggregatePerKey`
+already do on `DStream` (see `specs/distributed-streams.md`); this is the same algebraic fact,
+usable directly over an in-memory `List`.

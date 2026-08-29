@@ -1,17 +1,19 @@
 # Aggregation Algebra — `Monoid`, `Group`, and `Aggregator[In, Acc, Out]`
 
-Status: **§2.2–§5 landed 2026-08-29** as [`std/aggregator.ssc`](../std/aggregator.ssc) — `Group`,
-`Aggregator[In, Acc, Out]`, `zip`/`map` composition, `mean`-from-`sum`-and-`count`, `min`/`max` (any
-`Order[A]`), `variance`/`stddev` (Chan/Golub/LeVeque), and `first`/`last` (`MinByAgg`/`MaxByAgg`
-generalized to a projected key, keyed on `.zipWithIndex`), runnable at
+Status: **§2.2–§5 and §8 landed 2026-08-29** as [`std/aggregator.ssc`](../std/aggregator.ssc) —
+`Group`, `Aggregator[In, Acc, Out]`, `zip`/`map` composition, `mean`-from-`sum`-and-`count`,
+`min`/`max` (any `Order[A]`), `variance`/`stddev` (Chan/Golub/LeVeque), `first`/`last`
+(`MinByAgg`/`MaxByAgg` generalized to a projected key, keyed on `.zipWithIndex`), and `groupByAgg`
+(`Map[K, Acc]` as a `Monoid`), runnable at
 [`examples/std-aggregator.ssc`](../examples/std-aggregator.ssc) and gated by
 `tests/conformance/std-aggregator.ssc` + `tests/conformance/std-order.ssc` (INT/JVM green; JS
 known-red against a filed codegen bug — `v1/runtime/backend/js/BUGS.md`
-`js-codegen-drops-generic-typeclass-resolution-when-multiple-instances-exist`). §6–§11 (approximate
-aggregators, the `DStream`/`Dataset` bridge, rendering, effects) remain **design / planning** —
-queued in `BACKLOG.md`. Every code sample in this document has been run for real against this
-checkout's `bin/ssc-tools` to confirm it actually compiles and produces the stated result — see §12
-for what that verification found (including one interpreter bug it surfaced, since fixed).
+`js-codegen-drops-generic-typeclass-resolution-when-multiple-instances-exist`). §6, §7, §9–§11
+(approximate aggregators, the `Group`-backed sliding window, the `DStream`/`Dataset` bridge,
+rendering, effects) remain **design / planning** — queued in `BACKLOG.md`. Every code sample in
+this document has been run for real against this checkout's `bin/ssc-tools` to confirm it actually
+compiles and produces the stated result — see §12 for what that verification found (including one
+interpreter bug it surfaced, since fixed).
 
 Companion documents:
 - [`std/semigroup-monoid.ssc`](../std/semigroup-monoid.ssc) — `Semigroup`/`Monoid` already ship
@@ -483,20 +485,40 @@ you.
 
 ## 8. `groupBy` needs no new concept — it's `Map[K, Acc]`, pointwise
 
-If `Acc` is a `Monoid`, then `Map[K, Acc]` is a `Monoid` too — combine two maps key-by-key, using
-`Acc`'s `combine` on keys present in both, and passing through keys present in only one:
+**Landed 2026-08-29** as `std/aggregator.ssc`'s `MapMonoid`/`groupByAgg`. If `Acc` is a `Monoid`,
+then `Map[K, Acc]` is a `Monoid` too — combine two maps key-by-key, using `Acc`'s `combine` on keys
+present in both, and passing through keys present in only one:
 
 ```scalascript
 class MapMonoid[K, Acc](inner: Monoid[Acc]) extends Monoid[Map[K, Acc]]:
-  def empty: Map[K, Acc] = Map.empty
+  def empty: Map[K, Acc] = Map[K, Acc]()
   def combine(a: Map[K, Acc], b: Map[K, Acc]): Map[K, Acc] =
-    b.foldLeft(a) { (acc, kv) =>
+    b.toList.foldLeft(a) { (acc, kv) =>
       val (k, v) = kv
       acc.get(k) match
         case Some(existing) => acc.updated(k, inner.combine(existing, v))
         case None           => acc.updated(k, v)
     }
+
+def groupByAgg[K, In, Acc, Out](xs: List[(K, In)], agg: Aggregator[In, Acc, Out]): Map[K, Out] =
+  val monoid = MapMonoid[K, Acc](agg.monoid)
+  val acc = xs.foldLeft(monoid.empty) { (m, kv) =>
+    val (k, in) = kv
+    monoid.combine(m, Map(k -> agg.prepare(in)))
+  }
+  acc.toList.foldLeft(Map[K, Out]()) { (m, kv) =>
+    val (k, v) = kv
+    m.updated(k, agg.present(v))
+  }
 ```
+
+Two front limitations found landing this, both worked around rather than blocking: `Map` values
+have no `.foldLeft` — go through `.toList` first (`b.toList.foldLeft(...)`, matching the codebase's
+own precedent in `auth-full.ssc`-style code); and `Map.empty` throws under the v1 interpreter (`--v1`)
+— it reads the literal string `"empty"` as a key lookup on an already-empty map rather than
+recognizing the companion accessor ("No key 'empty' in map"), while `Map[K, V]()` works everywhere,
+including `--v1` — see `v1/runtime/backend/interpreter/BUGS.md`
+`map-dot-empty-reads-empty-as-a-literal-key-not-the-companion-accessor` (filed, not fixed).
 
 "Group by key, aggregate per group" is this `Map`-monoid wrapping ANY `Aggregator`'s own monoid —
 not a separate primitive the language needs to define. This is also exactly what `keyBy` +

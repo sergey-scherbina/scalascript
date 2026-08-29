@@ -13,7 +13,7 @@ below is `sum` and `count`, computed in a single pass via `zip`, then divided on
 aggregation logic. See [`std/aggregator.ssc`](../std/aggregator.ssc) and
 [`specs/aggregation-algebra.md`](../specs/aggregation-algebra.md) for the design.
 
-[Group, intSumGroup, Aggregator, runAggregator, ZipAgg, MapAgg, SumAgg, CountAgg, MinAgg, MaxAgg, VarianceAgg, populationVariance, sampleVariance, stddev, firstAgg, lastAgg](std/aggregator.ssc)
+[Group, intSumGroup, Aggregator, runAggregator, ZipAgg, MapAgg, SumAgg, CountAgg, MinAgg, MaxAgg, VarianceAgg, populationVariance, sampleVariance, stddev, firstAgg, lastAgg, groupByAgg](std/aggregator.ssc)
 
 [Order](std/order.ssc)
 
@@ -47,4 +47,9 @@ println(runAggregator(xs, sampleStddev))
 val prices = List(10.0, 20.0, 5.0, 40.0)
 println(runAggregator(prices.zipWithIndex, firstAgg[Double]()))
 println(runAggregator(prices.zipWithIndex, lastAgg[Double]()))
+
+// groupBy: no new primitive, just Map[K, Acc] as a Monoid wrapping any Aggregator's own monoid.
+val sales = List(("east", 10.0), ("west", 5.0), ("east", 3.0), ("west", 7.0), ("north", 1.0))
+println(groupByAgg(sales, SumAgg()))
+println(groupByAgg(sales, CountAgg[Double]()))
 ```

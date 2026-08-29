@@ -48,9 +48,14 @@ itself scopes out of the first slice — queued here rather than attempted in th
 - **§7's `Group`-backed sliding window** — the concrete payoff of §2.2's `inverse`: retract an
   expired value from a window's accumulator instead of recomputing from what remains. `Group` ships
   now; the windowing structure that uses it does not yet.
-- **§8 `groupBy`** — spec's own claim is "no new concept, it's `Map[K, Acc]` pointwise"; still needs
-  the actual helper (`groupByAgg[K, In, Acc, Out](xs: List[(K, In)], agg: Aggregator[In, Acc, Out]):
-  Map[K, Out]`, or similar) to exist as code a caller can reach.
+- **§8 `groupBy` — DONE** (claim `aggregator-groupby`, 2026-08-29). `MapMonoid[K, Acc]` +
+  `groupByAgg[K, In, Acc, Out](xs: List[(K, In)], agg): Map[K, Out]` ship in `std/aggregator.ssc`.
+  Found landing it: `Map.empty` throws under the v1 interpreter (`--v1`) — it reads `"empty"` as a
+  literal key lookup on an already-empty map instead of the companion accessor, "No key 'empty' in
+  map" — while `int`/`native`/`jvm` via `Map[K, V]()` all work correctly. Filed, not fixed (real,
+  separate interpreter work): `v1/runtime/backend/interpreter/BUGS.md`
+  `map-dot-empty-reads-empty-as-a-literal-key-not-the-companion-accessor`. Worked around throughout
+  `std/aggregator.ssc` with `Map[K, V]()` instead of `Map.empty`.
 - **§9 bridge to `DStream`/`Pipeline` and `Dataset`** — `aggregatorSeqOp`/`aggregatorCombOp` helpers
   that turn an `Aggregator`'s `(monoid, prepare)` into the `zero`/`seqOp`/`combOp` triple
   `aggregatePerKey`/`runFold` already accept. `DStream`/`Dataset` are already real and implemented;

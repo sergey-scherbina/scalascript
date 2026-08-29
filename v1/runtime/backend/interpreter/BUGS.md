@@ -7,6 +7,47 @@ grepping for status.
 
 Newest first.
 
+## map-dot-empty-reads-empty-as-a-literal-key-not-the-companion-accessor — `Map.empty` throws "No key 'empty' in map" under `--v1`
+
+<!-- status: open
+     lane: int
+     kind: bug
+     area: runtime
+     gate: none
+     reported-by: claude-code
+     reported-at: 2026-08-29
+     confirmed: yes -->
+
+Found landing `std/aggregator.ssc`'s `groupByAgg` (§8 of `specs/aggregation-algebra.md`) —
+`MapMonoid.empty = Map.empty` ran correctly via the default (native/v2) lane but threw under the v1
+tree-walking interpreter specifically. Minimal repro:
+
+```scalascript
+val m: Map[String, Int] = Map.empty
+println(m)
+```
+
+`bin/ssc-tools run --v1`:
+
+```
+[ERROR] [line 1, col 28] No key 'empty' in map
+scalascript.interpreter.InterpretError: [line 1, col 28] No key 'empty' in map
+	at scalascript.interpreter.DispatchRuntime$.dispatchMap$$anonfun$11(DispatchRuntime.scala:2651)
+	at scala.collection.immutable.Map$EmptyMap$.getOrElse(Map.scala:255)
+	at scalascript.interpreter.DispatchRuntime$.dispatchMap(DispatchRuntime.scala:2651)
+```
+
+The interpreter appears to treat `Map.empty` as "look up the literal string key `\"empty\"` in an
+already-empty map value" rather than recognizing it as the companion-object accessor that returns
+an empty map — `dispatchMap` calls `getOrElse` against the empty singleton map with `"empty"` as
+the key, which of course finds nothing. `Map.empty[K, V]` (with an explicit type argument) fails
+identically. `Map[K, V]()` and bare `Map()` both work correctly on every lane, including `--v1`, and
+are the workaround used throughout `std/aggregator.ssc`.
+
+Existing usages of `Map.empty` in this repo (`std/dstreams.ssc`, `std/graphql.ssc`,
+`std/openapi.ssc`) are all in *default parameter position* — never observed to be evaluated at
+runtime by an existing test, which is presumably why this went uncaught until now.
+
 ## point-free-class-method-never-eta-expands-on-int — `obj.method` under `--v1` fails differently, same given-vs-class shape
 
 <!-- status: fixed
