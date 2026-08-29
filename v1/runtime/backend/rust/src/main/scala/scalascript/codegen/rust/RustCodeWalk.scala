@@ -5503,6 +5503,22 @@ object RustCodeWalk:
             // resolved above) seeded in — mirrors `localSscChars`'s own re-pass a few lines down.
             localOptions = baseCtx.localOptions ++
               collectLocalOptions(d.body, Ctx(ctx.intrinsics, ctx.userDefs, ctx.ctorMap, ctx.topVals, ctx.defName, paramTypes = ownParamTypes)),
+            // `def parseBlockScalar(headerText: String, ...) = var lexeme = headerText +
+            // headerLine.lineBreak` (`uniml/yaml`'s `YamlSemanticParser.scala`) — the SAME gap
+            // `localOptions` just above closes for Option-ness, for STRING-ness instead:
+            // `ctx.localStrings` is computed ONCE at the TOP-LEVEL `renderDef`, seeded only from
+            // THAT def's own params — a lifted local def's OWN param (`headerText`) was invisible
+            // to it, so the `+`-is-string-concat rewrite's guard (`strOp`, `renderTerm`'s own `+`
+            // case) never fired for it and it fell to Rust's native `String + String` operator
+            // instead of `format!`: `error[E0308]: expected &str, found String` (Rust's own `Add`
+            // impl for `String` wants a borrowed right-hand side). Recomputed here the same way
+            // `renderDef`'s own top-level `stringParams` is, seeded with THIS def's own params.
+            localStrings = baseCtx.localStrings ++ {
+              val ownStringParams = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
+                .collect { case p if p.decltpe.exists { case m.Type.Name("String") => true; case _ => false } => p.name.value }
+                .toSet
+              collectLocalStrings(d.body, ownStringParams) ++ ownStringParams
+            },
             inLiftedFn = true,
             // `val char = input.charAt(cursor)` DECLARED INSIDE a lifted local def's OWN body
             // (`scanDoctype`, `uniml/xml`'s `Doc.scala`) — `ctx.localSscChars` was computed ONCE,

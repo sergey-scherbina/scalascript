@@ -2553,3 +2553,22 @@ class RustGenCodeWalkTest extends AnyFunSuite:
       s"a placeholder predicate for filter/count must use a let-binding, not a closure-literal IIFE:\n$g")
     assert(!g.contains(")(__f.clone())"),
       s"the closure-literal-call IIFE shape must not survive for a placeholder predicate:\n$g")
+
+  test("a LIFTED local def's OWN String param feeds the `+`-is-string-concat rewrite"):
+    // `def parseBlockScalar(headerText: String, ...) = var lexeme = headerText +
+    // headerLine.lineBreak` (`uniml/yaml`'s `YamlSemanticParser.scala`) — `ctx.localStrings` is
+    // computed ONCE at the TOP-LEVEL `renderDef`, seeded only from THAT def's own params — a
+    // lifted local def's OWN param (`headerText`) was invisible to it, so the `+`-is-string-concat
+    // rewrite's guard never fired and it fell to Rust's native `String + String` operator instead
+    // of `format!`: `error[E0308]: expected &str, found String`.
+    val src =
+      """```scalascript
+        |def parse(input: String): String =
+        |  def build(headerText: String, suffix: String): String =
+        |    headerText + suffix
+        |  build(input, "!")
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("format!(\"{}{}\", headerText, suffix)"),
+      s"a lifted local def's own String params must feed the format! string-concat rewrite:\n$g")
