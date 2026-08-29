@@ -7,6 +7,98 @@ grepping for status.
 
 Newest first.
 
+## parametric-given-declaration-corrupts-an-unrelated-earlier-given — `given X[A](using ...)` was never parsed, and its body leaked into surrounding code
+
+<!-- status: open
+     lane: native
+     kind: bug
+     area: front
+     gate: tests/e2e/v2-parametric-given-derivation-gate.sh
+     reported-by: claude-code
+     reported-at: 2026-08-29
+     confirmed: yes
+     fixed-in: - -->
+
+Found while extending `specs/aggregation-algebra.md` §11 (Effects and asynchrony), whose §12.4
+already scoped this precisely before this entry existed.
+
+**Repro:**
+
+```scalascript
+trait Monoid[A]:
+  def empty: A
+  def combine(a: A, b: A): A
+
+given intM: Monoid[Int] with
+  def empty: Int = 0
+  def combine(a: Int, b: Int): Int = a + b
+
+given strM: Monoid[String] with
+  def empty: String = ""
+  def combine(a: String, b: String): String = a + b
+
+given pairMonoid[A, B](using ma: Monoid[A], mb: Monoid[B]): Monoid[(A, B)] with
+  def empty: (A, B) = (ma.empty, mb.empty)
+  def combine(x: (A, B), y: (A, B)): (A, B) = (ma.combine(x._1, y._1), mb.combine(x._2, y._2))
+
+def main(): Unit =
+  val m = summon[Monoid[(Int, String)]]
+  println(m.combine((1, "a"), (2, "b")))
+```
+
+threw `TYPEERR: in def empty: cannot unify tuple: (Dyn, Dyn) vs String` — blaming `intM`'s `Int`,
+nowhere near the real problem. A DIFFERENT minimized repro (a single-param wrapper instead of a
+tuple, `given boxMonoid[A](using ma: Monoid[A]): Monoid[Box[A]] with ...`) threw a DIFFERENT
+symptom, `unbound global: m`, for the same underlying shape — two failure modes from one cause.
+
+**Root cause, found by tracing (not guessed):** `v2/lib/ssc1-front.ssc0`'s `given` parser expected
+`:` or `=` IMMEDIATELY after the given's name. A type-param list (`[A, B]`) or a `(using ...)`
+clause in between matched neither, so the parser erased the WHOLE declaration as `sealed` (a
+no-op) and skipped forward — but the skip did not correctly span the given's own multi-line
+`with { ... }` body, so that body's tokens leaked out and were re-parsed as ordinary top-level
+code, corrupting whatever type information the checker had already built for `intM` (an EARLIER,
+completely unrelated given of the same trait). Confirmed the corruption needed a THIRD, parametric
+given specifically: two ORDINARY givens of the same trait (`intM`, `strM`, no type params, no
+`using`) coexist and resolve correctly on their own.
+
+**Fixed in two parts:**
+
+1. `ssc1-front.ssc0`: the `given` parser now recognizes `given name[TypeParams](using p1: T1,
+   ...): Type with { ... }`, producing a new `given_poly` node carrying the type params, the
+   `using` params (name + FULL declared type per param, e.g. `"Monoid[A]"` — not just the head
+   `"Monoid"`, which is all the existing `using`-on-a-`def` machinery keeps, and not enough to
+   know which of the given's own type params `A` is bound to), the target type, and the body.
+   Falls through to the EXACT prior parsing, byte-for-byte, when neither a type-param list nor a
+   `using` clause is present — additive, not a rewrite of the plain-given path.
+2. `ssc1-lower.ssc0`: a separate table (`kc5PolyGivenCell`, deliberately not merged into the
+   existing plain-given table `kc5GivenCell`) holds `given_poly` entries. At a `summon[TC[X]]`
+   site that the plain table cannot answer, a new type-string unifier (`unifyGivenType`) matches a
+   derived given's declared pattern against the request (`"Monoid[(A, B)]"` vs `"Monoid[(Int,
+   String)]"` binds `A -> Int, B -> String`), each `using` requirement is resolved the SAME way
+   RECURSIVELY (substituting the bindings first: `ma: Monoid[A]` becomes a request for
+   `Monoid[Int]`, resolved via the plain table or derived again), and the instance is built
+   directly as CoreIR (`IrApp(IrLam(n, ...), resolvedArgs)` wrapping the same
+   `__mk_method_obj__` primitive a plain `given ... with` already uses) — memoized per (given
+   name, concrete request) so summoning the same instantiation twice resolves once.
+
+Verified: the tuple case above now answers `(3, ab)`; the wrapper case answers `7`; a TWO-LEVEL
+nested case (`Monoid[Box[(Int, String)]]`, requiring the tuple instance, which itself requires two
+primitive instances) answers `(3, ab)` too — recursion works through more than one hop. The
+two-plain-givens control is unaffected (still resolves both independently, unchanged).
+
+**F (native) front note:** `ssc1-check.ssc0`, F's separate type-checking pass, does not know the
+`given_poly` tag yet, so a file using this construct gets an HONEST, non-corrupting fallback to
+the reference front (`ssc info --front-report` reports it as a GAP — confirmed, not a crash, not a
+wrong answer) rather than F handling it directly. Porting the same derivation into `ssc1-check.ssc0`
+is a separate, tracked follow-up, not required for this fix: every request this entry's repro and
+gate cover already resolves correctly through the reference front today.
+
+**Extension-method dispatch through a `given` (a DIFFERENT mechanism — `recv.method(...)` resolved
+by the receiver's runtime type, not `summon[TC[X]]`) is UNCHANGED and out of scope for this entry.**
+`specs/aggregation-algebra.md` §11.3 documents one such case (a formal `Profunctor[P[_, _]]`
+instance via a type-lambda `given`) that still does not dispatch — a different code path this fix
+does not touch.
+
 ## given-with-method-cannot-close-over-a-top-level-val — `expected Int, got ()`
 
 <!-- status: open

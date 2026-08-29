@@ -857,6 +857,24 @@ result type is a tuple, a single-parameter wrapper, or a type lambda. Two differ
 symptoms across the three data points suggest more than one thing goes wrong along the way, not
 one — worth keeping in view rather than assuming a single-line fix once the real diagnosis starts.
 
+**FIXED 2026-08-29**, on the reference/legacy front — `v2/BUGS.md`
+`parametric-given-declaration-corrupts-an-unrelated-earlier-given`. Root cause was narrower than
+"given resolution is broken": `ssc1-front.ssc0`'s `given` parser had never been taught to
+recognize a type-param list or a `(using ...)` clause between a given's name and its `:`, so it
+erased the WHOLE declaration and — critically — the erasure's own "skip to the next statement"
+did not span the given's multi-line body, letting that body's tokens leak into surrounding code
+and corrupt an unrelated EARLIER given (which is why §12.1's own symptom blamed `intM`, nowhere
+near the mistake). Fixed with real derivation, not a refusal: `ssc1-lower.ssc0` unifies a derived
+given's declared type against the request, recursively resolves each `using` requirement the same
+way, and builds the instance directly as CoreIR. Verified: the tuple case answers `(3, ab)`; the
+single-param wrapper case answers `7`; a TWO-LEVEL nested case (a tuple instance wrapped in
+another parametric given) answers `(3, ab)` too. The type-lambda `Profunctor` case in §11.3 is a
+DIFFERENT mechanism (extension-method dispatch by receiver type, not `summon[TC[X]]`) and remains
+unfixed — this entry's fix does not touch it. F (native)'s separate type-checking pass
+(`ssc1-check.ssc0`) does not know the new AST tag yet and gracefully falls back to the reference
+front for this construct — an honest gap, not a regression, tracked as a follow-up in the same
+BUGS.md entry.
+
 ## 13. Explicitly out of scope for this document
 
 Tracked as separate future specs, each of which consumes `Aggregator` as its computational core

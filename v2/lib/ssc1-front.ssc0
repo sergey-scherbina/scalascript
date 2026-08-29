@@ -2160,6 +2160,77 @@ def parseUsingParams = (toks) =>
       }
   }
 
+-- KC-poly: bare type-param names for a PARAMETRIC `given` (`given pairMonoid[A, B](using ...)`).
+-- Bounds, if any, are read and discarded — a derived given's own type params are holes for the
+-- unifier (ssc1-lower's `unifyGivenType`), never constraints this parser enforces.
+def parseGivenTypeParams = (toks) =>
+  if kindIs("[", toks) then
+    let rec go = (ts, acc) =>
+      if kindIs("]", ts) then pr(reverse(acc), advance(ts))
+      else if kindIs("EOF", ts) then pr(reverse(acc), ts)
+      else
+        let tv = tokVal(peek(ts)) in
+        let ts1 = advance(ts) in
+        let ts2 = skipTypeArgs(ts1) in
+        let acc2 = Cons(tv, acc) in
+        if kindIs(":", ts2) then
+          let ts3 = skipType(advance(ts2)) in
+          if kindIs(",", ts3) then go(advance(ts3), acc2) else go(ts3, acc2)
+        else if kindIs(",", ts2) then go(advance(ts2), acc2)
+        else go(ts2, acc2) in
+    go(advance(toks), Nil)
+  else pr(Nil, toks)
+
+-- Collect a type annotation's tokens into ONE STRING, stopping at the first depth-0 terminator —
+-- the collecting twin of `skipTypeAt`/`skipType`, needed because a `given`'s `using` clause needs
+-- the FULL type string per param (`"Monoid[A]"`), not just its head (`parseUsingParams` keeps only
+-- the head, which is enough for context-bound auto-injection but not for unifying a derived
+-- given's pattern against a concrete request).
+def readTypeAt = (depth, toks, acc) =>
+  let t = peek(toks) in
+  let k = tokKind(t) in
+  let v = tokVal(t) in
+  let sv = if #seq(v, "") then k else v in
+  if #seq(k, "EOF") then pr(joinStrs(reverse(acc)), toks)
+  else if #seq(k, "[") then readTypeAt(#i.add(depth, 1), advance(toks), Cons(sv, acc))
+  else if #seq(k, "(") then readTypeAt(#i.add(depth, 1), advance(toks), Cons(sv, acc))
+  else if #seq(k, "]") then
+    if #i.eq(depth, 0) then pr(joinStrs(reverse(acc)), toks)
+    else readTypeAt(#i.sub(depth, 1), advance(toks), Cons(sv, acc))
+  else if #seq(k, ")") then
+    if #i.eq(depth, 0) then pr(joinStrs(reverse(acc)), toks)
+    else readTypeAt(#i.sub(depth, 1), advance(toks), Cons(sv, acc))
+  else if #i.gt(depth, 0) then readTypeAt(depth, advance(toks), Cons(sv, acc))
+  else if #seq(k, "=") then pr(joinStrs(reverse(acc)), toks)
+  else if #seq(k, ",") then pr(joinStrs(reverse(acc)), toks)
+  else if #seq(k, ";") then pr(joinStrs(reverse(acc)), toks)
+  else if #seq(k, "{") then pr(joinStrs(reverse(acc)), toks)
+  else if #seq(k, "}") then pr(joinStrs(reverse(acc)), toks)
+  else readTypeAt(depth, advance(toks), Cons(sv, acc))
+
+def readTypeAnnotStr = (toks) =>
+  if kindIs(":", toks) then readTypeAt(0, advance(toks), Nil)
+  else pr("", toks)
+
+-- `(using ma: Monoid[A], mb: Monoid[B])` for a PARAMETRIC given, called with `toks` right after
+-- the `using` keyword. Returns `List[Pair(paramName, fullTypeStr)]` — unlike `parseUsingParams`,
+-- kept for the SAME clause on an ordinary `def`, this keeps the full type string per param.
+def parseGivenUsingClause = (toks) =>
+  let rec goU = (ts, acc) =>
+    if kindIs(")", ts) then pr(reverse(acc), advance(ts))
+    else if kindIs("EOF", ts) then pr(reverse(acc), ts)
+    else
+      let name = tokVal(peek(ts)) in
+      let ts1 = advance(ts) in
+      let rTy = readTypeAnnotStr(ts1) in
+      let tyStr = prV(rTy) in
+      let ts2 = prT(rTy) in
+      let acc2 = Cons(Pair(name, tyStr), acc) in
+      if kindIs(",", ts2) then goU(advance(ts2), acc2)
+      else if kindIs(")", ts2) then pr(reverse(acc2), advance(ts2))
+      else pr(reverse(acc2), ts2) in
+  goU(toks, Nil)
+
 def parseDef = (toks) =>
   -- name
   let name = tokVal(peek(toks)) in
@@ -3261,17 +3332,58 @@ def parseOneStmt = (toks) =>
       let ts1 = advance(toks) in
       if kindIs("id", ts1) then
         let gname = tokVal(peek(ts1)) in
-        let ts2 = advance(ts1) in
+        let ts1b = advance(ts1) in
+        -- KC-poly: `given name[A, B](using ma: TC[A], ...)` — a DERIVED given. Optional type
+        -- params, then an optional `(using ...)` clause, BEFORE the `:` every plain given already
+        -- expects. Read both (empty when absent, byte-identical to the old `ts2` in that case) so
+        -- a non-parametric `given` falls through the untouched branches below exactly as before —
+        -- this is additive, not a rewrite of the existing path.
+        let rTp = parseGivenTypeParams(ts1b) in
+        let typeParams = prV(rTp) in
+        let tsAfterTp = prT(rTp) in
+        let rUp =
+          if kindIs("(", tsAfterTp) then
+            (if kwIs("using", advance(tsAfterTp)) then
+               parseGivenUsingClause(advance(advance(tsAfterTp)))
+             else pr(Nil, tsAfterTp))
+          else pr(Nil, tsAfterTp) in
+        let usingParams = prV(rUp) in
+        let ts2 = prT(rUp) in
+        let isPoly = if #i.gt(lenL(typeParams), 0) then true else #i.gt(lenL(usingParams), 0) in
         if kindIs(":", ts2) then
           -- KC5: capture type annotation as a string for the given table
           let rTyp = readTypeStr(advance(ts2)) in
           let typeStr = prV(rTyp) in
           let ts3 = prT(rTyp) in
-          if kindIs("=", ts3) then
-            let re = parseExpr(advance(ts3)) in
-            pr(Pair("given", Pair(gname, Pair(typeStr, prV(re)))), prT(re))
+          if isPoly then
+            -- A DERIVED given always needs a body to construct its instance from the resolved
+            -- `using` dictionaries — the "= body" single-expression form (below, for the
+            -- non-parametric case) has nothing to resolve `using` names against, so it is not
+            -- supported here; `given X[A](using ...): T = body` is refused (sealed) rather than
+            -- silently mishandled, matching KC5's own default refusal shape.
+            if kwIs("with", ts3) then
+              let ts4 = skipToBrace(advance(ts3)) in
+              let rec parseObj = (ts, acc) =>
+                let ts5 = skipSemis(ts) in
+                if kindIs("}", ts5) then
+                  let tsE = advance(ts5) in
+                  if kindIs("extension_end", tsE) then
+                    let _clrExt = #cell.set(extensionParamsCell, Nil) in
+                    let _clrExtTy = #cell.set(extensionParamTypesCell, Nil) in
+                    parseObj(advance(tsE), Cons(Pair("extension_end", ""), acc))
+                  else pr(Pair("given_poly",
+                            Pair(gname, Pair(typeParams, Pair(usingParams, Pair(typeStr, reverse(acc)))))), tsE)
+                else if kindIs("EOF", ts5) then
+                  pr(Pair("given_poly",
+                        Pair(gname, Pair(typeParams, Pair(usingParams, Pair(typeStr, reverse(acc)))))), ts5)
+                else
+                  let r = parseOneStmt(ts5) in
+                  parseObj(prT(r), Cons(prV(r), acc)) in
+              if kindIs("{", ts4) then parseObj(advance(ts4), Nil)
+              else pr(Pair("given_poly", Pair(gname, Pair(typeParams, Pair(usingParams, Pair(typeStr, Nil))))), ts4)
+            else pr(Pair("sealed", ""), skipToStmt(ts3))
           else if kwIs("with", ts3) then
-            -- given name: T with { defs } → ("given_obj", (name, typeStr, stmts))
+            -- given name: T with { defs } → ("given_obj", (name, typeStr, stmts)) — UNCHANGED
             let ts4 = skipToBrace(advance(ts3)) in
             let rec parseObj = (ts, acc) =>
               let ts5 = skipSemis(ts) in
@@ -3292,7 +3404,13 @@ def parseOneStmt = (toks) =>
                 parseObj(prT(r), Cons(prV(r), acc)) in
             if kindIs("{", ts4) then parseObj(advance(ts4), Nil)
             else pr(Pair("given_obj", Pair(gname, Pair(typeStr, Nil))), ts4)
+          else if kindIs("=", ts3) then
+            let re = parseExpr(advance(ts3)) in
+            pr(Pair("given", Pair(gname, Pair(typeStr, prV(re)))), prT(re))
           else pr(Pair("sealed", ""), skipToStmt(ts3))
+        else if isPoly then
+          -- A parametric `given` with no `: Type` at all is not a recognized shape.
+          pr(Pair("sealed", ""), skipToStmt(ts2))
         else if kindIs("=", ts2) then
           -- `given name = body` (no type annotation) → treat as val
           let re = parseExpr(advance(ts2)) in

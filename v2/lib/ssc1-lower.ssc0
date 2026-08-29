@@ -134,6 +134,20 @@ def isMapConstruction = (rb) =>
 
 def kc5GivenCell = #cell.new(Nil)
 def kc5SigCell   = #cell.new(Nil)
+-- Parametric (DERIVED) given table: List[Pair(tc, Pair(typeParams, Pair(pattern,
+-- Pair(usingParams, Pair(gname, bodyStmts)))))] — separate from `kc5GivenCell` (plain givens,
+-- looked up by an EXACT or wildcard type-name string) because a derived given is looked up by
+-- UNIFYING its pattern against the requested concrete type, then recursively resolving each
+-- `using` requirement — a different query entirely, consulted only when `kc5GivenCell` has no
+-- exact/wildcard entry for the request (point-free-class-method-never-eta-expands-on-native's own
+-- session: this is the same "additive, not a rewrite" discipline — every plain `given` keeps
+-- resolving exactly as it did before this table existed). `usingParams` is
+-- `List[Pair(paramName, fullTypeStr)]`, e.g. `[("ma","Monoid[A]"), ("mb","Monoid[B]")]`.
+def kc5PolyGivenCell = #cell.new(Nil)
+-- Memoizes one CoreIR value per (given name, concrete pattern binding) so summoning the SAME
+-- instantiation twice (e.g. `Monoid[(Int, String)]` requested from two call sites) resolves once.
+-- List[Pair(Pair(gname, concreteTypeStr), IrExpr)].
+def kc5PolyGivenCacheCell = #cell.new(Nil)
 -- Active TC context: List[Pair(given_name, tc_name)] for current def body
 def kc5ActiveCtxCell = #cell.new(Nil)
 -- Set of object names (lowercase given instances) for static dispatch
@@ -801,6 +815,369 @@ def buildGivenTable = (stmts) =>
           else more
       }
   }
+
+-- Build the PARAMETRIC given table — "given_poly" tags only. Plain/derived givens are looked
+-- up through two entirely separate tables (`kc5GivenCell` vs `kc5PolyGivenCell`) rather than one
+-- unified one, so a request that already resolves the OLD way never even reaches the new code.
+def buildPolyGivenTable = (stmts) =>
+  match stmts {
+    case Nil => Nil
+    case Cons(s, rest) =>
+      let more = buildPolyGivenTable(rest) in
+      match s {
+        case Pair(tag, data) =>
+          if #seq(tag, "given_poly") then
+            match data {
+              case Pair(gname, r1) =>
+                match r1 {
+                  case Pair(typeParams, r2) =>
+                    match r2 {
+                      case Pair(usingParams, r3) =>
+                        match r3 {
+                          case Pair(typeStr, bodyStmts) =>
+                            match parseGivenType(typeStr) {
+                              case Pair(tc, pattern) =>
+                                Cons(Pair(tc, Pair(typeParams, Pair(pattern,
+                                  Pair(usingParams, Pair(gname, bodyStmts))))), more)
+                            }
+                        }
+                    }
+                }
+            }
+          else more
+      }
+  }
+
+-- ── KC-poly: type-string unification for a DERIVED given ─────────────────────────────────────
+--
+-- A `given`'s declared type (`Monoid[(A, B)]`) and a request at a summon/dispatch site
+-- (`Monoid[(Int, String)]`) are both just STRINGS (`parseGivenType`'s own `typeName`, KC5's
+-- design — there is no full HM type here to unify structurally). Unifying them is therefore a
+-- STRING-STRUCTURE match: split on the same delimiters a type string can contain (tuples,
+-- `Name[...]` applications), recursing into each corresponding piece, and treating a piece that
+-- IS one of the given's own declared type-param names as a HOLE to bind rather than compare.
+
+def trimStr = (s) =>
+  let len = #slen(s) in
+  let rec trimL = (i) => if #i.ge(i, len) then i else if #i.eq(#scodeAt(s, i), 32) then trimL(#i.add(i, 1)) else i in
+  let rec trimR = (i) => if #i.lt(i, 0) then i else if #i.eq(#scodeAt(s, i), 32) then trimR(#i.sub(i, 1)) else i in
+  let a = trimL(0) in
+  let b = trimR(#i.sub(len, 1)) in
+  if #i.gt(a, b) then "" else #sslice(s, a, #i.add(b, 1))
+
+-- Split `s` at DEPTH-0 commas only — `"(A, B), C"` at the outer level splits as `["(A, B)", " C"]`,
+-- never inside the parens. Mirrors `skipTypeAt`'s own depth bookkeeping in ssc1-front.ssc0.
+def splitTopLevelCommas = (s) =>
+  let len = #slen(s) in
+  let rec go = (i, depth, start, acc) =>
+    if #i.ge(i, len) then reverse(Cons(#sslice(s, start, len), acc))
+    else
+      let c = #scodeAt(s, i) in
+      if #i.eq(c, 40) then go(#i.add(i, 1), #i.add(depth, 1), start, acc)
+      else if #i.eq(c, 91) then go(#i.add(i, 1), #i.add(depth, 1), start, acc)
+      else if #i.eq(c, 41) then go(#i.add(i, 1), #i.sub(depth, 1), start, acc)
+      else if #i.eq(c, 93) then go(#i.add(i, 1), #i.sub(depth, 1), start, acc)
+      else if #i.eq(c, 44) then
+        (if #i.eq(depth, 0) then go(#i.add(i, 1), depth, #i.add(i, 1), Cons(#sslice(s, start, i), acc))
+         else go(#i.add(i, 1), depth, start, acc))
+      else go(#i.add(i, 1), depth, start, acc) in
+  go(0, 0, 0, Nil)
+
+def lookupBinding = (binds, name) =>
+  match binds {
+    case Nil => None
+    case Cons(pr, rest) =>
+      match pr { case Pair(n, v) => if #seq(n, name) then Some(v) else lookupBinding(rest, name) }
+  }
+
+-- Union two binding sets, requiring the SAME hole to bind to the SAME concrete string wherever it
+-- appears more than once (`Monoid[(A, A)]` unified against `Monoid[(Int, String)]` must fail, not
+-- silently pick one) — None on any conflict.
+def mergeBindings = (a, b) =>
+  match a {
+    case Nil => Some(b)
+    case Cons(pr, rest) =>
+      match pr {
+        case Pair(n, v) =>
+          match lookupBinding(b, n) {
+            case None =>
+              match mergeBindings(rest, b) {
+                case None => None
+                case Some(m) => Some(Cons(Pair(n, v), m))
+              }
+            case Some(v2) => if #seq(v, v2) then mergeBindings(rest, b) else None
+          }
+      }
+  }
+
+def unifyGivenTypeList = (typeParams, pParts, cParts) =>
+  match pParts {
+    case Nil => (match cParts { case Nil => Some(Nil) case _ => None })
+    case Cons(p, pRest) =>
+      match cParts {
+        case Nil => None
+        case Cons(c, cRest) =>
+          match unifyGivenType(typeParams, p, c) {
+            case None => None
+            case Some(binds1) =>
+              match unifyGivenTypeList(typeParams, pRest, cRest) {
+                case None => None
+                case Some(binds2) => mergeBindings(binds1, binds2)
+              }
+          }
+      }
+  }
+
+-- `unifyGivenType(["A","B"], "(A, B)", "(Int, String)")` → `Some([("A","Int"), ("B","String")])`.
+-- `unifyGivenType(["A"], "Box[A]", "Box[Int]")` → `Some([("A","Int")])`.
+-- A literal (non-hole, no brackets) piece must match EXACTLY, or unification fails for the whole
+-- pattern — this is what stops `Monoid[Box[A]]` from wrongly matching a request for `Monoid[Int]`.
+def unifyGivenType = (typeParams, pattern0, concrete0) =>
+  let pattern = trimStr(pattern0) in
+  let concrete = trimStr(concrete0) in
+  if memberOfL(pattern, typeParams) then Some(Cons(Pair(pattern, concrete), Nil))
+  else
+    let plen = #slen(pattern) in
+    let clen = #slen(concrete) in
+    if #i.eq(plen, 0) then (if #i.eq(clen, 0) then Some(Nil) else None)
+    else
+      let pc0 = #scodeAt(pattern, 0) in
+      if #i.eq(pc0, 40) then
+        (if #i.lt(clen, 1) then None
+         else if #i.eq(#scodeAt(concrete, 0), 40) then
+           let pInner = #sslice(pattern, 1, #i.sub(plen, 1)) in
+           let cInner = #sslice(concrete, 1, #i.sub(clen, 1)) in
+           unifyGivenTypeList(typeParams, splitTopLevelCommas(pInner), splitTopLevelCommas(cInner))
+         else None)
+      else
+        let rec findBr = (i) =>
+          if #i.ge(i, plen) then #i.neg(1)
+          else if #i.eq(#scodeAt(pattern, i), 91) then i
+          else findBr(#i.add(i, 1)) in
+        let bi = findBr(0) in
+        if #i.lt(bi, 0) then
+          (if #seq(pattern, concrete) then Some(Nil) else None)
+        else
+          let head = #sslice(pattern, 0, bi) in
+          let pInner = #sslice(pattern, #i.add(bi, 1), #i.sub(plen, 1)) in
+          let headLen = #slen(head) in
+          if #i.lt(clen, #i.add(headLen, 2)) then None
+          else if #seq(#sslice(concrete, 0, headLen), head) then
+            (if #i.eq(#scodeAt(concrete, headLen), 91) then
+               let cInner = #sslice(concrete, #i.add(headLen, 1), #i.sub(clen, 1)) in
+               unifyGivenTypeList(typeParams, splitTopLevelCommas(pInner), splitTopLevelCommas(cInner))
+             else None)
+          else None
+
+def joinCommaStrs = (ss) =>
+  match ss {
+    case Nil => ""
+    case Cons(s, t) => (match t { case Nil => s case _ => #sconcat(s, #sconcat(",", joinCommaStrs(t))) })
+  }
+
+def mapSubstType = (parts, bindings) =>
+  match parts {
+    case Nil => Nil
+    case Cons(p, rest) => Cons(substType(p, bindings), mapSubstType(rest, bindings))
+  }
+
+-- The substitution twin of `unifyGivenType`: rebuild a pattern string with its holes replaced by
+-- their bound concrete strings — `substType("Monoid[A]", [("A","Int")])` → `"Monoid[Int]"`. Used
+-- to turn a `using` requirement's declared type (`ma: Monoid[A]`) into the CONCRETE type it needs
+-- once the given's own type params are bound, before recursively resolving it.
+def substType = (typeStr0, bindings) =>
+  let typeStr = trimStr(typeStr0) in
+  match lookupBinding(bindings, typeStr) {
+    case Some(v) => v
+    case None =>
+      let len = #slen(typeStr) in
+      if #i.eq(len, 0) then typeStr
+      else
+        let c0 = #scodeAt(typeStr, 0) in
+        if #i.eq(c0, 40) then
+          let inner = #sslice(typeStr, 1, #i.sub(len, 1)) in
+          #sconcat("(", #sconcat(joinCommaStrs(mapSubstType(splitTopLevelCommas(inner), bindings)), ")"))
+        else
+          let rec findBr = (i) =>
+            if #i.ge(i, len) then #i.neg(1)
+            else if #i.eq(#scodeAt(typeStr, i), 91) then i
+            else findBr(#i.add(i, 1)) in
+          let bi = findBr(0) in
+          if #i.lt(bi, 0) then typeStr
+          else
+            let head = #sslice(typeStr, 0, bi) in
+            let inner = #sslice(typeStr, #i.add(bi, 1), #i.sub(len, 1)) in
+            #sconcat(head, #sconcat("[",
+              #sconcat(joinCommaStrs(mapSubstType(splitTopLevelCommas(inner), bindings)), "]")))
+  }
+
+-- ── KC-poly: resolving a DERIVED given, recursively ───────────────────────────────────────────
+--
+-- Builds the instance directly as CoreIR (an `IrApp(IrLam(n, …), args)` over the resolved `using`
+-- dictionaries, wrapping an `IrPrim("__mk_method_obj__", …)` — the SAME primitive `given_obj`
+-- already uses for a plain given) rather than through `resolveE`'s usual AST-tag round trip,
+-- because it needs a lambda/application pair whose arity is known only once resolution has run —
+-- no existing AST tag expresses that. `lowerE`'s `__ir_value__` case is the escape hatch back out.
+
+def mapFst = (prs) =>
+  match prs {
+    case Nil => Nil
+    case Cons(pr, rest) => (match pr { case Pair(a, b) => Cons(a, mapFst(rest)) })
+  }
+
+def pairEq = (a, b) =>
+  match a { case Pair(a1, a2) => (match b { case Pair(b1, b2) => if #seq(a1, b1) then #seq(a2, b2) else false }) }
+
+def lookupPolyCache = (key) =>
+  let rec go = (xs) =>
+    match xs {
+      case Nil => None
+      case Cons(e, rest) => (match e { case Pair(k, v) => if pairEq(k, key) then Some(v) else go(rest) })
+    } in
+  go(#cell.get(kc5PolyGivenCacheCell))
+
+def cachePolyResult = (key, v) =>
+  #cell.set(kc5PolyGivenCacheCell, Cons(Pair(key, v), #cell.get(kc5PolyGivenCacheCell)))
+
+def polyEntriesForTc = (entries, tc) =>
+  match entries {
+    case Nil => Nil
+    case Cons(e, rest) =>
+      match e {
+        case Pair(etc, edata) =>
+          if #seq(etc, tc) then Cons(edata, polyEntriesForTc(rest, tc)) else polyEntriesForTc(rest, tc)
+      }
+  }
+
+-- Lower ONE given-body member (`def`/`val`) to a `(name, IrExpr)` pair, with `outerScope` (the
+-- given's OWN `using` param names, reversed — the given's own type params never appear as VALUES,
+-- only in type position, so they need no scope entry) visible AFTER the member's own params.
+-- Mirrors `lowerStmtToList`'s "def" case exactly, extended with an outer-scope suffix that
+-- function has no way to accept (it always lowers with `scope = revL(params)` alone).
+def lowerGivenMember = (outerScope, stmt) =>
+  match stmt {
+    case Pair(tag, data) =>
+      if #seq(tag, "def") then
+        match data {
+          case Pair(dname, r1) =>
+            match r1 {
+              case Pair(dparams, dbody) =>
+                if #i.eq(lenL(dparams), 0) then
+                  Some(Pair(dname, lowerE(outerScope, dbody)))
+                else
+                  let scope = appendL(revL(dparams), outerScope) in
+                  let resolvedBody = resolveE(dbody) in
+                  let bodyIr = match resolvedBody {
+                    case Pair(btag, bdata) =>
+                      if #seq(btag, "block") then lowerBlock(scope, bdata)
+                      else lowerE(scope, resolvedBody)
+                  } in
+                  Some(Pair(dname, IrLam(lenL(dparams), bodyIr)))
+            }
+        }
+      else if #seq(tag, "val") then
+        match data { case Pair(vname, vbody) => Some(Pair(vname, lowerE(outerScope, vbody))) }
+      else None
+  }
+
+def lowerGivenMembers = (outerScope, stmts) =>
+  match stmts {
+    case Nil => Nil
+    case Cons(s, rest) =>
+      match lowerGivenMember(outerScope, s) {
+        case Some(pr) => Cons(pr, lowerGivenMembers(outerScope, rest))
+        case None => lowerGivenMembers(outerScope, rest)
+      }
+  }
+
+def flattenMemberArgs = (members) =>
+  match members {
+    case Nil => Nil
+    case Cons(pr, rest) =>
+      match pr { case Pair(name, ir) => Cons(IrLit(IrStr(name)), Cons(ir, flattenMemberArgs(rest))) }
+  }
+
+-- Resolve ONE concrete typeclass request (`"Monoid[Int]"`) to an IrExpr: the plain/wildcard given
+-- table first — UNCHANGED, exact match, this is the path every non-derived `given` already used —
+-- and only on a miss there, derivation. This is what makes a chain terminate at an ordinary
+-- `given` (`intM`) rather than recursing forever looking for ANOTHER derived one.
+def resolveTcRequest = (typeStr, fuel) =>
+  match parseGivenType(typeStr) {
+    case Pair(tc, typeName) =>
+      match findGiven(#cell.get(kc5GivenCell), tc, typeName) {
+        case Some(gname) => Some(IrGlobal(gname))
+        case None => resolvePolyGiven(tc, typeName, fuel)
+      }
+  }
+
+-- Resolve every `using` requirement, IN ORDER, substituting the given's own type-param bindings
+-- into each one's declared type first (`ma: Monoid[A]` with `A -> "Int"` needs `Monoid[Int]`).
+-- Fails closed: ANY unresolved requirement fails the WHOLE derivation for this given (tried again,
+-- against the next candidate entry, by the caller) rather than constructing a partial instance.
+def resolveUsingParams = (usingParams, bindings, fuel) =>
+  match usingParams {
+    case Nil => Some(Nil)
+    case Cons(up, rest) =>
+      match up {
+        case Pair(pname, ptype) =>
+          match resolveTcRequest(substType(ptype, bindings), fuel) {
+            case None => None
+            case Some(irE) =>
+              match resolveUsingParams(rest, bindings, fuel) {
+                case None => None
+                case Some(restIr) => Some(Cons(irE, restIr))
+              }
+          }
+      }
+  }
+
+def resolvePolyGivenEntries = (entries, concreteTypeName, fuel) =>
+  match entries {
+    case Nil => None
+    case Cons(e, rest) =>
+      match e {
+        case Pair(typeParams, e2) =>
+          match e2 {
+            case Pair(pattern, e3) =>
+              match e3 {
+                case Pair(usingParams, e4) =>
+                  match e4 {
+                    case Pair(gname, bodyStmts) =>
+                      match unifyGivenType(typeParams, pattern, concreteTypeName) {
+                        case None => resolvePolyGivenEntries(rest, concreteTypeName, fuel)
+                        case Some(bindings) =>
+                          let cacheKey = Pair(gname, concreteTypeName) in
+                          match lookupPolyCache(cacheKey) {
+                            case Some(cached) => Some(cached)
+                            case None =>
+                              -- Depth/cycle guard: a chain of derived givens requiring each other
+                              -- (directly or through several hops) must fail, not loop forever.
+                              if #i.lt(fuel, 1) then None
+                              else
+                                match resolveUsingParams(usingParams, bindings, #i.sub(fuel, 1)) {
+                                  case None => resolvePolyGivenEntries(rest, concreteTypeName, fuel)
+                                  case Some(argIrs) =>
+                                    let usingNames = mapFst(usingParams) in
+                                    let outerScope = revL(usingNames) in
+                                    let dictExpr = IrPrim("__mk_method_obj__",
+                                      flattenMemberArgs(lowerGivenMembers(outerScope, bodyStmts))) in
+                                    let finalExpr = match usingNames {
+                                      case Nil => dictExpr
+                                      case _ => IrApp(IrLam(lenL(usingNames), dictExpr), argIrs)
+                                    } in
+                                    let _cache = cachePolyResult(cacheKey, finalExpr) in
+                                    Some(finalExpr)
+                                }
+                          }
+                      }
+                  }
+              }
+          }
+      }
+  }
+
+def resolvePolyGiven = (tc, concreteTypeName, fuel) =>
+  resolvePolyGivenEntries(polyEntriesForTc(#cell.get(kc5PolyGivenCell), tc), concreteTypeName, fuel)
 
 -- True if param name starts with "__tc_" (context dict param marker)
 def isCtxParam = (p) =>
@@ -2334,10 +2711,21 @@ def resolveE = (expr) =>
           case Pair(tc, typeName) =>
             match findGiven(#cell.get(kc5GivenCell), tc, typeName) {
               case Some(gname) => Pair("var", gname)
-              -- Abstract type param (e.g. summon[Pretty[A]] in a poly body): defer to the active
-              -- ctx, carrying the TC so `.method`/`.field` dispatch resolves THIS tc's instance
-              -- (not just the first active given — wrong when a body has 2+ context bounds).
-              case None => Pair("summon_tc", tc)
+              case None =>
+                -- KC-poly: no PLAIN given matches, but a DERIVED one might (`Monoid[(Int,
+                -- String)]` from `pairMonoid[A,B](using ma: Monoid[A], mb: Monoid[B])`) — try
+                -- that before falling back to the active-ctx deferral below, which is for an
+                -- ABSTRACT type param inside a poly body, a different case entirely (fuel=8:
+                -- deep enough for any derivation chain a real program writes, shallow enough
+                -- that a cyclic `given` chain fails fast rather than hanging the compiler).
+                match resolvePolyGiven(tc, typeName, 8) {
+                  case Some(irExpr) => Pair("__ir_value__", irExpr)
+                  -- Abstract type param (e.g. summon[Pretty[A]] in a poly body): defer to the
+                  -- active ctx, carrying the TC so `.method`/`.field` dispatch resolves THIS
+                  -- tc's instance (not just the first active given — wrong when a body has 2+
+                  -- context bounds).
+                  case None => Pair("summon_tc", tc)
+                }
             }
         }
       else if #seq(tag, "uid") then
@@ -2754,7 +3142,14 @@ def lowerE = (scope, rawExpr) =>
   let expr = resolveE(rawExpr) in
   match expr {
     case Pair(tag, data) =>
-      if #seq(tag, "ctorap") then
+      -- `__ir_value__`: an escape hatch for a NODE THAT IS ALREADY CoreIR, not a raw AST
+      -- expression to lower further. The one producer today is `resolvePolyGiven` (a derived
+      -- `given`'s instance is built directly as CoreIR — `IrApp(IrLam(...), …)` over the
+      -- resolved `using` dictionaries — because it needs to construct a LAMBDA/APPLICATION
+      -- pair with a specific arity known only at resolution time, which no existing AST tag
+      -- expresses). Checked first and returned verbatim; no other producer of this tag exists.
+      if #seq(tag, "__ir_value__") then data
+      else if #seq(tag, "ctorap") then
         match data {
           case Pair(name, args) => IrCtor(name, lowerArgs(scope, cellWrapCtorArgs(name, args)))
         }
@@ -6147,6 +6542,9 @@ def lowerProg = (stmts) =>
   -- KC5: initialize given table and sig table from parsed stmts
   let _gt = #cell.set(kc5GivenCell, buildGivenTable(stmts)) in
   let _st = #cell.set(kc5SigCell, buildSigTable(stmts)) in
+  -- KC-poly: derived-given table, separate from the plain one above (see its own cell comment).
+  let _pgt = #cell.set(kc5PolyGivenCell, buildPolyGivenTable(stmts)) in
+  let _pgc = #cell.set(kc5PolyGivenCacheCell, Nil) in
   -- KC7b: reset known-objects registry (lower-case given instances)
   let _ko = #cell.set(kc7bObjectsCell, collectObjects(stmts)) in
   let _kov = #cell.set(objectVarsCell, collectObjectVars(stmts)) in
