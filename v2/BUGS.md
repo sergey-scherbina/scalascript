@@ -9,7 +9,7 @@ Newest first.
 
 ## parametric-given-declaration-corrupts-an-unrelated-earlier-given — `given X[A](using ...)` was never parsed, and its body leaked into surrounding code
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      kind: bug
      area: front
@@ -17,7 +17,7 @@ Newest first.
      reported-by: claude-code
      reported-at: 2026-08-29
      confirmed: yes
-     fixed-in: - -->
+     fixed-in: 7561f9982 -->
 
 Found while extending `specs/aggregation-algebra.md` §11 (Effects and asynchrony), whose §12.4
 already scoped this precisely before this entry existed.
