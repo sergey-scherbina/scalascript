@@ -9571,15 +9571,24 @@ object RustCodeWalk:
     case m.Term.Name("None") => true
     case m.Term.Apply.After_4_6_0(m.Term.Name("Some"), args) if args.values.size == 1 =>
       true
-    // `map` and `flatMap` KEEP the Option; `getOrElse` does not — it is the unwrap.
+    // `map`/`flatMap`/`filter`/`filterNot` KEEP the Option; `getOrElse` does not — it is the
+    // unwrap.
     //
-    // They were one case, and it answered `true` for all three: `kept.headOption.getOrElse("-")`
-    // was judged an Option, so the printing path wrapped it in `match … { Some(__v) => … }` ON TOP
-    // of the `unwrap_or` the lowering had already emitted, and rustc reported `mismatched types`
-    // twice on one line. Found by running the reported repro after the field-access half was
-    // fixed — the codegen tests were green, because the shape only breaks when something
-    // downstream asks whether the result is still an Option.
-    case m.Term.Apply.After_4_6_0(m.Term.Select(inner, m.Term.Name("map" | "flatMap")), args)
+    // `map`/`flatMap` were one case with `getOrElse`, and it answered `true` for all three:
+    // `kept.headOption.getOrElse("-")` was judged an Option, so the printing path wrapped it in
+    // `match … { Some(__v) => … }` ON TOP of the `unwrap_or` the lowering had already emitted, and
+    // rustc reported `mismatched types` twice on one line. Found by running the reported repro
+    // after the field-access half was fixed — the codegen tests were green, because the shape only
+    // breaks when something downstream asks whether the result is still an Option.
+    //
+    // `indices.headOption.filter(index => tokens(index).kind == "…").map(index => …)`
+    // (`uniml/yaml`'s `YamlStructure.scala`'s `assign`) — `filter`/`filterNot` were originally
+    // absent from this chain-preserving case, so `isOptionExpr` on the `.filter(...)` receiver fell
+    // through to `false`, and the OUTER `.map(...)`'s own dispatch (guarded on
+    // `isOptionExpr(qual, ctx)`) took the Vec-iterator path instead of Option's:
+    // `error[E0599]: no method named unwrap_or found for struct Vec<i64>` (the eventual
+    // `.getOrElse` at the end of the chain, once `.collect::<Vec<_>>()` had already run).
+    case m.Term.Apply.After_4_6_0(m.Term.Select(inner, m.Term.Name("map" | "flatMap" | "filter" | "filterNot")), args)
         if isOptionExpr(inner, ctx) =>
       // recursive chain case: `Some(x).map(...)`
       args.values.size == 1

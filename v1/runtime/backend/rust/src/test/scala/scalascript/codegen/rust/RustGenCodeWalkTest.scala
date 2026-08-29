@@ -2604,6 +2604,28 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(g.contains("explicitIndent.map(") && g.contains(").unwrap_or(-1i64)"),
       s"an Option element of a destructured tuple must dispatch through Option's own map/unwrap_or, not Vec's:\n$g")
 
+  test("`.map` after `.filter` on an Option chain stays on the Option path"):
+    // `indices.headOption.filter(index => tokens(index).kind == "…").map(index => …)`
+    // (`uniml/yaml`'s `YamlStructure.scala`'s `assign`) — `isOptionExpr`'s chain-preserving case
+    // only covered `map`/`flatMap`, not `filter`/`filterNot`; `.filter(...)` on an Option receiver
+    // renders correctly on its own (the method name is a coincidental pass-through), but the OUTER
+    // `.map(...)` then asked `isOptionExpr` about the `.filter(...)` term and got `false`, so it
+    // dispatched through the Vec-iterator path instead of Option's own:
+    // `error[E0599]: no method named unwrap_or found for struct Vec<i64>` (from the eventual
+    // `.getOrElse` at the end of the chain, once `.collect::<Vec<_>>()` had already run).
+    val src =
+      """```scalascript
+        |case class Token(kind: String, lexeme: String)
+        |
+        |def leadingIndent(indices: List[Int], tokens: List[Token]): Int =
+        |  indices.headOption.filter(index => tokens(index).kind == "yaml.indentation")
+        |    .map(index => tokens(index).lexeme.takeWhile(_ == ' ').length).getOrElse(0)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".filter(") && g.contains(").map(") && g.contains(").unwrap_or(0i64)"),
+      s".map chained after .filter on an Option must stay on the Option path, not fall to Vec's:\n$g")
+
   test("`xs.count(_.field == x)` / `xs.filter(_.field == x)` — a placeholder predicate types cleanly"):
     // `lexed.tokens.count(_.kind == "yaml.anchor")` / `ranges.filter(_.start == index)`
     // (`uniml/yaml`) — `renderVecIterBody`'s `Term.AnonymousFunction` branch wrapped the WHOLE
