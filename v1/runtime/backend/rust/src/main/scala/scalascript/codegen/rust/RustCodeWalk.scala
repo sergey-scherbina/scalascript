@@ -4671,7 +4671,18 @@ object RustCodeWalk:
       val rendered = argClause.values.toList.map(mapType(_, defName, enumNames, inField))
       val (aerrs, aok) = rendered.partitionMap(identity)
       if aerrs.nonEmpty then Left(aerrs.flatten)
-      else Right(s"$n<${aok.mkString(", ")}>")
+      else
+        // `Either[YamlPropertyFailure, Unit]` (`uniml/yaml`'s `YamlPropertySyntax.scala`, ~10
+        // defs) — "Either" is registered as a FALLBACK built-in enum (this comment's own file,
+        // `_ensureEitherFallback`'s neighborhood), so it reaches THIS generic "known enum with
+        // type args" case, not the Either-SPECIFIC one below (which is consequently unreachable
+        // whenever `enumNames.contains("Either")`, exactly the common case — left in place since
+        // it still answers correctly if that ever changes, but this is the arm that actually
+        // fires today). `mapType`'s own `Unit` case answers `""` for a bare RETURN-TYPE position
+        // (`renderReturnType`'s convention: empty means "no `-> T` clause"), which as a type ARGUMENT
+        // here produced `Either<YamlPropertyFailure, >` — invalid Rust syntax:
+        // `error[E0107]: enum takes 2 generic arguments but 1 generic argument was supplied`.
+        Right(s"$n<${aok.map(t => if t.isEmpty then "()" else t).mkString(", ")}>")
     // Repeated parameter `T*` → Rust `Vec<T>` (the call site wraps the trailing
     // varargs into `vec![…]` — see the vararg-aware Apply handling).
     case m.Type.Repeated(tpe) =>
@@ -4689,7 +4700,11 @@ object RustCodeWalk:
         if argClause.values.size == 1 =>
       argClause.values.toList match
         case List(inner) =>
-          mapType(inner, defName, enumNames).map(innerType => s"Option<$innerType>")
+          // `Unit` maps to `""` for a bare RETURN-TYPE position (`renderReturnType`'s own
+          // convention: empty means "no `-> T` clause at all") — but as a GENERIC TYPE ARGUMENT
+          // (`Option[Unit]`) that same empty string produces `Option<>`, invalid Rust syntax. Only
+          // this one shape needs the substitution; every other type maps to a real name already.
+          mapType(inner, defName, enumNames).map(t => s"Option<${if t.isEmpty then "()" else t}>")
         case _ =>
           Left(List(unsupported(
             s"def `$defName` uses invalid `Option` application; expected one type arg"
@@ -4699,10 +4714,19 @@ object RustCodeWalk:
         if argClause.values.size == 2 =>
       argClause.values.toList match
         case List(l, r) =>
+          // `Either[YamlPropertyFailure, Unit]` (`uniml/yaml`'s `YamlPropertySyntax.scala`,
+          // ~10 defs) — the SAME `Unit`-as-a-generic-argument gap `Option[Unit]` has just above:
+          // `mapType`'s `Unit` case answers `""` (correct for a bare return-type position), which
+          // here produced `Either<YamlPropertyFailure, >` — invalid Rust syntax, not just a wrong
+          // type: `error[E0107]: enum takes 2 generic arguments but 1 generic argument was
+          // supplied`.
           for
-            leftRs <- mapType(l, defName, enumNames)
-            rightRs <- mapType(r, defName, enumNames)
-          yield s"Either<$leftRs, $rightRs>"
+            leftRs0  <- mapType(l, defName, enumNames)
+            rightRs0 <- mapType(r, defName, enumNames)
+          yield
+            val leftRs  = if leftRs0.isEmpty then "()" else leftRs0
+            val rightRs = if rightRs0.isEmpty then "()" else rightRs0
+            s"Either<$leftRs, $rightRs>"
         case _ =>
           Left(List(unsupported(
             s"def `$defName` has `Either` with ${argClause.values.size} type args; expected two"

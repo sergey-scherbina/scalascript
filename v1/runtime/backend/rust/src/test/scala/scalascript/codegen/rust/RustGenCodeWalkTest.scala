@@ -2251,3 +2251,21 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(g.contains("_str_substring"), s"a String field's .drop/.take must route through the _str_* helpers:\n$g")
     assert(!g.contains(".into_iter()"), s"a String field must never take the Vec .into_iter() path:\n$g")
+
+  test("`Either[L, Unit]` — a `Unit` type argument does not produce an empty generic slot"):
+    // `def validateTagSpelling(value: String): Either[YamlPropertyFailure, Unit] = … Right(())`
+    // (`uniml/yaml`'s `YamlPropertySyntax.scala`, ~10 defs) — `mapType`'s `Unit` case answers `""`
+    // for a bare RETURN-TYPE position (`renderReturnType`'s own convention: empty means "no `-> T`
+    // clause"), which is correct THERE but wrong as a GENERIC TYPE ARGUMENT: `Either<Failure, >`
+    // is not valid Rust syntax. `"Either"` is registered as a fallback built-in enum, so this hits
+    // the GENERIC "known enum with type args" case in `mapType`, not an Either-specific one.
+    val src =
+      """```scalascript
+        |case class Failure(msg: String)
+        |
+        |def validate(value: String): Either[Failure, Unit] =
+        |  if value.isEmpty then Left(Failure("empty")) else Right(())
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("Either<Failure, ()>"), s"a Unit type argument must render as (), not an empty slot:\n$g")
