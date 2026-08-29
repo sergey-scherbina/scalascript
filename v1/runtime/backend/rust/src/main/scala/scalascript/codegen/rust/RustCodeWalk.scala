@@ -4358,6 +4358,10 @@ object RustCodeWalk:
       vecStringParams: Set[String] = Set.empty
   ): Set[String] =
     val strs = scala.collection.mutable.Set.empty[String] ++ seed
+    // `held.foreach { case (blankContent, ending) => … }`'s own String-position table (see the
+    // `walk` case below that consumes it) — computed once, off the SAME `collectLocalTupleStringPositions`
+    // this file's render-time `withTupleStringLocals` already reads for the analogous ctx-side gap.
+    val tuplePositions = collectLocalTupleStringPositions(body)
     // STRING-PRESERVING methods, the same idea `collectLocalSeqs`'s `SeqPreserving`/`rootedInSeq`
     // already apply to `Vec` — `value.drop(2).takeWhile(pred)` (`uniml/xml`'s `Doc.scala`'s
     // `validatePi`, over a `String` PARAMETER) is a String at every step, but neither of the two
@@ -4481,6 +4485,33 @@ object RustCodeWalk:
           case List(m.Pat.Var(m.Term.Name(n))) =>
             if declaresString(v.decltpe) || isStr(v.body) then strs += n
           case _                               => ()
+        // `held.foreach { case (blankContent, ending) => … val lexeme = blankContent + ending …
+        // }` where `held = indentedCodeBlanks` (`uniml/markdown`'s `MarkdownBlocks.scala`'s
+        // `finishIndentedCode`) — `blankContent`/`ending` are TUPLE-DESTRUCTURING CLOSURE
+        // PARAMS, never a `Defn.Val`/`Defn.Var` at all, so this walk's OWN `strs` accumulator
+        // never learned about them even once `held`'s own String positions were known
+        // (`collectLocalTupleStringPositions`, a render-time ctx enrichment `withTupleStringLocals`
+        // reads — but THIS walk is a static pre-pass with no ctx of its own). Seeded here
+        // instead, directly off the SAME positions table, scoped to the params a KNOWN
+        // tuple-string-position receiver's `.foreach { case (a, b) => … }` destructures — so
+        // `lexeme`'s own `isStr` check (a plain `Term.Name` lookup into `strs`) sees them.
+        // Without this: `lexeme.nonEmpty` (no-paren) reached `isKnownStringField` with nothing
+        // to check.
+        case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("foreach")), args)
+            if args.values.sizeIs == 1 =>
+          val positions = qual match
+            case m.Term.Name(n) => tuplePositions.getOrElse(n, Set.empty)
+            case _              => Set.empty
+          if positions.nonEmpty then args.values.head match
+            case pf: m.Term.PartialFunction if pf.cases.sizeIs == 1 =>
+              pf.cases.head.pat match
+                case m.Pat.Tuple(elems) =>
+                  elems.zipWithIndex.foreach {
+                    case (m.Pat.Var(m.Term.Name(n)), i) if positions.contains(i) => strs += n
+                    case _ => ()
+                  }
+                case _ => ()
+            case _ => ()
         case _ => ()
       t.children.foreach(walk)
     walk(body)
@@ -4509,13 +4540,52 @@ object RustCodeWalk:
       case m.Term.ApplyInfix.After_4_6_0(l, m.Term.Name("->"), _, r) if r.values.sizeIs == 1 =>
         (if isStr(l) then Set(0) else Set.empty[Int]) ++ (if isStr(r.values.head) then Set(1) else Set.empty[Int])
       case ifx: m.Term.If => positions(ifx.thenp) ++ positions(ifx.elsep)
+      // A bare NAME already known to hold String-tuple positions — a local (or a captured
+      // `var`, see `declPositions` just below) recorded EARLIER in this same walk. Mirrors
+      // `collectLocalSeqs`'s `rootedInSeq`'s identical `Term.Name` case, for the exact same
+      // reason: `val held = indentedCodeBlanks` (`uniml/markdown`'s `MarkdownBlocks.scala`'s
+      // `releaseInteriorBlanks`) is a bare-name alias, not a `Some(pair)`/`pair1 -> pair2`
+      // literal either of the cases above would recognize.
+      case m.Term.Name(n)  => out.getOrElse(n, Set.empty)
       case _              => Set.empty
+    // The DECLARED type, checked before the rhs shape at all — same discipline as
+    // `collectLocalSeqs`'s own `declIsSeq` twin, and for the identical reason: `var
+    // indentedCodeBlanks: Vector[(String, String)] = Vector.empty` (`uniml/markdown`'s
+    // `MarkdownBlocks.scala`'s `parse`) has an rhs (`Vector.empty`) neither `positions` case
+    // above matches at all — a `var` was never even WALKED here in the first place (only
+    // `Defn.Val` was), so `indentedCodeBlanks` itself never registered any positions for
+    // `held = indentedCodeBlanks` (the `Term.Name` case just above) to find. `held.foreach {
+    // case (blankContent, ending) => ... ending.nonEmpty ... }` — a tuple-destructuring
+    // closure param, resolved through `tupleStringPositions`/`withTupleStringLocals` reading
+    // `ctx.localTupleStringPos` — left `ending` (and, one step further, `val lexeme =
+    // blankContent + ending`) unrecognized as a String: "reads nonEmpty without parentheses
+    // ... it is a collection member, not a field".
+    // `targs` here is a `Type.ArgClause`, not a plain `scala.List[Type]` — matching it
+    // directly as `List(m.Type.Tuple(List(a, b)))` (the shape `_defBodies`-collect's own tuple
+    // cases just above use for a Term-level `Type.Tuple`, a genuinely different position) can
+    // never succeed structurally; `.values` is what unwraps it to the `List[Type]` this needs.
+    def declPositions(t: m.Type): Set[Int] = t match
+      case m.Type.Apply.After_4_6_0(m.Type.Name("Vector" | "List" | "Seq" | "IndexedSeq"), targs)
+          if targs.values.sizeIs == 1 =>
+        targs.values.head match
+          case m.Type.Tuple(List(a, b)) =>
+            (a, b) match
+              case (m.Type.Name("String"), m.Type.Name("String")) => Set(0, 1)
+              case (m.Type.Name("String"), _)                      => Set(0)
+              case (_, m.Type.Name("String"))                      => Set(1)
+              case _                                                => Set.empty
+          case _ => Set.empty
+      case _ => Set.empty
+    def record(n: String, rhs: m.Term, decltpe: Option[m.Type]): Unit =
+      val ps = decltpe.map(declPositions).filter(_.nonEmpty).getOrElse(positions(rhs))
+      if ps.nonEmpty then out(n) = ps
     def walk(t: m.Tree): Unit =
       t match
         case v: m.Defn.Val => v.pats match
-          case List(m.Pat.Var(m.Term.Name(n))) =>
-            val ps = positions(v.rhs)
-            if ps.nonEmpty then out(n) = ps
+          case List(m.Pat.Var(m.Term.Name(n))) => record(n, v.rhs, v.decltpe)
+          case _ => ()
+        case v: m.Defn.Var => v.pats match
+          case List(m.Pat.Var(m.Term.Name(n))) => record(n, v.body, v.decltpe)
           case _ => ()
         case _ => ()
       t.children.foreach(walk)

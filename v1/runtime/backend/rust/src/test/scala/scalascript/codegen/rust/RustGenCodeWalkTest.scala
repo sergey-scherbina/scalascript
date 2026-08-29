@@ -3395,6 +3395,60 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(!g.contains(".mkString"),
       s"`.mkString` must be lowered to a real Rust call, never left as an un-rewritten Scala method name:\n$g")
 
+  test("a captured var's own tuple-string positions flow through a bare-name alias and a .foreach destructure"):
+    // `var indentedCodeBlanks: Vector[(String, String)] = Vector.empty` then, inside TWO
+    // different lifted local defs, `val held = indentedCodeBlanks; held.foreach { case
+    // (blankContent, ending) => … }` (`uniml/markdown`'s `MarkdownBlocks.scala`'s
+    // `releaseInteriorBlanks`/`finishIndentedCode`) — two compounding gaps:
+    // (1) `collectLocalTupleStringPositions`'s own `positions` helper never recorded ANY
+    // positions for `indentedCodeBlanks` at all — it is a `var` (only `Defn.Val` was walked)
+    // whose rhs (`Vector.empty`) matches neither the `Some(pair)`/`pair1 -> pair2`/if-else
+    // cases; and `held = indentedCodeBlanks` is a bare-name ALIAS, not a literal, which none of
+    // those cases recognize either. Fixed via a NEW `declPositions` (the declared-type twin of
+    // `collectLocalSeqs`'s own `declIsSeq`) plus a bare-`Term.Name` case reading positions
+    // recorded earlier in the SAME walk.
+    // (2) Even with `held`'s own positions known, `blankContent`/`ending` are TUPLE-
+    // DESTRUCTURING CLOSURE PARAMS inside `held.foreach { case (a, b) => … }` — never a
+    // `Defn.Val`/`Defn.Var` — so `collectLocalStrings`'s OWN `strs` accumulator (a SEPARATE,
+    // STATIC pre-pass with no closure scoping) never learned about them, and `val lexeme =
+    // blankContent + ending` never registered as a String either. Fixed with a new `.foreach`
+    // walk case seeding `strs` from `collectLocalTupleStringPositions`'s own output.
+    // Without both: "reads nonEmpty without parentheses ... it is a collection member, not a
+    // field".
+    val src =
+      """```scalascript
+        |def leaf(kind: String, lexeme: String): Unit = ()
+        |def flushPending(kind: String, lexeme: String): Unit = ()
+        |
+        |def parse(text: String): Unit =
+        |  var indentedCodeBlanks: Vector[(String, String)] = Vector.empty
+        |  indentedCodeBlanks = indentedCodeBlanks :+ (("a", "b"))
+        |
+        |  def releaseInteriorBlanks(): Unit =
+        |    val held = indentedCodeBlanks
+        |    indentedCodeBlanks = Vector.empty
+        |    held.foreach { case (blankContent, ending) =>
+        |      if blankContent.nonEmpty then leaf("indent", blankContent)
+        |      if ending.nonEmpty then leaf("code", ending)
+        |    }
+        |
+        |  def finishIndentedCode(): Unit =
+        |    val held = indentedCodeBlanks
+        |    indentedCodeBlanks = Vector.empty
+        |    held.foreach { case (blankContent, ending) =>
+        |      val lexeme = blankContent + ending
+        |      if lexeme.nonEmpty then flushPending("blank", lexeme)
+        |    }
+        |
+        |  releaseInteriorBlanks()
+        |  finishIndentedCode()
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("let lexeme = format!(\"{}{}\", blankContent, ending);")
+      && g.contains("if !lexeme.is_empty()"),
+      s"a captured var's tuple-string positions must flow through a bare-name alias and a .foreach destructure:\n$g")
+
   test("`xs.count(_.field == x)` / `xs.filter(_.field == x)` — a placeholder predicate types cleanly"):
     // `lexed.tokens.count(_.kind == "yaml.anchor")` / `ranges.filter(_.start == index)`
     // (`uniml/yaml`) — `renderVecIterBody`'s `Term.AnonymousFunction` branch wrapped the WHOLE
