@@ -1453,6 +1453,47 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(!g.contains("move |__pf|"), s"a synchronously-consumed map closure must not `move`:\n$g")
 
+  test("a call to a lifted local def clones a multi-use argument"):
+    // `emitKnownRange(start, lexeme, …)` then `lexeme` read again at the tail of the SAME function
+    // (`uniml/xml`'s `Doc.scala`'s `scanName`) — the call-to-a-lifted-local-def rendering arm
+    // builds its OWN argument list (to append the lift's captured names) rather than reaching the
+    // ordinary call machinery, and never called `cloneIfMoved` on the caller-written args either:
+    // `error[E0382]: use of moved value: lexeme`.
+    val src =
+      """```scalascript
+        |def scan(input: String): String =
+        |  var total = 0
+        |
+        |  def emit(lexeme: String): Unit =
+        |    total += lexeme.length
+        |
+        |  def scanName(): String =
+        |    val lexeme = input
+        |    emit(lexeme)
+        |    lexeme
+        |
+        |  scanName()
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("emit(lexeme.clone()"), s"the lifted-def call must clone a multi-use argument:\n$g")
+
+  test("`xs :+ x` clones a multi-use appended element"):
+    // `attributes = attributes :+ attribute` then `attribute` read again afterward (`uniml/xml`'s
+    // `Doc.scala`'s `scan`: `format!("… '{}'", attribute)`) — the one-element array literal
+    // `[$r]` in the `:+` lowering OWNS its element, moving it out from under a later read:
+    // `error[E0382]: borrow of moved value: attribute`.
+    val src =
+      """```scalascript
+        |def collect(attribute: String): List[String] =
+        |  var attributes: List[String] = Nil
+        |  attributes = attributes :+ attribute
+        |  attributes :+ (attribute + "!")
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("&[attribute.clone()][..]"), s"the appended element must be cloned:\n$g")
+
   test("an implicit-receiver self-method call clones a multi-use argument"):
     // `readContent(name)` inside another method of the SAME mutable class (`uniml/xml`'s
     // `Doc.scala`'s `Parser`: `readQName()` then `readContent(name)` then `Node::Element { name:

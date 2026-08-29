@@ -5335,9 +5335,17 @@ object RustCodeWalk:
         case other                            => other
       }
       val rendered = origArgs.map(renderTerm(_, ctx))
-      val (errs, ok) = rendered.partitionMap(identity)
+      val (errs, okRaw) = rendered.partitionMap(identity)
       if errs.nonEmpty then Left(errs.flatten)
       else
+        // `emitKnownRange(start, lexeme, …)` then `lexeme` read again at the tail of the SAME
+        // function (`uniml/xml`'s `Doc.scala`'s `scanName`) — this arm, like the self-method-call
+        // one just above, builds its OWN argument list rather than reaching the ordinary
+        // (coercion/intrinsic-aware) call machinery, and so never called `cloneIfMoved` on the
+        // caller-written args either (`extra`, the LIFT's OWN appended captures, already clones
+        // correctly two lines below — only the args the user actually wrote were missing it):
+        // `error[E0382]: use of moved value: lexeme`.
+        val ok = origArgs.zip(okRaw).map((arg, r) => cloneIfMoved(arg, r, ctx))
         val extra = ctx.liftedDefExtraArgs(n).map { c =>
           if ctx.byRefMut.contains(c) then c
           else if ctx.liftedMutableCaptures.contains(c) then s"&mut $c"
@@ -7600,9 +7608,13 @@ object RustCodeWalk:
     case m.Term.ApplyInfix.After_4_6_0(lhs, m.Term.Name(":+"), _, rargs)
         if rargs.values.size == 1 =>
       for
-        l <- renderTerm(lhs, ctx)
-        r <- renderTerm(rargs.values.head, ctx)
-      yield s"[&($l)[..], &[$r][..]].concat()"
+        l  <- renderTerm(lhs, ctx)
+        r0 <- renderTerm(rargs.values.head, ctx)
+      // `attributes = attributes :+ attribute` then `attribute` read again afterward (`uniml/xml`'s
+      // `Doc.scala`'s `scan`: `format!("… '{}'", attribute)`) — the one-element array literal
+      // `[$r]` OWNS its element, MOVING it out of `attribute`: `error[E0382]: borrow of moved
+      // value: attribute`. Same fix as every other bare-argument-position move this session.
+      yield s"[&($l)[..], &[${cloneIfMoved(rargs.values.head, r0, ctx)}][..]].concat()"
 
     // `xs + x` — a Scala `Set`'s single-element add, spelled the same `+` as numeric addition
     // (`adapter.aliases + adapter.id`, `Dialect.scala`'s `DialectRegistry.register`, where

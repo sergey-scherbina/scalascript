@@ -424,10 +424,20 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # `cloneIfMoved` on its own arguments: `error[E0382]: borrow of moved value: name`, `name` used
 # again later in the same method. Now applies the identical `cloneIfMoved` the ordinary path
 # already does. 8 errors remain.
+#
+# renderTerm 33902 -> 33930 (+28), continuing "fix everything remaining" on uniml/xml, 8 -> 5 in
+# one commit, two more call/expression-rendering paths found missing `cloneIfMoved`: (1) a call to
+# a def THIS lift lifted out of the enclosing body (`emitKnownRange(start, lexeme, …)` then
+# `lexeme` read again at the tail of the same function) — a THIRD separate call-rendering path,
+# after the ordinary one and the self-method one fixed in the entry above, that builds its own arg
+# list and never called `cloneIfMoved` either; (2) `xs :+ x` (`attributes :+ attribute` then
+# `attribute` read again in a later `format!`) — the one-element array literal `[$r]` OWNS its
+# element, moving it out from under a later read, and had never been routed through
+# `cloneIfMoved` at all. Same terms as every entry above. 5 errors remain.
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-33902 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+33930 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF
