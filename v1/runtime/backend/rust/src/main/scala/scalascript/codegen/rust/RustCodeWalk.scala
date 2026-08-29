@@ -5354,6 +5354,23 @@ object RustCodeWalk:
       // SAME shape). None of the cases above fire for a bare `fn(args)` call at all — only a
       // field-select, a companion constant, a literal, `.map`, or a Set's `+` — so `lines` (later
       // captured by nine lifted defs: `skipBlank`, `parseValue`, …) had no way to resolve at all.
+      //
+      // `val line = lines(index)` (`uniml/yaml`'s `YamlSemanticParser.scala`'s `parseBlockScalar`,
+      // a LIFTED local def capturing `lines` from the enclosing `parse`) — a single-arg
+      // `fn(args)` call is AMBIGUOUS on shape alone: it is either an ordinary function call (the
+      // case just below, matched by NAME through `_returnTypes`) or INDEXING into a Vec-typed
+      // name (`lines`, not itself a registered function, so `_returnTypes.get("lines")` was always
+      // `None` and `line`'s type never resolved at all). `elementTypeOf` on the callee answers "is
+      // this actually a Vec receiver being indexed", recursing through `ctx.enclosingLocalTypes`
+      // the same way this very function already feeds that map one level up — mutually recursive,
+      // terminating the same way the `.map`-projection case above already does. Tried FIRST, since
+      // a real Vec local being indexed is far more informative than a same-named function (if one
+      // even existed) would be; falls back to the plain function-call reading otherwise. Without
+      // this, `line.raw` (a genuine `String` field one level further) was invisible to
+      // `isKnownStringField`, and `line.raw.drop(n)` fell to the generic Vec-shaped `.drop`, which
+      // reaches `.into_iter()` on a `String`: `error[E0599]`.
+      case m.Term.Apply.After_4_6_0(m.Term.Name(fn), args) if args.values.size == 1 =>
+        elementTypeOf(m.Term.Name(fn), ctx).orElse(_returnTypes.get(fn))
       case m.Term.Apply.After_4_6_0(m.Term.Name(fn), _) => _returnTypes.get(fn)
       case _                                         => None
     val fromLocalDecl: Option[String] = stats.collectFirst {
@@ -5602,10 +5619,21 @@ object RustCodeWalk:
           }
           // Factored out of `paramTypes`' own RHS below so `localOptions` (below that) can build a
           // pre-pass Ctx that already knows this lifted def's OWN params — see its own comment.
+          //
+          // `val line = lines(index)` inside `parseBlockScalar`, itself lifted out of `parse` and
+          // capturing `lines` (`uniml/yaml`'s `YamlSemanticParser.scala`) — `collectLocalRustTypes`
+          // (the top-level per-def pass) is reused here too, now that it accepts `outerTypes`,
+          // seeded with every CAPTURE's own already-inferred type (`resolved`, computed just
+          // above for `captureParams`) so indexing into a captured Vec (`lines`, not itself one of
+          // `d`'s own declared parameters) resolves the SAME way indexing a real parameter already
+          // does. Without this, `line`'s type was invisible here too, and `line.raw.drop(n)`
+          // (`raw` a genuine `String` field) fell to the generic Vec-shaped `.drop`, which reaches
+          // `.into_iter()` on a `String`: `error[E0599]`.
+          val captureTypes: Map[String, String] = resolved.collect { case (c, Some(t)) => c -> t }.toMap
           val ownParamTypes: Map[String, String] = ctx.paramTypes ++
             d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).flatMap { p =>
               p.decltpe.flatMap(t => mapType(t, d.name.value, ctx.enumNames).toOption).map(p.name.value -> _)
-            }
+            } ++ collectLocalRustTypes(d, ctx.ctorMap, captureTypes)
           val childCtx = baseCtx.copy(
             defParams = ctx.defParams ++ ownParamNames ++ myCaptures.toSet,
             byRefMut  = myByRefMut,
@@ -11598,8 +11626,23 @@ object RustCodeWalk:
    *  returns. Nothing here infers through an `if`/`match`, a later reassignment, or any deeper
    *  shape; a local this cannot place simply isn't in the map, and the call site it would have
    *  helped keeps refusing exactly as it did before this existed. */
-  private def collectLocalRustTypes(d: m.Defn.Def, ctorMap: Map[String, EnumCtor]): Map[String, String] =
+  private def collectLocalRustTypes(
+      d: m.Defn.Def, ctorMap: Map[String, EnumCtor], outerTypes: Map[String, String] = Map.empty
+  ): Map[String, String] =
     val out = scala.collection.mutable.LinkedHashMap.empty[String, String]
+    // A def PARAMETER's own mapped Rust type, computed the same way `renderDef`'s own `paramTypes`
+    // is — needed below to answer "is `lines` (a Vec-typed PARAM) being indexed" without the full
+    // `Ctx` this function itself feeds into (`collectLocalRustTypes` runs BEFORE `paramTypes`
+    // exists). `outerTypes` extends this to a LIFTED local def's own CAPTURED names too (`lines`,
+    // captured from the enclosing `parse` rather than declared as `parseBlockScalar`'s own
+    // parameter) — the caller passes each capture's already-inferred type, since a lifted def's
+    // own AST node (`d`) never lists its captures as parameters at all; they are added only at
+    // Ctx-build time.
+    val paramTypeMap: Map[String, String] = outerTypes ++
+      d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).flatMap { p =>
+        p.decltpe.flatMap(t => mapType(t, d.name.value, ctorMap.values.map(_.enumName).toSet).toOption)
+          .map(p.name.value -> _)
+      }.toMap
     def scan(t: m.Tree): Unit =
       t match
         case v: m.Defn.Val =>
@@ -11611,6 +11654,15 @@ object RustCodeWalk:
                   out(nm) = ctorName
                 case m.Term.Apply.After_4_6_0(m.Term.Select(_, m.Term.Name(meth)), _) =>
                   _returnTypes.get(meth).filter(_.nonEmpty).foreach(rt => out(nm) = rt)
+                // `val line = lines(index)` (`uniml/yaml`'s `YamlSemanticParser.scala`'s
+                // `parseBlockScalar`) — INDEXING a Vec-typed param binds the local to that Vec's
+                // ELEMENT type; without this, `line`'s type was absent from `paramTypes` entirely,
+                // so `line.raw` (a genuine `String` field) went unrecognized by `isKnownStringField`
+                // and `line.raw.drop(n)` fell to the generic Vec-shaped `.drop`, which reaches
+                // `.into_iter()` on a `String`: `error[E0599]`.
+                case m.Term.Apply.After_4_6_0(m.Term.Name(fn), args) if args.values.size == 1 =>
+                  paramTypeMap.get(fn).collect { case ty if ty.startsWith("Vec<") => ty.stripPrefix("Vec<").stripSuffix(">") }
+                    .foreach(elemTy => out(nm) = elemTy)
                 case _ => ()
             case _ => ()
         case _ => ()

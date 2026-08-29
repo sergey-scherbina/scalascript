@@ -2626,6 +2626,35 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(g.contains(".filter(") && g.contains(").map(") && g.contains(").unwrap_or(0i64)"),
       s".map chained after .filter on an Option must stay on the Option path, not fall to Vec's:\n$g")
 
+  test("a String field reached off a local bound to an indexed CAPTURE is recognized as a String"):
+    // `val line = lines(index)` inside `parseBlockScalar`, itself LIFTED out of `parse` and
+    // CAPTURING `lines` (`uniml/yaml`'s `YamlSemanticParser.scala`) — `lines` is not one of
+    // `parseBlockScalar`'s own declared parameters, so its type was invisible to
+    // `collectLocalRustTypes`'s (and `ownParamTypes`'s) own pre-pass, which only ever read a
+    // lifted def's OWN `paramClauseGroups`. `line`'s type (`Line`, so `.raw`, a genuine `String`
+    // field, is recognized) consequently never resolved, and `line.raw.drop(n)` fell to the
+    // generic Vec-shaped `.drop`, which reaches `.into_iter()` on a `String`: `error[E0599]`.
+    val src =
+      """```scalascript
+        |case class Line(raw: String)
+        |
+        |def splitLines(input: String): Vector[Line] = Vector(Line(input))
+        |
+        |def parse(input: String): String =
+        |  val lines = splitLines(input)
+        |  var index = 0
+        |
+        |  def parseBlockScalar(indent: Int): String =
+        |    val line = lines(index)
+        |    line.raw.drop(math.min(indent, line.raw.length))
+        |
+        |  parseBlockScalar(1)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("crate::runtime::_str_substring_from(&line.raw,"),
+      s"a String field read off a local bound to an indexed capture must use the String substring path, not Vec's:\n$g")
+
   test("`xs.count(_.field == x)` / `xs.filter(_.field == x)` — a placeholder predicate types cleanly"):
     // `lexed.tokens.count(_.kind == "yaml.anchor")` / `ranges.filter(_.start == index)`
     // (`uniml/yaml`) — `renderVecIterBody`'s `Term.AnonymousFunction` branch wrapped the WHOLE
