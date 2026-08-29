@@ -5573,6 +5573,25 @@ object RustCodeWalk:
       ctx.paramTypes.get(n).collect { case s if s.startsWith("Option<") => s.stripPrefix("Option<").stripSuffix(">") }
     case _ => None
 
+  /** Seed a `Term.Function` argument's single named param with `qual`'s Option element type
+   *  (`optionElementTypeOf`), the SAME way `renderVecIterBody`'s `Term.Function` branch already
+   *  seeds a Vec closure's own param — factored out since `.exists`/`.map`/`.flatMap` on an
+   *  Option receiver all need the identical fix for the identical reason: a bare `Term.Function`
+   *  argument here renders through plain `renderTerm` (there is no `renderVecIterBody`-style
+   *  dispatch for Option methods), so nothing else ever tells the closure param its own type.
+   *  `firstMarker(edges).flatMap { m => val digits = m.takeWhile(…); … }` (`uniml/markdown`'s
+   *  `MarkdownProjection.scala`'s `listStart`) is the `.flatMap` spelling of the same gap
+   *  `.exists`'s own fix already closed for `m.nonEmpty` directly. */
+  private def seedOptionElemParam(argFn: m.Term, qual: m.Term, ctx: Ctx): Ctx = argFn match
+    case fn: m.Term.Function if fn.paramClause.values.sizeIs == 1 =>
+      optionElementTypeOf(qual, ctx) match
+        case Some(t) =>
+          val p0 = fn.paramClause.values.head.name.value
+          ctx.copy(paramTypes = ctx.paramTypes + (p0 -> t),
+                   localStrings = if t == "String" then ctx.localStrings + p0 else ctx.localStrings)
+        case None => ctx
+    case _ => ctx
+
   /** Is `qual` a `receiver.field` select where `field` is a known `String`-typed field of
    *  `receiver`'s type — where `receiver`'s type comes from `ctx.paramTypes`, so this covers both
    *  an ordinary def parameter AND (via `elementTypeOf` feeding a lambda parameter's inferred
@@ -7850,19 +7869,9 @@ object RustCodeWalk:
     case m.Term.Apply.After_4_6_0(
         m.Term.Select(qual, m.Term.Name("exists")), args
     ) if args.values.size == 1 && isOptionExpr(qual, ctx) =>
-      // `firstMarker(edges).exists(m => m.nonEmpty && …)` — see `optionElementTypeOf`'s own
-      // comment. Seeded the SAME way `renderVecIterBody`'s `Term.Function` branch seeds a Vec
-      // closure's own single param, since a bare `Term.Function` argument here renders through
-      // plain `renderTerm` (there is no `renderVecIterBody`-style dispatch for Option methods).
-      val predCtx = args.values.head match
-        case fn: m.Term.Function if fn.paramClause.values.sizeIs == 1 =>
-          optionElementTypeOf(qual, ctx) match
-            case Some(t) =>
-              val p0 = fn.paramClause.values.head.name.value
-              ctx.copy(paramTypes = ctx.paramTypes + (p0 -> t),
-                       localStrings = if t == "String" then ctx.localStrings + p0 else ctx.localStrings)
-            case None => ctx
-        case _ => ctx
+      // `firstMarker(edges).exists(m => m.nonEmpty && …)` — see `seedOptionElemParam`'s own
+      // comment.
+      val predCtx = seedOptionElemParam(args.values.head, qual, ctx)
       for
         q0   <- renderTerm(qual, ctx)
         pred <- renderTerm(args.values.head, predCtx)
@@ -8320,16 +8329,20 @@ object RustCodeWalk:
         m.Term.Select(qual, m.Term.Name("map")),
         args
     ) if isOptionExpr(qual, ctx) && args.values.size == 1 =>
+      // `optExpr.map(m => m.nonEmpty && …)` — see `seedOptionElemParam`'s own comment.
+      val mapCtx = seedOptionElemParam(args.values.head, qual, ctx)
       for
         q <- renderTerm(qual, ctx)
-        f <- renderTerm(args.values.head, ctx)
+        f <- renderTerm(args.values.head, mapCtx)
       yield s"$q.map($f)"
 
     case m.Term.Apply.After_4_6_0(
         m.Term.Select(qual, m.Term.Name("flatMap")),
         args
     ) if isOptionExpr(qual, ctx) && args.values.size == 1 =>
-      val enriched = withTupleStringLocals(args.values.head, qual, ctx)
+      // `firstMarker(edges).flatMap { m => val digits = m.takeWhile(…); … }` (`uniml/markdown`'s
+      // `MarkdownProjection.scala`'s `listStart`) — see `seedOptionElemParam`'s own comment.
+      val enriched = seedOptionElemParam(args.values.head, qual, withTupleStringLocals(args.values.head, qual, ctx))
       for
         q0 <- renderTerm(qual, enriched)
         f  <- renderTerm(args.values.head, enriched)

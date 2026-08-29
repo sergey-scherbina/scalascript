@@ -3136,6 +3136,30 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(g.contains("!pieces.is_empty()"),
       s"a val bound to a qualified call must resolve seq-ness through the specific def, not by bare name collision:\n$g")
 
+  test("`opt.map`/`opt.flatMap(namedParam => ...)` seed the param's type from the declared element"):
+    // `firstMarker(x).flatMap(m => if m.nonEmpty then Some(m) else None)` /
+    // `firstMarker(x).map(m => m.nonEmpty)` — the `.map`/`.flatMap` twins of the `.exists` fix
+    // (`seedOptionElemParam`, factored out of `.exists`'s own original inline code once `.map`/
+    // `.flatMap` needed the identical seeding): a bare `Term.Function` argument to an Option
+    // method renders through plain `renderTerm` (no `renderVecIterBody`-style dispatch exists for
+    // Option methods), so the closure param's own type never got seeded from the Option's
+    // declared element — `m.nonEmpty` (no-paren) reached `isKnownStringField`/`isStringExpr` with
+    // nothing to check.
+    val src =
+      """```scalascript
+        |def firstMarker(x: Int): Option[String] = if x > 0 then Some("m") else None
+        |
+        |def usesFlatMap(x: Int): Option[String] =
+        |  firstMarker(x).flatMap(m => if m.nonEmpty then Some(m) else None)
+        |
+        |def usesMap(x: Int): Boolean =
+        |  firstMarker(x).map(m => m.nonEmpty).getOrElse(false)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("if !m.is_empty()") && g.contains(".map(move |m| { !m.is_empty() })"),
+      s"opt.map/opt.flatMap(namedParam => ...) must seed the param's type from the Option's declared element:\n$g")
+
   test("`xs.count(_.field == x)` / `xs.filter(_.field == x)` — a placeholder predicate types cleanly"):
     // `lexed.tokens.count(_.kind == "yaml.anchor")` / `ranges.filter(_.start == index)`
     // (`uniml/yaml`) — `renderVecIterBody`'s `Term.AnonymousFunction` branch wrapped the WHOLE
