@@ -2827,6 +2827,33 @@ class RustGenCodeWalkTest extends AnyFunSuite:
       && g.contains("for document in __dstruct_documents.iter().cloned()"),
       s"a destructured field colliding with an unrelated local must rename itself, not shadow it:\n$g")
 
+  test("a stable-identifier pattern referencing a String-valued topval matches by value"):
+    // `kind match { case MdBranch.Heading => …; case MdBranch.Paragraph => …; … }` (`uniml/
+    // markdown`'s `MarkdownProjection.scala`) — `MdBranch` is NOT an enum; it is a plain `object`
+    // of `String`-valued `val`s, used as readable names for tag strings. A bare qualified
+    // reference to one, in PATTERN position, is a stable-identifier pattern matching by VALUE
+    // EQUALITY against the string — a different shape from a niladic enum case, but Scalameta
+    // represents both the same way syntactically (a `Term.Select` where a `Pat` is expected), so
+    // this was refused outright: `unsupported pattern: Term.Select (MdBranch.Heading)`.
+    val src =
+      """```scalascript
+        |object MdBranch:
+        |  val Heading = "markdown.heading"
+        |  val Paragraph = "markdown.paragraph"
+        |
+        |def describe(kind: String): String =
+        |  kind match
+        |    case MdBranch.Heading => "a heading"
+        |    case MdBranch.Paragraph => "a paragraph"
+        |    case _ => "something else"
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("match (kind).as_str() {")
+      && g.contains("\"markdown.heading\" => \"a heading\".to_string(),")
+      && g.contains("\"markdown.paragraph\" => \"a paragraph\".to_string(),"),
+      s"a stable-identifier pattern over a String-valued topval must match by its literal value:\n$g")
+
   test("`xs.count(_.field == x)` / `xs.filter(_.field == x)` — a placeholder predicate types cleanly"):
     // `lexed.tokens.count(_.kind == "yaml.anchor")` / `ranges.filter(_.start == index)`
     // (`uniml/yaml`) — `renderVecIterBody`'s `Term.AnonymousFunction` branch wrapped the WHOLE

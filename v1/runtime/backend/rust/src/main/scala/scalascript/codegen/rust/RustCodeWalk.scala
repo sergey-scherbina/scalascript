@@ -11473,6 +11473,12 @@ object RustCodeWalk:
     def isOrContainsStringLit(p: m.Pat): Boolean = p match
       case _: m.Lit.String              => true
       case m.Pat.Alternative(lhs, rhs)  => isOrContainsStringLit(lhs) || isOrContainsStringLit(rhs)
+      // `case MdBranch.Heading => …` — a stable-identifier pattern referencing a STRING-valued
+      // topval (`renderPattern`'s own twin case has the full story). This subject is exactly as
+      // string-shaped as a literal `case "markdown.heading" => …` would be — the `.as_str()`
+      // coercion below must fire for it the same way.
+      case m.Term.Select(m.Term.Name(objName), m.Term.Name(valName)) =>
+        _topValInits.get((objName, valName)).exists(_.endsWith(".to_string()"))
       case _                            => false
     val hasStringPat = cases1.exists(c => isOrContainsStringLit(c.pat))
     // A list pattern lowers to a SLICE pattern, and a slice pattern needs a slice subject. One
@@ -12285,6 +12291,25 @@ object RustCodeWalk:
     case m.Term.Select(m.Term.Name(enumName), m.Term.Name(ctorName))
         if _qualifiedCtors.get((enumName, ctorName)).exists(_.fieldNames.isEmpty) =>
       Right(s"$enumName::$ctorName")
+    // `kind match { case MdBranch.Heading => …; case MdBranch.Paragraph => …; … }` (`uniml/
+    // markdown`'s `MarkdownProjection.scala`) — `MdBranch`/`MdKind` are NOT enums at all; they are
+    // plain `object`s of `String`-valued `val`s (`object MdBranch: val Heading = "markdown.
+    // heading"; …`), used as readable names for the tag strings this dialect module's own AST
+    // nodes carry. A bare qualified reference to one of THOSE, in pattern position, is a STABLE-
+    // IDENTIFIER pattern matching by VALUE EQUALITY against the string — a genuinely different
+    // shape from a niladic enum case (the case just above), but Scalameta represents BOTH the
+    // same way syntactically (a `Term.Select` sitting where a `Pat` is expected), so this was
+    // refused outright: `unsupported pattern: Term.Select (MdBranch.Heading)`. `_topValInits`
+    // already holds every topval's OWN rendered init text (`selectOrNiladicCtor`'s identical
+    // EXPRESSION-position lookup, `TreeVm.finishedDiagnostic`/`SourcePosition.Start`'s own shape) —
+    // reused here, stripping the `.to_string()` a `Lit.String` init always renders with (`renderTerm`'s
+    // own `Lit.String` case) to recover the BARE string-literal pattern text a Rust `match` arm
+    // needs. Guarded on the stripped text still being a quoted literal (`"…"` ), so a topval whose
+    // init is anything else (not a plain string constant) falls through unmatched rather than
+    // emitting a bogus pattern.
+    case m.Term.Select(m.Term.Name(objName), m.Term.Name(valName))
+        if _topValInits.get((objName, valName)).exists(_.endsWith(".to_string()")) =>
+      Right(_topValInits((objName, valName)).stripSuffix(".to_string()"))
     case m.Term.Name(n)
         if ctx.ctorMap.get(n).exists(c => c.fieldNames.isEmpty && !c.isStruct) =>
       Right(s"${ctx.ctorMap(n).enumName}::$n")
