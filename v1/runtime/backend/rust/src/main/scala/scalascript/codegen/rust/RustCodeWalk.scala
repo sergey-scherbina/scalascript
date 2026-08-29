@@ -3900,16 +3900,28 @@ object RustCodeWalk:
     def isCharAtCall(rhs: m.Term): Boolean = rhs match
       case m.Term.Apply.After_4_6_0(m.Term.Select(_, m.Term.Name("charAt")), args) => args.values.size == 1
       case _ => false
-    def walk(t: m.Tree): Unit =
-      t match
-        case v: m.Defn.Val => v.pats match
+    def walk(t: m.Tree): Unit = t match
+      // A nested local `def`'s OWN body is a SEPARATE scope, computed on its own when THAT def
+      // is itself lifted (`liftLocalDefs`'s childCtx) — descending into it here pollutes THIS
+      // scope's flat `Set[String]` with an unrelated same-named local from a SIBLING function.
+      // `uniml/xml`'s `Doc.scala`: `scanDoctype`'s own `var quote: Char = ' '` (a plain i64, never
+      // `.charAt`) collided with a SIBLING scanner's `val quote = input.charAt(index)` — both
+      // walked from the shared enclosing `scan`'s body before this fix — so `quote` landed in
+      // `localSscChars`, `lhsIsSscChar` read true for `scanDoctype`'s own `quote`, and `quote =
+      // char` never got its `.0` unwrap: `error[E0308]: expected i64, found SscChar`. Three
+      // isolated repros (no sibling name collision) never reproduced it.
+      case _: m.Defn.Def => ()
+      case v: m.Defn.Val =>
+        v.pats match
           case List(m.Pat.Var(m.Term.Name(n))) if isCharAtCall(v.rhs) => names += n
           case _ => ()
-        case v: m.Defn.Var => v.pats match
+        t.children.foreach(walk)
+      case v: m.Defn.Var =>
+        v.pats match
           case List(m.Pat.Var(m.Term.Name(n))) if isCharAtCall(v.body) => names += n
           case _ => ()
-        case _ => ()
-      t.children.foreach(walk)
+        t.children.foreach(walk)
+      case _ => t.children.foreach(walk)
     walk(body)
     names.toSet
 

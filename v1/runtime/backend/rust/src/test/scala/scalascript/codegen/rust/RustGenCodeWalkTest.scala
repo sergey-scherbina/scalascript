@@ -1381,6 +1381,34 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(g.contains("ref e @"), s"the typed bind should still render as a ref-bound pattern:\n$g")
 
+  test("a sibling lifted local def's OWN `val quote = s.charAt(i)` does not pollute another sibling's unrelated `var quote: Char`"):
+    // `uniml/xml`'s `Doc.scala`: `scanDoctype`'s own `var quote: Char = ' '` (a plain i64, never
+    // `.charAt`) collided with a SIBLING scanner's `val quote = input.charAt(index)` — both were
+    // walked from their shared enclosing def's body by the same flat, non-scoped
+    // `collectLocalSscChars` `Set[String]`, so `quote` landed in `localSscChars` for BOTH,
+    // suppressing the `.0` coercion `quote = char` needs (`lhsIsSscChar` read true for the WRONG
+    // reason): `error[E0308]: expected i64, found SscChar`. Fixed by not descending into a nested
+    // local def's OWN body when collecting ITS sibling's SscChar-bound names.
+    val src =
+      """```scalascript
+        |def scan(input: String): Char =
+        |  def readAttrQuote(): Char =
+        |    val quote = input.charAt(0)
+        |    quote
+        |
+        |  def scanDoctype(): Char =
+        |    var quote: Char = ' '
+        |    val char = input.charAt(1)
+        |    quote = char
+        |    quote
+        |
+        |  readAttrQuote()
+        |  scanDoctype()
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("quote = (char).0"), s"scanDoctype's own `quote` must still get the `.0` unwrap:\n$g")
+
   test("`.collect { case p if guard(outer) => … }` does not `move` a name the def reads again afterward"):
     // `Xml.validate` (`uniml/xml`'s `Doc.scala`): `document.docType.toVector.collect { case
     // docType if docType.name != document.root.name.toXml => … }` then `validateNamespaces(
