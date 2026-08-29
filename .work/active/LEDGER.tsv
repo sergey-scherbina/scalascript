@@ -1,3 +1,3 @@
-# generation: 3068
+# generation: 3069
 #slug	agent	started	items	paths
-fix-etaexpand-class-method	claude-code	2026-08-28T19:33:26Z	fix-etaexpand-class-method	v2/src/Runtime.scala v2/BUGS.md
+fix-etaexpand-class-method	claude-code	2026-08-28T19:33:26Z	fix-etaexpand-class-method	v2/src/Runtime.scala v2/BUGS.md v2/plugin-spi/src/test/scala/ssc/EtaExpandClassMethodTest.scala
