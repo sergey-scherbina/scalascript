@@ -3,9 +3,9 @@ branch: feature/aggregator-sliding-window
 agent: claude-code
 started: 2026-08-29T21:53:30Z
 heartbeat: 2026-08-29T21:53:30Z
-status: claimed-before-planning
+status: in-progress
 items: aggregation-algebra-canonical-and-effectful
 paths: file:std/aggregator.ssc file:examples/std-aggregator.ssc file:specs/aggregation-algebra.md file:BACKLOG.md file:tests/conformance/std-aggregator.ssc file:tests/conformance/expected/std-aggregator.txt
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+next: design+implement GroupAggregator/SlidingWindow (spec section 7), test, land
