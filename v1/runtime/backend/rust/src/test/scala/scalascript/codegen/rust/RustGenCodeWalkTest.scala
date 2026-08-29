@@ -2126,3 +2126,128 @@ class RustGenCodeWalkTest extends AnyFunSuite:
       s"inner must relay the OUTER def's own capture through as its own &mut parameter:\n$g")
     assert(g.contains("""problem(x, "warn".to_string(), diagnostics)"""),
       s"the omitted trailing default must be filled AND the capture forwarded:\n$g")
+
+  test("`opt.exists(p)` / `opt.contains(v)` lower to Rust `Option` methods, not the Vec ones"):
+    // `tag.contains("tag:yaml.org,2002:str") || tag.exists(value => …)` (`uniml/yaml`'s
+    // `YamlSemanticParser.scala`'s `plainScalar`) — Rust's `Option` has no `.exists` at all and
+    // `.contains` only behind a nightly feature; both fell to the generic Vec-shaped dispatch (once
+    // `tag` was recognized as an Option at all — see the next test) and reached rustc unmapped:
+    // `error[E0599]: no method named exists/contains found for enum Option<T>`.
+    val src =
+      """```scalascript
+        |def classify(tag: Option[String]): Boolean =
+        |  tag.contains("str") || tag.exists(v => v == "x")
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".is_some_and("), s"exists must lower to Option::is_some_and:\n$g")
+    assert(!g.contains(".exists(") && !g.contains(".contains("), s"neither Scala method name should survive:\n$g")
+
+  test("a LIFTED local def's OWN parameter feeds `localOptions` for a `.map`-chain local inside it"):
+    // `def plainScalar(lexeme: String, explicitTag: Option[String]) = val tag =
+    // explicitTag.map(normalizeTag); … tag.contains(…) …` (`uniml/yaml`'s
+    // `YamlSemanticParser.scala`) — `collectLocalOptions` is a pre-pass run ONCE at the TOP-LEVEL
+    // `renderDef`, with a bare Ctx that knows none of ANY def's own parameters (not even the
+    // top-level one's) — so a LIFTED local def's OWN param, used to build a local Option via
+    // `.map(...)`, was invisible to it and `tag` never registered as an Option at all.
+    val src =
+      """```scalascript
+        |def parse(input: String): Boolean =
+        |  var seen = false
+        |  def plainScalar(explicitTag: Option[String]): Boolean =
+        |    val tag = explicitTag.map(_.length)
+        |    tag.contains(0)
+        |  seen = plainScalar(None)
+        |  seen
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("tag.is_some_and") || g.contains("tag).as_ref().is_some_and"),
+      s"tag must be recognized as an Option and lowered accordingly, not as a Vec:\n$g")
+
+  test("`xs.sortBy(key)` with a plain function-literal key on a Vec"):
+    // `ranges.filter(_.start == index).sortBy(range => (range.rank, -range.end))` (`uniml/yaml`'s
+    // `YamlSemanticParser.scala`'s `blockRanges`) — `renderVecIterBody`'s `Term.Function` branch
+    // (a NAMED-param key, as opposed to the placeholder-`_` shape) had every OTHER dispatch method
+    // (`map`/`filter`/`foldLeft`/…) but no `"sortBy"` case, so it fell to the generic `case other`
+    // fallback and re-emitted the Scala method name verbatim: `error[E0599]: no method named sortBy
+    // found for struct Vec<T>`.
+    val src =
+      """```scalascript
+        |case class Range(start: Int, rank: Int)
+        |
+        |def sortedRanges(ranges: List[Range]): List[Range] =
+        |  ranges.sortBy(range => range.rank)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("sort_by_key"), s"a Function-literal sortBy key must lower to sort_by_key:\n$g")
+    assert(!g.contains(".sortBy("), s"the Scala method name must not survive:\n$g")
+
+  test("`xs.count(p)` on a Vec (not just a String) receiver"):
+    // `lexed.tokens.count(_.kind == "yaml.anchor")` (`uniml/yaml`'s `YamlSemanticParser.scala`) —
+    // the existing `.count(p)` case only ever fired for a String receiver; Rust's `Iterator` has no
+    // `.count(predicate)` at all regardless of element type, so a Vec receiver reached rustc
+    // unmapped: `error[E0599]: no method named count found for struct Vec<T>`.
+    val src =
+      """```scalascript
+        |case class Tok(kind: String)
+        |
+        |def anchorCount(tokens: List[Tok]): Int =
+        |  tokens.count(_.kind == "anchor")
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".filter(") && g.contains(".len() as i64"), s"Vec .count(p) must lower via .filter(p).len():\n$g")
+
+  test("`s.stripPrefix(p)` and `s.indexWhere(p)` on a String"):
+    // `kind.stripPrefix("yaml.")` / `body.indexWhere(c => isWs(c))` (`uniml/yaml`'s
+    // `YamlLexer.scala`) — neither has a Rust `String` method under that name at all:
+    // `stripPrefix` returns the ORIGINAL string unchanged on no match (Rust's `strip_prefix`
+    // answers `Option<&str>` instead), and `indexWhere` is a Scala-only `StringOps` extension.
+    val src =
+      """```scalascript
+        |def strip(kind: String): String = kind.stripPrefix("yaml.")
+        |def firstWs(body: String): Int = body.indexWhere(c => c == ' ')
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("strip_prefix"), s"stripPrefix must lower to Rust's strip_prefix:\n$g")
+    assert(g.contains(".chars().position("), s"indexWhere must lower via chars().position():\n$g")
+
+  test("`xs.map(_.copy(field = v))` — a PLACEHOLDER receiver's ctor resolves for `.copy`"):
+    // `frames.map(_.copy(last = lineEnd))` (`uniml/yaml`'s `YamlSemanticParser.scala`'s
+    // `blockRanges`) — the placeholder `_` is still a raw `Term.Placeholder` node (not yet the
+    // literal name `__p0`) when `.copy`'s own ctor-lookup guard runs, and `ctorNameOfExpr` had no
+    // case for it at all — only a bare `Term.Name`. `.copy` on the closure's own element fell
+    // through unmapped: `error[E0599]: no method named copy found for struct BlockFrame`.
+    val src =
+      """```scalascript
+        |case class Frame(indent: Int, last: Int)
+        |
+        |def touch(frames: List[Frame], lineEnd: Int): List[Frame] =
+        |  frames.map(_.copy(last = lineEnd))
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("Frame {") && g.contains("..("), s".copy on a placeholder receiver must resolve its struct:\n$g")
+    assert(!g.contains(".copy("), s"the unresolved .copy(...) call must not survive verbatim:\n$g")
+
+  test("`recv.field.drop(n)` / `.take(n)` on a known-String FIELD (not just a bare name)"):
+    // `line.raw.drop(math.min(detectedIndent, line.raw.length))` (`uniml/yaml`'s
+    // `YamlSemanticParser.scala`'s `parseBlockScalar`) — `.drop`/`.take` on a String only ever
+    // checked `isStringExpr`/a bare-name `localStrings` lookup, never `isKnownStringField` (a
+    // field READ off a known ctor, resolved through `ctx.paramCtorNames`/`paramTypes`), so a
+    // String field access fell to the Vec-shaped `.drop`/`.take` case: `error[E0599]: the method
+    // into_iter exists for struct String, but its trait bounds were not satisfied`.
+    val src =
+      """```scalascript
+        |case class Line(raw: String)
+        |
+        |def firstTwo(line: Line): String = line.raw.take(2)
+        |def restFrom(line: Line, n: Int): String = line.raw.drop(n)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("_str_substring"), s"a String field's .drop/.take must route through the _str_* helpers:\n$g")
+    assert(!g.contains(".into_iter()"), s"a String field must never take the Vec .into_iter() path:\n$g")

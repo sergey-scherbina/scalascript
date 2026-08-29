@@ -2462,6 +2462,16 @@ object RustCodeWalk:
     case m.Term.Name(n) =>
       ctx.paramCtorNames.get(n).orElse(ctx.paramTypes.get(n).filter(ctx.ctorMap.contains))
         .orElse(ctx.destructuredCtorNames.get(n))
+    // `frames.map(_.copy(last = lineEnd))` (`uniml/yaml`'s `YamlSemanticParser.scala`'s
+    // `blockRanges`) — the placeholder `_` is STILL a raw `Term.Placeholder` node when this guard
+    // runs (substituted to the literal text `"__p0"` only when actually RENDERED as a leaf,
+    // `isKnownStringField`'s OWN identical `Term.Placeholder` case a few lines down is the same
+    // fix for the SAME reason), so the bare-`Term.Name` case above never matched it and
+    // `.copy(...)`'s own ctor-lookup guard always failed for a placeholder receiver:
+    // `error[E0599]: no method named copy found for struct BlockFrame` (misleadingly naming the
+    // struct rustc infers from context — the real defect is this lane never RECOGNIZED the
+    // receiver as one at all).
+    case _: m.Term.Placeholder => ctx.paramTypes.get("__p0").filter(ctx.ctorMap.contains)
     case m.Term.Select(qual, m.Term.Name(field)) =>
       for
         qualCtor <- ctorNameOfExpr(qual, ctx)
@@ -5351,6 +5361,12 @@ object RustCodeWalk:
             else if myByRefMut.contains(c) then s"$c: &$t"
             else s"$c: $t"
           }
+          // Factored out of `paramTypes`' own RHS below so `localOptions` (below that) can build a
+          // pre-pass Ctx that already knows this lifted def's OWN params — see its own comment.
+          val ownParamTypes: Map[String, String] = ctx.paramTypes ++
+            d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).flatMap { p =>
+              p.decltpe.flatMap(t => mapType(t, d.name.value, ctx.enumNames).toOption).map(p.name.value -> _)
+            }
           val childCtx = baseCtx.copy(
             defParams = ctx.defParams ++ ownParamNames ++ myCaptures.toSet,
             byRefMut  = myByRefMut,
@@ -5382,9 +5398,23 @@ object RustCodeWalk:
             // it, `flowParse`'s own parameters were invisible one nesting level down: "def `parseNode`
             // captures `depth, span, text` and this lane cannot infer its type — give it an explicit
             // type annotation where it is declared" — on parameters that already carry one.
-            paramTypes = ctx.paramTypes ++ d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).flatMap { p =>
-              p.decltpe.flatMap(t => mapType(t, d.name.value, ctx.enumNames).toOption).map(p.name.value -> _)
-            },
+            paramTypes = ownParamTypes,
+            // `def plainScalar(lexeme: String, explicitTag: Option[String]): YamlValue = val tag =
+            // explicitTag.map(normalizeTag); … tag.contains(…) …` (`uniml/yaml`'s
+            // `YamlSemanticParser.scala`) — a LIFTED local def's OWN body, read for Option-bound
+            // locals by `collectLocalOptions`, is only ever pre-passed ONCE, at the TOP-LEVEL
+            // `renderDef` (`_.svg` walks into every nested `Defn.Def`'s body too, so it DOES reach
+            // `plainScalar`'s statements) — but with a bare `Ctx` seeded from NONE of `parse`'s own
+            // params, let alone `plainScalar`'s OWN param `explicitTag`. `isOptionExpr`'s bare-name
+            // case can only answer through `ctx.paramTypes`, which was empty there, so
+            // `explicitTag.map(normalizeTag)` never registered `tag` as an Option and its
+            // `.contains`/`.exists` calls took the generic (wrong) lowering: `error[E0599]: no
+            // method named contains found for enum Option<T>` (rustc's own way of saying the
+            // GENERATED code called a String/Vec method on what actually IS an Option). Recomputed
+            // here, from `d.body` specifically, with `ownParamTypes` (this def's OWN params, just
+            // resolved above) seeded in — mirrors `localSscChars`'s own re-pass a few lines down.
+            localOptions = baseCtx.localOptions ++
+              collectLocalOptions(d.body, Ctx(ctx.intrinsics, ctx.userDefs, ctx.ctorMap, ctx.topVals, ctx.defName, paramTypes = ownParamTypes)),
             inLiftedFn = true,
             // `val char = input.charAt(cursor)` DECLARED INSIDE a lifted local def's OWN body
             // (`scanDoctype`, `uniml/xml`'s `Doc.scala`) — `ctx.localSscChars` was computed ONCE,
@@ -5941,7 +5971,7 @@ object RustCodeWalk:
     case m.Term.Select(qual, m.Term.Name("size" | "length" | "len"))
         if isStringExpr(qual) || (qual match
           case m.Term.Name(n) => ctx.localStrings.contains(n)
-          case _              => false) =>
+          case _              => false) || isKnownStringField(qual, ctx) =>
       renderTerm(qual, ctx).map(q => s"crate::runtime::_str_length(&$q)")
 
     // `xs.size` / `xs.length` / `xs.len` — every shape reads as
@@ -6030,6 +6060,28 @@ object RustCodeWalk:
     case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("stripTrailing")), args)
         if args.values.isEmpty =>
       renderTerm(qual, ctx).map(q => s"$q.trim_end().to_string()")
+    // `kind.stripPrefix("yaml.")` (`uniml/yaml`'s `YamlLexer.scala`) — Scala's contract returns the
+    // ORIGINAL string unchanged when the prefix doesn't match; Rust's `str::strip_prefix` answers
+    // `Option<&str>` instead (`None` on no match, the stripped slice on a hit) — there is no method
+    // by this name that returns a `String` outright, so this reached rustc unmapped:
+    // `error[E0599]: no method named stripPrefix found for struct String`.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("stripPrefix")), args)
+        if args.values.size == 1 =>
+      for
+        q <- renderTerm(qual, ctx)
+        p <- renderTerm(args.values.head, ctx)
+      yield s"($q).strip_prefix(($p).as_str()).map(|__r| __r.to_string()).unwrap_or_else(|| ($q).clone())"
+    // `body.indexWhere(c => isWs(c))` (`uniml/yaml`'s `YamlLexer.scala`) — Scala's `StringOps`
+    // extension, absent from Rust's `String` under any spelling; `.chars().position(pred)` is the
+    // direct equivalent, reusing this lane's own SscChar (`as u32 as i64`) code-point convention
+    // already established for `.forall`/`.exists`/`.count` on a String a few cases up.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("indexWhere")), args)
+        if args.values.size == 1 &&
+          (isStringExpr(qual) || (qual match { case m.Term.Name(n) => ctx.localStrings.contains(n); case _ => false }) || isKnownStringField(qual, ctx)) =>
+      for
+        q    <- renderTerm(qual, ctx)
+        pred <- renderTerm(args.values.head, ctx)
+      yield s"($q.chars().position(|__ch| ($pred)((__ch as u32) as i64)).map(|__i| __i as i64).unwrap_or(-1))"
     // ── String indexing, in UTF-16 CODE UNITS ──────────────────────────────
     // These had no arm at all, so they fell through to the generic method-call rendering and came
     // out as `s.charAt(i)` — a Rust `String` method that does not exist (E0599, 32 of the 37 errors
@@ -6105,12 +6157,12 @@ object RustCodeWalk:
     // `.charAt`/`.substring` everywhere else), the direct answer for `.drop`/`.take` too.
     case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("drop")), a)
         if a.values.size == 1 &&
-           (isStringExpr(qual) || (qual match { case m.Term.Name(n) => ctx.localStrings.contains(n); case _ => false })) =>
+           (isStringExpr(qual) || (qual match { case m.Term.Name(n) => ctx.localStrings.contains(n); case _ => false }) || isKnownStringField(qual, ctx)) =>
       for q <- renderTerm(qual, ctx); k <- renderTerm(a.values.head, ctx)
       yield s"crate::runtime::_str_substring_from(&$q, $k)"
     case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("take")), a)
         if a.values.size == 1 &&
-           (isStringExpr(qual) || (qual match { case m.Term.Name(n) => ctx.localStrings.contains(n); case _ => false })) =>
+           (isStringExpr(qual) || (qual match { case m.Term.Name(n) => ctx.localStrings.contains(n); case _ => false }) || isKnownStringField(qual, ctx)) =>
       for q <- renderTerm(qual, ctx); k <- renderTerm(a.values.head, ctx)
       yield s"crate::runtime::_str_substring(&$q, 0i64, $k)"
     // Vec `.take(n)` / `.drop(n)` (non-range): consume + re-collect. `.drop` must be
@@ -7139,6 +7191,20 @@ object RustCodeWalk:
       // is `&char`, so `as u32` needs the EXTRA `*` this shape alone among its siblings does.
       yield s"($q.chars().filter(|__ch| ($pred)(((*__ch) as u32) as i64)).count() as i64)"
 
+    // `lexed.tokens.count(_.kind == "yaml.anchor")` on a Vec receiver (`uniml/yaml`'s
+    // `YamlSemanticParser.scala`) — the STRING-scoped `.count(p)` case just above only fires for a
+    // String receiver; Rust's `Iterator` has no `.count(predicate)` either way, only `.count()`
+    // (every element). Reuses `renderVecIterBody`'s OWN `.filter` dispatch (already correct for
+    // whatever closure shape the predicate takes, the same dispatch `.filter`/`.exists` on a Vec
+    // already go through) rather than duplicating it, then wraps `.len()`.
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(qual, m.Term.Name("count")), args
+    ) if args.values.size == 1 =>
+      for
+        q    <- renderTerm(qual, ctx)
+        body <- renderVecIterBody(args.values.head, q, ctx, method = "filter")
+      yield s"($body.len() as i64)"
+
     // `prefix.fold(localName)(p => s"$p:$localName")` (`uniml/xml`'s `Doc.scala`'s `QName.toXml`)
     // — Scala's CURRIED `Option.fold(ifEmpty)(f)`, which parses as an Apply-of-an-Apply. Rust's
     // `Option` has no `.fold` at all; `.map_or(ifEmpty, f)` is the direct equivalent, `opt.forall`'s
@@ -7170,6 +7236,31 @@ object RustCodeWalk:
         q    <- renderTerm(qual, ctx)
         pred <- renderTerm(args.values.head, ctx)
       yield s"$q.map_or(true, $pred)"
+
+    // `opt.exists(p)` — Rust's `Option::is_some_and` is the exact match: false for `None`, `p(x)`
+    // for `Some(x)`, consuming the Option (this lane's clone-liberal convention already pays for
+    // the move everywhere else). No case existed for `exists` at all — only `forall` did — so
+    // `tag.exists(...)` (`uniml/yaml`'s `YamlSemanticParser.scala`'s `plainScalar`) reached rustc
+    // unmapped: `error[E0599]: no method named exists found for enum Option<T>`.
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(qual, m.Term.Name("exists")), args
+    ) if args.values.size == 1 && isOptionExpr(qual, ctx) =>
+      for
+        q    <- renderTerm(qual, ctx)
+        pred <- renderTerm(args.values.head, ctx)
+      yield s"($q).is_some_and($pred)"
+
+    // `opt.contains(x)` — Scala: `Some(v).contains(x) == (v == x)`, `None.contains(x) == false`.
+    // Rust's `Option::contains` is nightly-only (`option_result_contains`), so there is no stable
+    // method by this name at all: the SAME `plainScalar`'s `tag.contains("tag:yaml.org,2002:str")`
+    // reached rustc unmapped too: `error[E0599]: no method named contains found for enum Option<T>`.
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(qual, m.Term.Name("contains")), args
+    ) if args.values.size == 1 && isOptionExpr(qual, ctx) =>
+      for
+        q <- renderTerm(qual, ctx)
+        v <- renderTerm(args.values.head, ctx)
+      yield s"($q).as_ref().is_some_and(|__v| (*__v) == ($v))"
 
     // xs.exists(p) / xs.forall(p) → any / all. Named by the refusal before this arm existed, which
     // is how they were found rather than guessed.
@@ -8669,7 +8760,12 @@ object RustCodeWalk:
     case m.Term.Apply.After_4_6_0(m.Term.Select(inner, m.Term.Name("dropWhile" | "takeWhile")), _) =>
       isStringReceiverChain(inner, ctx)
     case m.Term.Select(inner, m.Term.Name("reverse")) => isStringReceiverChain(inner, ctx)
-    case other => isStringExpr(other)
+    // `line.raw.takeWhile(_ == ' ')` (`uniml/yaml`'s `YamlSemanticParser.scala`'s `indentOf`) —
+    // `line.raw` is a known-String FIELD (`isKnownStringField`), not a bare name and not covered
+    // by `isStringExpr`'s pure-syntax check, so the base case below missed it entirely: the
+    // `.takeWhile` chained onto it took the Vec-shaped lowering (`.iter().cloned().take_while(…)`),
+    // and `String` has no `.iter()` — `error[E0599]`.
+    case other => isStringExpr(other) || isKnownStringField(other, ctx)
 
   /** Best-effort check that a term is an `Either`-shaped expression so we can
    *  route `.map/.flatMap/.fold` to Rust `Either`.
@@ -9605,6 +9701,15 @@ object RustCodeWalk:
           case "takeWhile" => s"$q.iter().cloned().take_while(|__f| { let $p0 = __f.clone(); $b }).collect::<Vec<_>>()"
           case "dropWhile" => s"$q.iter().cloned().skip_while(|__f| { let $p0 = __f.clone(); $b }).collect::<Vec<_>>()"
           case "foldLeft" => s"$q.iter().cloned().fold(${zero.getOrElse("0")}, |$p0, $p1| { $b })"
+          // `ranges.filter(...).sortBy(range => (range.rank, -range.end))` (`uniml/yaml`'s
+          // `YamlSemanticParser.scala`'s `blockRanges`) — missing from THIS branch's own `method`
+          // match (a plain `Term.Function` key, as opposed to the method-reference/PartialFunction
+          // shapes other branches of this same function already cover for `sortBy`), so it fell to
+          // the generic `case other` fallback below and re-emitted the Scala method name verbatim:
+          // `error[E0599]: no method named sortBy found for struct Vec<T>`. Clone-then-sort, same
+          // convention as the other `sortBy` case in this file (avoids sorting a moved-from `xs`
+          // when the receiver is later reassigned from its own sorted result).
+          case "sortBy"   => s"{ let mut __v = ($q).clone(); __v.sort_by_key(|$p0| { $b }); __v }"
           case other      => s"$q.$other(|$p0| { $b })"
       }
     // Method reference `obj.method` → wrap in a closure so it's a callable value.

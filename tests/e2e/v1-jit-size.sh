@@ -632,10 +632,45 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # first two fixes live entirely in `liftLocalDefs`, a separate function, and cost nothing here.
 # 184 -> 138 real cargo errors on uniml/yaml. Re-verified uniml/xml and uniml/json both still build
 # clean (0 errors).
+#
+# renderTerm 36393 -> 36885 (+492), continuing the real `cargo build` pass on uniml/yaml, 138 -> 120.
+# Seven independent fixes, all inline `renderTerm` match arms (the growth) plus one in a separate
+# function (free): (1) `opt.exists(p)`/`opt.contains(v)` — Rust's `Option` has neither method
+# (`.exists` doesn't exist at all; `.contains` is nightly-only), and no case existed for either —
+# `tag.exists(...)`/`tag.contains(...)` (`plainScalar`) reached rustc unmapped. Lowered to
+# `.is_some_and(p)` and `.as_ref().is_some_and(|v| *v == x)`. (2) A LIFTED local def's OWN parameter
+# feeding `localOptions` for a `.map`-chain local built INSIDE that same def
+# (`explicitTag.map(normalizeTag)`) — `collectLocalOptions` is a pre-pass run ONCE at top-level
+# `renderDef` with a bare `Ctx` carrying NO param types at all (not even the top-level def's own),
+# so a lifted def's own param used this way never registered its local as an Option; recomputed per
+# lifted def in `liftLocalDefs`, seeded with that def's own resolved param types (`ownParamTypes`,
+# factored out for reuse) — THIS fix's own growth is zero (lives in `liftLocalDefs`, not
+# `renderTerm`), it just unblocks (1) from firing at all on `tag`. (3) `renderVecIterBody`'s
+# `Term.Function` branch (a named-param key, as opposed to the placeholder-`_` shape a SIBLING
+# branch already had a `sortBy` case for) had no `"sortBy"` case, so `ranges.sortBy(range => …)`
+# fell to the generic fallback and re-emitted the Scala method name verbatim. (4) `.count(pred)` on
+# a Vec receiver — the existing case only ever fired for a String; `lexed.tokens.count(...)` reused
+# `renderVecIterBody`'s own `.filter` dispatch (avoiding a duplicate one) then wrapped `.len()`.
+# (5)/(6) `.stripPrefix`/`.indexWhere` on a String — neither has a same-named Rust `String` method
+# at all; lowered to `.strip_prefix(...).map(...).unwrap_or_else(...)` and
+# `.chars().position(pred)`, reusing this lane's established SscChar code-point convention. (7)
+# `ctorNameOfExpr` had no case for a bare `Term.Placeholder` receiver (`frames.map(_.copy(last =
+# lineEnd))`) — the placeholder is still a raw AST node, not yet the literal name `__p0`, when this
+# ctor-lookup runs (`isKnownStringField`'s own identical `Term.Placeholder` case, added earlier this
+# session, is the same fix for the same reason) — a new case reading `ctx.paramTypes.get("__p0")`
+# closes it, in a SEPARATE function so it costs nothing here. Two more, in `renderTerm` too and
+# folded into this same growth: the STRING-receiver guards on `.drop`/`.take` and `.length` widened
+# to also check `isKnownStringField` (a field READ off a known ctor), not just a bare name or pure
+# syntax — `line.raw.drop(...)`/`line.raw.takeWhile(...).length` (`indentOf`/`parseBlockScalar`)
+# took the Vec-shaped lowering otherwise. Re-verified uniml/xml and uniml/json both still build
+# clean (0 errors). Remaining, not attempted this entry: `.groupBy` on a Range (still deliberately
+# deferred, a genuinely new HashMap-shaped feature) and a tuple-destructured local's element type
+# (`val (a, b, c) = someCall()` then using `c` as an Option — two levels removed from the call that
+# would name its type, unlike the direct-destructure shape an earlier entry already covers).
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-36393 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+36885 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF
