@@ -4455,7 +4455,27 @@ object RustCodeWalk:
                   case Some((l, r)) if elems.sizeIs == 2 =>
                     (elems(0), l) match { case (m.Pat.Var(m.Term.Name(n)), lt) if isStr(lt) => strs += n; case _ => () }
                     (elems(1), r) match { case (m.Pat.Var(m.Term.Name(n)), rt) if isStr(rt) => strs += n; case _ => () }
-                  case _ => ()
+                  case _ =>
+                    // `val (dropNodes, keepText, localPart) = if content.charAt(i) == '@' then
+                    // emailLocalBackscan(nodes, pending) else (0, "", "")` (`uniml/markdown`'s
+                    // `MarkdownInlines.scala`'s `tokenize`) — a TUPLE-PATTERN destructure whose
+                    // rhs is an IF/ELSE with a FUNCTION CALL in one branch (a literal tuple in
+                    // the other, which Scala's own typechecking already guarantees agrees
+                    // component-wise) — the call-return case a few lines up only ever matches a
+                    // BARE call as the WHOLE rhs, never one nested inside an if/else. Without
+                    // this, `keepText` never registered as a String: `error: reads isEmpty
+                    // without parentheses ... it is a collection member, not a field`.
+                    def ifElseCallTupleTypes(t: m.Term): Option[List[m.Type]] = t match
+                      case m.Term.Apply.After_4_6_0(m.Term.Name(fn), _) =>
+                        _defBodies.get(fn).flatMap(_.decltpe).collect { case m.Type.Tuple(elemTypes) => elemTypes }
+                      case ifx: m.Term.If => ifElseCallTupleTypes(ifx.thenp).orElse(ifElseCallTupleTypes(ifx.elsep))
+                      case _ => None
+                    ifElseCallTupleTypes(other).foreach { elemTypes =>
+                      elems.zip(elemTypes).foreach {
+                        case (m.Pat.Var(m.Term.Name(n)), m.Type.Name("String")) => strs += n
+                        case _ => ()
+                      }
+                    }
           case _                               => ()
         case v: m.Defn.Var => v.pats match
           case List(m.Pat.Var(m.Term.Name(n))) =>

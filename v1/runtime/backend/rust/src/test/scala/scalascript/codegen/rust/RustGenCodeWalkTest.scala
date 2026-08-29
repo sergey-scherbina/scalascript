@@ -3241,6 +3241,34 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(g.contains("lines[(index as usize)..(last as usize)].to_vec()"),
       s"xs.slice(from, until) must lower to index-range + to_vec, and be a known seq for the .mkString chained after it:\n$g")
 
+  test("a tuple-destructured val whose rhs is an if/else with a call in one branch resolves Strings"):
+    // `val (dropNodes, keepText, localPart) = if content.charAt(i) == '@' then
+    // emailLocalBackscan(nodes, pending) else (0, "", "")` (`uniml/markdown`'s
+    // `MarkdownInlines.scala`'s `tokenize`) — a tuple-pattern destructure whose rhs is an IF/ELSE
+    // with a FUNCTION CALL in one branch (a literal tuple in the other, which Scala's own
+    // typechecking already guarantees agrees component-wise) — `collectLocalStrings`'s existing
+    // call-return case only ever matched a BARE call as the whole rhs, never one nested inside an
+    // if/else. Without this, `keepText` never registered as a String: "reads isEmpty without
+    // parentheses ... it is a collection member, not a field".
+    val src =
+      """```scalascript
+        |def emailLocalBackscan(nodes: Vector[Int], pending: Vector[String]): (Int, String, String) =
+        |  (0, "x", "y")
+        |
+        |def tokenize(content: String): Boolean =
+        |  val nodes: Vector[Int] = Vector.empty
+        |  val pending: Vector[String] = Vector.empty
+        |  val i = 0
+        |  val (dropNodes, keepText, localPart) =
+        |    if content.charAt(i) == '@' then emailLocalBackscan(nodes, pending)
+        |    else (0, "", "")
+        |  keepText.isEmpty
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("keepText.is_empty()"),
+      s"a tuple-destructured val whose rhs is an if/else with a call in one branch must resolve String positions:\n$g")
+
   test("`xs.count(_.field == x)` / `xs.filter(_.field == x)` — a placeholder predicate types cleanly"):
     // `lexed.tokens.count(_.kind == "yaml.anchor")` / `ranges.filter(_.start == index)`
     // (`uniml/yaml`) — `renderVecIterBody`'s `Term.AnonymousFunction` branch wrapped the WHOLE
