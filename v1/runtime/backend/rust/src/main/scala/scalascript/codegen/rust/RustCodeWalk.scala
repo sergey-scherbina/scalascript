@@ -3809,8 +3809,14 @@ object RustCodeWalk:
 
   private def collectSeqParams(d: m.Defn.Def): Set[String] =
     def isSeqType(t: m.Type): Boolean = t match
+      // `def cloneValue(value: YamlValue, visiting: Set[String]) = ... visiting + name ...`
+      // (`uniml/yaml`'s `YamlProjection.scala`) — `Set` was missing here even though this lane
+      // maps it to `Vec<T>` throughout (`declIsSeq`, `collectLocalSeqs`'s own twin check for a
+      // LOCAL var/val, already includes it) — a `Set`-declared PARAMETER never registered as a
+      // seq, so `visiting + name` (the single-element-add rewrite, gated on `isKnownVecReceiver`)
+      // fell to the generic `+` path instead: `error[E0369]: cannot add String to Vec<String>`.
       case m.Type.Apply.After_4_6_0(
-          m.Type.Name("List" | "Vec" | "Vector" | "Seq" | "IndexedSeq" | "Iterable"),
+          m.Type.Name("List" | "Vec" | "Vector" | "Seq" | "IndexedSeq" | "Iterable" | "Set"),
           _
         ) => true
       case _ => false
@@ -5519,6 +5525,18 @@ object RustCodeWalk:
                 .toSet
               collectLocalStrings(d.body, ownStringParams) ++ ownStringParams
             },
+            // `def cloneValue(value: YamlValue, visiting: Set[String]) = ... visiting + name ...`
+            // (`uniml/yaml`'s `YamlProjection.scala`) — the SAME gap `localOptions`/`localStrings`
+            // just above close, for Vec/Set-ness: `ctx.localSeqs` is computed ONCE at the
+            // TOP-LEVEL `renderDef`, seeded only from THAT def's own params — a lifted local
+            // def's OWN param (`visiting`) was invisible to it, so the `+`-single-element-add
+            // rewrite (gated on `isKnownVecReceiver`) never fired: `error[E0369]: cannot add
+            // String to Vec<String>`. Recomputed here the same way `renderDef`'s own top-level
+            // `paramSeqs` is, seeded with THIS def's own params.
+            localSeqs = baseCtx.localSeqs ++ {
+              val ownSeqParams = collectSeqParams(d)
+              collectLocalSeqs(d.body, ownSeqParams, Map.empty)._1 ++ ownSeqParams
+            },
             inLiftedFn = true,
             // `val char = input.charAt(cursor)` DECLARED INSIDE a lifted local def's OWN body
             // (`scanDoctype`, `uniml/xml`'s `Doc.scala`) — `ctx.localSscChars` was computed ONCE,
@@ -6598,6 +6616,16 @@ object RustCodeWalk:
         if meth == "contains" then s"(|__k: String| $q.contains_key(&__k))"
         else s"(|__k: String| $q.get(&__k).cloned())"
       }
+
+    // `Int.MaxValue` (`uniml/yaml`'s `YamlPropertySyntax.scala`) — Scala's boxed-numeric-type
+    // static constants. `Int` maps to Rust's `i64` throughout this lane (widened, per this
+    // codegen's own established convention — `mapType`'s own comment), so the bound is `i64::MAX`,
+    // not `i32::MAX`; no case existed for either constant at all, so this reached rustc as a bare
+    // reference to the (nonexistent) value `Int`: `error[E0425]: cannot find value Int in this
+    // scope`. MUST sit before the fully-generic bare-Select fallback further down, the same
+    // reason `getMessage`/map `.get`/`.contains` already sit here (`-Werror` catches the shadow).
+    case m.Term.Select(m.Term.Name("Int"), m.Term.Name("MaxValue")) => Right("i64::MAX")
+    case m.Term.Select(m.Term.Name("Int"), m.Term.Name("MinValue")) => Right("i64::MIN")
 
     // `error.getMessage` (no parens) — see the WITH-parens case's own comment.
     case m.Term.Select(qual, m.Term.Name("getMessage"))
@@ -8828,7 +8856,16 @@ object RustCodeWalk:
     case lit: m.Lit.Char =>
       renderTerm(lit, ctx).map(e => s"char::from_u32(($e) as u32).unwrap_or('\\u{FFFD}')")
     case other if isConceptuallyChar(other, ctx) =>
-      renderTerm(other, ctx).map(e => s"char::from_u32(($e) as u32).unwrap_or('\\u{FFFD}')")
+      // `!(",]}".contains(text.charAt(cursor)))` (`uniml/yaml`'s `YamlSemanticParser.scala`) — a
+      // genuine `SscChar` NEWTYPE (`yieldsSscChar`, NARROWER than this case's own guard —
+      // `isConceptuallyChar`'s own comment explains why the two must stay separate: widening the
+      // unwrap decision to the broader check adds a bogus `.0` on an already-plain-`i64` value,
+      // `error[E0610]`) needs `.0` before the cast — `as u32` on a struct (not a primitive) is not
+      // valid Rust at all: `error[E0605]: non-primitive cast`.
+      renderTerm(other, ctx).map { e0 =>
+        val e = if yieldsSscChar(other, ctx) then s"($e0).0" else e0
+        s"char::from_u32(($e) as u32).unwrap_or('\\u{FFFD}')"
+      }
     case other => renderTerm(other, ctx).map(e => s"&($e)")
 
   private def collectTupleConcat(t: m.Term): Option[List[m.Term]] = t match

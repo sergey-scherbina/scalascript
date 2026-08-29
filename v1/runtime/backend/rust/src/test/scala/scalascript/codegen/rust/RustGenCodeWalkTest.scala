@@ -2590,3 +2590,48 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(g.contains("[&(declared)[..], &[handle][..]].concat()"),
       s"a Set/Vec + element must never take the string-concat lowering, even with a String RHS:\n$g")
+
+  test("`Int.MaxValue`/`Int.MinValue` — Scala's boxed-numeric static constants"):
+    // No case existed for either at all, reaching rustc as a bare reference to a nonexistent
+    // value: `error[E0425]: cannot find value Int in this scope`. `Int` maps to `i64` throughout
+    // this lane, so the bound is `i64::MAX`/`i64::MIN`, not `i32`'s.
+    val src =
+      """```scalascript
+        |def maxOf(x: Int): Int = if x > Int.MaxValue - 1 then Int.MinValue else x
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("i64::MAX") && g.contains("i64::MIN"),
+      s"Int.MaxValue/MinValue must lower to i64::MAX/MIN:\n$g")
+
+  test("an SscChar argument to a String Pattern method (.contains(char)) unwraps `.0` before the cast"):
+    // `!(",]}".contains(text.charAt(cursor)))` (`uniml/yaml`'s `YamlSemanticParser.scala`) —
+    // `renderStrPatternArg`'s `isConceptuallyChar` case cast a genuine `SscChar` NEWTYPE straight
+    // to `u32` without unwrapping `.0` first: `as u32` on a struct is not valid Rust at all —
+    // `error[E0605]: non-primitive cast`.
+    val src =
+      """```scalascript
+        |def checkChar(text: String, cursor: Int): Boolean =
+        |  !(",]}".contains(text.charAt(cursor)))
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(").0) as u32"), s"an SscChar Pattern argument must unwrap .0 before the u32 cast:\n$g")
+
+  test("a lifted local def's OWN Set/Vec-typed param feeds the `+`-single-element-add rewrite"):
+    // `def cloneValue(value: YamlValue, visiting: Set[String]) = ... visiting + name ...`
+    // (`uniml/yaml`'s `YamlProjection.scala`) — `collectSeqParams`'s own `isSeqType` was missing
+    // `Set`, AND `ctx.localSeqs` is computed ONCE at the TOP-LEVEL `renderDef` — a lifted local
+    // def's OWN `Set`-typed param was invisible to it on both counts, so the single-element-add
+    // rewrite never fired: `error[E0369]: cannot add String to Vec<String>`.
+    val src =
+      """```scalascript
+        |def parse(input: String): List[String] =
+        |  def cloneValue(name: String, visiting: Set[String]): List[String] =
+        |    (visiting + name).toList
+        |  cloneValue(input, Set.empty)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("[&(visiting)[..], &[name][..]].concat()"),
+      s"a lifted local def's own Set param must feed the single-element-add rewrite:\n$g")

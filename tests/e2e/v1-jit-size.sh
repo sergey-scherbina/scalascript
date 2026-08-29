@@ -768,10 +768,30 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # Vec/Set LHS now always wins that case regardless of what the right operand looks like. Inline in
 # `renderTerm`'s own match, the growth. Re-verified uniml/xml and uniml/json both still build
 # clean (0 errors).
+#
+# renderTerm 37405 -> 37629 (+224), continuing the uniml/yaml real `cargo build` pass, 32 -> 30.
+# Four fixes, three living in separate functions (`collectSeqParams`, `liftLocalDefs`,
+# `renderStrPatternArg` — cost nothing here): (1) `collectSeqParams`'s `isSeqType` was missing
+# `Set` even though this lane maps it to `Vec<T>` throughout — a `Set`-declared PARAMETER never
+# registered as a seq, so `visiting + name` (the single-element-add rewrite) fell to the generic
+# `+` path: `error[E0369]: cannot add String to Vec<String>`. (2) the SAME
+# localOptions/localStrings two-deep gap from earlier this session, for `ctx.localSeqs` — a
+# lifted local def's OWN Vec/Set-typed param was invisible to it, recomputed per lifted def now,
+# seeded with `collectSeqParams(d)`. (3) `renderStrPatternArg`'s `isConceptuallyChar` case
+# (`.contains(char)`-shaped String Pattern arguments) cast a genuine `SscChar` NEWTYPE straight to
+# `u32` without the `.0` unwrap `yieldsSscChar` (narrower, and deliberately kept separate — its
+# own docstring already warns against widening this to the broader check) says it needs: `as u32`
+# on a struct is not valid Rust at all — `error[E0605]: non-primitive cast`. (4) `Int.MaxValue`/
+# `Int.MinValue` (Scala's boxed-numeric static constants, `Int` maps to `i64` throughout this
+# lane) had no case at all, reaching rustc as a bare reference to a nonexistent value — THIS one
+# is inline in `renderTerm`'s own match (positioned carefully, like `getMessage`/map
+# `.get`/`.contains` before it, ahead of the fully-generic bare-Select fallback that would
+# otherwise swallow it as unreachable) and is the growth. Re-verified uniml/xml and uniml/json
+# both still build clean (0 errors).
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-37405 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+37629 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF
