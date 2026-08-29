@@ -1,3 +1,2 @@
-# generation: 3075
+# generation: 3076
 #slug	agent	started	items	paths
-v3-point-free-class-method-eta	claude-code	2026-08-29T06:48:45Z	v3-point-free-class-method-eta	file:v3/src/Lower.scala file:v3/BUGS.md file:v3/tests/front/eta-expansion-class-method.ssc file:v3/tests/front/eta-expansion-class-method.expected
