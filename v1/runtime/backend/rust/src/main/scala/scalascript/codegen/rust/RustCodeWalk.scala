@@ -5387,6 +5387,20 @@ object RustCodeWalk:
             case -1 => false
             case i  => ec.fieldTypes.lift(i).contains("String")
         }
+      // `tokens(index).lexeme.takeWhile(_ == ' ')` (`uniml/yaml`'s `YamlSemanticParser.scala`'s
+      // `parse`) — the base of the field-select is ITSELF an INDEXING call (`tokens(index)`), not
+      // a bare name `check` can look up. Same idea as the `.last`/`.head` case just above,
+      // `elementTypeOf` on the indexed sequence (`tokens`) gives the element's ctor
+      // (`Token`), whose `lexeme` field this then checks the same way. Without this, `lexeme`
+      // (a `String`) was treated as an unrecognized-element `Vec`, and `.takeWhile` dispatched
+      // through the Vec-iterator path instead of the String path: `error[E0599]: no method named
+      // iter found for struct String`.
+      case m.Term.Select(m.Term.Apply.After_4_6_0(base, idxArgs), m.Term.Name(f)) if idxArgs.values.size == 1 =>
+        elementTypeOf(base, ctx).flatMap(ctx.ctorMap.get).exists { ec =>
+          ec.fieldNames.indexOf(f) match
+            case -1 => false
+            case i  => ec.fieldTypes.lift(i).contains("String")
+        }
       case _ => false
 
   /** Lambda-lift local `def`s that appear as direct statements in a block — `TreeVm.scala`'s

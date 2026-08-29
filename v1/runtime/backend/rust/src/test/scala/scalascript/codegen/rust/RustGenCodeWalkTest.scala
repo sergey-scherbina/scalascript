@@ -2558,6 +2558,25 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(g.contains("env = defaults.clone();"),
       s"a plain assignment's RHS reusing a topval inside a while-loop must be cloned:\n$g")
 
+  test("a String field reached through an indexed Vec element is recognized as a String"):
+    // `tokens(index).lexeme.takeWhile(_ == ' ')` (`uniml/yaml`'s `YamlSemanticParser.scala`'s
+    // `parse`) — `isKnownStringField`'s existing cases only recognized `receiver.field` where
+    // `receiver` is a bare name or a `.last`/`.head` projection; `tokens(index).lexeme` bases the
+    // field-select on an INDEXING call instead, so `lexeme` (a genuine `String` field) went
+    // unrecognized and `.takeWhile` dispatched through the Vec-iterator path instead of the
+    // String path: `error[E0599]: no method named iter found for struct String`.
+    val src =
+      """```scalascript
+        |case class Token(lexeme: String)
+        |
+        |def leadingSpaces(tokens: List[Token], index: Int): Int =
+        |  tokens(index).lexeme.takeWhile(_ == ' ').length
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".lexeme.chars().take_while("),
+      s"a String field read off an indexed Vec element must use the String take_while path, not Vec's:\n$g")
+
   test("`xs.count(_.field == x)` / `xs.filter(_.field == x)` — a placeholder predicate types cleanly"):
     // `lexed.tokens.count(_.kind == "yaml.anchor")` / `ranges.filter(_.start == index)`
     // (`uniml/yaml`) — `renderVecIterBody`'s `Term.AnonymousFunction` branch wrapped the WHOLE
