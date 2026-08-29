@@ -6305,14 +6305,20 @@ object RustCodeWalk:
       yield s"crate::runtime::_str_substring(&$q, 0i64, $k)"
     // Vec `.take(n)` / `.drop(n)` (non-range): consume + re-collect. `.drop` must be
     // intercepted here or it resolves to Rust's `Drop::drop` destructor.
+    //
+    // `tokens.take(documentStarts.head)` then `tokens` again LATER in the same def
+    // (`uniml/yaml`'s `YamlStructure.scala`'s `streamAndDocuments`) — Scala's own `.take` does
+    // NOT consume its receiver (it builds a new collection), but this lowering's `.into_iter()`
+    // does; a multi-use receiver name needed the same clone every other by-value position
+    // already gets: `error[E0382]: borrow of moved value: tokens`.
     case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("take")), a)
         if !isRangeExpr(qual) && a.values.size == 1 =>
-      for q <- renderTerm(qual, ctx); k <- renderTerm(a.values.head, ctx)
-      yield s"$q.into_iter().take($k as usize).collect::<Vec<_>>()"
+      for q0 <- renderTerm(qual, ctx); k <- renderTerm(a.values.head, ctx)
+      yield s"${cloneIfMoved(qual, q0, ctx)}.into_iter().take($k as usize).collect::<Vec<_>>()"
     case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("drop")), a)
         if !isRangeExpr(qual) && a.values.size == 1 =>
-      for q <- renderTerm(qual, ctx); k <- renderTerm(a.values.head, ctx)
-      yield s"$q.into_iter().skip($k as usize).collect::<Vec<_>>()"
+      for q0 <- renderTerm(qual, ctx); k <- renderTerm(a.values.head, ctx)
+      yield s"${cloneIfMoved(qual, q0, ctx)}.into_iter().skip($k as usize).collect::<Vec<_>>()"
     // Vec `.takeRight(n)` / `.dropRight(n)` → slice from the end (clones the kept tail).
     case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name(tr @ ("takeRight" | "dropRight"))), a)
         if a.values.size == 1 =>

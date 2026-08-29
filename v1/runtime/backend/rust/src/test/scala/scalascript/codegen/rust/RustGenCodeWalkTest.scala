@@ -2716,3 +2716,18 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(g.contains("let tokens = tokens.clone(); move |&index|"),
       s"a multi-use param captured by a move filter closure must be cloned at the capture point:\n$g")
+
+  test("`xs.take(n)`/`xs.drop(n)` on a Vec clones a multi-use receiver before the consuming into_iter"):
+    // `tokens.take(documentStarts.head)` then `tokens` again later (`uniml/yaml`'s
+    // `YamlStructure.scala`'s `streamAndDocuments`) — Scala's own `.take` does NOT consume its
+    // receiver, but this lowering's `.into_iter()` does; neither `.take` nor `.drop` ever called
+    // `cloneIfMoved` on the receiver: `error[E0382]: borrow of moved value: tokens`.
+    val src =
+      """```scalascript
+        |def firstTwo(xs: List[Int], n: Int): (List[Int], Int) =
+        |  (xs.take(n), xs.length)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("xs.clone().into_iter().take("),
+      s"a multi-use Vec receiver must be cloned before the consuming .into_iter().take:\n$g")

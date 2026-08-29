@@ -788,10 +788,20 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # `.get`/`.contains` before it, ahead of the fully-generic bare-Select fallback that would
 # otherwise swallow it as unreachable) and is the growth. Re-verified uniml/xml and uniml/json
 # both still build clean (0 errors).
+#
+# renderTerm 37629 -> 37637 (+8), continuing the uniml/yaml real `cargo build` pass, 24 -> 23 (the
+# two move-closure-clone commits in between needed no bump — `wrapMove` compiles to its own
+# synthetic method, not inline here). Vec `.take(n)`/`.drop(n)` (non-range) lower to
+# `.into_iter().take/skip(...).collect()` — a genuine CONSUME, unlike Scala's own `.take`, which
+# builds a new collection without touching the receiver — and neither case ever called
+# `cloneIfMoved` on the receiver: `tokens.take(documentStarts.head)` then `tokens` again later in
+# the same def (`uniml/yaml`'s `YamlStructure.scala`'s `streamAndDocuments`) moved it out from
+# under the later read: `error[E0382]: borrow of moved value: tokens`. Inline in both arms' own
+# `yield`, the growth. Re-verified uniml/xml and uniml/json both still build clean (0 errors).
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-37629 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+37637 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF
