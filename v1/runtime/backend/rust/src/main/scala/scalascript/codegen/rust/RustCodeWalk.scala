@@ -5272,9 +5272,16 @@ object RustCodeWalk:
     case m.Term.Apply.After_4_6_0(m.Term.Name(n), args) if ctx.selfMethods.contains(n) =>
       val argTerms0  = args.values.toList
       val rendered0  = argTerms0.map(renderTerm(_, ctx))
-      val (errs, ok0) = rendered0.partitionMap(identity)
+      val (errs, ok0raw) = rendered0.partitionMap(identity)
       if errs.nonEmpty then Left(errs.flatten)
       else
+        // `self.readContent(name)` (`uniml/xml`'s `Doc.scala`'s `Parser`: `readContent(name)`,
+        // implicit-receiver call to a sibling method, `name` read AGAIN afterward in the same
+        // method's own return value) — this WHOLE arm bypasses the ordinary call path below (it
+        // exists only to prepend `self.` and fill defaults) and so never applied `cloneIfMoved`
+        // either: `error[E0382]: borrow of moved value: name`. Same fix as the ordinary path's own
+        // `cloneIfMoved` call, applied here too.
+        val ok0 = argTerms0.zip(ok0raw).map((arg, r) => cloneIfMoved(arg, r, ctx))
         // `self.isXmlSpace(self.cur())` (`uniml/xml`'s `Doc.scala`'s `Parser`) — `cur`'s OWN
         // `SscChar` result needed `.0` to become the plain `i64` `isXmlSpace(c: i64)` declares,
         // exactly the coercion the ORDINARY call path already applies via `_paramTypes` a few

@@ -416,10 +416,18 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # incidentally covered the earlier regression too — they did not): the SAME `.foreach` `elemType`
 # threading noted in the entry above, still net WORSE (9/10 -> 13 errors) for the identical
 # reassigned-HashMap reason. 9 errors remain.
+#
+# renderTerm 33874 -> 33902 (+28), continuing "fix everything remaining" on uniml/xml, 9 -> 8. The
+# self-method-call arm (`readContent(name)` inside another method of the same mutable class,
+# rendered as `self.readContent(name)`) is a WHOLE SEPARATE rendering path from the ordinary call
+# machinery — it exists only to prepend `self.` and fill defaults — and never called
+# `cloneIfMoved` on its own arguments: `error[E0382]: borrow of moved value: name`, `name` used
+# again later in the same method. Now applies the identical `cloneIfMoved` the ordinary path
+# already does. 8 errors remain.
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-33874 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+33902 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

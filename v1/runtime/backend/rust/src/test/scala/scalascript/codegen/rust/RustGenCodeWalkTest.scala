@@ -1453,6 +1453,27 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(!g.contains("move |__pf|"), s"a synchronously-consumed map closure must not `move`:\n$g")
 
+  test("an implicit-receiver self-method call clones a multi-use argument"):
+    // `readContent(name)` inside another method of the SAME mutable class (`uniml/xml`'s
+    // `Doc.scala`'s `Parser`: `readQName()` then `readContent(name)` then `Node::Element { name:
+    // name.clone(), … }`) renders as `self.readContent(name)` via a WHOLE SEPARATE rendering path
+    // (it exists only to prepend `self.` and fill defaults) that never called `cloneIfMoved` on
+    // its own arguments: `error[E0382]: borrow of moved value: name`, `name` read again
+    // afterward. This lane needs a genuinely mutable `class` (not `case class`) so the call
+    // renders through the self-method path at all.
+    val src =
+      """```scalascript
+        |class Reader(source: String):
+        |  private var pos: Int = 0
+        |  private def helper(id: String): String = id
+        |  def process(id: String): String =
+        |    val h = helper(id)
+        |    id + h
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("self.helper(id.clone())"), s"the implicit self-method call must clone a multi-use argument:\n$g")
+
   test("`s.takeWhile(char => …)` on a String does not call a closure literal as an IIFE"):
     // `value.drop(2).takeWhile(char => !isXmlWhitespace(char) && char != '?')` (`uniml/xml`'s
     // `Doc.scala`'s `validatePi`) — the explicit-param lambda argument was rendered generically
