@@ -2,7 +2,7 @@
 
 Status: **design / planning**. No implementation yet; every code sample in this document has been
 run for real against this checkout's `bin/ssc-tools` to confirm it actually compiles and produces
-the stated result — see §11 for what that verification found (including one interpreter bug it
+the stated result — see §12 for what that verification found (including one interpreter bug it
 surfaced).
 
 Companion documents:
@@ -10,7 +10,7 @@ Companion documents:
   here with canonical instances (`Int` sum, `String` concat, `List` concat). This document adds
   `Group` and builds `Aggregator` on top; it does not redefine `Semigroup`/`Monoid`.
 - [`std/foldable-traversable.ssc`](../std/foldable-traversable.ssc) — documents the same
-  typeclass-resolution limits this spec designs around (§11.1).
+  typeclass-resolution limits this spec designs around (§12.1).
 - [`specs/distributed-streams.md`](distributed-streams.md) — `DStream[T]`/`Pipeline`, with real
   backends (native actor cluster, Spark, Kafka Streams, Flink, Beam) already implemented. Its
   `Status:` line ("design sign-off required before implementation starts") is stale — the backend
@@ -19,6 +19,10 @@ Companion documents:
   become the `zero`/`seqOp`/`combOp` triple `aggregatePerKey`/`runFold` already accept.
 - [`specs/mapreduce.md`](mapreduce.md) — `Dataset[T]` batch map-reduce; the same bridge applies to
   its `fold`/`reduce` operators.
+- [`std/functor-applicative-monad.ssc`](../std/functor-applicative-monad.ssc) — `Functor`/
+  `Applicative`/`Monad` already ship here (§11 builds `EffAggregator` on top, reusing them as-is).
+- [`specs/algebraic-effects.md`](algebraic-effects.md) — asynchrony is a `! Async` effect here, not
+  a `Future`/`Task` value type; §11 designs around that rather than introducing a second one.
 
 ## 1. Motivation
 
@@ -267,7 +271,7 @@ to the number, so "approximately 2.1M distinct users (±1.6%)" is the honest def
 an afterthought a careless caller can omit.
 
 Each sketch below is presented as a `precision`/`depth`-parameterized **class**, not a `given`, and
-each verified example threads a field through a local `val` before indexing it — see §11.3 for the
+each verified example threads a field through a local `val` before indexing it — see §12.3 for the
 two front limitations this sidesteps (a `given ... with` method capturing a free top-level `val`,
 and indexing a case-class field directly as `recv.field(i)`). Neither affects the algebra: every
 sketch below is still an ordinary `Monoid[Acc]` instance, just constructed with its tuning
@@ -504,7 +508,7 @@ document adds no second oracle.
 
 ## 10. Rendering results
 
-§12 used to list rendering as entirely out of scope, on the grounds that "no chart/table/render
+§13 used to list rendering as entirely out of scope, on the grounds that "no chart/table/render
 module exists" under `std/`. Checked directly rather than assumed: that is true for **charts**,
 but not for **tables** — `std/ui/data.ssc` already ships a live, reactive table component
 (`dataTable`/`staticDataTable`, with typed columns via `fcol`/`dcol`/`mcol`/`scol`/`lcol`), and
@@ -556,16 +560,178 @@ described, in its own comments, as "the escape hatch for content the declarative
 express (a custom chart, a bespoke composite)": the extension point exists and is already used for
 other custom content; a future chart renderer plugs into it the same way, consuming an
 `Aggregator`'s `Out` (or a time series of them, for a live dashboard) the same way §10.1's table
-bridge does. Building that renderer is out of scope here (§12) — the point of this subsection is
+bridge does. Building that renderer is out of scope here (§13) — the point of this subsection is
 that "any format" (§1) does not need a new mechanism invented for charts specifically once it
 exists; it needs the same `headers`/`rows`-shaped bridge, or `slots`' existing escape hatch.
 
-## 11. Type-system constraints this design works within
+## 11. Effects and asynchrony
+
+`Aggregator.prepare`/`present` (§3) are total, pure functions. Real records don't always cooperate:
+`prepare` may need to validate, parse-and-possibly-fail, or enrich a record with an external
+(asynchronous) lookup before it becomes accumulator state. This section asks the question the
+opening discussion raised explicitly — monads, applicatives, functors, profunctors, arrows,
+categories, delimited continuations, "where it helps and doesn't complicate" — and answers it by
+checking what ScalaScript already has before reaching for any of that vocabulary formally.
+
+**What already exists, reused as-is:** `std/functor-applicative-monad.ssc` ships `Functor[F[_]]`,
+`Applicative[F[_]]`, `Monad[F[_]]` with working `List`/`Option` instances (extension-method
+dispatch via `given ... with` — verified live, part of this repository's own conformance corpus at
+`tests/conformance/std-functor-applicative-monad.ssc`). ScalaScript models asynchrony as an
+**algebraic effect**, not a `Future`/`Task` value type (`specs/algebraic-effects.md` §7:
+`def fetch(url): Response ! Async`), discharged by effect handlers; `direct[M]`/`.!` gives
+do-notation over any `Monad[F[_]]`, `Either`/the `A throws E` alias already cover pure failure.
+None of this is new — §12.1 already found that ScalaScript doesn't auto-resolve `using` clauses,
+so every helper below takes its typeclass instance as an **explicit parameter**, exactly like
+every combinator already in §4 and §9.
+
+### 11.1 `EffAggregator[F[_], In, Acc, Out]` — the same three-part shape, prepare/present in `F`
+
+```scalascript
+trait EffAggregator[F[_], In, Acc, Out]:
+  def monoid: Monoid[Acc]        // merging accumulated state stays PURE — no reason for it not to
+  def prepare(in: In): F[Acc]    // turning a record into state may fail, or need an effect
+  def present(acc: Acc): F[Out]  // reading the final answer out may also be effectful
+```
+
+`Acc`'s `monoid` is deliberately untouched — an accumulator merge (§2) has no reason to become
+effectful just because *producing* one accumulator value did, and keeping it pure is what lets
+`Aggregator` (§3) and `EffAggregator` share the same `Monoid[Acc]` unchanged.
+
+A pure `Aggregator` lifts into any `Applicative[F]` for free — this is the "adapter" the opening
+discussion asked for, built directly on top of §3's `Aggregator` rather than beside it:
+
+```scalascript
+class LiftAgg[F[_], In, Acc, Out](agg: Aggregator[In, Acc, Out], app: Applicative[F])
+    extends EffAggregator[F, In, Acc, Out]:
+  def monoid: Monoid[Acc] = agg.monoid
+  def prepare(in: In): F[Acc] = app.pure(agg.prepare(in))
+  def present(acc: Acc): F[Out] = app.pure(agg.present(acc))
+```
+
+Running one needs a monadic fold — each `prepare` now returns `F[Acc]`, so combining it into the
+running total has to happen *inside* `F`:
+
+```scalascript
+def runEffAggregator[F[_], In, Acc, Out](
+    xs: List[In], agg: EffAggregator[F, In, Acc, Out], m: Monad[F]
+): F[Out] =
+  val accF: F[Acc] = xs.foldLeft(m.pure(agg.monoid.empty)) { (accF, in) =>
+    accF.flatMap(acc => agg.prepare(in).flatMap(prepared => m.pure(agg.monoid.combine(acc, prepared))))
+  }
+  accF.flatMap(agg.present)
+```
+
+Verified with `F = Option`, a `prepare` that fails the whole aggregation on a negative input:
+
+```scalascript
+class ValidatingSum() extends EffAggregator[Option, Int, Int, Int]:
+  def monoid: Monoid[Int] = intSum
+  def prepare(in: Int): Option[Int] = if in >= 0 then Some(in) else None
+  def present(acc: Int): Option[Int] = Some(acc)
+
+println(runEffAggregator(List(1, 2, 3), ValidatingSum(), optionMonad))    // => Some(6)
+println(runEffAggregator(List(1, -2, 3), ValidatingSum(), optionMonad))   // => None
+```
+
+and `LiftAgg` lifting an ordinary §3 `Aggregator` (no changes to it) into the same shape:
+
+```scalascript
+val lifted = LiftAgg(CountAgg[String](), optionMonad)   // optionMonad IS an Applicative[Option]
+println(runEffAggregator(List("a", "b", "c"), lifted, optionMonad))   // => Some(3)
+```
+
+### 11.2 Composing two effectful aggregators — `Applicative.ap`, not a new mechanism
+
+§4.1's `ZipAgg` generalizes the same way `Aggregator` itself did — `prepare` for each side now
+returns `F[Acc]`, and combining two independent `F`-values into one is exactly what
+`Applicative.ap` is for (no `Monad`/sequencing dependency between the two sides needed, since
+neither's `prepare` depends on the other's result):
+
+```scalascript
+class ZipEffAgg[F[_], In, AccA, AccB, OutA, OutB](
+    aggA: EffAggregator[F, In, AccA, OutA],
+    aggB: EffAggregator[F, In, AccB, OutB],
+    app: Applicative[F]
+) extends EffAggregator[F, In, (AccA, AccB), (OutA, OutB)]:
+  def monoid: Monoid[(AccA, AccB)] = PairMonoid(aggA.monoid, aggB.monoid)
+  def prepare(in: In): F[(AccA, AccB)] =
+    aggA.prepare(in).ap(aggB.prepare(in).map(b => (a: AccA) => (a, b)))
+  def present(acc: (AccA, AccB)): F[(OutA, OutB)] =
+    aggA.present(acc._1).ap(aggB.present(acc._2).map(b => (a: OutA) => (a, b)))
+```
+
+Verified: zipping two validating aggregators over `Option` short-circuits to `None` the moment
+either side's `prepare` does, and pairs their results otherwise —
+`ZipEffAgg(ValidatingSum(), ValidatingCount(), optionMonad).prepare(5)` gives `Some((5, 1))`;
+`.prepare(-1)` gives `None`.
+
+### 11.3 `Aggregator` is already profunctor-shaped — named, not formalized (yet)
+
+`Aggregator[In, Acc, Out]` is contravariant in `In` and covariant in `Out` with `Acc` fixed —
+exactly a `Profunctor`'s shape (`dimap: (C => A, B => D) => P[A,B] => P[C,D]`). §4.2's `MapAgg` is
+already the covariant half (`rmap`); the contravariant half was missing:
+
+```scalascript
+class ContramapAgg[In2, In, Acc, Out](agg: Aggregator[In, Acc, Out], f: In2 => In)
+    extends Aggregator[In2, Acc, Out]:
+  def monoid: Monoid[Acc] = agg.monoid
+  def prepare(in: In2): Acc = agg.prepare(f(in))
+  def present(acc: Acc): Out = agg.present(acc)
+
+def dimapAgg[In2, In, Acc, Out, Out2](
+    agg: Aggregator[In, Acc, Out], f: In2 => In, g: Out => Out2
+): Aggregator[In2, Acc, Out2] =
+  MapAgg(ContramapAgg(agg, f), g)
+```
+
+Verified: adapting a `SumAgg: Aggregator[Int, Int, Int]` to sum STRING LENGTHS instead —
+`ContramapAgg(SumAgg(), (s: String) => s.length)` run over `List("a", "bb", "ccc")` gives `6`;
+`dimapAgg` additionally formatting the output gives `"total=6"`.
+
+**Why this is named rather than made a formal `Profunctor[P[_, _]]` instance, checked rather than
+assumed:**
+
+```scalascript
+trait Profunctor[P[_, _]]:
+  extension [A, B](p: P[A, B]) def dimap[C, D](f: C => A, g: B => D): P[C, D]
+
+class DimappedAgg[C, In, Acc, Out, D](p: Aggregator[In, Acc, Out], f: C => In, g: Out => D)
+    extends Aggregator[C, Acc, D]:
+  def monoid: Monoid[Acc] = p.monoid
+  def prepare(in: C): Acc = p.prepare(f(in))
+  def present(acc: Acc): D = g(p.present(acc))
+
+given aggProf[Acc]: Profunctor[[In, Out] =>> Aggregator[In, Acc, Out]] with
+  extension [A, B](p: Aggregator[A, Acc, B])
+    def dimap[C, D](f: C => A, g: B => D): Aggregator[C, Acc, D] = DimappedAgg(p, f, g)
+
+SumAgg().dimap((s: String) => s.length, (n: Int) => "total=" + n.toString)
+```
+
+parses and typechecks — a `Profunctor[P[_, _]]` trait (mirroring `std/bifunctor.ssc`'s existing
+`Bifunctor`), a `given` instance for `Aggregator` fixed at one `Acc` via a type lambda over a
+partially-applied type constructor — but calling it throws `unhandled runtime effect:
+SumAgg.dimap`: the extension method `given` never actually gets consulted at the call site, the
+same failure family as §12.1's `given` derivation gap (see §12.4). `ContramapAgg`/`dimapAgg` avoid
+the whole question by being ordinary functions, exactly like every other combinator in §4 — once
+`given` composition is fixed (§12.4's own next step), promoting this to a real
+`Profunctor[P[_, _]]` instance is a small, low-risk follow-up, not a redesign.
+
+### 11.4 What stays deliberately deferred
+
+Arrows, `Category`, and inventing a new `Future`/`Task`/`Result` value type are set aside for now,
+not rejected: `Either`/`A throws E` (pure failure) and `! Async` (the effect ScalaScript already
+uses for asynchrony) already cover what a `Future`/`Task` type would be reached for, so a new value
+type would duplicate rather than add; neither `Arrow` nor `Profunctor`-as-`Category` has a second
+concrete need in this document beyond §11.3's `dimap`, which needs no category structure to be
+useful. Revisit once §12.4's `given`-composition fix lands and a second genuine use surfaces.
+
+## 12. Type-system constraints this design works within
 
 Two real constraints, found by running code against this checkout rather than assumed from the
 language grammar, shape every code sample above:
 
-### 11.1 No parametric `given` derivation via `using`
+### 12.1 No parametric `given` derivation via `using`
 
 ```scalascript
 given pairMonoid[A, B](using ma: Monoid[A], mb: Monoid[B]): Monoid[(A, B)] with
@@ -584,7 +750,7 @@ for the stated goal (§1: "guaranteed to work", explicitly preferred over clever
 combinator call always resolves to exactly the instance the two arguments name, with no
 implicit-search ambiguity to reason about at all, on any backend a future compiler targets.
 
-### 11.2 Point-free method references on a generically-typed class instance don't eta-expand correctly
+### 12.2 Point-free method references on a generically-typed class instance don't eta-expand correctly
 
 ```scalascript
 def combineAll[A](xs: List[A], m: Monoid[A]): A =
@@ -604,7 +770,7 @@ xs.foldLeft(m.empty)((a, b) => m.combine(a, b))    // works with EITHER kind of 
 
 Every combinator in this document (§3's `runAggregator`, §4's `ZipAgg`/`MapAgg`, §9's bridge
 helpers) uses the explicit-lambda form throughout, specifically because `Aggregator`/`Monoid`
-instances in this design are ordinary `class` values, not exclusively `given` ones (§11.1 already
+instances in this design are ordinary `class` values, not exclusively `given` ones (§12.1 already
 rules out `given`-based derivation for the composed cases).
 
 **FIXED 2026-08-29, independently on all three lanes** — `v2/BUGS.md`
@@ -615,12 +781,12 @@ rules out `given`-based derivation for the composed cases).
 regressing an existing one). `xs.foldLeft(m.empty)(m.combine)` now works unmodified on every
 lane. This document was written and verified *before* the fix landed and keeps the
 explicit-lambda form throughout regardless — not as a workaround left in place out of inertia,
-but because §11.1 already commits this design to explicit combinators over implicit `given`
+but because §12.1 already commits this design to explicit combinators over implicit `given`
 assembly for the same reason (no implicit-resolution ambiguity to reason about, on any backend).
 A future revision may adopt the point-free form now that it is safe on every lane; it would be a
 style change, not a correctness fix.
 
-### 11.3 Two further front limitations found while writing §6's sketches
+### 12.3 Two further front limitations found while writing §6's sketches
 
 Neither blocks anything in this document — both have a straightforward workaround, already used
 throughout §6 — but both are real, reproduced directly against `bin/ssc-tools`, and worth naming
@@ -659,7 +825,39 @@ println(a(0))        // 1
 Every sketch in §6 threads each array field through a local `val` (`ar`, `br`, `counts`) before
 indexing it for this reason.
 
-## 12. Explicitly out of scope for this document
+### 12.4 The `given`-derivation gap, scoped precisely — the next thing this design needs fixed
+
+§12.1's `pairMonoid[A, B](using ma: Monoid[A], mb: Monoid[B]): Monoid[(A, B)]` failure is not a
+tuple-specific quirk. The SAME shape, minimized to one type parameter and one `using` instance
+instead of two:
+
+```scalascript
+case class Box[A](value: A)
+
+given boxMonoid[A](using ma: Monoid[A]): Monoid[Box[A]] with
+  def empty: Box[A] = Box(ma.empty)
+  def combine(x: Box[A], y: Box[A]): Box[A] = Box(ma.combine(x.value, y.value))
+
+val m = summon[Monoid[Box[Int]]]   // "unbound global: __summon_value_Monoid" — never resolved
+```
+
+fails too — with a DIFFERENT symptom (`unbound global: __summon_value_Monoid`, a name-resolution
+failure, vs. §12.1's `TYPEERR: cannot unify tuple`, a type-checking failure) for what is the same
+underlying shape:
+**a `given` that is itself generic and takes another `given` as a `using` parameter to build its
+result.** §11.3's type-lambda `Profunctor` instance is a third data point in the same family — a
+`given` built over a partially-applied type constructor rather than a plain nominal type.
+
+This is the concrete, scoped repro the next phase of this work fixes: not "given resolution is
+broken" (ordinary, non-parametric `given`s — `intSum`, `optionMonad`, every instance §2–§11 already
+uses — work correctly, including EXTENSION-method dispatch resolved by receiver type, which is
+the mechanism §11 relies on throughout), but specifically **a `given` whose own declaration takes
+one or more `using`-bound instances to construct its result type**, regardless of whether that
+result type is a tuple, a single-parameter wrapper, or a type lambda. Two different failure
+symptoms across the three data points suggest more than one thing goes wrong along the way, not
+one — worth keeping in view rather than assuming a single-line fix once the real diagnosis starts.
+
+## 13. Explicitly out of scope for this document
 
 Tracked as separate future specs, each of which consumes `Aggregator` as its computational core
 rather than redefining it:
@@ -682,3 +880,6 @@ rather than redefining it:
 - **Real-time streaming dashboards** are the composition of all of the above (an unbounded
   `Source`, a `Group`-backed sliding-window `Aggregator` per §7, and a live chart renderer) — not
   a fifth primitive of their own.
+- **`Arrow`/`Category`, and a new `Future`/`Task`/`Result` value type** — §11.4 explains why:
+  `Either`/`! Async` already cover what the latter would be reached for, and neither of the former
+  has a second concrete use here beyond §11.3's `dimap`, which doesn't need one to be useful.
