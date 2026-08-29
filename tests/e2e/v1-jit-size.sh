@@ -484,10 +484,26 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # `cloneIfMoved`'s existing call sites never covered at all (a tuple's ELEMENTS, not the tuple
 # itself). **uniml/xml's real `cargo build` now succeeds with ZERO errors** (603 warnings, all
 # cosmetic — snake_case naming, unused variables). 0 errors remain.
+#
+# renderTerm 33982 -> 34574 (+592), starting on `uniml/json` (the same effort, one dialect module
+# over) — 35 -> 17 real cargo-build errors across three fixes: (1) `xs.filterNot(p)` had NO
+# lowering at all (`filterNot` emitted verbatim as a Rust method that does not exist) — new arm
+# negating via an IIFE (`!($p)(x)`), works uniformly whether `p` is a bare function reference or a
+# closure literal; (2) `Map.empty[K, V]` (the explicit-type-args spelling) parses as
+# `Term.ApplyType` wrapping the SAME `Term.Select` the existing bare `Map.empty` case matches —
+# two new arms dropping the (unneeded — `HashMap::new()`/`Vec::new()` already infer from usage)
+# type args, mirroring the existing bare-spelling cases for `Vector`/`List`/`Array`/`Set`/`Map`.
+# Both arms are inline in `renderTerm`'s own match, hence the growth. The THIRD fix (bare-typed
+# variant pattern text, `renderPattern`'s own with-fields case previously required a QUALIFIED
+# `Type.Select` — `case frame: ObjectFrame =>` on a TOP-LEVEL case class, `uniml/json`'s
+# `JsonStructure.scala`, uses a bare `Type.Name` and fell through to the generic "drop the type"
+# fallback, rendering an untyped catch-all `frame` while `bodyCtx` still believed it was
+# destructured — `error[E0425]: cannot find value state`) lives in `renderPattern`, a SEPARATE
+# function, and costs nothing here.
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-33982 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+34574 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

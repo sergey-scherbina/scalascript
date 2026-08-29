@@ -3636,6 +3636,15 @@ object RustCodeWalk:
       case m.Term.Apply.After_4_6_0(m.Term.Select(q, m.Term.Name(n)), _)
         if SeqPreserving.contains(n) || SeqMethods.contains(n) => rootedInSeq(q)
       case m.Term.Select(q, m.Term.Name(n)) if SeqPreserving.contains(n) => rootedInSeq(q)
+      // A bare field-select whose OWN declared type is a Vec (`seqFields`, the SAME table
+      // `seqCtor`'s own twin case just above checks — but only for a chain that BOTTOMS OUT at a
+      // field read, `seqCtor` never recurses into a qualifier at all). `val significant = result.
+      // roots.filterNot(isTriviaNode)` (`uniml/json`'s `JsonProjection.scala`'s `project`) —
+      // `filterNot` correctly recurses here via the SeqPreserving case just above, landing on
+      // `result.roots` itself, which this case is what actually resolves: without it,
+      // `significant.headOption` fell to the no-paren-member refusal despite `filterNot` already
+      // being fixed to `renderTerm` an actual Vec.
+      case m.Term.Select(m.Term.Name(r), m.Term.Name(f)) if seqFields.get(r).exists(_.contains(f)) => true
       case _ => false
     // The DECLARED type, checked before the rhs shape at all: `var elements: Vector[String] =
     // Vector.empty` (`XmlDialect.scala`'s `XmlScanner.scan`) has an rhs `seqCtor`/`rootedInSeq`
@@ -5306,6 +5315,16 @@ object RustCodeWalk:
       Right("Vec::new()")
     case m.Term.Select(m.Term.Name("Map"), m.Term.Name("empty")) =>
       Right("std::collections::HashMap::new()")
+    // `Map.empty[String, JsonValue]` (`uniml/json`'s `JsonProjection.scala`'s `objectMap`) — the
+    // EXPLICIT-type-args spelling of the two cases just above parses as `Term.ApplyType` wrapping
+    // the SAME `Term.Select`, a shape neither case matches at all: `def objectMap contains an
+    // unsupported expression: Term.ApplyType`. `Vec::new()`/`HashMap::new()` already infer their
+    // element/key/value types from how the result is used, so the type args carry no information
+    // this lane needs — dropped, same answer as the bare (type-argument-free) spelling.
+    case m.Term.ApplyType.After_4_6_0(m.Term.Select(m.Term.Name("Vector" | "List" | "Array" | "Set"), m.Term.Name("empty")), _) =>
+      Right("Vec::new()")
+    case m.Term.ApplyType.After_4_6_0(m.Term.Select(m.Term.Name("Map"), m.Term.Name("empty")), _) =>
+      Right("std::collections::HashMap::new()")
 
     // `scala.collection.mutable.ListBuffer.empty[T]` / bare `ListBuffer.empty[T]` (`uniml/xml`'s
     // `Doc.scala`'s `parseDoc`/`readAttrs`/`readContent`) and `scala.collection.mutable.
@@ -6834,6 +6853,21 @@ object RustCodeWalk:
         q <- renderTerm(qual, ctx)
         body <- renderVecIterBody(args.values.head, q, ctx, method = "filter")
       yield body
+
+    // `xs.filterNot(p)` (`uniml/json`'s `JsonProjection.scala`: `result.roots.filterNot(
+    // isTriviaNode)`) — this backend had NO lowering at all (`filterNot` would be emitted
+    // VERBATIM as a Rust method that does not exist). Negate at the call site rather than
+    // reusing `renderVecIterBody`'s own `.filter` dispatch: `p` here is most often a bare
+    // FUNCTION-REFERENCE (`isTriviaNode`, not an inline lambda), and calling it explicitly
+    // (`(p)(x)`) works uniformly whether `p` renders as a plain name or an actual closure —
+    // the same IIFE shape `renderVecIterBody`'s own method-reference branch already uses.
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(qual, m.Term.Name("filterNot")), args
+    ) if args.values.size == 1 && !isOptionExpr(qual, ctx) && !isRangeExpr(qual) =>
+      for
+        q <- renderTerm(qual, ctx)
+        p <- renderTerm(args.values.head, ctx)
+      yield s"$q.iter().cloned().filter(|__x| !($p)(__x.clone())).collect::<Vec<_>>()"
 
     // xs.takeWhile(pf) / xs.dropWhile(pf) on a Vec — same shape as `.filter` immediately above,
     // just a different Rust iterator method (`uniml/xml`'s `Doc.scala`'s `projectMarkup`, where
@@ -10952,8 +10986,20 @@ object RustCodeWalk:
     // name — which is what lets the arm BODY'S `r.field` reads resolve at all, once `renderTerm`'s
     // own `ctx.paramCtorNames`-driven case (fed by this same pattern, see `renderMatch`) rewrites
     // them from `r.field` to the bare destructured `field`.
-    case m.Pat.Typed(m.Pat.Var(m.Term.Name(n)), m.Type.Select(_, m.Type.Name(ctorName)))
-        if ctx.ctorMap.get(ctorName).exists(_.fieldNames.nonEmpty) =>
+    // `case frame: ObjectFrame =>` (bare — `uniml/json`'s `JsonStructure.scala`: `ObjectFrame` is
+    // a TOP-LEVEL case class, never nested in an object, so the pattern's type is a bare
+    // `Type.Name`, not `Type.Select`) needs the SAME destructure the qualified spelling just below
+    // gets. `renderMatch`'s own bodyCtx case (a few hundred lines up) and `variantBodyCtxExtra`
+    // BOTH already accept either spelling via `ctorNameOfType` (which itself has a `Type.Name`
+    // case) — this was the ONE place still requiring `Type.Select` specifically, so `frame`'s
+    // ACTUAL pattern text fell through to the generic "drop the type, keep the binder" case below,
+    // rendering a bare `frame` (an irrefutable var pattern, no destructure, no narrowing at all)
+    // while `bodyCtx` still (correctly) believed `frame` was `byRefMut`-destructured — the type
+    // ascription's OWN inner match (`frame.state match { … }`) then rendered as bare `match state`,
+    // referencing a name that was never actually bound: `error[E0425]: cannot find value state`.
+    case m.Pat.Typed(m.Pat.Var(m.Term.Name(n)), ty)
+        if ctorNameOfType(ty).flatMap(ctx.ctorMap.get).exists(_.fieldNames.nonEmpty) =>
+      val ctorName = ctorNameOfType(ty).get
       val ec = ctx.ctorMap(ctorName)
       // `ref` on the whole binding AND every field — binding `r` to the WHOLE matched value while
       // ALSO moving ITS OWN fields out (the plain form above) makes `r` itself only PARTIALLY

@@ -1360,6 +1360,58 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(!g.contains("localName: \"xmlns\""), s"the literal must not stay a struct-field literal pattern:\n$g")
     assert(g.contains("== \"xmlns\""), s"the literal should become an equality guard on the arm:\n$g")
 
+  test("`xs.filterNot(p)` lowers via a negated predicate"):
+    // `result.roots.filterNot(isTriviaNode)` (`uniml/json`'s `JsonProjection.scala`) — this
+    // backend had no lowering for `filterNot` at all; it would have been emitted verbatim as a
+    // Rust method that does not exist.
+    val src =
+      """```scalascript
+        |def isEven(x: Int): Boolean = x % 2 == 0
+        |def odds(xs: List[Int]): List[Int] = xs.filterNot(isEven)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".filter(|__x| !(isEven)(__x.clone()))"), s"filterNot must lower via a negated filter:\n$g")
+
+  test("`Map.empty[K, V]` (explicit type args) lowers the same as bare `Map.empty`"):
+    // `Map.empty[String, JsonValue]` (`uniml/json`'s `JsonProjection.scala`'s `objectMap`) parses
+    // as `Term.ApplyType` wrapping the same `Term.Select` the bare `Map.empty` case matches — a
+    // shape neither case matched at all: "contains an unsupported expression: Term.ApplyType".
+    val src =
+      """```scalascript
+        |def empty(): Map[String, Int] = Map.empty[String, Int]
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("std::collections::HashMap::new()"), s"Map.empty[K, V] must lower like bare Map.empty:\n$g")
+
+  test("a match-arm typed bind to a BARE (unqualified) with-fields variant destructures, not just a qualified one"):
+    // `case frame: ObjectFrame => frame.state match { … }` (`uniml/json`'s `JsonStructure.scala`)
+    // — `ObjectFrame` is a TOP-LEVEL case class (never nested in an object), so its pattern is a
+    // bare `Type.Name`, not `Type.Select`. `renderPattern`'s own with-fields-variant case required
+    // `Type.Select` specifically, so the pattern fell through to the generic "drop the type, keep
+    // the binder" case — an untyped catch-all with no destructure — while `bodyCtx` (a SEPARATE,
+    // already-general case) still believed `frame` was destructured: `error[E0425]: cannot find
+    // value state`, since the inner `frame.state match { … }` rendered as bare `match state`.
+    val src =
+      """```scalascript
+        |sealed trait Frame
+        |final case class ObjectFrame(state: Boolean) extends Frame
+        |
+        |def consumeKey(frame: ObjectFrame): Unit = ()
+        |
+        |def step(f: Frame): Unit =
+        |  f match
+        |    case frame: ObjectFrame =>
+        |      frame.state match
+        |        case true => consumeKey(frame)
+        |        case false => ()
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("ref frame @ Frame::ObjectFrame { ref state }"), s"a bare-typed with-fields bind must destructure:\n$g")
+    assert(g.contains("match state {"), s"the inner match must see the destructured field, not a dangling name:\n$g")
+
   test("`.map { case x: Variant => x }` (a PartialFunction dispatcher) applies the SAME byRefMut enrichment `renderMatch` gives a standalone match"):
     // `element.children.collect { case child: Markup.Element => child }` (`uniml/xml`'s
     // `Doc.scala`'s `validateNamespaces`) — this shape reaches a SEPARATE, simpler renderer (for a
