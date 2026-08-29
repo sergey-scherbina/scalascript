@@ -1,4 +1,4 @@
-# corpus-contract-roster-v1	baseline-sha256=b9408d8f1ad3dbbfad634a51be32e3ecd332c90d9e00c23d296619c0cb79a730	roster-sha256=edc4bb97b9618e7de75f227468a82e0b88f84bc5ad355300ba14c66cc1d449ae
+# corpus-contract-roster-v1	baseline-sha256=b9408d8f1ad3dbbfad634a51be32e3ecd332c90d9e00c23d296619c0cb79a730	roster-sha256=b01974cb5414dba0524fb576eb268c17ebb757268ee7273864959c3d177a0a90
 _bug1_httpclient
 _bug1b
 _bug1c
@@ -442,6 +442,7 @@ ssr-page
 standard-scala-fence
 standard-scala-mixed-runnable
 standard-scala-multifence
+std-aggregator
 std-bifunctor
 std-foldable-traversable
 std-fs-failure
