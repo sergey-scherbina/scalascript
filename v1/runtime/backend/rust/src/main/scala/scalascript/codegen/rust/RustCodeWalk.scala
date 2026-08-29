@@ -7237,7 +7237,15 @@ object RustCodeWalk:
         f <- args.values.head match
           case fn2: m.Term.Function =>
             val p = fn2.paramClause.values.headOption.map(_.name.value).getOrElse("x")
-            renderTerm(fn2.body, ctx).map(b => s"move |&$p| { $b }")
+            // `tokens.indices.filter(index => tokens(index).kind == "...")` then `tokens` again
+            // later (`uniml/yaml`'s `YamlStructure.scala`'s `streamAndDocuments`) — the SAME
+            // move-capture gap the Range `.map` case just above already fixes, for `.filter`'s
+            // OWN `move |&p| { … }` closure shape: `error[E0382]: use of moved value: tokens`.
+            renderTerm(fn2.body, ctx).map { b =>
+              val reborrow = readsAnyOf(fn2.body, ctx.multiUse.intersect(ctx.defParams) - p).toList.sorted
+              if reborrow.isEmpty then s"move |&$p| { $b }"
+              else s"{ ${reborrow.map(c => s"let $c = $c.clone();").mkString(" ")} move |&$p| { $b } }"
+            }
           case other =>
             renderTerm(other, ctx).map(f => s"|x| ($f)(*x)")
       yield s"$q.filter($f)"

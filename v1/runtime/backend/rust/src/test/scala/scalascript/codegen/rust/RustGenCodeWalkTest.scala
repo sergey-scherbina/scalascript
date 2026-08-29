@@ -2696,3 +2696,23 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(!g.contains("let - ") && !g.contains("let Range ="),
       s"an operator or constructor name must never appear in the clone-prelude:\n$g")
+
+  test("`xs.indices.filter { ... xs ... }` then `xs` again later clones at the move-capture too"):
+    // `tokens.indices.filter(index => tokens(index).kind == "...")` then `tokens` again later
+    // (`uniml/yaml`'s `YamlStructure.scala`'s `streamAndDocuments`) — the `.filter` sibling of
+    // the `.map` case's own fix, same `move |&p| { … }` capture gap: `error[E0382]: use of moved
+    // value: tokens`.
+    val src =
+      """```scalascript
+        |case class Tok(kind: String)
+        |
+        |def validateFlow(tokens: List[Tok]): Boolean = tokens.nonEmpty
+        |
+        |def starts(tokens: List[Tok]): (List[Int], Boolean) =
+        |  val starts = tokens.indices.filter(index => tokens(index).kind == "x").toList
+        |  (starts, validateFlow(tokens))
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("let tokens = tokens.clone(); move |&index|"),
+      s"a multi-use param captured by a move filter closure must be cloned at the capture point:\n$g")
