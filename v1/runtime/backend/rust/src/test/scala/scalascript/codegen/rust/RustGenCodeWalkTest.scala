@@ -2064,3 +2064,65 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(g.contains(".chars().rev().collect::<String>()"), s"a chained .reverse should still lower as a String reverse:\n$g")
     assert(!g.contains(".iter()"), s"a String .reverse/.dropWhile chain must not take the Vec .iter() path:\n$g")
+
+  test("a local def nested TWO block levels below a captured var still sees it"):
+    // `def visit(...) = … errors = errors :+ … ; visit(...)` (`uniml/yaml`'s `YamlProjection.scala`'s
+    // `validate`) — `visit` sits inside a `foreach` closure's own block, one level FURTHER OUT than
+    // `errors`'s own `var` declaration (`validate`'s top-level body). `liftLocalDefs`'s capture pool
+    // only ever looked at the IMMEDIATE block's own locals plus the enclosing DEF's params, so
+    // `errors` never reached it: `visit` rendered as a nested Rust `fn` referencing a free name from
+    // an enclosing scope, which a nested `fn` item cannot do regardless of nesting depth —
+    // `error[E0434]: can't capture dynamic environment in a fn item`.
+    val src =
+      """```scalascript
+        |def validate(items: List[String]): List[String] =
+        |  var errors: List[String] = Nil
+        |  items.foreach { item =>
+        |    def visit(x: String): Unit =
+        |      errors = errors :+ x
+        |    visit(item)
+        |  }
+        |  errors
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("fn visit(x: String, errors: &mut Vec<String>)"),
+      s"a local def two block levels below its captured var must still receive it as &mut:\n$g")
+    assert(g.contains("visit(item, &mut errors)") || g.contains("visit(item.clone(), &mut errors)"),
+      s"the call site must forward the captured var:\n$g")
+
+  test("a def nested inside ANOTHER lifted def calls a sibling of the OUTER def, and its own default"):
+    // `parseNode` (lifted out of `flowParse`'s OWN body, `uniml/yaml`'s `YamlSemanticParser.scala`)
+    // calls `problem`/`quotedSingle` — lifted one level UP, siblings of `flowParse` itself, each
+    // needing `diagnostics: &mut Vec<Diagnostic>`. `liftLocalDefs`'s `baseCtx` OVERWROTE
+    // `liftedDefExtraArgs`/`liftedMutableCaptures` with just the INNER level's own captures instead
+    // of merging, so a call two levels down to an outer-level lifted def stopped being recognized as
+    // a lifted-def call at all and emitted with no capture argument:
+    // `error[E0061]: this function takes N arguments but N-1 were supplied`. Same fixture also
+    // covers the SEPARATE gap this uncovered: `problem`'s own trailing DEFAULT parameter
+    // (`severity: String = "warn"`) is invisible to the module-wide `_defaultsMap` (which never
+    // descends into a def's own body to find LOCAL defs) and to the lifted-call rendering arm
+    // (which builds its own argument list rather than reaching the `_defaultsMap`-aware ordinary
+    // call machinery) — an omitted-default call site under-supplied by exactly the trailing default.
+    val src =
+      """```scalascript
+        |def parse(input: String): List[String] =
+        |  var diagnostics: List[String] = Nil
+        |
+        |  def problem(message: String, severity: String = "warn"): Unit =
+        |    diagnostics = diagnostics :+ (severity + ":" + message)
+        |
+        |  def outer(text: String): Unit =
+        |    def inner(x: String): Unit =
+        |      problem(x)
+        |    inner(text)
+        |
+        |  outer(input)
+        |  diagnostics
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("fn inner(x: String, diagnostics: &mut Vec<String>)"),
+      s"inner must relay the OUTER def's own capture through as its own &mut parameter:\n$g")
+    assert(g.contains("""problem(x, "warn".to_string(), diagnostics)"""),
+      s"the omitted trailing default must be filled AND the capture forwarded:\n$g")

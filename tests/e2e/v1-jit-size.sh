@@ -596,10 +596,46 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # `s.takeWhile(char => …)` on a String, and was caught before landing since the full suite runs
 # before every corpus re-measurement). Re-verified uniml/xml and uniml/json both still build clean
 # (0 errors) after every step in this entry.
+#
+# renderTerm 36133 -> 36393 (+260), starting a REAL `cargo build` pass on uniml/yaml (184 genuine
+# errors, `--print-only` was already clean). Two structural gaps in `liftLocalDefs`, both about a
+# def NESTED TWO (or more) BLOCK LEVELS below the state it needs, not one — the existing capture
+# machinery only ever looked at the IMMEDIATE block's own locals plus the enclosing DEF's params:
+# (1) `def visit(...) = … allDiagnostics = … ; visit(...)` nested inside a `foreach` closure inside
+# `validate` — `allDiagnostics` (a `var` in `validate`'s OWN top-level body, one block further out
+# than `visit`'s immediate enclosing closure) never reached `visit`'s capture pool at all, so it
+# rendered as a nested Rust `fn` referencing a free name from an enclosing scope — a nested `fn`
+# item cannot do that in Rust regardless of nesting depth: `error[E0434]: can't capture dynamic
+# environment in a fn item`. Fixed with three new `Ctx` fields (`enclosingVarNames`/
+# `enclosingValNames`/`enclosingLocalTypes`) that `liftLocalDefs` folds its OWN block's var/val
+# names (and their resolved types) into on EVERY call — even a block with no local defs of its own,
+# since such a block can still sit between an outer var and a deeper lift that needs to see it — so
+# the capture pool and `inferCaptureType`'s fallback both see arbitrarily far outward. (2)
+# `parseNode` (lifted out of `flowParse`'s OWN body, a SECOND nested `liftLocalDefs` pass) calling
+# `quotedSingle`/`problem` (lifted one level UP, siblings of `flowParse` itself, each needing
+# `diagnostics: &mut Vec<Diagnostic>`) — `baseCtx` OVERWROTE `liftedDefExtraArgs`/
+# `liftedMutableCaptures` with just THIS level's own captures instead of merging, so `quotedSingle`
+# silently stopped being recognized as a lifted-def call two levels down and its call sites emitted
+# with no capture arguments at all: `error[E0061]: this function takes N arguments but N-1 (or
+# N-2) were supplied`. Fixed by merging instead of overwriting, plus a new `outerCalls`/
+# `liftedDefMutWrites` mechanism so a def that merely RELAYS a capture on to an outer-level callee
+# (never reading/writing it itself) still receives it, and receives it `&mut` when the callee
+# writes it. A THIRD, unrelated gap in the same batch: a local def's OWN trailing DEFAULT parameter
+# (`def problem(code, message, span, severity: Severity = Severity.Error)`) was invisible to the
+# module-wide `_defaultsMap` fill (which deliberately never descends into a def's own body to find
+# local defs) and to the lifted-call rendering arm (which builds its own argument list rather than
+# reaching the `_defaultsMap`-aware ordinary call machinery) — omitted-default call sites
+# (`problem(code, msg, span)`, most of its ~26 call sites) undercounted by exactly the trailing
+# default: fixed with a new `Ctx.liftedDefDefaults` field and a matching fill at that same call
+# site. The growth is ONLY the third fix's own default-fill, inline in the
+# `ctx.liftedDefExtraArgs.contains(n)` call-rendering arm inside `renderTerm`'s own match; the
+# first two fixes live entirely in `liftLocalDefs`, a separate function, and cost nothing here.
+# 184 -> 138 real cargo errors on uniml/yaml. Re-verified uniml/xml and uniml/json both still build
+# clean (0 errors).
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-36133 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+36393 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

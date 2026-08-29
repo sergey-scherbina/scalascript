@@ -2898,9 +2898,51 @@ object RustCodeWalk:
       // checks this set and emits `n.to_string()` instead of the bare name so a call expecting an
       // owned `String` parameter typechecks (`error[E0308]: expected String, found &str`).
       guardRawStrVars: Set[String] = Set.empty,
+      // `def visit(...) = ... allDiagnostics = allDiagnostics :+ ... ; visit(...) ...` nested inside
+      // `stream.documents.foreach { document => var anchors = ...; def visit(...) = ...; ... }`
+      // (`uniml/yaml`'s `YamlProjection.scala`'s `validate`) — `visit` is TWO block levels below
+      // `allDiagnostics`'s own `var` declaration (the enclosing `foreach` closure body sits between
+      // them), so `liftLocalDefs`'s own `pool` — built from just the IMMEDIATE block's var/val names
+      // plus `ctx.defParams`/`ctx.selfFields` — never saw it: `visit` was lifted to a Rust nested
+      // `fn` (required for the RECURSIVE self-call `visit(entry.key, ...)`) with `allDiagnostics`
+      // left as a bare free reference, and a nested `fn` item cannot see ANY enclosing scope —
+      // `error[E0434]: can't capture dynamic environment in a fn item`. These three fields carry
+      // every var/val name (and, for `enclosingLocalTypes`, its resolved Rust type) declared at
+      // ANY enclosing block level, not just the innermost one — `liftLocalDefs` folds its OWN
+      // block's names into them on every call (even when the block has no local defs of its own to
+      // lift), so a lift arbitrarily many blocks deep still finds `allDiagnostics` in its capture
+      // pool, correctly recognized as the mutable `var` it is.
+      enclosingVarNames: Set[String] = Set.empty,
+      enclosingValNames: Set[String] = Set.empty,
+      enclosingLocalTypes: Map[String, String] = Map.empty,
       // Local-def lambda-lifting: def name -> its captured names, in the FIXED canonical order used
       // both at its own (lifted) parameter list and at every call site that must append them.
       liftedDefExtraArgs: Map[String, List[String]] = Map.empty,
+      // `def problem(code: String, message: String, span: SourceSpan, severity: Severity =
+      // Severity.Error): Unit = …` (`uniml/yaml`'s `YamlSemanticParser.scala`'s `parse`) — a LOCAL
+      // def's OWN trailing default, invisible to the module-wide `_defaultsMap` fill (`collectDefs`
+      // deliberately never descends into a `Defn.Def`'s own body, so a local def never reaches
+      // `_defaultsMap` at all) and to the lifted-call rendering arm (which builds its own argument
+      // list rather than reaching the ordinary/`_defaultsMap`-aware call machinery, same reason its
+      // own comment gives for needing to redo `cloneIfMoved`) — `problem(code, msg, span)`, the
+      // common `problem(code, msg, span)` spelling (most of its ~26 call sites) leans on the
+      // default, and emitted 4 args against a 5-arg signature: `error[E0061]: this function takes
+      // 5 arguments but 4 arguments were supplied`.
+      liftedDefDefaults: Map[String, List[Option[m.Term]]] = Map.empty,
+      // `parseNode` (lifted out of `flowParse`'s OWN body, a SECOND `liftLocalDefs` pass) calls
+      // `quotedSingle` (lifted out of `parse`'s body one level UP, a sibling of `flowParse` itself)
+      // — `quotedSingle` needs `diagnostics: &mut Vec<Diagnostic>` (its own capture from THAT
+      // level), and since `quotedSingle` is a Rust nested `fn` item exactly like `parseNode`, the
+      // call has to pass it explicitly — which means `parseNode` must ALSO carry `diagnostics`
+      // through as one of ITS OWN parameters, purely to forward it, even though `parseNode`'s own
+      // body never reads or writes `diagnostics` directly. `liftedDefExtraArgs`/`liftedMutableCaptures`
+      // says WHAT an outer-level lifted def like `quotedSingle` captures; this says WHICH of those
+      // captures it treats as a WRITE (vs a read) — the same distinction `writes`
+      // (`liftLocalDefs`'s own second fixed point) makes for siblings at one level, needed here one
+      // level up so `parseNode`'s own capture of `diagnostics`, taken purely to relay it onward,
+      // still comes out `&mut` rather than `&` (`quotedSingle` reassigns it, and passing `&$t` where
+      // `&mut $t` is expected is `error[E0308]`).
+      liftedDefMutWrites: Map[String, Set[String]] = Map.empty,
       // The subset of ALL captures (across every def lifted together in one pass) that are backed by
       // a mutable `var` — used only to pick how a capture is rendered when forwarded at a call site:
       // `ctx.byRefMut` says "already a reference here"; this set says "take a NEW `&mut` if not".
@@ -5090,7 +5132,7 @@ object RustCodeWalk:
       case v: m.Defn.Val if matches(v.pats) =>
         v.decltpe.flatMap(t => mapType(t, ctx.defName, ctx.enumNames).toOption).orElse(fromInit(v.rhs))
     }.flatten
-    fromLocalDecl.orElse(ctx.paramTypes.get(name))
+    fromLocalDecl.orElse(ctx.paramTypes.get(name)).orElse(ctx.enclosingLocalTypes.get(name))
 
   /** The ELEMENT type of a `Vec<T>`-typed expression, when `inferCaptureType`'s same machinery can
    *  place it: `closeBefore.exists(_.isEmpty)` (`TreeVm.scala`'s `reframeProblem`) needs to know
@@ -5180,13 +5222,26 @@ object RustCodeWalk:
       stats: List[m.Stat], ctx: Ctx
   ): Either[List[Diagnostic], (List[String], List[m.Stat], Ctx)] =
     val localDefs: List[m.Defn.Def] = stats.collect { case d: m.Defn.Def => d }
-    if localDefs.isEmpty then Right((Nil, stats, ctx))
+    def patNames(pats: List[m.Pat]): Set[String] =
+      pats.collect { case m.Pat.Var(m.Term.Name(n)) => n }.toSet
+    // Includes every enclosing block's own var/val names too (`ctx.enclosingVarNames`/
+    // `enclosingValNames`) — see the `Ctx` fields' own comment for why a lift needs to see past its
+    // immediate block.
+    val varNames = stats.collect { case v: m.Defn.Var => patNames(v.pats) }.flatten.toSet ++ ctx.enclosingVarNames
+    val valNames = stats.collect { case v: m.Defn.Val => patNames(v.pats) }.flatten.toSet ++ ctx.enclosingValNames
+    val ownLocalTypes: Map[String, String] =
+      (stats.collect { case v: m.Defn.Var => patNames(v.pats); case v: m.Defn.Val => patNames(v.pats) }.flatten.toSet)
+        .flatMap(n => inferCaptureType(n, stats, ctx).map(n -> _)).toMap
+    // Propagated onward regardless of whether THIS block has any local defs of its own to lift — a
+    // block with none still sits between an enclosing var and a deeper lift that needs to see it.
+    val propagatedCtx = ctx.copy(
+      enclosingVarNames   = varNames,
+      enclosingValNames   = valNames,
+      enclosingLocalTypes = ctx.enclosingLocalTypes ++ ownLocalTypes
+    )
+    if localDefs.isEmpty then Right((Nil, stats, propagatedCtx))
     else
       val defNames = localDefs.map(_.name.value).toSet
-      def patNames(pats: List[m.Pat]): Set[String] =
-        pats.collect { case m.Pat.Var(m.Term.Name(n)) => n }.toSet
-      val varNames = stats.collect { case v: m.Defn.Var => patNames(v.pats) }.flatten.toSet
-      val valNames = stats.collect { case v: m.Defn.Val => patNames(v.pats) }.flatten.toSet
       // What a lifted def MAY capture: this block's own locals, the enclosing def's parameters, and
       // the owning case class's fields (`limits` in `TreeVm.scala`'s `record`) — everything else a
       // free name could name (a type, a ctor, another top-level def) is deliberately excluded by the
@@ -5199,8 +5254,15 @@ object RustCodeWalk:
         d.body.collect { case v: m.Defn.Val => patNames(v.pats); case v: m.Defn.Var => patNames(v.pats) }
           .flatten.toSet
 
+      // Calls reaching OUTER-level lifted defs (`quotedSingle`, one level up from `parseNode`) —
+      // see `Ctx.liftedDefMutWrites`'s own comment for why the caller must inherit their captures.
+      val outerCalls: Map[String, Set[String]] = localDefs.map { d =>
+        d.name.value -> (freeNames(d.body) intersect (ctx.liftedDefExtraArgs.keySet -- defNames))
+      }.toMap
       val directCaptures: Map[String, Set[String]] = localDefs.map { d =>
-        d.name.value -> ((freeNames(d.body) -- ownBound(d)) intersect pool)
+        val own = (freeNames(d.body) -- ownBound(d)) intersect pool
+        val viaOuterCalls = outerCalls(d.name.value).flatMap(ctx.liftedDefExtraArgs.getOrElse(_, Nil)).intersect(pool)
+        d.name.value -> (own ++ viaOuterCalls)
       }.toMap
       val callsOf: Map[String, Set[String]] = localDefs.map { d =>
         d.name.value -> ((freeNames(d.body) intersect defNames) - d.name.value)
@@ -5236,7 +5298,10 @@ object RustCodeWalk:
       // borrow *elements as mutable more than once at a time`. A def that transitively never
       // WRITES a var-capture can safely take `&$t` (shared) instead — Rust allows any number of
       // simultaneous shared borrows, which is exactly what resolves this specific conflict.
-      var writes = localDefs.map(d => d.name.value -> collectDirectWrites(d.body, varNames)).toMap
+      var writes = localDefs.map { d =>
+        val viaOuterCalls = outerCalls(d.name.value).flatMap(ctx.liftedDefMutWrites.getOrElse(_, Set.empty))
+        d.name.value -> (collectDirectWrites(d.body, varNames) ++ viaOuterCalls)
+      }.toMap
       var changedW = true
       while changedW do
         changedW = false
@@ -5246,9 +5311,20 @@ object RustCodeWalk:
             writes = writes.updated(name, merged)
             changedW = true
 
-      val baseCtx = ctx.copy(
-        liftedDefExtraArgs    = orderedCaptures,
-        liftedMutableCaptures = allMutableCaptures
+      val baseCtx = propagatedCtx.copy(
+        // Merged, not overwritten: `quotedSingle` (captured at `parse`'s own level) must stay
+        // visible while rendering `flowParse`'s OWN nested lifts (`parseNode`, …) two levels down —
+        // an overwrite here is exactly what left `quotedSingle`'s call sites unrecognized as a
+        // lifted-def call at all, so they never got `diagnostics` appended:
+        // `error[E0061]: this function takes 3 arguments but 2 arguments were supplied`.
+        liftedDefExtraArgs    = ctx.liftedDefExtraArgs ++ orderedCaptures,
+        liftedMutableCaptures = ctx.liftedMutableCaptures ++ allMutableCaptures,
+        liftedDefDefaults     = ctx.liftedDefDefaults ++ localDefs.map { d =>
+          d.name.value -> d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.default)
+        }.toMap,
+        liftedDefMutWrites    = ctx.liftedDefMutWrites ++ localDefs.map { d =>
+          d.name.value -> (writes.getOrElse(d.name.value, Set.empty) intersect captures.getOrElse(d.name.value, Set.empty))
+        }.toMap
       )
 
       val renderedDefs: List[Either[List[Diagnostic], String]] = localDefs.map { d =>
@@ -5704,7 +5780,15 @@ object RustCodeWalk:
           else if ctx.liftedMutableCaptures.contains(c) then s"&mut $c"
           else s"$c.clone()"
         }
-        Right(s"$n(${(ok ++ extra).mkString(", ")})")
+        // `problem(code, msg, span)` — the caller omits the local def's OWN trailing default
+        // (`severity: Severity = Severity.Error`); see `Ctx.liftedDefDefaults`'s own comment.
+        val filledOk = ctx.liftedDefDefaults.get(n) match
+          case Some(ds) if ok.size < ds.size && ds.drop(ok.size).forall(_.isDefined) =>
+            val fills = ds.drop(ok.size).flatten.map(renderTerm(_, ctx))
+            val (ferrs, fok) = fills.partitionMap(identity)
+            if ferrs.nonEmpty then ok else ok ++ fok
+          case _ => ok
+        Right(s"$n(${(filledOk ++ extra).mkString(", ")})")
 
     case m.Term.Name(n) =>
       // A top-level val (and given instance) is bound once as `let n = init;` in every
