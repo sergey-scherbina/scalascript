@@ -746,6 +746,48 @@ object Lower:
       val (ir2, st4) = st3.fresh
       (ri :+ Instr.Switch(rr, arms, List(Instr.Invoke(ir2, nk, rr, Nil), Instr.Move(d, ir2))), d, st4)
 
+    // A BARE selection (no call at all) whose name is a METHOD of some declared class that takes
+    // ONE OR MORE parameters — `cm.combine` where `combine(a, b)` is declared on `cm`'s class. This
+    // is the point-free case: the two arms above already claim a bare selection whose name is a
+    // real NULLARY method (arity 0 == argEs.length 0, the first arm) or a FIELD (the arm just
+    // above), so reaching here means neither of those exists for this name — every owning class's
+    // method wants at least one argument the call site did not supply.
+    //
+    // `bin/ssc-tools` (v2's own front) already eta-expands this shape at RUNTIME, dynamically,
+    // because its dispatcher does not know the receiver's type either — it defers the ambiguity to
+    // the value it is holding. This lowerer has no such fallback (`v3-bridge-point-free-class-
+    // method-reference-not-lowered` — BUGS.md): a bare selection always emitted a DYNAMIC `Invoke`
+    // with an EMPTY argument list, indistinguishable at the VM boundary from a typo'd nullary call,
+    // and neither v3's own executor nor its v2 bridge has anywhere that turns THAT into a function
+    // value — v2's bridge fails because the class's methods were never registered as v2 tagged
+    // methods in the first place (this lowerer targets a STATIC per-tag `Switch` instead), and v3's
+    // own executor refuses outright ("method '…' … is not implemented").
+    //
+    // The fix is the SAME per-owner `Switch` the two arms above already use, one `Instr.MkClos` per
+    // arm instead of a `Call`+`Move`: `MkClos(dst, f, captures)` builds a closure over the known
+    // static function `f` (here, `Owner.name`), captures the RECEIVER as its one closed-over value,
+    // and its own arity is the function's declared arity minus the captures — exactly the method's
+    // real parameter count, with `self` already bound. No runtime ambiguity is introduced: the tag
+    // switch, not a value shape, decides which function `f` a given receiver's closure captures.
+    case Expr.MethodCall(recv, nm, Nil, p)
+        if classes.exists(c => c.methods.exists(mm => mm.name == nm && mm.params.nonEmpty)) =>
+      val owners = classes.filter(c => c.methods.exists(mm => mm.name == nm && mm.params.nonEmpty))
+      val (ri, rr, st1) = lower(recv, fns, classes, zeroArity, st0)
+      val (d, st2) = st1.fresh
+      var st = st2
+      var arms: List[SwitchArm] = Nil
+      owners.foreach { o =>
+        val (t, sN) = st.typeIdx(o.name, o.fields.length, o.fields.map(_.name))
+        val fi = fns.indexOf(o.name + "." + nm)
+        if fi < 0 then throw LowerFail(p, "method '" + nm + "' of " + o.name + " was not lifted")
+        val (cr, sN2) = sN.fresh
+        st = sN2
+        arms = arms :+ SwitchArm(t, List(Instr.MkClos(cr, fi, List(rr)), Instr.Move(d, cr)))
+      }
+      val (nk, stK) = st.constIdx(Lit.LStr(nm))
+      val (ir2, stF) = stK.fresh
+      (ri :+ Instr.Switch(rr, arms, List(Instr.Invoke(ir2, nk, rr, Nil), Instr.Move(d, ir2))), d, stF)
+
     case Expr.MethodCall(recv, nm, argEs, _) =>
       val (ri, rr, st1) = lower(recv, fns, classes, zeroArity, st0)
       var acc = ri

@@ -6,6 +6,71 @@ belong in the repository-root `BUGS.md` instead, not here.
 
 Query: `scripts/bugs-report --module v3`.
 
+## point-free-class-method-reference-never-eta-expands — a bare selection on a class instance always dynamic-Invoked with zero args
+
+<!-- status: open
+     lane: v3
+     kind: feature
+     area: front
+     gate: v3/tests/front/eta-expansion-class-method.ssc
+     found-by: claude-code
+     found-at: 2026-08-29
+     fixed-in: - -->
+
+Found while checking whether the repository-root `BUGS.md` entries
+`point-free-class-method-never-eta-expands-on-native` (v2) and `-on-int` (v1) — both already
+fixed independently this session — also affect v3. They do not reproduce as *regressions*: v3
+never implemented this at all, on EITHER of its lanes.
+
+**Repro**, minimized from the same source that found the v1/v2 pair:
+
+```scalascript
+case class ConstMonoid(z: Int):
+  def combine(a: Int, b: Int): Int = a + b
+
+def main(): Unit =
+  val cm = ConstMonoid(0)
+  println(List(1,2,3).foldLeft(0)(cm.combine))
+```
+
+`v3/ssc3 run` (own executor): `method 'combine' on ConstMonoid(0)' is not implemented by v3's
+executor`. `v3/ssc3 run --bridge` (v2 VM): `Cons.foldLeft was called but does not exist, and the
+result reached output` — the fold's OWN dispatch works; its folding-function argument is what
+never resolved.
+
+**Root cause — a missing case in `Lower.scala`'s `Expr.MethodCall` lowering, not a regression in
+an existing one.** That lowering already has two `Nil`-argument arms, each building a `Switch`
+with one arm per class that could own the name and a dynamic-`Invoke` default: one when some
+class's METHOD of that name has arity 0 (a genuine nullary call), one when some class has a
+FIELD of that name. A bare selection whose name matches a method wanting ONE OR MORE arguments —
+exactly the point-free case — matched NEITHER arm (0 declared params, needed for the first; not
+a field, for the second) and fell straight through to the generic fallback, emitting a dynamic
+`Invoke` with an empty argument list. That is indistinguishable, at the VM boundary, from a
+genuine zero-arg call — v3's own executor has nothing that turns it into a function value, and v2
+never even had the class's methods to fall back on (this lowerer builds a static per-tag
+`Switch`, never `__regmethod__`-registering anything in v2's tagged-method table, unlike v2's own
+front — the mechanism the repository-root entries' fix builds on).
+
+**Two workarounds pin the diagnosis, same shape as the v1/v2 pair:** `object M: def add(...)`
+methods point-free already worked (`v3/tests/front/eta-expansion.ssc`, an EARLIER fix — a
+singleton object has exactly one owner, so no per-tag ambiguity ever existed for it); an explicit
+lambda `(a, b) => cm.combine(a, b)` also always worked, for any class.
+
+**Fixed** by a third `Nil`-argument arm in the same `Expr.MethodCall` match, guarded on `some
+class's method of this name takes 1+ parameters`: the same per-owner `Switch` shape, but each arm
+is `Instr.MkClos(dst, functionIndex, captures = [receiver])` instead of `Call`+`Move` — a closure
+over the class's own already-lifted function, closing over the receiver, whose arity comes out to
+exactly the method's declared parameter count. `MkClos` already had a correct `BridgeV2`
+translation (built for lambda lifting), so no backend change was needed — both v3's own executor
+and its v2 bridge pick it up for free. New coverage:
+`v3/tests/front/eta-expansion-class-method.ssc` (the `object`-method test's class-instance
+sibling; a second class overloading the same method name pins that dispatch is by TAG, not name
+alone). Measured on the full conformance corpus: bridge lane 259 → 275 / 375, exec lane → 279 /
+375 (`v3/corpus-report.sh` / `--exec`); the one remaining DIFF and one remaining CRASH on the exec
+lane are unrelated, pre-existing (confirmed against `origin/main` before this fix): a
+division-by-zero formatting case and an unregistered-native-result-field case scoped to the `int`
+backend only.
+
 ## a-type-annotation-runs-past-its-line-and-steals-the-next-definition — the definition vanished, silently
 
 <!-- status: fixed

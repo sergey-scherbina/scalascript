@@ -1,0 +1,47 @@
+# A class instance's method passed as a value — `v3-point-free-class-method-eta`
+
+The sibling of `eta-expansion.ssc`: THAT test pins the fix for an `object`'s method passed
+point-free (`M.add`, no call). This one pins the same fix for a `class`/`case class`
+INSTANCE's own method — a genuinely different case, because more than one class can declare a
+method of the same name, so which concrete function a bare `cm.combine` closes over depends on
+`cm`'s run-time TAG, not on the name alone (the same reason an APPLIED call to an overloaded
+method name already lowers to a `Switch` with one arm per declaring class).
+
+Before the fix, a bare selection whose name matched a class method that wanted at least one
+argument fell to the same dynamic `Invoke` a genuine typo would reach, with an EMPTY argument
+list — indistinguishable, at the VM boundary, from calling that method with zero arguments. On
+v3's own executor that refused outright ("method 'combine' … is not implemented"); on the v2
+bridge it silently misbehaved, because the class's methods were never registered as v2 tagged
+methods in the first place (this lowerer targets a per-tag `Switch`, not v2's tagged-method
+registry) — `Cons.foldLeft` was called but does not exist' was the surface symptom of a fold
+whose folding function never worked.
+
+`combine` starts the fold at 0 and adds 1, 2, 3 — **6**; then the same method value is applied
+directly, 3 + 4 is **7**; `cm.total` (a real nullary method, no arguments to be missing) still
+answers **0** as before, and a SECOND class declaring its own `combine` proves the dispatch is
+by tag, not by name alone.
+
+```scalascript
+case class ConstMonoid(z: Int):
+  def combine(a: Int, b: Int): Int = a + b
+  def total: Int = z
+
+case class Doubler(z: Int):
+  def combine(a: Int, b: Int): Int = a * 2 + b * 2
+
+def fold(f: (Int, Int) => Int, xs: List[Int]): Int =
+  var acc = 0
+  for x <- xs do acc = f(acc, x)
+  acc
+
+val cm = ConstMonoid(0)
+println(fold(cm.combine, List(1, 2, 3)))
+
+val g = cm.combine
+println(g(3, 4))
+
+println(cm.total)
+
+val d = Doubler(0)
+println(fold(d.combine, List(1, 2, 3)))
+```
