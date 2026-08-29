@@ -4115,6 +4115,13 @@ object RustCodeWalk:
       // duplicating `_ambiguousTopValNames`/`topValEmitName`'s own lookup here.
       case sel: m.Term.Select if !rendered.contains("(") && (selectRoot(sel).exists(needs) || needs(rendered)) =>
         s"$rendered.clone()"
+      // `definitionOf(node.asInstanceOf[UniNode.Branch])` — `renderTerm`'s own `.asInstanceOf[T]`
+      // case erases the cast entirely (a no-op on this backend — see that case's own comment), so
+      // `rendered` here is ALREADY just `qual`'s own rendered text; delegate the SAME question a
+      // bare `Term.Name` argument already gets asked, which the top case never reaches at all
+      // since `arg` is an `ApplyType` node, not a `Term.Name`.
+      case m.Term.ApplyType.After_4_6_0(m.Term.Select(qual, m.Term.Name("asInstanceOf")), _) =>
+        cloneIfMoved(qual, rendered, ctx)
       case _ => rendered
 
   /** Is `n` a plausible LOCAL/PARAM binding name, as opposed to an INFIX OPERATOR
@@ -8271,6 +8278,23 @@ object RustCodeWalk:
             s"def `${ctx.defName}` has an unsupported `isInstanceOf` type test: ${ty.syntax}"
           )))
 
+    // `node.asInstanceOf[UniNode.Branch]` (`uniml/markdown`'s `MarkdownProjection.scala`'s
+    // `projectBlock`, inside `node match { case UniNode.Branch(kind, edges, _, _) => kind match {
+    // … case MdBranch.Definition => definitionOf(node.asInstanceOf[UniNode.Branch]) } }`) — the
+    // author added this NARROWING cast because Scala's own flow typing does not automatically
+    // narrow `node: UniNode` to the already-matched `Branch` case one level of nesting down (the
+    // OUTER match's own arm already guarantees it). On THIS backend every variant of a sealed
+    // hierarchy collapses to the SAME Rust enum type (no distinct Rust type per variant — the
+    // exact fact `isInstanceOf`'s own case just above tests against, and the same reason a
+    // qualified constructor call collapses too) — so `.asInstanceOf[T]` is a genuine NO-OP here,
+    // identity on the already-correctly-typed value, unconditionally: `contains an unsupported
+    // expression: Term.ApplyType`. `cloneIfMoved`'s own `Term.ApplyType` case (a few hundred
+    // lines up) delegates the SAME identity through to `qual` for this exact shape, so a
+    // multi-use subject read through a cast still gets cloned where it needs to be.
+    case m.Term.ApplyType.After_4_6_0(m.Term.Select(qual, m.Term.Name("asInstanceOf")), argClause)
+        if argClause.values.sizeIs == 1 =>
+      renderTerm(qual, ctx)
+
     // `summon[Trait[A]]` → resolve to the matching given-instance binding.
     // We resolve by the OUTER trait name (e.g. `Monoid` from `Monoid[Int]`).
     // The instance binding is injected as a topVal `let intSum = IntSumGiven { ... };`,
@@ -11635,6 +11659,25 @@ object RustCodeWalk:
       // iteration's later `pendingKey = …` assignment.
       case m.Pat.Extract.After_4_6_0(m.Term.Name("Some"), argClause)
           if argClause.values.exists { case _: m.Pat.Tuple => true; case _ => false } => true
+      // `node match { case UniNode.Branch(kind, edges, _, _) => … definitionOf(node.asInstanceOf[
+      // UniNode.Branch]) … }` (`uniml/markdown`'s `MarkdownProjection.scala`'s `projectBlock`) —
+      // a BARE (no `@`-bind) multi-field ctor pattern is the SAME move-vs-clone problem the bound
+      // (`r @ Ctor(...)`) cases above already solve, one spelling further: nothing BINDS a new
+      // name to the whole matched value here, but the SUBJECT variable itself (`node`, the def's
+      // own parameter) is what gets read again — destructuring `edges` out of it moves it
+      // PARTIALLY, and `node` (whole) is no longer usable anywhere after, including via a
+      // `.clone()` (a partial move poisons the WHOLE value, not just the moved-out field):
+      // `error[E0382]: value used here after partial move`. Scoped to a bare-Name SUBJECT that
+      // `readsAnyOf` finds referenced again in SOME arm's own body — the common case (nothing
+      // reads the subject again) needs no clone and keeps emitting exactly as before.
+      case m.Pat.Extract.After_4_6_0(m.Term.Select(_, m.Term.Name(ctorName)), _)
+          if ctx.ctorMap.get(ctorName).exists(_.fieldNames.nonEmpty) &&
+             (subject match { case m.Term.Name(sn) => cases.exists(c => readsAnyOf(c.body, Set(sn)).nonEmpty); case _ => false }) =>
+        true
+      case m.Pat.Extract.After_4_6_0(m.Term.Name(ctorName), _)
+          if ctx.ctorMap.get(ctorName).exists(_.fieldNames.nonEmpty) &&
+             (subject match { case m.Term.Name(sn) => cases.exists(c => readsAnyOf(c.body, Set(sn)).nonEmpty); case _ => false }) =>
+        true
       case _ => false)
     val cases1 =
       if hasCtorArm && cases.lastOption.exists(isIdentityCatchAll)

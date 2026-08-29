@@ -3160,6 +3160,41 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(g.contains("if !m.is_empty()") && g.contains(".map(move |m| { !m.is_empty() })"),
       s"opt.map/opt.flatMap(namedParam => ...) must seed the param's type from the Option's declared element:\n$g")
 
+  test("`.asInstanceOf[T]` erases as identity, and clones a subject a match arm partially moved"):
+    // `node.asInstanceOf[UniNode.Branch]` inside `node match { case UniNode.Branch(kind, edges,
+    // _, _) => … definitionOf(node.asInstanceOf[UniNode.Branch]) … }` (`uniml/markdown`'s
+    // `MarkdownProjection.scala`'s `projectBlock`) — the author added this narrowing cast because
+    // Scala's own flow typing does not automatically narrow `node: UniNode` to the already-matched
+    // `Branch` case one level of nesting down. On this backend every variant of a sealed hierarchy
+    // collapses to the SAME Rust enum type, so `.asInstanceOf[T]` is a genuine no-op here —
+    // erasing it surfaced a SEPARATE, real bug: a BARE (no `@`-bind) multi-field ctor pattern
+    // destructures `edges` out of `node` by value, partially moving it, so the later bare `node`
+    // (through the now-erased cast) could not even be `.clone()`d — `error[E0382]: value used
+    // here after partial move`. Fixed by widening the match-subject-cloning trigger
+    // (`hasFieldDestructurePat`) to cover a bare multi-field ctor pattern too, scoped to when the
+    // subject is provably read again in some arm's body.
+    val src =
+      """```scalascript
+        |case class UniEdge(id: Int)
+        |
+        |enum UniNode:
+        |  case Token(text: String)
+        |  case Branch(kind: String, edges: Vector[UniEdge])
+        |
+        |def definitionOf(node: UniNode.Branch): Int = node.edges.length
+        |
+        |def projectBlock(node: UniNode): Option[Int] =
+        |  node match
+        |    case UniNode.Token(_) => None
+        |    case UniNode.Branch(kind, edges) => kind match
+        |      case "definition" => Some(definitionOf(node.asInstanceOf[UniNode.Branch]))
+        |      case _ => None
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("match (node).clone() {") && g.contains("Some(definitionOf(node.clone()))"),
+      s".asInstanceOf[T] must erase as identity, and the match subject must clone when partially moved and read again:\n$g")
+
   test("`xs.count(_.field == x)` / `xs.filter(_.field == x)` — a placeholder predicate types cleanly"):
     // `lexed.tokens.count(_.kind == "yaml.anchor")` / `ranges.filter(_.start == index)`
     // (`uniml/yaml`) — `renderVecIterBody`'s `Term.AnonymousFunction` branch wrapped the WHOLE
