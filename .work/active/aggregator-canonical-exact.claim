@@ -3,9 +3,28 @@ branch: feature/aggregator-canonical-exact
 agent: claude-code
 started: 2026-08-29T18:15:31Z
 heartbeat: 2026-08-29T18:15:31Z
-status: claimed-before-planning
+status: in-progress
 items: aggregation-algebra-canonical-and-effectful
 paths: file:std/aggregator.ssc file:examples/std-aggregator.ssc file:specs/aggregation-algebra.md file:BACKLOG.md file:tests/conformance/std-aggregator.ssc file:tests/conformance/expected/std-aggregator.txt
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  Take the first slice of BACKLOG.md's "aggregation-algebra-canonical-and-effectful" item: §5
+  canonical exact aggregators from specs/aggregation-algebra.md, minus first/last (see below).
+
+  - min/max: MinAgg[A]/MaxAgg[A] built on std/order.ssc's existing Order[A] typeclass, Option[A] as
+    the Top/Bottom sentinel for `empty` (None = no value seen; combine(None, x) = x for both).
+    Ordinary classes taking an explicit Order[A] instance, not a `given` derivation - matches this
+    design's own §12.1 preference for explicit combinators.
+  - variance/stddev: VarianceAcc/varianceMonoid exactly as specs/aggregation-algebra.md §5.1 gives
+    it (Chan/Golub/LeVeque parallel merge), plus VarianceAgg and populationVariance/sampleVariance
+    as MapAgg-composable presenters (present is a policy choice per the spec, not baked into the
+    monoid).
+
+  Deliberately NOT taking first/last in this slice: the spec's own table flags it needs "an
+  ordering key" and warns "do not merge unordered partitions naively" - there's a real open design
+  question (how does a caller attach a sequence/timestamp before folding? a generic minBy/maxBy
+  keyed aggregator, generalizing what this slice builds for min/max, is the likely shape) that
+  deserves a decision, not a rushed implementation. Left it in BACKLOG.md with that framing.
+
+  Also not taking: HyperLogLog/Count-Min/T-Digest (§6, real algorithmic work), groupBy helper (§8),
+  DStream/Dataset bridge (§9), rendering (§10), effects (§11) - all stay queued as before.
+next: implement min/max + variance/stddev in std/aggregator.ssc, test, land
