@@ -79,6 +79,49 @@ private[interpreter] object DispatchRuntime:
         val typeExts = interp.extensions.getOrElse(typeName, null)
         if typeExts != null then typeExts.getOrElse(name, null) else null
 
+  /** Reserved receiver `typeName`s `dispatchInstance` special-cases ahead of
+   *  `dispatchOrdinaryInstance` — kept in sync with that match's own arms (Pid,
+   *  ClusterCapability, Signal, Response, Right, Left, Expr) so `dispatchBareSelection`
+   *  never eta-expands a name that would actually have gone through one of THOSE branches
+   *  (their semantics do not agree with plain class-method arity fitting, e.g. `Left.map`
+   *  ignores its would-be receiver entirely). */
+  private val reservedInstanceTypeNames: Set[String] =
+    Set("Pid", "ClusterCapability", "Signal", "Response", "Right", "Left", "Expr")
+
+  /** Point-free access to an ordinary class instance's own method: `recv.name` with NO
+   *  call. Used only by the one evaluation site that already knows this, unambiguously —
+   *  EvalRuntime's `case sel: Term.Select` — because an applied call, even with an
+   *  explicit empty argument list (`recv.name()`), is a DIFFERENT Scalameta node
+   *  (`Term.Apply`) that is evaluated elsewhere and never reaches this function. (Contrast
+   *  the v2/native lane's twin bug: that lane's lowered IR collapses a bare selection and
+   *  an applied zero-arg call to the same node, so ITS fix needed an extra `applied` flag
+   *  threaded down to tell them apart. This lane never had that ambiguity — the AST
+   *  already tells them apart by construction — so the fix here is narrower.)
+   *
+   *  A plain `class`/`case class` instance's own method, when its resolved arity does not
+   *  fit zero arguments, must become the unapplied function VALUE (eta-expansion) — the
+   *  same answer `dispatchInstanceAfterMethods` already gives, by construction, for a
+   *  `given ... with` instance's method (stored as a plain `FunV` field, reached only
+   *  because `interp.typeMethods` has no entry for a given-instance's synthetic type
+   *  name — not a designed-and-tested eta path for THIS receiver shape).
+   *  BUGS.md `point-free-class-method-never-eta-expands-on-int`. */
+  def dispatchBareSelection(recv: Value, name: String, env: Env, interp: Interpreter): Computation =
+    recv match
+      case inst: Value.InstanceV
+          if !isPluginBridgeInstance(inst.typeName) && !reservedInstanceTypeNames.contains(inst.typeName) =>
+        val typeMethodMap = interp.typeMethods.getOrElse(inst.typeName, null)
+        val raw = if typeMethodMap != null then typeMethodMap.getOrElse(name, null) else null
+        // `pickArity` returning the SAME reference back (rather than a `name#0` overload
+        // it found instead) is exactly the case that used to fall through to
+        // `invokeTypeMethod` with zero args and throw "missing argument for parameter" —
+        // eta-expand there instead. A genuine registered nullary overload, or a `raw`
+        // that already fits zero args (a real `def zed: Int`), dispatches normally.
+        if raw != null && !arityFit(raw, 0) && (pickArity(typeMethodMap, name, raw, 0) eq raw) then
+          Pure(raw)
+        else
+          dispatch(recv, name, Nil, env, interp)
+      case _ => dispatch(recv, name, Nil, env, interp)
+
   def dispatch(recv: Value, name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
     // `.asInstanceOf[T]` — types are erased; always a no-op at runtime.
     // Must be first: type-specific dispatchers (dispatchMap, dispatchList, etc.)

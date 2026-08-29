@@ -4051,8 +4051,8 @@ private[interpreter] object EvalRuntime:
       else
         val method = sn.value
         eval(sel.qual, env, interp) match
-          case Pure(qualV) => DispatchRuntime.dispatch(qualV, method, Nil, env, interp)
-          case qualC       => FlatMap(qualC, qualV => DispatchRuntime.dispatch(qualV, method, Nil, env, interp))
+          case Pure(qualV) => DispatchRuntime.dispatchBareSelection(qualV, method, env, interp)
+          case qualC       => FlatMap(qualC, qualV => DispatchRuntime.dispatchBareSelection(qualV, method, env, interp))
 
     // Fast path: s"${expr}" or s"prefix${expr}suffix" — 1-arg s-interpolation.
     // Avoids: 2 List allocations (cast map + evalArgs map), threadValues,
