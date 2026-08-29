@@ -2635,3 +2635,23 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(g.contains("[&(visiting)[..], &[name][..]].concat()"),
       s"a lifted local def's own Set param must feed the single-element-add rewrite:\n$g")
+
+  test("a multi-use name inside a Map-plus-pair or Vec-single-add clones, not just at call args"):
+    // `handles = handles + (handle -> rawPrefix), declared = declared + handle`
+    // (`uniml/yaml`'s `YamlTagEnvironment.register`) — `handle` used a SECOND time in a sibling
+    // named arg of the SAME `copy(...)` call; both `renderMapPlusPair` (the map-pair-add builder)
+    // and the Vec/Set single-element-add case build their OWN insert/concat call rather than
+    // reaching the ordinary `cloneIfMoved`-aware argument machinery, and neither ever called it:
+    // `error[E0382]: use of moved value: handle`.
+    val src =
+      """```scalascript
+        |case class Env(handles: Map[String, String], declared: Set[String]):
+        |  def register(handle: String, prefix: String): Env =
+        |    copy(handles = handles + (handle -> prefix), declared = declared + handle)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("m2.insert(handle.clone()"),
+      s"the map-pair key, used again in a sibling arg, must be cloned:\n$g")
+    assert(g.contains("&[handle.clone()][..]") || g.contains("&[handle][..]"),
+      s"the map-pair value must be present:\n$g")

@@ -3291,11 +3291,20 @@ object RustCodeWalk:
   private def renderMapPlusPair(
       lhs: m.Term, pair: m.Term.ApplyInfix, ctx: Ctx
   ): Either[List[Diagnostic], String] =
+    val vTerm = pair.argClause.values.head.asInstanceOf[m.Term]
     for
-      q <- renderTerm(lhs, ctx)
-      k <- renderTerm(pair.lhs, ctx)
-      v <- renderTerm(pair.argClause.values.head.asInstanceOf[m.Term], ctx)
-    yield s"{\n    let mut m2 = $q.clone();\n    m2.insert($k, $v);\n    m2\n  }"
+      q  <- renderTerm(lhs, ctx)
+      k0 <- renderTerm(pair.lhs, ctx)
+      v0 <- renderTerm(vTerm, ctx)
+    yield
+      // `handles = handles + (handle -> rawPrefix), declared = declared + handle`
+      // (`uniml/yaml`'s `YamlTagEnvironment.register`) — `handle` used a SECOND time in the very
+      // next named arg (`declared + handle` below); this arm builds its own insert call rather
+      // than reaching the ordinary (`cloneIfMoved`-aware) ARGUMENT machinery, and never called it
+      // on the pair's own key/value either: `error[E0382]: use of moved value: handle`.
+      val k = cloneIfMoved(pair.lhs, k0, ctx)
+      val v = cloneIfMoved(vTerm, v0, ctx)
+      s"{\n    let mut m2 = $q.clone();\n    m2.insert($k, $v);\n    m2\n  }"
 
   private def renderDef(
       d: m.Defn.Def,
@@ -8577,9 +8586,14 @@ object RustCodeWalk:
     case m.Term.ApplyInfix.After_4_6_0(lhs, m.Term.Name("+"), _, rargs)
         if rargs.values.size == 1 && isKnownVecReceiver(lhs, ctx) && !isKnownVecReceiver(rargs.values.head, ctx) =>
       for
-        l <- renderTerm(lhs, ctx)
-        r <- renderTerm(rargs.values.head, ctx)
-      yield s"[&($l)[..], &[$r][..]].concat()"
+        l  <- renderTerm(lhs, ctx)
+        r0 <- renderTerm(rargs.values.head, ctx)
+      yield
+        // `declared = declared + handle` where `handle` is ALSO used in a sibling named arg of the
+        // SAME `copy(...)` call (`uniml/yaml`'s `YamlTagEnvironment.register`) — no `cloneIfMoved`
+        // was ever applied to the added element here: `error[E0382]: use of moved value: handle`.
+        val r = cloneIfMoved(rargs.values.head, r0, ctx)
+        s"[&($l)[..], &[$r][..]].concat()"
 
     // `buf += x` over a KNOWN local Vec (`ListBuffer`/`ArrayBuffer`/`Vector.newBuilder`, all
     // rendered as a `Vec` — see their constructor cases and `isEmptyCtorNamed`'s own comment) —
