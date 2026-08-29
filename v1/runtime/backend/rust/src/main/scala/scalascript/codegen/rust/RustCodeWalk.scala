@@ -10633,6 +10633,21 @@ object RustCodeWalk:
           // value (e.g. `theme`) be read again afterwards, or captured by a sibling/nested
           // map closure, instead of being moved into the first one (E0507/E0382).  The
           // `.cloned()` element is owned, and clone-insertion clones any by-value capture.
+          // `segs.iterator.zipWithIndex.map { (s, idx) => pfx + s.content + end }`
+          // (`uniml/markdown`'s `MarkdownBlocks.scala`'s `emitSetextUnderline`) — a genuine
+          // TWO-param closure, which Scala 3 only accepts here because `.zipWithIndex`'s
+          // element type is the 2-tuple `(T, i64)` and auto-tupling unpacks it positionally
+          // (the same reason `foldLeft`'s accumulator/element pair, a few lines down, is
+          // ALREADY `|$p0, $p1|`). This case ignored `p1` outright and always emitted the
+          // single-param `|$p0|` — so `idx` (bound to nothing) read as `error[E0425]: cannot
+          // find value idx in this scope`, and every `s.field` read the WHOLE tuple, not its
+          // first element: `error[E0609]: no field content on type (ParaSeg, i64)`. A 2-param
+          // function literal reaching `.map` can ONLY type-check this way (Scala has no other
+          // shape it would accept for a `((A, B)) => C` expected type), so destructuring
+          // unconditionally on `params.sizeIs == 2` is safe: `|($p0, $p1)|` binds the tuple's
+          // two positions by NAME instead of leaving `$p0` as the whole pair.
+          case "map" if params.sizeIs == 2 =>
+            s"$q.iter().cloned().map(|($p0, $p1)| { $b }).collect::<Vec<_>>()"
           case "map"      => s"$q.iter().cloned().map(|$p0| { $b }).collect::<Vec<_>>()"
           // `Iterator::find` hands the predicate a REFERENCE, so the parameter is rebound by
           // clone: a body written as `s == "b"` is `&String == String` otherwise, which does not

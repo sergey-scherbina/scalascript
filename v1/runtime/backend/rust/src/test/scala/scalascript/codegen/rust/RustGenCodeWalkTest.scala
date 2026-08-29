@@ -3340,6 +3340,61 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(g.contains("closer if !closer.lexeme.is_empty() => 1i64,"),
       s"a match arm's own guard must see the same pattern-derived ctx enrichment as its body:\n$g")
 
+  test("`segs.iterator.zipWithIndex.map { (s, idx) => … }.mkString` on a captured `var` seq"):
+    // `emitSetextUnderline`, a local def lifted out of `parse` (`uniml/markdown`'s
+    // `MarkdownBlocks.scala`) — `val segs = paragraphSegs` (`paragraphSegs` a CAPTURED
+    // `var paragraphSegs: Vector[ParaSeg] = Vector.empty`, declared at `parse`'s own top
+    // level) then `segs.iterator.zipWithIndex.map { (s, idx) => … }.mkString`. TWO separate
+    // gaps, both needed together for this one shape to compile:
+    //
+    // 1. `isKnownVecReceiver`'s recursive combinator case only matched `.zipWithIndex` when
+    //    written as a `Term.Apply` (parens/args) — but `.zipWithIndex`, like `.iterator` right
+    //    next to it in that same match, is ALWAYS a bare no-arg `Term.Select` and so never hit
+    //    that case at all: `segs.iterator.zipWithIndex` was judged NOT a known Vec, and the
+    //    trailing bare `.mkString` fell to the no-paren "collection member" refusal this test
+    //    guards against directly.
+    // 2. `liftLocalDefs`'s per-lifted-def `localSeqs` recompute seeded `collectLocalSeqs`'s walk
+    //    with only `ownSeqParams` (this def's OWN declared Scala params — none here), never
+    //    `baseCtx.localSeqs` (which DOES already know `paragraphSegs` is a seq, from the
+    //    enclosing `parse`'s own top-level pass) — so `val segs = paragraphSegs` could not see
+    //    that its OWN right-hand side was already a known seq, and `segs` itself never
+    //    registered as one either.
+    //
+    // Getting past the refusal (1+2) still left a THIRD, separate compile bug once the
+    // `Vec<(ParaSeg, i64)>` `.map` was actually reached: `renderVecIterBody`'s `"map"` case
+    // ignored the closure's second param entirely and always emitted the single-param
+    // `|$p0|` — so `idx` read as `error[E0425]: cannot find value idx in this scope` and every
+    // `s.field` read the WHOLE `(ParaSeg, i64)` tuple instead of its first element
+    // (`error[E0609]`). Fixed by destructuring `|($p0, $p1)|` whenever the closure genuinely
+    // has two declared params (the only way Scala 3 accepts a 2-param function literal here in
+    // the first place is auto-tupling over a 2-tuple element).
+    val src =
+      """```scalascript
+        |case class ParaSeg(content: String, ending: String, prefix: String)
+        |
+        |def parse(text: String): Int =
+        |  var out = 0
+        |  var paragraphSegs: Vector[ParaSeg] = Vector.empty
+        |
+        |  def emitSetextUnderline(): Unit =
+        |    val segs = paragraphSegs
+        |    val content = segs.iterator.zipWithIndex.map { (s, idx) =>
+        |      val pfx = if idx == 0 then "" else s.prefix
+        |      val end = if idx == segs.size - 1 then "" else s.ending
+        |      pfx + s.content + end
+        |    }.mkString
+        |    if content.nonEmpty then out += 1
+        |
+        |  emitSetextUnderline()
+        |  out
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".map(|(s, idx)| {"),
+      s"a genuine 2-param closure over a `.zipWithIndex` Vec must destructure the tuple, not bind the whole pair to one name:\n$g")
+    assert(!g.contains(".mkString"),
+      s"`.mkString` must be lowered to a real Rust call, never left as an un-rewritten Scala method name:\n$g")
+
   test("`xs.count(_.field == x)` / `xs.filter(_.field == x)` — a placeholder predicate types cleanly"):
     // `lexed.tokens.count(_.kind == "yaml.anchor")` / `ranges.filter(_.start == index)`
     // (`uniml/yaml`) — `renderVecIterBody`'s `Term.AnonymousFunction` branch wrapped the WHOLE
