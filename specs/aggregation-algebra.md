@@ -1,17 +1,17 @@
 # Aggregation Algebra — `Monoid`, `Group`, and `Aggregator[In, Acc, Out]`
 
-Status: **§2.2–§4 and part of §5 landed 2026-08-29** as
-[`std/aggregator.ssc`](../std/aggregator.ssc) — `Group`, `Aggregator[In, Acc, Out]`, `zip`/`map`
-composition, `mean`-from-`sum`-and-`count`, `min`/`max` (any `Order[A]`), and `variance`/`stddev`
-(Chan/Golub/LeVeque), runnable at [`examples/std-aggregator.ssc`](../examples/std-aggregator.ssc)
-and gated by `tests/conformance/std-aggregator.ssc` + `tests/conformance/std-order.ssc` (INT/JVM
-green; JS known-red against a filed codegen bug — `v1/runtime/backend/js/BUGS.md`
-`js-codegen-drops-generic-typeclass-resolution-when-multiple-instances-exist`). §5's `first`/`last`,
-§6–§11 (approximate aggregators, the `DStream`/`Dataset` bridge, rendering, effects) remain
-**design / planning** — queued in `BACKLOG.md`. Every code sample in this document has been run for
-real against this checkout's `bin/ssc-tools` to confirm it actually compiles and produces the
-stated result — see §12 for what that verification found (including one interpreter bug it
-surfaced, since fixed).
+Status: **§2.2–§5 landed 2026-08-29** as [`std/aggregator.ssc`](../std/aggregator.ssc) — `Group`,
+`Aggregator[In, Acc, Out]`, `zip`/`map` composition, `mean`-from-`sum`-and-`count`, `min`/`max` (any
+`Order[A]`), `variance`/`stddev` (Chan/Golub/LeVeque), and `first`/`last` (`MinByAgg`/`MaxByAgg`
+generalized to a projected key, keyed on `.zipWithIndex`), runnable at
+[`examples/std-aggregator.ssc`](../examples/std-aggregator.ssc) and gated by
+`tests/conformance/std-aggregator.ssc` + `tests/conformance/std-order.ssc` (INT/JVM green; JS
+known-red against a filed codegen bug — `v1/runtime/backend/js/BUGS.md`
+`js-codegen-drops-generic-typeclass-resolution-when-multiple-instances-exist`). §6–§11 (approximate
+aggregators, the `DStream`/`Dataset` bridge, rendering, effects) remain **design / planning** —
+queued in `BACKLOG.md`. Every code sample in this document has been run for real against this
+checkout's `bin/ssc-tools` to confirm it actually compiles and produces the stated result — see §12
+for what that verification found (including one interpreter bug it surfaced, since fixed).
 
 Companion documents:
 - [`std/semigroup-monoid.ssc`](../std/semigroup-monoid.ssc) — `Semigroup`/`Monoid` already ship
@@ -221,10 +221,8 @@ writing a new fold by hand each time.
 
 ## 5. Canonical exact aggregators
 
-**`sum`/`count`/`mean` (§4.3), `min`/`max`, and `variance`/`stddev` landed 2026-08-29** as
-`std/aggregator.ssc`; `first`/`last` stays design-only, queued in `BACKLOG.md`
-(`aggregation-algebra-canonical-and-effectful`) pending a decision on how a caller attaches an
-ordering key.
+**All of §5 landed 2026-08-29** as `std/aggregator.ssc` — `sum`/`count`/`mean` (§4.3), `min`/`max`,
+`variance`/`stddev` (§5.1), and `first`/`last` (§5.2).
 
 | Aggregator | `Acc` | Commutative | Group? | Notes |
 |---|---|---|---|---|
@@ -233,7 +231,7 @@ ordering key.
 | `mean` | `(sum, count)` | yes | no | `Group` on the pair would need division to be safe at `count = 0`; present-time only |
 | `min` / `max` | `Option[A]`, `None` as the `Top`/`Bottom` sentinel for `empty` | yes | **no** | no inverse: cannot "un-see" the max once other values remain; works over any `Order[A]`, not just numbers |
 | `variance` / `stddev` | `(n, mean, M2)` triple (Welford/Chan) | yes | no | see §5.1 for the merge formula — this is the one exact statistic that is NOT simply "zip two simpler monoids" |
-| `first` / `last` | the type, paired with a sequence number | **no** (`first`/`last` need arrival order or an explicit timestamp) | no | only meaningful with an ordering key; do not merge unordered partitions naively — **not yet implemented**, see `BACKLOG.md` |
+| `first` / `last` | `Option[A]`, keyed by a caller-attached position | **no** (needs the ordering key `.zipWithIndex` attaches — see §5.2) | no | `MinByAgg`/`MaxByAgg` generalize `min`/`max` to compare by a projected key instead of the value itself |
 
 ### 5.1 Variance as a monoid (Chan et al.'s parallel merge)
 
@@ -270,6 +268,37 @@ shown in earlier drafts of this section) — without it, the JVM lane's real Sca
 refuse `a.n`/`b.mean`/`acc.m2` from outside the class with "private value ... can only be accessed
 from...", while `int`/`native` silently allow it. Every constructor-parameter case class in this
 module now takes `val` for exactly this reason (`std/aggregator.ssc`'s own `VarianceAcc`).
+
+### 5.2 `first` / `last` — `min`/`max` generalized to a projected key
+
+`min`/`max` compare a value against itself; `first`/`last` need to compare values by **when they
+arrived**, which the value alone does not carry — the input's fold order is not a substitute,
+because `combine` must also be correct when merging two already-aggregated partitions (§9's
+whole reason for existing), and partitions can finish in either order. The fix generalizes §5's
+`min`/`max` rather than inventing a new mechanism: `MinByAgg[A, K](ord: Order[K], key: A => K)`
+compares by a *projected* key instead of the value itself (`min` is the special case `key =
+identity`), and the caller attaches the ordering key explicitly with `.zipWithIndex`
+(`List[A] => List[(A, Int)]`) before folding, so the key travels with the value into `combine`
+instead of being implicit in fold order:
+
+```scalascript
+class MinByAgg[A, K](ord: Order[K], key: A => K) extends Aggregator[A, Option[A], Option[A]]:
+  def monoid: Monoid[Option[A]] = MinByMonoid(ord, key)   // same shape as MinMonoid, compares key(a) vs key(b)
+  def prepare(in: A): Option[A] = Some(in)
+  def present(acc: Option[A]): Option[A] = acc
+
+def firstAgg[A](): Aggregator[(A, Int), Option[(A, Int)], Option[A]] =
+  MapAgg(MinByAgg[(A, Int), Int](orderInt, (p: (A, Int)) => p._2), (acc: Option[(A, Int)]) => acc.map(p => p._1))
+
+runAggregator(List(10.0, 20.0, 5.0, 40.0).zipWithIndex, firstAgg[Double]())   // => Some(10.0)
+```
+
+`lastAgg` is the same shape over `MaxByAgg`. Verified against this checkout's `bin/ssc-tools`;
+found one more front limitation landing it: `acc.map((a, i) => a)` — a tuple-destructuring
+2-parameter lambda passed to `Option.map` — silently double-wraps the result
+(`Some(Some((10.0, 0)))` instead of `Some(10.0)`) on the reference front. `acc.map(p => p._1)`
+(explicit tuple-field access, the same style §12.2's `ZipAgg`/`MapAgg` already use) works
+correctly; every tuple-destructuring lambda in `std/aggregator.ssc` uses this form for that reason.
 
 ## 6. Approximate aggregators — sketches as monoids
 

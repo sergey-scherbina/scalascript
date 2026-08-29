@@ -8,3 +8,6 @@ None
 Some(apple)
 4
 2.138089935299395
+Some(10)
+Some(40)
+None

@@ -25,21 +25,26 @@ exports:
   - populationVariance
   - sampleVariance
   - stddev
+  - MinByMonoid
+  - MaxByMonoid
+  - MinByAgg
+  - MaxByAgg
+  - firstAgg
+  - lastAgg
 ---
 
 # Aggregator — the aggregation-algebra core primitive
 
 Design: [`specs/aggregation-algebra.md`](../specs/aggregation-algebra.md). This module ships the
 piece that document calls "the central primitive" (`Group`, `Aggregator[In, Acc, Out]`, `zip`/`map`
-composition — §2.2–§4) plus a first slice of §5's canonical exact aggregators: `min`/`max` and
-`variance`/`stddev`. Approximate aggregators (HyperLogLog, …), `first`/`last` (needs a design
-decision on how a caller attaches an ordering key — see `BACKLOG.md`), the `DStream`/`Dataset`
-bridge, and effectful aggregators are out of scope for this module — see the spec's §13 and
-`BACKLOG.md` for what is deferred and why.
+composition — §2.2–§4) plus all of §5's canonical exact aggregators: `min`/`max`,
+`variance`/`stddev`, and `first`/`last`. Approximate aggregators (HyperLogLog, …), the
+`DStream`/`Dataset` bridge, and effectful aggregators are out of scope for this module — see the
+spec's §13 and `BACKLOG.md` for what is deferred and why.
 
 [Monoid, intSum](./semigroup-monoid.ssc)
 
-[Order](./order.ssc)
+[Order, orderInt](./order.ssc)
 
 ## `Group` — invertible monoids
 
@@ -227,3 +232,56 @@ def stddev(variance: Double): Double = math.sqrt(variance)
 `MapAgg(VarianceAgg(), populationVariance)` is a complete `Aggregator[Double, VarianceAcc, Double]`;
 `MapAgg(MapAgg(VarianceAgg(), sampleVariance), stddev)` gives the sample standard deviation the same
 way. See [`examples/std-aggregator.ssc`](../examples/std-aggregator.ssc).
+
+## `first` / `last` — `min`/`max` generalized to a projected key
+
+`min`/`max` compare a value against itself; `first`/`last` need to compare values by **when they
+arrived**, which the value itself does not carry. `MinByAgg`/`MaxByAgg` generalize `MinAgg`/`MaxAgg`
+to compare by a projected key (`Order[K]` plus `key: A => K`) instead of the value directly —
+`MinAgg(ord)` is the special case `MinByAgg(ord, identity)`, though it is kept as its own class
+rather than rewritten in terms of this one, since it already shipped and there is nothing to gain
+by touching it:
+
+```scalascript
+class MinByMonoid[A, K](ord: Order[K], key: A => K) extends Monoid[Option[A]]:
+  def empty: Option[A] = None
+  def combine(x: Option[A], y: Option[A]): Option[A] = (x, y) match
+    case (None, b)          => b
+    case (a, None)          => a
+    case (Some(a), Some(b)) => Some(if ord.compare(key(a), key(b)) <= 0 then a else b)
+
+class MaxByMonoid[A, K](ord: Order[K], key: A => K) extends Monoid[Option[A]]:
+  def empty: Option[A] = None
+  def combine(x: Option[A], y: Option[A]): Option[A] = (x, y) match
+    case (None, b)          => b
+    case (a, None)          => a
+    case (Some(a), Some(b)) => Some(if ord.compare(key(a), key(b)) >= 0 then a else b)
+
+class MinByAgg[A, K](ord: Order[K], key: A => K) extends Aggregator[A, Option[A], Option[A]]:
+  def monoid: Monoid[Option[A]] = MinByMonoid(ord, key)
+  def prepare(in: A): Option[A] = Some(in)
+  def present(acc: Option[A]): Option[A] = acc
+
+class MaxByAgg[A, K](ord: Order[K], key: A => K) extends Aggregator[A, Option[A], Option[A]]:
+  def monoid: Monoid[Option[A]] = MaxByMonoid(ord, key)
+  def prepare(in: A): Option[A] = Some(in)
+  def present(acc: Option[A]): Option[A] = acc
+```
+
+`first`/`last` fall out by keying on position: the caller attaches one with `.zipWithIndex`
+(`List[A] => List[(A, Int)]`) **before** folding, so the ordering key travels with the value into
+`combine` instead of being implicit in fold order — the spec's own warning ("do not merge unordered
+partitions naively") is exactly why this can't just be "keep the first element `foldLeft` sees":
+that would be correct sequentially but wrong the moment two partitions' accumulated states are
+merged in the wrong order.
+
+```scalascript
+def firstAgg[A](): Aggregator[(A, Int), Option[(A, Int)], Option[A]] =
+  MapAgg(MinByAgg[(A, Int), Int](orderInt, (p: (A, Int)) => p._2), (acc: Option[(A, Int)]) => acc.map(p => p._1))
+
+def lastAgg[A](): Aggregator[(A, Int), Option[(A, Int)], Option[A]] =
+  MapAgg(MaxByAgg[(A, Int), Int](orderInt, (p: (A, Int)) => p._2), (acc: Option[(A, Int)]) => acc.map(p => p._1))
+```
+
+`runAggregator(xs.zipWithIndex, firstAgg[Double]())` is `first`; swap in `lastAgg` for `last`. Both
+return `None` on empty input, for the same reason `min`/`max` do.

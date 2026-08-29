@@ -13,20 +13,24 @@
      impact: none — deliberate scope cut, not a defect
      confirmed: no -->
 
-`specs/aggregation-algebra.md` §2.2 (`Group`), §3–§4 (`Aggregator[In, Acc, Out]`, `zip`/`map`
-composition), and now part of §5 (`min`/`max`, `variance`/`stddev` — claim
-`aggregator-canonical-exact`, 2026-08-29) landed as [`std/aggregator.ssc`](std/aggregator.ssc).
-Everything past that is real, separate work the spec itself scopes out of the first slice — queued
-here rather than attempted in the same pass, per "central primitive first":
+`specs/aggregation-algebra.md` §2.2–§5 (`Group`, `Aggregator[In, Acc, Out]`, `zip`/`map`
+composition, and all of §5's canonical exact aggregators — claims `aggregator-core-impl`,
+`aggregator-canonical-exact`, `aggregator-first-last`, 2026-08-29) landed as
+[`std/aggregator.ssc`](std/aggregator.ssc). Everything past that is real, separate work the spec
+itself scopes out of the first slice — queued here rather than attempted in the same pass, per
+"central primitive first":
 
-- **§5 canonical exact aggregators** — `sum`/`count`/`mean` (§4.3), `min`/`max` (`Option[A]` as the
-  `Top`/`Bottom` sentinel, over any `Order[A]`), and `variance`/`stddev` (the Chan/Golub/LeVeque
-  merge, §5.1) all ship now. **`first`/`last` still does not** — it needs an explicit ordering key,
-  and there's a real open design question before it's an implementation task: how does a caller
-  attach a sequence number/timestamp before folding? The natural shape is a generalization of what
-  landed for `min`/`max` — a `minBy`/`maxBy`-keyed aggregator (`MinByAgg[A, K](keyOrd: Order[K], key:
-  A => K)`), where `first`/`last` fall out as `key = <the input's position>`. Worth deciding
-  explicitly rather than rushing a bespoke `First`/`Last` shape.
+- **§5 canonical exact aggregators — DONE.** `sum`/`count`/`mean` (§4.3), `min`/`max` (`Option[A]`
+  as the `Top`/`Bottom` sentinel, over any `Order[A]`), `variance`/`stddev` (Chan/Golub/LeVeque,
+  §5.1), and `first`/`last` (§5.2 — `MinByAgg`/`MaxByAgg` generalize `min`/`max` to compare by a
+  projected key; the caller attaches the ordering key with `.zipWithIndex` before folding, since
+  fold order alone isn't a valid substitute once partitions can merge in either order) all ship.
+  Landing `first`/`last` found one more front bug: a tuple-destructuring 2-parameter lambda
+  (`acc.map((a, i) => a)`) passed to `Option.map` silently double-wraps the result on the reference
+  front (`Some(Some((10.0, 0)))` instead of `Some(10.0)`) — worked around with explicit tuple-field
+  access (`acc.map(p => p._1)`), not filed as a BUGS entry (out of scope to chase further right now;
+  every tuple-destructuring lambda in this module already uses the field-access form for this
+  reason, so nothing here still depends on the broken path).
 - Landing `min`/`max` found **`std/order.ssc` shipped completely broken, with zero test coverage** —
   three stacked defects (unnamed `given` instances unresolvable by `summon`/`using`; helpers
   delegating to trait DEFAULT methods, which don't carry through a `given` instance per

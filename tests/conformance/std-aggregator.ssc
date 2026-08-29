@@ -7,11 +7,11 @@ known-red: "js — summon[Order[Int]]/summon[Order[String]] (for MinAgg/MaxAgg) 
 # Std — Aggregator
 
 Exercises the aggregation-algebra core primitive: `Group` (retraction), `Aggregator`'s `zip`/`map`
-composition, the `mean`-from-`sum`-and-`count` worked example, `min`/`max` over any `Order[A]`, and
-`variance`/`stddev` (population and sample) from
-[`specs/aggregation-algebra.md`](../../specs/aggregation-algebra.md) §4.3 and §5.1.
+composition, the `mean`-from-`sum`-and-`count` worked example, `min`/`max` over any `Order[A]`,
+`variance`/`stddev` (population and sample), and `first`/`last` (keyed by `.zipWithIndex`) from
+[`specs/aggregation-algebra.md`](../../specs/aggregation-algebra.md) §4.3 and §5.
 
-[Group, intSumGroup, Aggregator, runAggregator, ZipAgg, MapAgg, SumAgg, CountAgg, MinAgg, MaxAgg, VarianceAgg, populationVariance, sampleVariance, stddev](std/aggregator.ssc)
+[Group, intSumGroup, Aggregator, runAggregator, ZipAgg, MapAgg, SumAgg, CountAgg, MinAgg, MaxAgg, VarianceAgg, populationVariance, sampleVariance, stddev, firstAgg, lastAgg](std/aggregator.ssc)
 
 [Order](std/order.ssc)
 
@@ -39,4 +39,9 @@ val sampleStddev = MapAgg(MapAgg(VarianceAgg(), sampleVariance), stddev)
 
 println(runAggregator(xs, popVariance))
 println(runAggregator(xs, sampleStddev))
+
+val prices = List(10.0, 20.0, 5.0, 40.0)
+println(runAggregator(prices.zipWithIndex, firstAgg[Double]()))
+println(runAggregator(prices.zipWithIndex, lastAgg[Double]()))
+println(runAggregator(List[(Double, Int)](), firstAgg[Double]()))
 ```
