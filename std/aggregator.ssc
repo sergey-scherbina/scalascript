@@ -15,19 +15,31 @@ exports:
   - MapAgg
   - SumAgg
   - CountAgg
+  - MinMonoid
+  - MaxMonoid
+  - MinAgg
+  - MaxAgg
+  - VarianceAcc
+  - varianceMonoid
+  - VarianceAgg
+  - populationVariance
+  - sampleVariance
+  - stddev
 ---
 
 # Aggregator — the aggregation-algebra core primitive
 
 Design: [`specs/aggregation-algebra.md`](../specs/aggregation-algebra.md). This module ships the
-piece that document calls "the central primitive": `Group` (an invertible `Monoid`) and
-`Aggregator[In, Acc, Out]` (prepare / merge / present), plus the two composition combinators
-(`zip`, `map`) that let statistics build from smaller ones instead of a hand-written fold each
-time. Canonical exact/approximate aggregators (variance, HyperLogLog, …), the `DStream`/`Dataset`
+piece that document calls "the central primitive" (`Group`, `Aggregator[In, Acc, Out]`, `zip`/`map`
+composition — §2.2–§4) plus a first slice of §5's canonical exact aggregators: `min`/`max` and
+`variance`/`stddev`. Approximate aggregators (HyperLogLog, …), `first`/`last` (needs a design
+decision on how a caller attaches an ordering key — see `BACKLOG.md`), the `DStream`/`Dataset`
 bridge, and effectful aggregators are out of scope for this module — see the spec's §13 and
 `BACKLOG.md` for what is deferred and why.
 
 [Monoid, intSum](./semigroup-monoid.ssc)
+
+[Order](./order.ssc)
 
 ## `Group` — invertible monoids
 
@@ -133,3 +145,85 @@ class CountAgg[In]() extends Aggregator[In, Int, Int]:
 divided on `present`: `MapAgg(ZipAgg(SumAgg(), CountAgg[Double]()), (p: (Double, Int)) => p._1 /
 p._2.toDouble)`. See [`examples/std-aggregator.ssc`](../examples/std-aggregator.ssc) for this wired
 up and run end to end.
+
+## `min` / `max` — any `Order[A]`, no numeric assumption
+
+`Option[A]` is the "`Top`/`Bottom` sentinel for `empty`" the spec's §5 table calls for: `None` means
+"no value seen yet" and is the identity for both `combine`s below (`combine(None, x) == x`), so
+`min`/`max` work over any type with an `Order` instance, not just numbers. Built from an *explicit*
+`Order[A]` argument rather than a `given` derivation, matching this module's existing style (§4's
+`ZipAgg`/`MapAgg`) and the design's own §12.1 preference for explicit combinators.
+
+```scalascript
+class MinMonoid[A](ord: Order[A]) extends Monoid[Option[A]]:
+  def empty: Option[A] = None
+  def combine(x: Option[A], y: Option[A]): Option[A] = (x, y) match
+    case (None, b)          => b
+    case (a, None)          => a
+    case (Some(a), Some(b)) => Some(if ord.compare(a, b) <= 0 then a else b)
+
+class MaxMonoid[A](ord: Order[A]) extends Monoid[Option[A]]:
+  def empty: Option[A] = None
+  def combine(x: Option[A], y: Option[A]): Option[A] = (x, y) match
+    case (None, b)          => b
+    case (a, None)          => a
+    case (Some(a), Some(b)) => Some(if ord.compare(a, b) >= 0 then a else b)
+
+class MinAgg[A](ord: Order[A]) extends Aggregator[A, Option[A], Option[A]]:
+  def monoid: Monoid[Option[A]] = MinMonoid(ord)
+  def prepare(in: A): Option[A] = Some(in)
+  def present(acc: Option[A]): Option[A] = acc
+
+class MaxAgg[A](ord: Order[A]) extends Aggregator[A, Option[A], Option[A]]:
+  def monoid: Monoid[Option[A]] = MaxMonoid(ord)
+  def prepare(in: A): Option[A] = Some(in)
+  def present(acc: Option[A]): Option[A] = acc
+```
+
+`present` returns `None` for an empty input — honest rather than throwing or picking a fake
+sentinel value, and consistent with `Group`'s framing of `min`/`max` as **not** a `Group` (§2.2):
+there is no `inverse` that "un-sees" the current extreme once other values remain, so unlike `sum`
+these do not support cheap retraction from a sliding window (§7).
+
+## `variance` / `stddev` — the one exact statistic that isn't just "zip two simpler monoids"
+
+The naive two-pass formula (`mean((x - mean)^2)`) needs the mean before it can start, so it isn't
+incrementally mergeable. The one-pass, mergeable form carries a triple `(n, mean, M2)`, where `M2`
+is the running sum of squared deviations from the running mean — Welford's algorithm for merging in
+a single new value, generalized by Chan, Golub & LeVeque (1979) to merge two already-aggregated
+partitions:
+
+```scalascript
+class VarianceAcc(val n: Int, val mean: Double, val m2: Double)
+
+given varianceMonoid: Monoid[VarianceAcc] with
+  def empty: VarianceAcc = VarianceAcc(0, 0.0, 0.0)
+  def combine(a: VarianceAcc, b: VarianceAcc): VarianceAcc =
+    if a.n == 0 then b
+    else if b.n == 0 then a
+    else
+      val n     = a.n + b.n
+      val delta = b.mean - a.mean
+      val mean  = a.mean + delta * b.n.toDouble / n.toDouble
+      val m2    = a.m2 + b.m2 + delta * delta * a.n.toDouble * b.n.toDouble / n.toDouble
+      VarianceAcc(n, mean, m2)
+
+class VarianceAgg() extends Aggregator[Double, VarianceAcc, VarianceAcc]:
+  def monoid: Monoid[VarianceAcc] = varianceMonoid
+  def prepare(in: Double): VarianceAcc = VarianceAcc(1, in, 0.0)
+  def present(acc: VarianceAcc): VarianceAcc = acc
+```
+
+`present` divides `m2` by `n` (population variance) or `n - 1` (sample variance) — the spec leaves
+this a policy choice for the caller rather than baking it into the monoid, so it is two small
+presenters composed onto `VarianceAgg` with `MapAgg`, not two different monoids:
+
+```scalascript
+def populationVariance(acc: VarianceAcc): Double = acc.m2 / acc.n.toDouble
+def sampleVariance(acc: VarianceAcc): Double = acc.m2 / (acc.n - 1).toDouble
+def stddev(variance: Double): Double = math.sqrt(variance)
+```
+
+`MapAgg(VarianceAgg(), populationVariance)` is a complete `Aggregator[Double, VarianceAcc, Double]`;
+`MapAgg(MapAgg(VarianceAgg(), sampleVariance), stddev)` gives the sample standard deviation the same
+way. See [`examples/std-aggregator.ssc`](../examples/std-aggregator.ssc).

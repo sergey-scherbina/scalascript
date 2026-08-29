@@ -1,0 +1,41 @@
+---
+name: conformance-std-order
+version: 1.0.0
+known-red: "js — the JS backend drops the `using` parameter from a generic function's compiled parameter list when more than one named instance of the trait is in scope, leaving it an unbound free variable (v1/runtime/backend/js/BUGS.md js-codegen-drops-generic-typeclass-resolution-when-multiple-instances-exist). EXPIRES when that codegen bug is fixed."
+---
+
+# Std — Order
+
+`std/order.ssc` shipped with zero coverage and was broken on every lane — three independent
+defects (`v2/BUGS.md` `anonymous-given-instance-unresolvable-by-summon-or-using`, and the module's
+own header note). This exercises every exported helper over `Int`/`Double`/`String`.
+
+`Boolean` is exercised via the named instance (`orderBoolean.compare`) directly rather than through
+the generic `compare`/`min`/`max` helpers: those helpers, called with `Order[Boolean]` in scope
+alongside `Order[Int]`/`Order[Double]`/`Order[String]`, hit a separate, still-open reference-front
+defect — `v2/BUGS.md` `generic-using-resolution-miscompiles-for-a-later-instance`.
+
+[Order, orderBoolean, compare, lt, gt, lte, gte, min, max](std/order.ssc)
+
+```scalascript
+println(compare(3, 5))
+println(compare(5, 3))
+println(compare(5, 5))
+println(lt(3, 5))
+println(gt(3, 5))
+println(lte(5, 5))
+println(gte(5, 5))
+println(min(3, 5))
+println(max(3, 5))
+
+println(compare(3.0, 2.0))
+println(min(3.0, 2.0))
+
+println(compare("apple", "banana"))
+println(min("apple", "banana"))
+println(max("apple", "banana"))
+
+println(orderBoolean.compare(false, true))
+println(orderBoolean.compare(true, false))
+println(orderBoolean.compare(true, true))
+```

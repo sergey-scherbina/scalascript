@@ -2,7 +2,7 @@
 ---
 name: std-aggregator
 version: 1.0.0
-description: Aggregator[In, Acc, Out] — compose sum and count into mean for free
+description: Aggregator[In, Acc, Out] — compose sum, count, min/max and variance without a new fold
 ---
 
 # Aggregator — compose, don't hand-roll
@@ -13,7 +13,9 @@ below is `sum` and `count`, computed in a single pass via `zip`, then divided on
 aggregation logic. See [`std/aggregator.ssc`](../std/aggregator.ssc) and
 [`specs/aggregation-algebra.md`](../specs/aggregation-algebra.md) for the design.
 
-[Group, intSumGroup, Aggregator, runAggregator, ZipAgg, MapAgg, SumAgg, CountAgg](std/aggregator.ssc)
+[Group, intSumGroup, Aggregator, runAggregator, ZipAgg, MapAgg, SumAgg, CountAgg, MinAgg, MaxAgg, VarianceAgg, populationVariance, sampleVariance, stddev](std/aggregator.ssc)
+
+[Order](std/order.ssc)
 
 ```scalascript
 val sumAndCount = ZipAgg(SumAgg(), CountAgg[Double]())
@@ -25,4 +27,18 @@ println(runAggregator(List(1.0, 2.0, 3.0, 4.0, 5.0), mean))
 val total  = intSumGroup.combine(intSumGroup.combine(10, 20), 30)
 val minus20 = intSumGroup.combine(total, intSumGroup.inverse(20))
 println(minus20)
+
+// min/max work over any Order[A], not just numbers.
+val ints = List(5, 3, 9, 1, 7)
+println(runAggregator(ints, MinAgg(summon[Order[Int]])))
+println(runAggregator(ints, MaxAgg(summon[Order[Int]])))
+println(runAggregator(List("pear", "apple", "kiwi"), MinAgg(summon[Order[String]])))
+
+// variance/stddev: one accumulator, two presentations, via `map`.
+val xs           = List(2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0)
+val popVariance  = MapAgg(VarianceAgg(), populationVariance)
+val sampleStddev = MapAgg(MapAgg(VarianceAgg(), sampleVariance), stddev)
+
+println(runAggregator(xs, popVariance))
+println(runAggregator(xs, sampleStddev))
 ```

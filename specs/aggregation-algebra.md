@@ -1,10 +1,13 @@
 # Aggregation Algebra — `Monoid`, `Group`, and `Aggregator[In, Acc, Out]`
 
-Status: **§2.2–§4 landed 2026-08-29** as [`std/aggregator.ssc`](../std/aggregator.ssc) —
-`Group`, `Aggregator[In, Acc, Out]`, `zip`/`map` composition, and the `mean`-from-`sum`-and-`count`
-worked example, runnable at [`examples/std-aggregator.ssc`](../examples/std-aggregator.ssc) and
-gated by `tests/conformance/std-aggregator.ssc` (passes on all three v1 lanes: INT/JS/JVM). §5–§11
-(canonical/approximate aggregators, the `DStream`/`Dataset` bridge, rendering, effects) remain
+Status: **§2.2–§4 and part of §5 landed 2026-08-29** as
+[`std/aggregator.ssc`](../std/aggregator.ssc) — `Group`, `Aggregator[In, Acc, Out]`, `zip`/`map`
+composition, `mean`-from-`sum`-and-`count`, `min`/`max` (any `Order[A]`), and `variance`/`stddev`
+(Chan/Golub/LeVeque), runnable at [`examples/std-aggregator.ssc`](../examples/std-aggregator.ssc)
+and gated by `tests/conformance/std-aggregator.ssc` + `tests/conformance/std-order.ssc` (INT/JVM
+green; JS known-red against a filed codegen bug — `v1/runtime/backend/js/BUGS.md`
+`js-codegen-drops-generic-typeclass-resolution-when-multiple-instances-exist`). §5's `first`/`last`,
+§6–§11 (approximate aggregators, the `DStream`/`Dataset` bridge, rendering, effects) remain
 **design / planning** — queued in `BACKLOG.md`. Every code sample in this document has been run for
 real against this checkout's `bin/ssc-tools` to confirm it actually compiles and produces the
 stated result — see §12 for what that verification found (including one interpreter bug it
@@ -218,14 +221,19 @@ writing a new fold by hand each time.
 
 ## 5. Canonical exact aggregators
 
+**`sum`/`count`/`mean` (§4.3), `min`/`max`, and `variance`/`stddev` landed 2026-08-29** as
+`std/aggregator.ssc`; `first`/`last` stays design-only, queued in `BACKLOG.md`
+(`aggregation-algebra-canonical-and-effectful`) pending a decision on how a caller attaches an
+ordering key.
+
 | Aggregator | `Acc` | Commutative | Group? | Notes |
 |---|---|---|---|---|
 | `sum` | the numeric type | yes | yes | `Group` — subtraction inverts it |
 | `count` | `Int` | yes | yes | a `Monoid[Unit]`-shaped `prepare` composed with `intSum` |
 | `mean` | `(sum, count)` | yes | no | `Group` on the pair would need division to be safe at `count = 0`; present-time only |
-| `min` / `max` | the type, with a `Top`/`Bottom` sentinel for `empty` | yes | **no** | no inverse: cannot "un-see" the max once other values remain |
+| `min` / `max` | `Option[A]`, `None` as the `Top`/`Bottom` sentinel for `empty` | yes | **no** | no inverse: cannot "un-see" the max once other values remain; works over any `Order[A]`, not just numbers |
 | `variance` / `stddev` | `(n, mean, M2)` triple (Welford/Chan) | yes | no | see §5.1 for the merge formula — this is the one exact statistic that is NOT simply "zip two simpler monoids" |
-| `first` / `last` | the type, paired with a sequence number | **no** (`first`/`last` need arrival order or an explicit timestamp) | no | only meaningful with an ordering key; do not merge unordered partitions naively |
+| `first` / `last` | the type, paired with a sequence number | **no** (`first`/`last` need arrival order or an explicit timestamp) | no | only meaningful with an ordering key; do not merge unordered partitions naively — **not yet implemented**, see `BACKLOG.md` |
 
 ### 5.1 Variance as a monoid (Chan et al.'s parallel merge)
 
@@ -236,7 +244,7 @@ where `M2` is the running sum of squared deviations from the running mean (Welfo
 **already-aggregated** partitions):
 
 ```scalascript
-class VarianceAcc(n: Int, mean: Double, m2: Double)
+class VarianceAcc(val n: Int, val mean: Double, val m2: Double)
 
 given varianceMonoid: Monoid[VarianceAcc] with
   def empty: VarianceAcc = VarianceAcc(0, 0.0, 0.0)
@@ -252,7 +260,16 @@ given varianceMonoid: Monoid[VarianceAcc] with
 ```
 
 `present` divides `m2` by `n` (population variance) or `n - 1` (sample variance) — a policy choice
-left to the caller, not baked into the monoid.
+left to the caller, not baked into the monoid; `std/aggregator.ssc` implements this as two small
+presenters (`populationVariance`, `sampleVariance`) composed onto a shared `VarianceAgg` with
+`MapAgg`, so there is one monoid and two `Aggregator`s, not two monoids.
+
+**Landing this found one more gap this document's earlier verification missed**: `VarianceAcc`'s
+fields need `val` (`class VarianceAcc(val n: Int, ...)`, not the bare-constructor-parameter form
+shown in earlier drafts of this section) — without it, the JVM lane's real Scala visibility rules
+refuse `a.n`/`b.mean`/`acc.m2` from outside the class with "private value ... can only be accessed
+from...", while `int`/`native` silently allow it. Every constructor-parameter case class in this
+module now takes `val` for exactly this reason (`std/aggregator.ssc`'s own `VarianceAcc`).
 
 ## 6. Approximate aggregators — sketches as monoids
 
