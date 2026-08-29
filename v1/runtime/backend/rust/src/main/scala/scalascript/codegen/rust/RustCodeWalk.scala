@@ -7697,7 +7697,18 @@ object RustCodeWalk:
     // the same shape moves `token.span` twice across two sibling `if`s in `validateToken`.
     case m.Term.Apply.After_4_6_0(m.Term.Name("Some"), args) if args.values.size == 1 =>
       args.values.headOption match
-        case Some(a) => renderTerm(a, ctx).map(v => s"Some(${cloneIfMoved(a, v, ctx)})")
+        case Some(a) =>
+          renderTerm(a, ctx).map { v0 =>
+            val v = cloneIfMoved(a, v0, ctx)
+            // `chomping = Some(char)` where `chomping: Option[Char]` (`uniml/yaml`'s
+            // `YamlLexer.scala`'s `scanBlockHeader`) — `Char` maps to `i64` EVERYWHERE it is a
+            // DECLARED type (`mapType` has no `SscChar` case at all — that newtype exists only for
+            // an INTERMEDIATE expression value, `yieldsSscChar`'s own domain), so `Option[Char]` is
+            // always `Option<i64>` and `Some(...)`'s argument always needs the same `.0` unwrap
+            // every other i64-typed position already gets: `error[E0308]: expected i64, found
+            // SscChar`.
+            if yieldsSscChar(a, ctx) then s"Some(($v).0)" else s"Some($v)"
+          }
         case None    => Left(List(unsupported(
           s"def `${ctx.defName}` has invalid `Some` constructor application"
         )))
@@ -8793,7 +8804,15 @@ object RustCodeWalk:
     // routed through `cloneIfMoved` at all, so only the FIRST iteration's move succeeded:
     // `error[E0382]: use of moved value: bindings, in previous iteration of loop`.
     if errs.nonEmpty then Left(errs.flatten)
-    else Right(terms.zip(okRaw).map((t, r) => cloneIfMoved(t, r, ctx)))
+    else Right(terms.zip(okRaw).map { (t, r0) =>
+      val r = cloneIfMoved(t, r0, ctx)
+      // `(_str_char_at(&s, 0i64), chomping.clone(), indentation.clone())` (`uniml/yaml`'s
+      // `YamlLexer.scala`) — a tuple ELEMENT that `yieldsSscChar` needs the same `.0` unwrap
+      // every other `i64`-typed position already gets (`Char` has no `SscChar` case in `mapType`
+      // at all — see the `Some(...)` construction case's own comment for why this is
+      // unconditional): `error[E0308]: expected i64, found SscChar`.
+      if yieldsSscChar(t, ctx) then s"($r).0" else r
+    })
 
   private def renderTuple(parts: List[String]): String = parts match
     case Nil       => "()"
@@ -9617,9 +9636,21 @@ object RustCodeWalk:
                     // CONTAINS the same substring nested one level down, and wrapping the whole
                     // `HashMap` argument in an `Rc` it was never declared to have is wrong:
                     // `error[E0308]: expected HashMap<…>, found Rc<HashMap<…>>`.
+                    // `YamlPropertyBoundary.Flow(value: Char)` constructed from an `SscChar`-typed
+                    // local (`YamlPropertyBoundary.Flow(char)`, `uniml/yaml`'s `YamlLexer.scala`) —
+                    // `Char` has no `SscChar` case in `mapType` at all (that newtype exists only for
+                    // an intermediate expression value — see the `Some(...)` construction case's own
+                    // comment), so a field DECLARED `Char` is always Rust `i64` and needs the same
+                    // `.0` unwrap every other i64-typed position already gets: `error[E0308]:
+                    // expected i64, found SscChar`. `argTerms.lift(i)` is the ORIGINAL (pre-render)
+                    // term at this position — absent for a FILLED trailing default, which is never a
+                    // char in this corpus.
+                    val charFixed =
+                      if ec.fieldTypes.lift(i).contains("i64") && argTerms.lift(i).exists(t => yieldsSscChar(t, ctx))
+                      then s"($boxed).0" else boxed
                     val av =
                       if ec.fieldTypes.lift(i).exists(_.startsWith("std::rc::Rc<dyn "))
-                      then s"std::rc::Rc::new($boxed)" else boxed
+                      then s"std::rc::Rc::new($charFixed)" else charFixed
                     s"$fn: $av"
                   }.mkString(", ") + " }"
                 // Struct: enumName == n (standalone case class) → `StructName { fields }`

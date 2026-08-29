@@ -2464,3 +2464,28 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(g.contains("char::from_u32"), s"a Char-declared parameter must convert to a real char for .contains:\n$g")
+
+  test("an SscChar value unwraps `.0` in Some(...), a tuple literal, and a ctor field declared Char"):
+    // `chomping: Option[Char]; chomping = Some(char)` / `(s.charAt(i), other)` / a case class
+    // `case class Boundary(value: Char)` constructed from a `.charAt` local (`uniml/yaml`'s
+    // `YamlLexer.scala`) — `Char` has no `SscChar` case in `mapType` at all (that newtype exists
+    // only for an intermediate expression value), so EVERY declared-Char position is really
+    // `i64` and needs the SAME `.0` unwrap: `error[E0308]: expected i64, found SscChar`. Three
+    // separate construction sites (`Some(...)`, a raw tuple literal, a positional ctor field)
+    // each needed their OWN fix.
+    val src =
+      """```scalascript
+        |case class Boundary(value: Char)
+        |
+        |def scan(s: String, i: Int): (Boundary, Option[Char], (Char, Int)) =
+        |  val c = s.charAt(i)
+        |  (Boundary(c), Some(c), (c, i))
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("Boundary { value: (c.clone()).0 }"),
+      s"a ctor field declared Char must unwrap .0:\n$g")
+    assert(g.contains("Some((c.clone()).0)"),
+      s"Some(...) around an SscChar value must unwrap .0:\n$g")
+    assert(g.contains("((c.clone()).0, i)"),
+      s"a tuple-literal element yielding SscChar must unwrap .0:\n$g")
