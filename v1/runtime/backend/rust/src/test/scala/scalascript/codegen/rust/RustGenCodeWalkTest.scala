@@ -1158,3 +1158,96 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(g.contains(".message"), s"error.getMessage should resolve to .message via the qualified call's Either type:\n$g")
     assert(!g.contains(".getMessage"), s"the Scala spelling must not survive verbatim:\n$g")
+
+  test("`sb.append(cur)` still pushes a char while `self.isNameStart(self.cur())` needs no `.0`"):
+    // Regression check on splitting `yieldsSscChar` in two: `sb.append(cur)` (append a bare
+    // self-method's Char-typed result) still needs `char::from_u32` (the BROADER
+    // `isConceptuallyChar`), while `self.isNameStart(self.cur())` (an ordinary i64 argument, since
+    // `cur`'s own if/else already unifies to plain i64) must NOT get a bogus `.0` unwrap — the
+    // FIRST fix (widening `yieldsSscChar` itself) briefly added that bogus `.0`:
+    // `error[E0610]: i64 is a primitive type and therefore doesn't have fields`.
+    val src =
+      """```scalascript
+        |class Scanner(src: String):
+        |  private var pos = 0
+        |  def cur: Char = if pos < src.length then src.charAt(pos) else 0.toChar
+        |  def isNameStart(c: Long): Boolean = c > 0
+        |  def readName(): Boolean =
+        |    val sb = StringBuilder()
+        |    sb.append(cur)
+        |    isNameStart(cur)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("char::from_u32"), s"sb.append(cur) should still push a char:\n$g")
+    assert(!g.contains("self.isNameStart(") || !g.contains(").0)"),
+      s"an ordinary i64 argument must not get a bogus .0 unwrap:\n$g")
+
+  test("a boxed recursive enum-variant field derefs to the plain type it was declared as"):
+    // `doc.root: Elem` (`uniml/xml`'s `Doc.scala`'s `Doc`) — `Elem` is a SIBLING variant of the same
+    // enum `Doc` belongs to, so the struct boxes the field for enum sizing (`ec.boxedFields`).
+    // Reading it via the enum-variant field-read match cloned the `Box`, not the value inside it:
+    // `error[E0308]: expected Node, found Box<Node>`.
+    val src =
+      """```scalascript
+        |sealed trait Node
+        |case class Doc(root: Elem) extends Node
+        |case class Elem(name: String, children: List[Node] = Nil) extends Node
+        |
+        |def describe(node: Node): String = node match
+        |  case d: Doc => d.root.name
+        |  case e: Elem => e.name
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("*root"), s"a boxed recursive field read should deref the box:\n$g")
+
+  test("`s * n` (String repeat) lowers to `.repeat(n as usize)`"):
+    // `opts.indent * depth` (`uniml/xml`'s `Doc.scala`'s `serializeNode`) — Scala's `StringOps.*`
+    // repeats the string; reached rustc as literal multiplication, `error[E0369]: cannot multiply
+    // String by i64` (`String` has no `Mul` at all).
+    val src =
+      """```scalascript
+        |case class Opts(indent: String)
+        |def pad(opts: Opts, depth: Long): String = opts.indent * depth
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".repeat("), s"String * Int should lower to .repeat(n as usize):\n$g")
+
+  test("a StringBuilder PARAMETER (not just a local) is emitted `mut`"):
+    // `def serializeNode(node: Node, sb: StringBuilder, ...)`, mutated via recursive calls
+    // (`uniml/xml`'s `Doc.scala`) — `renderLetBinding`'s own `let mut` only ever covered a LOCAL
+    // StringBuilder; a PARAMETER never got `mut` at all: `error[E0596]: cannot borrow sb as
+    // mutable, as it is not declared as mutable`.
+    val src =
+      """```scalascript
+        |def write(sb: StringBuilder, s: String): Unit = sb.append(s)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("mut sb: String"), s"a StringBuilder parameter should be emitted mut:\n$g")
+
+  test("a local bound via tuple-destructure from a collection-of-tuples method call knows its ctor"):
+    // `val (element, inherited) = stack.remove(stack.size - 1)` where `stack: ArrayBuffer[(Elem,
+    // Map[...])]` was built from `ArrayBuffer((root, Map(...)))` (`uniml/xml`'s `Doc.scala`'s
+    // `validateNamespaces`) — `element`'s own ctor name (`Elem`, threaded from the parameter `root`
+    // through the tuple literal) was invisible everywhere: no def parameter, no field, just a local
+    // bound from a collection method call. `element.name` (an enum-variant field, needing the
+    // enum-field-read match) fell through to plain field access: `error[E0609]: no field name on
+    // type Node`.
+    val src =
+      """```scalascript
+        |sealed trait Node
+        |case class Elem(name: String, children: List[Node] = Nil) extends Node
+        |
+        |import scala.collection.mutable.ArrayBuffer
+        |
+        |def walk(root: Elem): String =
+        |  val stack = ArrayBuffer((root, 0))
+        |  val (element, depth) = stack.remove(stack.size - 1)
+        |  element.name
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("Node::Elem"), s"element.name should resolve via an enum-variant field-read match:\n$g")

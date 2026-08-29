@@ -2440,13 +2440,20 @@ object RustCodeWalk:
     case m.Term.Name(n) => ctx.paramCtorNames.get(n).orElse(ctx.paramTypes.get(n).filter(ctx.ctorMap.contains))
     case m.Term.Select(qual, m.Term.Name(field)) =>
       for
-        qualCtor  <- ctorNameOfExpr(qual, ctx)
-        ec        <- ctx.ctorMap.get(qualCtor)
-        idx       =  ec.fieldNames.indexOf(field)
+        qualCtor <- ctorNameOfExpr(qual, ctx)
+        ec       <- ctx.ctorMap.get(qualCtor)
+        idx      =  ec.fieldNames.indexOf(field)
         if idx >= 0
-        fieldType <- ec.fieldTypes.lift(idx)
-        if ctx.ctorMap.contains(fieldType)
-      yield fieldType
+        // `document.root.name` (`uniml/xml`'s `Doc.scala`'s `parse`) — `root: Element`, a field
+        // whose OWN type is ANOTHER variant of the same enum `Doc` belongs to; `ec.fieldTypes`
+        // already collapsed it to `Node` (the ENUM name — `mapType`'s own deliberate rule, since
+        // there is no Rust type for "just the Element case"), so the OLD single-source lookup below
+        // could never recover "Element" specifically and this WHOLE chain stopped resolving one
+        // field short of where it needed to. `fieldCtorNames` is the RAW, pre-collapse answer for
+        // exactly this: tried FIRST, since it is strictly more precise wherever it has an entry.
+        result <- ec.fieldCtorNames.get(field).filter(ctx.ctorMap.contains)
+          .orElse(ec.fieldTypes.lift(idx).filter(ctx.ctorMap.contains))
+      yield result
     case _ => None
 
   private def sectionAllTraits(s: ast.Section): List[m.Defn.Trait] =
@@ -2702,7 +2709,13 @@ object RustCodeWalk:
         else " { " + ok.map((n, t, _) => s"${rustIdent(n)}: $t").mkString(", ") + " }"
       val variant = s"$ctor$body"
       val boxed   = ok.collect { case (n, _, true) => n }.toSet
-      Right((variant, (ctor, EnumCtor(enumName, ok.map(_._1), boxed, fieldTypes = ok.map(_._2)))))
+      val fieldCtorNames = params.flatMap { p =>
+        p.decltpe.collect {
+          case m.Type.Name(tn)                   => p.name.value -> tn
+          case m.Type.Select(_, m.Type.Name(tn)) => p.name.value -> tn
+        }
+      }.toMap
+      Right((variant, (ctor, EnumCtor(enumName, ok.map(_._1), boxed, fieldTypes = ok.map(_._2), fieldCtorNames = fieldCtorNames))))
 
   /** Render one `case Ctor(field1: T1, …)` into a Rust struct-style
    *  enum variant.  Returns the variant text + the ctor metadata. */
@@ -2968,7 +2981,15 @@ object RustCodeWalk:
       // work without type inference: when a value crosses into or out of a `Value`, the walker
       // reads the type off the `case class` declaration instead of trying to infer the
       // expression's own type. Empty for enum ctors, which do not cross that boundary.
-      fieldTypes:  List[String] = Nil
+      fieldTypes:  List[String] = Nil,
+      // field name -> the RAW ctor name its decltpe names, BEFORE `mapType` collapses a variant
+      // reference to its owning ENUM name (`Doc.root: Element` maps to `fieldTypes`' "Node", losing
+      // "Element" specifically — see `ctorNameOfExpr`'s own comment for why that loss matters).
+      // Populated whenever a field's declared type is a bare or qualified NAME (never for
+      // List[...]/Option[...]/... — those never name a single ctor at all); the consumer still
+      // checks `ctx.ctorMap.contains(...)` at USE time, since ctorMap is not yet complete while
+      // this very entry is being built.
+      fieldCtorNames: Map[String, String] = Map.empty
   )
 
   /** A rendered Rust `enum` block + its ctor table. */
@@ -3343,12 +3364,21 @@ object RustCodeWalk:
                           p.decltpe.flatMap(t => mapType(t, name, ctorMap.values.map(_.enumName).toSet).toOption)
                             .map(p.name.value -> _)
                         }.toMap ++ ownFieldTypes ++ collectLocalRustTypes(d, ctorMap),
-                        paramCtorNames = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).flatMap { p =>
-                          p.decltpe.collect {
-                            case m.Type.Select(_, m.Type.Name(ctorName)) if ctorMap.contains(ctorName) =>
-                              p.name.value -> ctorName
-                          }
-                        }.toMap,
+                        paramCtorNames = {
+                          val fromParams = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).flatMap { p =>
+                            p.decltpe.collect {
+                              case m.Type.Select(_, m.Type.Name(ctorName)) if ctorMap.contains(ctorName) =>
+                                p.name.value -> ctorName
+                            }
+                          }.toMap
+                          // `collectTupleDestructureCtorNames` needs a ctx that ALREADY knows every
+                          // def parameter's own ctor name (`stack`'s tuple literal is built from
+                          // `root`, itself a parameter) — seeded with `fromParams` alone, not the
+                          // still-being-built `ctx` this whole block is inside of.
+                          val seedCtx = Ctx(intrinsics, userDefs, ctorMap, topVals, name, effectfulDefs,
+                            paramCtorNames = fromParams)
+                          fromParams ++ collectTupleDestructureCtorNames(d.body, seedCtx)
+                        },
                         // A PARAMETER declared with a qualified WITH-FIELDS variant type
                         // (`reframeProblem(instruction: VmInstruction.Reframe, …)`, `TreeVm.scala`)
                         // — the exact match-arm gap `destructuredCtorNames` exists to close (see
@@ -3391,7 +3421,19 @@ object RustCodeWalk:
         val paramDestructurePreamble =
           paramVariantDestructures.toList.sortBy(_._1).map { (p, ctorName) =>
             val ec = ctx.ctorMap(ctorName)
-            s"let ${ec.enumName}::$ctorName { ${ec.fieldNames.mkString(", ")} } = $p.clone() else { unreachable!() };"
+            // `doc: Markup.Doc`'s own `root: Elem` field (`uniml/xml`'s `Doc.scala`'s `serialize`)
+            // is DIRECTLY RECURSIVE (`Elem` is a sibling variant of the SAME `Node` enum `Doc`
+            // itself belongs to), so the struct boxes it (`ec.boxedFields`) — binding it straight
+            // into a pattern gives `root: Box<Node>`, and every USE afterward expected the plain
+            // `Node` the Scala field declares: `error[E0308]: expected Node, found Box<Node>`. Every
+            // boxed field is bound under a renamed pattern variable and immediately dereferenced
+            // into the real name in a follow-up `let`, the same rename-and-deref shape
+            // `renderMatch`'s own with-fields-variant case already uses for a boxed match binding.
+            val patFields = ec.fieldNames.map(f => if ec.boxedFields.contains(f) then s"$f: __boxed_$f" else f)
+            val derefs = ec.fieldNames.filter(ec.boxedFields.contains)
+              .map(f => s"let $f = *__boxed_$f;").mkString(" ")
+            s"let ${ec.enumName}::$ctorName { ${patFields.mkString(", ")} } = $p.clone() else { unreachable!() };" +
+              (if derefs.isEmpty then "" else s" $derefs")
           }.mkString("\n") + (if paramVariantDestructures.isEmpty then "" else "\n")
         // A def declared to return `Any` returns a `Value`, and its body very often ends in a case
         // class — `def jsonCoreParse(...): Any = JsonCoreOk(v, n)`. Lifting at the RETURN is the
@@ -3922,6 +3964,64 @@ object RustCodeWalk:
       t.children.foreach(walk)
     walk(body)
     out.toMap
+
+  /** `val (element, inherited) = stack.remove(stack.size - 1)` (`uniml/xml`'s `Doc.scala`'s
+   *  `validateNamespaces`) — a TUPLE-DESTRUCTURING local bind whose source is a COLLECTION of
+   *  tuples (`ArrayBuffer((root, Map(...)))`), not a bare Option/pair literal
+   *  `collectLocalTupleStringPositions` already covers. `element`'s own ctor name (`root: Markup.
+   *  Element`, threaded through the `ArrayBuffer` literal) was invisible to `ctorNameOfExpr`
+   *  entirely — no def parameter, no field, just a local bound from a collection method call — so
+   *  `element.attrs`/`.name`/`.children` (variant fields, needing the enum-field-read match
+   *  `selectOrNiladicCtor` already knows how to build) fell through to plain field access instead:
+   *  `error[E0609]: no field attrs on type Node`.
+   *
+   *  Two passes: first, which LOCALS hold a collection of tuples, and each position's ctor name
+   *  (read straight off the tuple LITERAL's own elements via `ctorNameOfExpr`, using a ctx that
+   *  already knows every DEF PARAMETER's ctor name — `root` above); second, a tuple-pattern
+   *  destructure whose RHS calls a method ON one of those locals inherits that position's ctor name
+   *  for each bound name. Deliberately narrow — ANY method call qualifies, not just `remove`/`head`/
+   *  `apply`, because Every method this shape could realistically call (`remove`, `apply`, `head`,
+   *  `last`, …) returns exactly one element of the same tuple type, and naming them all invites the
+   *  list going stale the moment a fifth one is used. */
+  private def collectTupleDestructureCtorNames(body: m.Term, ctx: Ctx): Map[String, String] =
+    val seqTuplePos = scala.collection.mutable.Map.empty[String, Map[Int, String]]
+    def walkSeq(t: m.Tree): Unit =
+      t match
+        case v: (m.Defn.Val | m.Defn.Var) =>
+          val (pats, rhsOpt) = v match
+            case vv: m.Defn.Val => (vv.pats, Some(vv.rhs))
+            case vv: m.Defn.Var => (vv.pats, vv.body)
+          (pats, rhsOpt) match
+            case (List(m.Pat.Var(m.Term.Name(n))), Some(m.Term.Apply.After_4_6_0(_, args))) =>
+              args.values.toList match
+                case List(m.Term.Tuple(elems)) =>
+                  val posCtors = elems.toList.zipWithIndex.flatMap((e, i) => ctorNameOfExpr(e, ctx).map(i -> _)).toMap
+                  if posCtors.nonEmpty then seqTuplePos(n) = posCtors
+                case _ => ()
+            case _ => ()
+        case _ => ()
+      t.children.foreach(walkSeq)
+    walkSeq(body)
+    val result = scala.collection.mutable.Map.empty[String, String]
+    def walkDestructure(t: m.Tree): Unit =
+      t match
+        case v: m.Defn.Val =>
+          v.pats match
+            case List(m.Pat.Tuple(pats)) =>
+              v.rhs match
+                case m.Term.Apply.After_4_6_0(m.Term.Select(m.Term.Name(recv), _), _) =>
+                  seqTuplePos.get(recv).foreach { posCtors =>
+                    pats.toList.zipWithIndex.foreach {
+                      case (m.Pat.Var(m.Term.Name(n)), i) => posCtors.get(i).foreach(cn => result(n) = cn)
+                      case _ => ()
+                    }
+                  }
+                case _ => ()
+            case _ => ()
+        case _ => ()
+      t.children.foreach(walkDestructure)
+    walkDestructure(body)
+    result.toMap
 
   /** Local val/var names bound to an Option-producing expression.
    *
@@ -4510,6 +4610,15 @@ object RustCodeWalk:
       p.decltpe match
         case Some(m.Type.Name(tn)) if tparamNames.contains(tn) && !retReusesTparam(tn) =>
           Right(s"${p.name.value}: crate::value::Value")
+        // `sb: StringBuilder` used as a PARAMETER, not a local (`uniml/xml`'s `Doc.scala`'s
+        // `serializeNode`, threaded through a recursive call chain rather than declared once with
+        // `let mut`) — `mapType`'s own `StringBuilder -> String` case gives the right Rust TYPE, but
+        // every `.push`/`.push_str` needs the BINDING itself to be `mut`, and nothing here ever
+        // added it: `error[E0596]: cannot borrow sb as mutable, as it is not declared as mutable`.
+        // A LOCAL `StringBuilder` never hit this gap because `renderLetBinding`'s own `kw` already
+        // emits `let mut` for one; a parameter has no such let-binding for this to piggyback on.
+        case Some(m.Type.Name("StringBuilder")) =>
+          Right(s"mut ${p.name.value}: String")
         case Some(t) => mapType(t, ctx.defName, ctx.enumNames).map(r => s"${p.name.value}: ${paramType(r)}")
         case None    => Left(List(unsupported(
           s"def `${ctx.defName}` parameter `${p.name.value}` has no type annotation; R.2 requires explicit param types"
@@ -5054,7 +5163,7 @@ object RustCodeWalk:
       val allArgs = priorArgs :+ args.values.head
       def pushStmt(q: String, arg: m.Term): Either[List[Diagnostic], String] =
         renderTerm(arg, ctx).map { a =>
-          if arg.isInstanceOf[m.Lit.Char] || yieldsSscChar(arg, ctx) then
+          if arg.isInstanceOf[m.Lit.Char] || isConceptuallyChar(arg, ctx) then
             s"$q.push(char::from_u32(($a) as u32).unwrap_or('\\u{FFFD}'));"
           else s"$q.push_str(&(${cloneIfMoved(arg, a, ctx)}));"
         }
@@ -6298,7 +6407,7 @@ object RustCodeWalk:
         q  <- renderTerm(qual, ctx)
         at <- renderTerm(args.values(1), ctx)
         needle <-
-          if needleArg.isInstanceOf[m.Lit.Char] || yieldsSscChar(needleArg, ctx) then
+          if needleArg.isInstanceOf[m.Lit.Char] || isConceptuallyChar(needleArg, ctx) then
             renderTerm(needleArg, ctx).map(n => s"char::from_u32(($n) as u32).unwrap_or('\\u{FFFD}').to_string()")
           else renderTerm(needleArg, ctx)
       yield s"crate::runtime::_str_index_of_from(&$q, &($needle), $at)"
@@ -7109,6 +7218,20 @@ object RustCodeWalk:
           // the target bare (handled in `Term.Assign`) — you can't assign to a clone.
           case Some(n) => Right(s"$n[($joined) as usize].clone()")
           case None    => applyNonListCtor(fn, callee, renderedArgs, coercedArgs, joined, ctx, args.values.toList)
+
+    // `opts.indent * depth` (`uniml/xml`'s `Doc.scala`'s `serializeNode`) — Scala's `StringOps.*`,
+    // REPEATING the string `depth` times (indentation), not numeric multiplication. Reached rustc as
+    // a literal `*`: `error[E0369]: cannot multiply String by i64` (`String` has no `Mul` at all).
+    // `.repeat(n as usize)` is the direct Rust equivalent; guarded on the LEFT side being a string so
+    // an ordinary `i64 * i64` a few arms below keeps rendering as plain `*`, unaffected.
+    case m.Term.ApplyInfix.After_4_6_0(lhs, m.Term.Name("*"), _, args)
+        if args.values.size == 1 &&
+           (isStringExpr(lhs) || isKnownStringField(lhs, ctx) ||
+            (lhs match { case m.Term.Name(n) => ctx.localStrings.contains(n); case _ => false })) =>
+      for
+        l <- renderTerm(lhs, ctx)
+        r <- renderTerm(args.values.head, ctx)
+      yield s"($l).repeat(($r) as usize)"
 
     // `map + (k -> v)` — Scala's immutable "the same map with this pair added". It reached rustc as
     // an ADDITION: `error[E0369]: cannot add (String, String) to HashMap<String, String>`, which is
@@ -8996,17 +9119,34 @@ object RustCodeWalk:
    *  `.ssc_to_int()` to something that is already an `i64`, which does not compile either. */
   private def yieldsSscChar(t: m.Term, ctx: Ctx): Boolean = t match
     case m.Term.Apply.After_4_6_0(m.Term.Select(_, m.Term.Name("charAt")), args) => args.values.size == 1
-    case m.Term.Name(n) => ctx.localSscChars.contains(n) ||
-      // `sb.append(cur)` (`uniml/xml`'s `Doc.scala`'s `Parser.readContent` — `cur`, a bare
-      // self-method reference, Scala eliding both `self.` and `()` for a niladic zero-arg `def`).
-      // `cur`'s OWN declared Scala return type is `Char`, so the value here is this lane's SscChar
-      // convention (`i64`) too, exactly like a name `collectLocalSscChars` already tracks — the gap
-      // was that a SELF-METHOD's return type was never consulted, only a LOCAL binding's. Reads the
-      // RAW Scala decltpe off `_defBodies` (bare-name keyed, same collision caveat `_zeroArgDefNames`
-      // already carries) rather than the mapped Rust type string, which has already collapsed every
-      // `Char`-returning def to the same `i64` every ordinary number uses too.
-      _defBodies.get(n).exists(_.decltpe.contains(m.Type.Name("Char")))
+    case m.Term.Name(n) => ctx.localSscChars.contains(n)
     case _                                                                       => false
+
+  /** BROADER than `yieldsSscChar`: true for anything CONCEPTUALLY a `Char` on this lane, whether it
+   *  is the genuine `SscChar` NEWTYPE (`.charAt`, needing `.0` to become a plain `i64`) or already a
+   *  plain `i64` that just happens to carry a code point (a bare self-method reference whose OWN
+   *  declared Scala return type is `Char` — `cur`, `uniml/xml`'s `Doc.scala`'s `Parser` — `.toChar`
+   *  renders as plain `i64` too, this lane's convention, and `cur`'s own `if/else` branch-unification
+   *  already made ITS return value a plain `i64` by the time it leaves `cur`, never a real `SscChar`).
+   *
+   *  These are TWO DIFFERENT QUESTIONS a single function used to answer at once, and conflating them
+   *  was the bug: `sb.append(cur)` needs THIS one (does the value need `char::from_u32` to become
+   *  DISPLAYABLE, regardless of its concrete Rust representation), while `self.isNameStart(self.
+   *  cur())`'s argument coercion needs the NARROW `yieldsSscChar` (does the value need `.0` to
+   *  UNWRAP a real newtype) — `cur()`'s result is already a plain `i64`, so widening this broader
+   *  check to feed the unwrap decision added a bogus `.0` on a primitive: `error[E0610]: i64 is a
+   *  primitive type and therefore doesn't have fields`. Reads the RAW Scala decltpe off `_defBodies`
+   *  (bare-name keyed, same collision caveat `_zeroArgDefNames` already carries) rather than the
+   *  mapped Rust type string, which has already collapsed every `Char`-returning def to the same
+   *  `i64` every ordinary number uses too. A PATTERN match, not `Option.contains` (`==` against a
+   *  freshly-built `Type.Name("Char")`) — scalameta `Tree` equality is position-sensitive, so a
+   *  literal built here never equals the one the parser produced and `.contains` silently answered
+   *  `false` for every def, always. */
+  private def isConceptuallyChar(t: m.Term, ctx: Ctx): Boolean =
+    yieldsSscChar(t, ctx) || (t match
+      case m.Term.Name(n) =>
+        _defBodies.get(n).exists(_.decltpe match { case Some(m.Type.Name("Char")) => true; case _ => false })
+      case _ => false)
 
   private def needsAnyCoercion(arg: m.Term, target: String, ctx: Ctx): Boolean =
     val argIsValue = arg match
@@ -10004,7 +10144,14 @@ object RustCodeWalk:
         val cn = ctorNameOfExpr(qual, ctx).get
         val ec = ctx.ctorMap(cn)
         val f  = rustIdent(field)
-        s"(match &$q { ${ec.enumName}::$cn { $f, .. } => $f.clone(), _ => unreachable!() })"
+        // `doc.root` on `Markup.Doc` (`uniml/xml`'s `Doc.scala`'s `serialize`) — `root: Node` is a
+        // DIRECTLY RECURSIVE field, so the STRUCT ITSELF boxes it (`ec.boxedFields`, the construction
+        // side's own reason: an unboxed recursive enum has no fixed size). `$f.clone()` alone clones
+        // the `Box<Node>`, not the `Node` inside it — `serializeNode(doc.root, …)`, declared to take
+        // a plain `Node`, got `error[E0308]: expected Node, found Box<Node>`. `*` derefs the CLONED
+        // box (never the original, so this never reaches into `$q` itself) to move the `Node` out.
+        val unboxed = if ec.boxedFields.contains(field) then s"*$f.clone()" else s"$f.clone()"
+        s"(match &$q { ${ec.enumName}::$cn { $f, .. } => $unboxed, _ => unreachable!() })"
       case _ => s"$q.${rustIdent(field)}"
 
   /** A WILDCARD TAIL IS `..`, NOT `_ @ ..`. Rust requires a BINDING left of `@` — `x`, `mut x`,

@@ -338,10 +338,25 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # other fixes (E0223 struct-vs-variant destructure, `.copy` element-type threading through
 # `.filter`, `eitherSideCtorName`'s qualified-call + collision-safe `_ownedDefBodies` case) sit
 # outside `renderTerm` and cost it nothing. Same terms as every entry above. 38 errors remain.
+#
+# renderTerm 32105 -> 32294 (+189), continuing "fix everything remaining" on uniml/xml, 38 -> 29
+# across two more commits. `yieldsSscChar` split in two (a genuine regression caught and fixed in
+# the SAME round): the narrow original stayed for `.0`-newtype-unwrap decisions, a new
+# `isConceptuallyChar` (broader — also a bare self-method whose OWN decltpe is `Char`) took over the
+# append-push/indexOf-needle "does this need char::from_u32" decisions the extension had actually
+# been for. Also fixed here: an enum-variant field-read now DEREFS a boxed recursive field
+# (`doc.root: Elem`, boxed for enum sizing) instead of leaving a `Box<Node>` where a plain `Node`
+# was declared; `opts.indent * depth` (`StringOps.*`, string REPEAT, not numeric multiply) is a new
+# arm, `.repeat(n as usize)`; `paramVariantDestructures`'s own preamble gained the SAME boxed-field
+# deref for a destructured PARAMETER's boxed field. The growth is these new/widened `renderTerm`
+# arms; `ctorNameOfExpr`'s new `fieldCtorNames` fallback and `collectTupleDestructureCtorNames` (a
+# local bound via tuple-destructuring from a collection-of-tuples method call, e.g. `val (element,
+# inherited) = stack.remove(...)`, now recovers `element`'s own ctor name) both sit outside
+# `renderTerm` and cost it nothing. Same terms as every entry above. 29 errors remain.
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-32105 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+32294 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF
