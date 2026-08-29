@@ -522,10 +522,23 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # "expected one of `,` … found `;`"), caught before landing since the whole test suite runs before
 # every corpus re-measurement. Small growth here is just the `renderStmt` call-site change to
 # `renderUnitTerm`; the bulk of the new logic sits in the separate `renderUnitTerm` itself.
+# renderTerm 34578 -> 34630 (+52), continuing on uniml/json, 14 -> 12 across two fixes. (1) bare
+# no-paren `Option.get` (`lexed.issue.get`, `uniml/json`'s `JsonLexer.scala`) had no lowering —
+# `error[E0609]: no field get on type Option<JsonLexIssue>` — new arm alongside the existing
+# `nonEmpty`/`isEmpty` no-paren-Option cases, inline in renderTerm's own match (the growth). (2)
+# `def consumeKey(frame: ObjectFrame): Unit = … frame.copy(state = …) …` (`JsonStructure.scala`) —
+# a LIFTED local def's OWN (non-captured) parameters never populated `paramCtorNames` at all (only
+# the top-level `renderDef` does, before `liftLocalDefs` ever splits a nested def out) —
+# `error[E0599]: no method named copy found for enum Frame` (frame's Rust type collapses to its
+# owning enum; `.copy` needs the ORIGINAL specific variant to rebuild via match). Bundled with the
+# SAME fix `paramCtorNames`'s own top-level building block got two commits ago: bare `Type.Name`
+# accepted alongside qualified `Type.Select` (`ObjectFrame` is a top-level case class). Both
+# paramCtorNames fixes live in `renderDef`/`liftLocalDefs`, separate functions, costing nothing
+# here. Re-verified uniml/xml still builds clean (0 errors) after every step in this entry.
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-34578 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+34630 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

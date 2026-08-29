@@ -3414,6 +3414,18 @@ object RustCodeWalk:
                             p.decltpe.collect {
                               case m.Type.Select(_, m.Type.Name(ctorName)) if ctorMap.contains(ctorName) =>
                                 p.name.value -> ctorName
+                              // `def consumeKey(frame: ObjectFrame): Unit` (`uniml/json`'s
+                              // `JsonStructure.scala`) — `ObjectFrame` is a TOP-LEVEL case class,
+                              // never nested in an object, so its decltpe is a bare `Type.Name`, not
+                              // `Type.Select`; the qualified-only case above never registered it.
+                              // `frame`'s Rust PARAMETER type still collapses to its owning enum
+                              // (`Frame` — no Rust type names just one variant), so `frame.copy(state
+                              // = …)` needs `paramCtorNames` to know the ORIGINAL specific variant to
+                              // rebuild via the same match-and-reconstruct `.copy` already uses for
+                              // the qualified spelling — without it: `error[E0599]: no method named
+                              // copy found for enum Frame`.
+                              case m.Type.Name(ctorName) if ctorMap.contains(ctorName) =>
+                                p.name.value -> ctorName
                             }
                           }.toMap
                           // `collectTupleDestructureCtorNames` needs a ctx that ALREADY knows every
@@ -5164,6 +5176,21 @@ object RustCodeWalk:
             defParams = ctx.defParams ++ ownParamNames ++ myCaptures.toSet,
             byRefMut  = myByRefMut,
             byRefMutWrite = myByRefMut.filter(myWrites.contains),
+            // `def consumeKey(token: SourceToken, frame: ObjectFrame): Unit = … frame.copy(state =
+            // …) …` (`uniml/json`'s `JsonStructure.scala`) — a LIFTED local def's OWN (non-captured)
+            // parameters never populated `paramCtorNames` at all: the top-level `renderDef` builds
+            // it once, before `liftLocalDefs` ever splits a nested def out, and — like most of this
+            // file's own pre-passes — never descends into what becomes a SEPARATE Ctx for each
+            // lifted def's own body. `frame`'s Rust PARAMETER type collapses to its owning enum
+            // (`Frame`, no Rust type names just one variant), so `.copy` needs to know the ORIGINAL
+            // specific variant to rebuild via match — without it: `error[E0599]: no method named
+            // copy found for enum Frame`. Same qualified-or-bare acceptance as the top-level case.
+            paramCtorNames = ctx.paramCtorNames ++ d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).flatMap { p =>
+              p.decltpe.collect {
+                case m.Type.Select(_, m.Type.Name(ctorName)) if ctx.ctorMap.contains(ctorName) => p.name.value -> ctorName
+                case m.Type.Name(ctorName) if ctx.ctorMap.contains(ctorName) => p.name.value -> ctorName
+              }
+            },
             inLiftedFn = true,
             // `val char = input.charAt(cursor)` DECLARED INSIDE a lifted local def's OWN body
             // (`scanDoctype`, `uniml/xml`'s `Doc.scala`) — `ctx.localSscChars` was computed ONCE,
@@ -6031,6 +6058,14 @@ object RustCodeWalk:
     case m.Term.Select(qual, m.Term.Name(meth))
         if isOptionExpr(qual, ctx) && Set("nonEmpty", "isEmpty").contains(meth) =>
       renderTerm(qual, ctx).map(q => if meth == "isEmpty" then s"$q.is_none()" else s"$q.is_some()")
+
+    // `lexed.issue.get` (`uniml/json`'s `JsonLexer.scala`) — Scala's no-paren `Option.get` unwraps
+    // (panics if `None`, matching Scala's OWN behaviour on the JVM); Rust's `Option::unwrap` is the
+    // direct equivalent. Without this it fell to the field-select path and rustc reported
+    // `error[E0609]: no field 'get' on type Option<JsonLexIssue>` — the SAME shape the `nonEmpty`/
+    // `isEmpty` case just above already covers for the other two no-paren Option members.
+    case m.Term.Select(qual, m.Term.Name("get")) if isOptionExpr(qual, ctx) =>
+      renderTerm(qual, ctx).map(q => s"$q.clone().unwrap()")
 
     // `_.kind.isEmpty` inside `open.exists(_.kind.isEmpty)` — see `isKnownStringField`.
     case m.Term.Select(qual, m.Term.Name(meth))

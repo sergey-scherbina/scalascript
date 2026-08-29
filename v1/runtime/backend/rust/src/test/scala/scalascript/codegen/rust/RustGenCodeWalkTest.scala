@@ -1360,6 +1360,39 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(!g.contains("localName: \"xmlns\""), s"the literal must not stay a struct-field literal pattern:\n$g")
     assert(g.contains("== \"xmlns\""), s"the literal should become an equality guard on the arm:\n$g")
 
+  test("bare no-paren `Option.get` lowers to `.unwrap()`"):
+    // `lexed.issue.get` (`uniml/json`'s `JsonLexer.scala`) — Scala's no-paren `Option.get` had no
+    // lowering, falling to the field-select path: `error[E0609]: no field get on type Option<T>`.
+    val src =
+      """```scalascript
+        |def unwrapIt(x: Option[String]): String = x.get
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".unwrap()"), s"bare Option.get must lower to .unwrap():\n$g")
+
+  test("a LIFTED local def's own parameter of a bare-typed variant supports `.copy`"):
+    // `def consumeKey(frame: ObjectFrame): Unit = … frame.copy(state = …) …` (`uniml/json`'s
+    // `JsonStructure.scala`) — a lifted local def's OWN (non-captured) parameters never
+    // populated `paramCtorNames` at all (only the top-level `renderDef` does, before
+    // `liftLocalDefs` splits a nested def out): `error[E0599]: no method named copy found for
+    // enum Frame` (frame's Rust type collapses to its owning enum; `.copy` needs the original
+    // specific variant to rebuild via match).
+    val src =
+      """```scalascript
+        |sealed trait Frame
+        |final case class ObjectFrame(state: Boolean) extends Frame
+        |
+        |def scan(): Frame =
+        |  def consumeKey(frame: ObjectFrame): Frame =
+        |    frame.copy(state = true)
+        |
+        |  consumeKey(ObjectFrame(false))
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("Frame::ObjectFrame { state: true }"), s"a lifted def's own param must support .copy via match-rebuild:\n$g")
+
   test("a match used as a statement unifies arms whose natural Rust types disagree"):
     // `frame.state match { case A => closeObject(); case B => if cond then closeArray(…) else
     // consumeValue(…) }` (`uniml/json`'s `JsonStructure.scala`) — `closeObject`/`closeArray`
