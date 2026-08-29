@@ -7,6 +7,71 @@ grepping for status.
 
 Newest first.
 
+## f-parametric-given-derivation-missing — F could not derive a `given X[A](using ...): TC[...] with {...}` instance, and fell back
+
+<!-- status: fixed
+     lane: native
+     kind: feature
+     area: front
+     gate: tests/e2e/v2-parametric-given-derivation-gate.sh
+     reported-by: claude-code
+     reported-at: 2026-08-29
+     confirmed: yes
+     fixed-in: 9a84fb1ae -->
+
+The promised follow-up from `parametric-given-declaration-corrupts-an-unrelated-earlier-given`
+below: that entry fixed parametric `given` derivation on the reference front
+(`ssc1-front.ssc0` + `ssc1-lower.ssc0`) but F (`specs/v2.2-p6.5-fsub.ssc`) — a SEPARATE self-hosted
+compiler, not a type-checking pass over the reference front's output — had no support for the
+syntax at all, so any file using it compiled via F's own designed fallback target
+(`bin/ssc1-run.ssc0`) instead of F handling it directly. An honest gap (`ssc info --front-report`
+named it), not a wrong answer, but the whole point of the parametric-given-derivation feature is
+now missing from the DEFAULT compiler for any file simple enough that F would otherwise compile it.
+
+**Fixed** by porting the same algorithm into F, in F's own point-free, no-`let` style (every
+top-level def), mirroring `ssc1-lower.ssc0`'s design exactly: a poly-given's declared pattern is
+unified (string-structure, not full HM types — the same strings `parseTCType`/`parseTCTypeD`
+already produce) against a concrete `summon[TC[Concrete]]` request, binding its type-param names;
+each `using` requirement's declared type is substituted with those bindings and resolved the same
+way, recursively (plain given table first, poly derivation only on a miss there — the same
+termination condition as the reference front); the result is spliced inline at the summon call site
+as `(app (lam n dict) resolvedArg1 resolvedArg2 ...)` — F emits pre-rendered IR STRINGS directly
+(not `IrApp`/`IrLam` nodes), so the resolved instance is built as one too, closing over the
+`using`-param names the same way ANY nested lambda in this language closes over an outer scope. A
+poly given emits NOTHING at its own declaration site (mirrors the reference front's `given_poly`
+with an empty `usingParams`-vs-not split, simplified to always defer to the summon site).
+
+Two SEPARATE, silent defects surfaced while landing this (both found by bisecting an unexpected
+symptom down to the smallest reproducing case, not by inspection):
+
+1. A paren-count error in the new `cx`-tuple accessor (`polyGivenTabOf`, added as the 20th nested
+   slot alongside the existing `curriedOf`/`curObjOf`/etc. accessors right after that section's own
+   comment: *"an accessor written one `snd` short here once cost an afternoon"*) broke EVEN
+   ORDINARY, non-parametric `given`s across the whole file — F's own self-hosting means a single
+   stray parenthesis in `fsub.ssc`'s source corrupts everything the reference front parses after
+   it, not just the new code path, so `ssc info --front-report` on a totally unrelated plain
+   `given` started reporting `GAP unbound global: _err` (the reference front's generic
+   "I couldn't understand this piece" sentinel). Found by reproducing on the SIMPLEST possible file
+   (one plain `given`, no poly syntax anywhere) before assuming the bug was in the new logic at all.
+2. `parseUsingParam` checked `isTok(hd(ts), 2, 1)` — this front's numeric code for the `def`
+   KEYWORD, reused correctly elsewhere in this file (`collectOM1`, `parseTopItem`,
+   `collectUsingSig`) to detect a member/statement head — where it needed "any lowercase
+   identifier" (`fst(hd(ts)) == 1`, the check `givenItem` itself uses one line away). A `using`
+   param's name is never the literal word "def", so this ALWAYS failed, `parseUsingParams` ALWAYS
+   returned an empty list with its position UNCONSUMED, and both the emission-side skip and the
+   table-building pass then re-parsed the leftover `ma: Monoid[A]) with ...` tokens as garbage
+   top-level statements — producing `unbound global: (global ma) is neither a top-level def nor an
+   @-cell` at RUNTIME, not a parse error, since "ma" alone is a syntactically valid (if meaningless)
+   top-level expression statement.
+
+Verified: `ssc info --front-report` on the `HasArea`/`Shape`-style non-generic case, the tuple case,
+the single-param wrapper case, and the two-level nested case all now name `F`, not a fallback, each
+producing the same output as the reference front (`48`; `(3, ab)`; `7`; `(3, ab)`). Smoke-ci:
+118/118 green on the default suite (573s of 1835s budget); the optional `f-*` suite (23 checks)
+confirmed green across three partial runs (74+ checks each, zero failures) before each was killed
+mid-run by what looks like external memory/session pressure on the host, unrelated to this change —
+`vm.swapusage` showed 3.7 of 4.1 GB in use at the time (`oom-watchdog-panic-guard` territory).
+
 ## given-extension-typehead-mismatch-silently-returns-receiver — `given g: TC with extension (recv: T) def m(...)` dispatched by the wrong type, silently
 
 <!-- status: fixed
