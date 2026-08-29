@@ -6195,7 +6195,17 @@ object RustCodeWalk:
       }
       val (errs, ok) = arms.partitionMap(identity)
       if errs.nonEmpty then Left(errs.flatten)
-      else Right(s"move |__pf| match __pf {\n${indent(ok.mkString("\n"))}\n}")
+      // NOT `move`: this closure is consumed synchronously by whatever combinator called
+      // `renderTerm` on it (`.map`/`.filter`/…, never stored/returned) — the same reasoning
+      // `renderVecIterBody`'s own Function-closure branch already documents for `map`/`filter`/
+      // `find`/etc. A `move` closure unconditionally takes OWNERSHIP of every free name it reads,
+      // even one only ever borrowed inside (`document.root` inside the arm's guard) — so a name
+      // read again AFTERWARD in the same def found it already moved: `uniml/xml`'s `Doc.scala`'s
+      // `validate`: `document.docType.toVector.collect { case docType if docType.name !=
+      // document.root... => ... }` then `validateNamespaces(document.root)` right after —
+      // `error[E0382]: borrow of moved value: document`. Dropping `move` lets the closure BORROW
+      // its captures instead, which is all a synchronously-consumed closure ever needs.
+      else Right(s"|__pf| match __pf {\n${indent(ok.mkString("\n"))}\n}")
 
     // Placeholder lambda `_.foo` / `_ + 1` → desugar via a counter stack: push a
     // fresh counter, render the body (each `_` increments it + emits `__p<i>`),
@@ -6748,8 +6758,12 @@ object RustCodeWalk:
           val (errs, ok) = arms.partitionMap(identity)
           if errs.nonEmpty then Left(errs.flatten)
           else
+            // NOT `move` — see the sibling `pf: Term.PartialFunction` case's own comment a few
+            // hundred lines up: `.filter_map` consumes this closure synchronously, so it only
+            // needs to BORROW its captures, and dropping `move` fixes the identical
+            // capture-then-reuse-after-move shape here too.
             renderTerm(qual, ctx).map { q =>
-              val arm = s"move |__c| match __c {\n${indent((ok :+ "_ => None,").mkString("\n"))}\n}"
+              val arm = s"|__c| match __c {\n${indent((ok :+ "_ => None,").mkString("\n"))}\n}"
               s"$q.iter().cloned().filter_map($arm).collect::<Vec<_>>()"
             }
         case _ =>

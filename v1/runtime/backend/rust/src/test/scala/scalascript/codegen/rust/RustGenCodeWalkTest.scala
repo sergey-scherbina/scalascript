@@ -1381,6 +1381,50 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(g.contains("ref e @"), s"the typed bind should still render as a ref-bound pattern:\n$g")
 
+  test("`.collect { case p if guard(outer) => … }` does not `move` a name the def reads again afterward"):
+    // `Xml.validate` (`uniml/xml`'s `Doc.scala`): `document.docType.toVector.collect { case
+    // docType if docType.name != document.root.name.toXml => … }` then `validateNamespaces(
+    // document.root)` right after — a `move |__c| …` closure takes OWNERSHIP of `document` even
+    // though the guard only ever borrows it, so the later read found it already moved:
+    // `error[E0382]: borrow of moved value: document`. Dropping `move` (this closure is consumed
+    // synchronously by `.filter_map`, never stored) lets it borrow instead.
+    val src =
+      """```scalascript
+        |case class Item(name: String)
+        |case class Doc(tag: String, items: List[Item])
+        |
+        |def validate(doc: Doc): List[Item] = doc.items
+        |
+        |def flagged(doc: Doc): List[Item] =
+        |  val bad = doc.items.collect { case it if it.name != doc.tag => it }
+        |  bad ++ validate(doc)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(!g.contains("move |__c|"), s"a synchronously-consumed filter_map closure must not `move`:\n$g")
+
+  test("`.map { case p if guard(outer) => … }` (bare PartialFunction) does not `move` either"):
+    // The general PartialFunction-in-`.map`/`.filter`/… renderer (a few hundred lines above the
+    // `.collect`-specific one) has the identical `move |__pf| …` shape and the identical
+    // capture-then-reuse-after-move exposure.
+    val src =
+      """```scalascript
+        |case class Item(name: String)
+        |case class Doc(tag: String, items: List[Item])
+        |
+        |def validate(doc: Doc): List[Item] = doc.items
+        |
+        |def relabelled(doc: Doc): List[Item] =
+        |  val out = doc.items.map {
+        |    case it if it.name == doc.tag => it
+        |    case it => it
+        |  }
+        |  out ++ validate(doc)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(!g.contains("move |__pf|"), s"a synchronously-consumed map closure must not `move`:\n$g")
+
   test("`Some(child)` clones a `byRefMut`-bound match-arm name used at a by-value position"):
     // `validateNamespaces`-style shape (`uniml/xml`'s `Doc.scala`): a typed with-fields-variant
     // binder (`case child: Markup.Elem => …`) is `byRefMut` (renders bare reads as `(*child)`),
