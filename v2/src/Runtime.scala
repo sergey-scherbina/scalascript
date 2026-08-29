@@ -1295,6 +1295,20 @@ object V2PluginRegistry:
   def lookupTaggedMethod(tag: String, name: String): Option[Fn] =
     taggedMethods.get((tag, name))
 
+  // The calling-convention arity (self + declared params) a tagged method's BARE name was
+  // registered with — recorded ONLY at `__regmethod__` (a `ClosV`-backed class/case-class method;
+  // a genuine native-plugin-authored `Fn` has no `ClosV` to read an arity from and is simply never
+  // in this map). Consulted ONLY to build a correctly-shaped eta-expansion closure for a bare
+  // `recv.method` selection whose declared arity doesn't match the zero args a point-free
+  // reference supplies (point-free-class-method-never-eta-expands-on-native) — a miss here falls
+  // back to the pre-existing (crashing) behavior rather than guessing, so an untracked receiver
+  // never gets a wrongly-shaped closure.
+  private val taggedMethodArity = collection.mutable.HashMap[(String, String), Int]()
+  def registerTaggedMethodArity(tag: String, name: String, arity: Int): Unit =
+    taggedMethodArity((tag, name)) = arity
+  def lookupTaggedMethodArity(tag: String, name: String): Option[Int] =
+    taggedMethodArity.get((tag, name))
+
   // Global value registry — for runLogger/runState/handle etc. that appear as Global(name) in Core IR.
   private val globalValues = collection.mutable.HashMap[String, Value]()
   def registerGlobal(name: String, v: Value): Unit = globalValues(name) = v
@@ -1987,6 +2001,11 @@ object Prims:
       // it now emits BOTH per method, each pointing at its own global. Until it did, an arity key
       // here could not fire: two same-named methods resolved to ONE global, so the runtime was
       // handed the same closure twice and the earlier overload did not exist to be found.
+      // Recorded alongside `checked`, from the SAME `clos` — see `taggedMethodArity`'s own doc for
+      // why only a `ClosV`-backed registration (never a native-plugin `Fn`) can supply this.
+      clos match
+        case fn: ClosV => V2PluginRegistry.registerTaggedMethodArity(rtag, rname, fn.arity)
+        case _         => ()
       V2PluginRegistry.registerTaggedMethod(rtag, rname, checked)
       UnitV
     // Atomic string+newline: concurrent actors printing at once must not interleave (else two
@@ -2073,9 +2092,18 @@ object Prims:
     // became the eta-expansion closure and the program printed `<closure>` and exited 0.
     case "__method0__" => a =>
       val recv0 = a(1)
-      def missed = sys.error(s"__method__: no dispatch for .${str(a, 0)} on ${Show.show(recv0)}")
-      resolve("__method__")(a) match
-        // (1) the eta-expansion fallback — `recv.name` as a function value.
+      val name0 = str(a, 0)
+      def missed = sys.error(s"__method__: no dispatch for .$name0 on ${Show.show(recv0)}")
+      // `applied = true`: a class-instance method whose bare name matches but whose
+      // real arity does not (`R.k: expected 1 argument(s), got 0` —
+      // point-free-class-method-never-eta-expands-on-native's own regression test)
+      // must THROW that specific message, not become the eta-expansion this call site
+      // exists to reject. Calling methodDispatch1 directly (instead of through
+      // `resolve("__method__")`) is what carries the flag down to it.
+      methodDispatch1(recv0, name0, Nil, applied = true) match
+        // (1) the eta-expansion fallback — `recv.name` as a function value. Still
+        // possible from arms `applied` does not thread through (e.g. a given-instance
+        // receiver); demote it the same way.
         case c: ClosV if c.etaMethodRef != null => missed
         // (2) the missed-method BREADCRUMB. A DataV receiver whose method/field does
         // not resolve yields DataV("Stub", "<tag>.<name>") and keeps going, so a
@@ -2142,7 +2170,7 @@ object Prims:
       case ("toUpperCase", List(IntV(c)))  => Some(IntV(Character.toUpperCase(c.toInt).toLong))
       case _                               => None
 
-  private def methodDispatch1(recv: Value, name: String, margs: List[Value]): Value =
+  private def methodDispatch1(recv: Value, name: String, margs: List[Value], applied: Boolean = false): Value =
       (recv, name, margs) match
         // Free-monad lifting: a method ON an unresolved effect Op defers itself
         // into the op's continuation (sequencing through blocks without CPS):
@@ -2158,9 +2186,35 @@ object Prims:
         case (value @ DataV(tag, _), method, args)
             if V2PluginRegistry.lookupTaggedMethod(tag, s"$method#${args.length + 1}").isDefined
                || V2PluginRegistry.lookupTaggedMethod(tag, method).isDefined =>
-          V2PluginRegistry.lookupTaggedMethod(tag, s"$method#${args.length + 1}")
-            .orElse(V2PluginRegistry.lookupTaggedMethod(tag, method))
-            .get(value :: args)
+          V2PluginRegistry.lookupTaggedMethod(tag, s"$method#${args.length + 1}") match
+            case Some(fn) => fn(value :: args)
+            case None =>
+              // Only the BARE name matched — `args.length` does not equal this method's real
+              // arity. `args.isEmpty` is a bare `recv.method` selection with no call at all —
+              // EXCEPT that `recv.method()` (an explicit, wrong-arity, zero-arg APPLIED call)
+              // reaches this exact arm too: `__method0__` delegates straight into this function
+              // (with `applied = true`) rather than going through a separate code path, so an
+              // empty `args` alone does not tell the two apart (measured on
+              // `v2-unknown-member-refuses-gate`'s `class-method-nullary-call` row: `R(0).k()`
+              // eta-expanding here, instead of throwing `R.k: expected 1 argument(s), got 0`,
+              // was a real regression the first cut of this fix produced). `applied` is the
+              // extra bit that resolves it: only a non-applied (bare-selection) zero-arg miss
+              // eta-expands (point-free-class-method-never-eta-expands-on-native — BUGS.md); an
+              // applied one falls to the OLD behavior — invoke the real closure and let its
+              // `checked` wrapper throw the specific arity message. An arity miss (a
+              // native-plugin-authored `Fn`, never tracked in `taggedMethodArity`) also falls
+              // back to the OLD behavior unchanged, rather than guessing a shape for a method
+              // this runtime cannot introspect.
+              val bare = V2PluginRegistry.lookupTaggedMethod(tag, method).get
+              if args.isEmpty && !applied then
+                V2PluginRegistry.lookupTaggedMethodArity(tag, method) match
+                  case Some(arity) if arity > 1 =>
+                    val eta = ClosV(Runtime.emptyEnv, arity - 1, env => Done(bare(value :: env.toList)))
+                    eta.etaMethodRef = (method, value)
+                    eta
+                  case _ => bare(value :: args)
+              else
+                bare(value :: args)
         // Types are erased at the Core IR level: asInstanceOf is identity for ANY receiver
         case (v, "asInstanceOf", _)          => v
         // Runtime .copy on a record: the compatibility bridge encodes overrides
