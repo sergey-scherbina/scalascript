@@ -2676,6 +2676,28 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(g.contains("""format!("{}{}{}", lexeme, line.raw, line.lineBreak)"""),
       s"a chain of + over struct fields must flatten into ONE format!, not a nested or bare + :\n$g")
 
+  test("a call to a function-typed PARAMETER unwraps an SscChar argument"):
+    // `pred(s.charAt(i))` where `pred: Char => Boolean` (`uniml/yaml`'s `YamlSemanticParser.scala`'s
+    // `allFrom`) — a call to a FUNCTION-TYPED PARAMETER never went through the SscChar
+    // `.0`-unwrap coercion at all, since that coercion is keyed off `_paramTypes` (module-level
+    // def names only), and `pred` is a parameter, not a def: `error[E0308]: expected i64, found
+    // SscChar`. `closureCalleeParamTypes` reads the parameter's OWN declared `impl Fn(...)`
+    // signature string back into the same shape `_paramTypes` holds for an ordinary def.
+    val src =
+      """```scalascript
+        |def allFrom(s: String, from: Int, pred: Char => Boolean): Boolean =
+        |  var i = from
+        |  var ok = true
+        |  while i < s.length && ok do
+        |    if !pred(s.charAt(i)) then ok = false
+        |    i += 1
+        |  ok
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("pred((crate::runtime::_str_char_at(&s, i)).0)"),
+      s"a call to a function-typed parameter must unwrap an SscChar argument via .0:\n$g")
+
   test("`xs.count(_.field == x)` / `xs.filter(_.field == x)` — a placeholder predicate types cleanly"):
     // `lexed.tokens.count(_.kind == "yaml.anchor")` / `ranges.filter(_.start == index)`
     // (`uniml/yaml`) — `renderVecIterBody`'s `Term.AnonymousFunction` branch wrapped the WHOLE

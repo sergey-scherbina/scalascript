@@ -4046,6 +4046,27 @@ object RustCodeWalk:
   private def looksLikeBinding(n: String): Boolean =
     n.nonEmpty && n.head.isLower && n.forall(c => c.isLetterOrDigit || c == '_')
 
+  /** A CLOSURE-typed callee's own declared parameter types, as the SAME `List[String]` shape
+   *  `_paramTypes` holds for an ordinary def — parsed back out of the plain STRING
+   *  `ctx.paramTypes` stores for one (`mapType`'s `Type.Function` case: `"impl Fn(i64) -> bool"`).
+   *  `pred(s.charAt(i))` where `pred: Char => Boolean` (`uniml/yaml`'s `YamlSemanticParser.scala`'s
+   *  `allFrom`) — `pred` is a parameter, not a module-level def, so `_paramTypes` (keyed by DEF
+   *  NAME) never has an entry for it and the SscChar `.0`-unwrap coercion never ran at all:
+   *  `error[E0308]: expected i64, found SscChar`. `None` for anything not a bare-name closure
+   *  parameter, or one with no recognizable `impl Fn(...)` signature — the caller then falls back
+   *  to its old behavior exactly as if this helper did not exist. */
+  private def closureCalleeParamTypes(fn: m.Term, ctx: Ctx): Option[List[String]] =
+    def fnParamTypes(sig: String): List[String] =
+      if sig.startsWith("impl Fn(") then
+        val afterOpen = sig.stripPrefix("impl Fn(")
+        afterOpen.indexOf(")") match
+          case -1 => Nil
+          case i  => afterOpen.substring(0, i).split(",").iterator.map(_.trim).filter(_.nonEmpty).toList
+      else Nil
+    fn match
+      case m.Term.Name(n) => ctx.paramTypes.get(n).map(fnParamTypes).filter(_.nonEmpty)
+      case _              => None
+
   /** Every name a `val`/`var` DECLARES anywhere inside `t` — used to EXCLUDE a closure's own
    *  locally-declared names from its move-capture clone-prelude. `val opening = ranges.filter(…)…
    *  if opening.nonEmpty || closing.nonEmpty …` INSIDE a `.map { index => … }` closure
@@ -8592,9 +8613,19 @@ object RustCodeWalk:
         // the empty string for every other shape and `_paramTypes` has no such key — and it was
         // what kept SITE 2 out. Dropping it also costs renderTerm fewer bytecodes than adding an
         // arm, which matters: this method is frozen past HugeMethodLimit.
+        // `pred(s.charAt(i))` where `pred: Char => Boolean` (`uniml/yaml`'s
+        // `YamlSemanticParser.scala`'s `allFrom`) — `pred` is a FUNCTION-TYPED PARAMETER, not a
+        // module-level def, so `_paramTypes` (keyed by DEF NAME) never has an entry for it and the
+        // coercion below never ran at all: `error[E0308]: expected i64, found SscChar`.
+        // `closureCalleeParamTypes` reads a closure-typed param's declared signature (a plain
+        // STRING, `ctx.paramTypes`'s own convention for `impl Fn(...)`) back into the SAME
+        // `List[String]` shape `_paramTypes` holds, so the identical per-position check below
+        // applies unchanged. Factored into a top-level helper (not inlined here) so this new
+        // shape costs `renderTerm` nothing against its own frozen bytecode budget.
+        val closureWant: Option[List[String]] = closureCalleeParamTypes(fn, ctx)
         val coercedArgs =
-          if _paramTypes.contains(calleeName) then
-            val want = _paramTypes(calleeName)
+          if _paramTypes.contains(calleeName) || closureWant.nonEmpty then
+            val want = if _paramTypes.contains(calleeName) then _paramTypes(calleeName) else closureWant.get
             // Iterate the RENDERED args, not a zip with the source terms. `renderedArgs` is longer
             // whenever omitted trailing defaults were filled in above (Rust has no default
             // parameters, so they are materialised here) — and `zip` truncates to the shorter list

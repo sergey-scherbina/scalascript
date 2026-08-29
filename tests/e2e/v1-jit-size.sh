@@ -828,10 +828,21 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # because a method's OWN receiver, unlike an ordinary argument, never reached it. Inline in this
 # arm's own `yield`, the growth. Re-verified uniml/xml and uniml/json both still build clean (0
 # errors).
+#
+# renderTerm 37821 -> 37869 (+48), continuing the uniml/yaml real `cargo build` pass, 7 -> 6.
+# `pred(s.charAt(i))` where `pred: Char => Boolean` (`allFrom`) — a call to a FUNCTION-TYPED
+# PARAMETER never went through the SscChar `.0`-unwrap coercion at all, since that coercion is
+# keyed off `_paramTypes` (module-level def names only), and `pred` is a parameter, not a def:
+# `error[E0308]: expected i64, found SscChar`. The lookup itself (`closureCalleeParamTypes`,
+# parsing a closure param's `impl Fn(...)` signature string back into a `List[String]`) is a
+# SEPARATE function and costs nothing; the growth is the call site's own widened condition
+# (`_paramTypes.contains(calleeName) || closureWant.nonEmpty`) and the `want` selection between
+# the two sources, both inline in this arm's own body. Re-verified uniml/xml and uniml/json both
+# still build clean (0 errors).
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-37821 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+37869 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF
