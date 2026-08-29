@@ -2,10 +2,10 @@ slug: aggregation-algebra-extend
 branch: feature/aggregation-algebra-extend
 agent: claude-code
 started: 2026-08-29T07:34:33Z
-heartbeat: 2026-08-29T07:34:33Z
-status: claimed-before-planning
+heartbeat: 2026-08-29T07:35:45Z
+status: in-progress
 items: aggregation-algebra-extend
-paths: file:specs/aggregation-algebra.md
+paths: file:specs/aggregation-algebra.md file:v2/BUGS.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+next: commit, push
