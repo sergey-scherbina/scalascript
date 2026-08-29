@@ -7,6 +7,59 @@ grepping for status.
 
 Newest first.
 
+## given-extension-typehead-mismatch-silently-returns-receiver — `given g: TC with extension (recv: T) def m(...)` dispatched by the wrong type, silently
+
+<!-- status: fixed
+     lane: native
+     kind: bug
+     area: front
+     gate: tests/e2e/v2-given-extension-typehead-gate.sh
+     reported-by: claude-code
+     reported-at: 2026-08-29
+     confirmed: yes
+     fixed-in: 88b2d2f72 -->
+
+Found 2026-08-29 while diagnosing a report that "extension-dispatch doesn't work". The
+instance-dispatch synthesizer (ssc1-lower's `collectExtDispatch` / F's `collectExtDisp`, F being
+the separate self-hosted compiler at `specs/v2.2-p6.5-fsub.ssc`) derived the receiver tag-test's
+typeHead from the ENCLOSING `given`'s own type argument (`TC[T]` → "T"). That coincides with the
+extension's declared receiver type only for the `Functor[F[_]] with extension (fa: F[_])`-shaped
+pattern. A trait with no type parameter at all —
+
+```scalascript
+trait HasArea:
+  extension (sh: Shape) def area(mult: Int): Int
+given shapeArea: HasArea with
+  extension (sh: Shape) def area(mult: Int): Int = sh match { case Circle(r) => r*r*mult; ... }
+```
+
+— has no given type argument to derive a typeHead from, so the derived value was wrong, the
+tag-test chain never matched, and the call fell to the dispatcher's fallback: **the receiver
+returned unchanged**. `c.area(3)` silently printed `c` itself (`Circle(4)`) — no error, no
+refusal, just the wrong answer. A given whose type argument is simply wrong for its extension
+(`given intDesc: Describable[String] with extension (n: Int) def describe...`) hit the identical
+bug for the identical reason.
+
+Confirmed independently on BOTH self-hosted compilers that can run this shape: the reference front
+(`ssc1-front.ssc0` + `ssc1-lower.ssc0`) and F. `ssc info --front-report` on the repro file above
+names F as the compiling front (not F's fallback) — they are separate implementations of the same
+dispatch mechanism, each with its own, independently broken copy of the identical defect.
+
+**Fix:** read each extension member's OWN declared receiver type off its `extension (recv: T)`
+header — `ssc1-front.ssc0`'s new `peekExtReceiverType`, F's new `extRecvTypeName` — and use THAT as
+the dispatch typeHead, falling back to the given's own type argument only when the receiver type
+isn't a simple nominal type (generic/tuple/absent — the case the old derivation already got
+right). Also strips a type-lambda wrapper (`[In,Out] =>> Aggregator[In,Acc,Out]`) down to its head,
+so `specs/aggregation-algebra.md` §11.3's formal `Profunctor[Aggregator[_,Acc,_]]` instance now
+dispatches too (previously `unhandled runtime effect: SumAgg.dimap`).
+
+Verified: `shapeArea` above now answers `48` on both fronts; the deliberately-mismatched
+`Describable[String]`/`Int` case answers `int:42` (the extension's own type wins over the given's
+lying type argument) on both fronts; the pre-existing `Functor[F[_]]`-style pattern (where the two
+typeHeads coincide) is unaffected on both fronts. `tests/e2e/v2-given-extension-typehead-gate.sh`
+carries all three cases × both fronts. Full smoke-ci: 140/140 green (including the optional `f-*`
+checks — F's own regression suite).
+
 ## parametric-given-declaration-corrupts-an-unrelated-earlier-given — `given X[A](using ...)` was never parsed, and its body leaked into surrounding code
 
 <!-- status: fixed
