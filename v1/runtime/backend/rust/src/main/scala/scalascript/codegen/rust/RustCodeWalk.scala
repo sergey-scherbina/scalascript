@@ -5965,9 +5965,20 @@ object RustCodeWalk:
             // rewrite (gated on `isKnownVecReceiver`) never fired: `error[E0369]: cannot add
             // String to Vec<String>`. Recomputed here the same way `renderDef`'s own top-level
             // `paramSeqs` is, seeded with THIS def's own params.
+            // `val segs = paragraphSegs` inside `emitSetextUnderline`, itself lifted out of
+            // `parse` and capturing `paragraphSegs: Vector[ParaSeg]` (`uniml/markdown`'s
+            // `MarkdownBlocks.scala`) — a SECOND spelling of the SAME capture-visibility gap this
+            // whole block already fixes for `localOptions`/`localStrings`/`localSscChars`: seeding
+            // `collectLocalSeqs`'s OWN walk with only `ownSeqParams` (this def's OWN params) meant
+            // it had no way to know `paragraphSegs` — a CAPTURED var, not a param or a declaration
+            // inside `d.body` — was ALREADY a known seq (`baseCtx.localSeqs` has it, but only
+            // UNIONED IN AFTER the walk, never fed as part of the walk's own seed). `segs`
+            // (bound bare to `paragraphSegs`) consequently never registered as a seq either, and
+            // `segs.iterator.zipWithIndex.map{…}.mkString` fell to the no-paren "collection
+            // member" refusal purely because its OWN base name was invisible three links back.
             localSeqs = baseCtx.localSeqs ++ {
               val ownSeqParams = collectSeqParams(d)
-              collectLocalSeqs(d.body, ownSeqParams, Map.empty)._1 ++ ownSeqParams
+              collectLocalSeqs(d.body, ownSeqParams ++ baseCtx.localSeqs, Map.empty)._1 ++ ownSeqParams
             },
             inLiftedFn = true,
             // `val char = input.charAt(cursor)` DECLARED INSIDE a lifted local def's OWN body
