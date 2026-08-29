@@ -3110,6 +3110,32 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(g.contains("if lexeme.is_empty()"),
       s"a no-paren String-field call on a Pat.Typed-to-variant binder must resolve through destructuredCtorNames:\n$g")
 
+  test("a val bound to a QUALIFIED call resolves its seq-ness through the SPECIFIC def, not by bare name"):
+    // `val pieces = MarkdownInlines.parse(content, refs, profile)` (`uniml/markdown`'s
+    // `MarkdownBlocks.scala`'s `parse`) — this corpus alone has FOUR distinct `def parse(...)`,
+    // each in a different object; the generic seq-ctor case (keyed by bare method NAME through
+    // `_returnTypes`, a module-wide map with no notion of "which object") resolved `nm = "parse"`
+    // to whichever `parse` happened to be written LAST — not necessarily `MarkdownInlines.parse`'s
+    // own `Vector[InlinePiece]`. Without this, `pieces` was not recorded as a seq, and
+    // `pieces.nonEmpty` fell to the field path: "reads nonEmpty without parentheses ... it is a
+    // collection member, not a field".
+    val src =
+      """```scalascript
+        |object MarkdownInlines:
+        |  def parse(content: String): Vector[String] = Vector(content)
+        |
+        |object Other:
+        |  def parse(x: Int): Int = x + 1
+        |
+        |def parseBlock(content: String): Boolean =
+        |  val pieces = MarkdownInlines.parse(content)
+        |  pieces.nonEmpty
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("!pieces.is_empty()"),
+      s"a val bound to a qualified call must resolve seq-ness through the specific def, not by bare name collision:\n$g")
+
   test("`xs.count(_.field == x)` / `xs.filter(_.field == x)` — a placeholder predicate types cleanly"):
     // `lexed.tokens.count(_.kind == "yaml.anchor")` / `ranges.filter(_.start == index)`
     // (`uniml/yaml`) — `renderVecIterBody`'s `Term.AnonymousFunction` branch wrapped the WHOLE

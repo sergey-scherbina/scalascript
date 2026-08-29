@@ -3753,6 +3753,28 @@ object RustCodeWalk:
     val SeqMethods = Set("split", "toList", "toArray", "toVector", "toSeq", "toIndexedSeq",
                          "zipWithIndex", "sorted", "reverse", "distinct", "collect")
     def seqCtor(rhs: m.Term): Option[Boolean] = rhs match  // Some(isArray) iff a seq ctor
+      // `val pieces = MarkdownInlines.parse(content, refs, profile)` (`uniml/markdown`'s
+      // `MarkdownBlocks.scala`'s `parse`) — this CORPUS alone has FOUR distinct `def parse(...)`,
+      // each in a different object, so the generic case just below (keyed by bare method NAME
+      // through `_returnTypes`, a MODULE-WIDE map with no notion of "which object") would resolve
+      // `nm = "parse"` to whichever `parse` happened to be written LAST — not necessarily
+      // `MarkdownInlines.parse`'s own `Vector[InlinePiece]`. `_ownedDefBodies` (keyed
+      // `(owner, name)`, the SAME table `_ownedDefBodies`'s own comment two hundred lines down
+      // already exists to disambiguate for exactly this corpus) reads the RAW declared return
+      // type off the SPECIFIC def the qualifier actually names. Tried FIRST, since it is strictly
+      // more precise than the bare-name fallback wherever the call is qualified at all.
+      case m.Term.Apply.After_4_6_0(m.Term.Select(m.Term.Name(owner), m.Term.Name(nm)), _)
+          if _ownedDefBodies.get((owner, nm)).flatMap(_.decltpe).exists {
+            case m.Type.Apply.After_4_6_0(m.Type.Name("List" | "Vector" | "Seq" | "IndexedSeq"), _) => true
+            case _ => false
+          } =>
+        Some(false)
+      case m.Term.Apply.After_4_6_0(m.Term.Select(m.Term.Name(owner), m.Term.Name(nm)), _)
+          if _ownedDefBodies.get((owner, nm)).flatMap(_.decltpe).exists {
+            case m.Type.Apply.After_4_6_0(m.Type.Name("Array"), _) => true
+            case _ => false
+          } =>
+        Some(true)
       case m.Term.Apply.After_4_6_0(fn, _) =>
         val nm = fn match
           case m.Term.Name(n) => n
