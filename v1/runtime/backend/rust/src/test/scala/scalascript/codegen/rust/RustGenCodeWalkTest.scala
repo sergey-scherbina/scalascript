@@ -2966,6 +2966,65 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(g.contains("if titleLex.is_empty() { None }"),
       s"a bare no-paren .isEmpty on a case class's own String field must resolve via paramTypes:\n$g")
 
+  test("`edges.collectFirst { … }.flatten` lowers Option's own .flatten"):
+    // `edges.collectFirst { … }.flatten` (`uniml/markdown`'s `MarkdownProjection.scala`'s
+    // `firstMarker`) — Scala's `Option[Option[T]].flatten` collapses one level of nesting; Rust's
+    // `Option<Option<T>>` has the IDENTICAL `.flatten()` method, so this is a direct name-for-name
+    // lowering — the gap was that nothing recognized the RECEIVER as an Option at all (`collectFirst`
+    // was missing from `isOptionExpr`'s own "returns an Option" list), so it fell to the generic
+    // no-paren "collection member" refusal.
+    val src =
+      """```scalascript
+        |case class Tok(kind: String, lexeme: String)
+        |
+        |def firstMarker(edges: List[Tok]): Option[String] =
+        |  edges.collectFirst {
+        |    case t if t.kind == "item" =>
+        |      edges.collectFirst { case u if u.kind == "marker" => u.lexeme }
+        |  }.flatten
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(")).flatten()"),
+      s"edges.collectFirst { ... }.flatten must lower to Option's own .flatten():\n$g")
+
+  test("`val rows = xs.collect { case p => v }` is a known Vec, for a no-paren .headOption"):
+    // `val rows = edges.collect { case … => … }` then `rows.headOption` (`uniml/markdown`'s
+    // `MarkdownProjection.scala`'s `projectTable`) — `.collect { case … }` always returns a `Vec`
+    // on this lane, matching every other method already in `collectLocalSeqs`'s own `SeqMethods`
+    // set, but `.collect` itself was missing from it — `rows` was never recorded as a seq, and
+    // `rows.headOption` fell to the field path: "reads headOption without parentheses ... it is a
+    // collection member, not a field".
+    val src =
+      """```scalascript
+        |case class Tok(kind: String, lexeme: String)
+        |
+        |def projectTable(edges: List[Tok]): Vector[String] =
+        |  val rows = edges.collect { case t if t.kind == "row" => t.lexeme }
+        |  rows.headOption.map(x => x).getOrElse("")
+        |  rows
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("rows.first().cloned()"),
+      s"a val bound to xs.collect { case ... } must be a known Vec, for a no-paren .headOption:\n$g")
+
+  test("`Set(...)` constructs a Vec, this lane's own Set-as-Vec convention"):
+    // `Set("literal", "text", "unknown")` (`uniml/markdown`'s `MarkdownDialect.scala`'s
+    // `Literal.aliases`) — this lane already represents a Scala `Set` as a plain `Vec` throughout
+    // (`collectSeqParams`'s `isSeqType`, for a Set-typed PARAMETER), but the CONSTRUCTOR side had
+    // never followed: `Set(...)` reached rustc as a call to a function literally named `Set`,
+    // which this crate does not define.
+    val src =
+      """```scalascript
+        |def aliasesFor(x: Int): Set[String] =
+        |  Set("literal", "text", "unknown")
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("""vec!["literal".to_string(), "text".to_string(), "unknown".to_string()]"""),
+      s"Set(...) must construct a vec![...], this lane's own Set-as-Vec convention:\n$g")
+
   test("`xs.count(_.field == x)` / `xs.filter(_.field == x)` — a placeholder predicate types cleanly"):
     // `lexed.tokens.count(_.kind == "yaml.anchor")` / `ranges.filter(_.start == index)`
     // (`uniml/yaml`) — `renderVecIterBody`'s `Term.AnonymousFunction` branch wrapped the WHOLE

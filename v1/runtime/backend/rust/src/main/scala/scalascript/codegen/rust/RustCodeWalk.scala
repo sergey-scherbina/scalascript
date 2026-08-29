@@ -3726,8 +3726,17 @@ object RustCodeWalk:
     // Vec<(String, i64)>`. A user isolated exactly that against a control in the same file: a
     // LITERAL list of tuples indexed fine, only the `zipWithIndex` result did not, which is what
     // showed the lowering was right and the is-a-list FACT was what got lost.
+    // `collect` added for `val rows = edges.collect { case … => … }` (`uniml/markdown`'s
+    // `MarkdownProjection.scala`'s `projectTable`) — `.collect { case … }` ALWAYS returns a `Vec`
+    // on this lane (`renderTerm`'s own `.collect` case: `.filter_map(…).collect::<Vec<_>>()`),
+    // matching the same fact this set already trusts for `.toList`/`.toVector`/etc; without it,
+    // `rows` was not recorded as a seq, and `rows.headOption` fell to the field path: "reads
+    // headOption without parentheses ... it is a collection member, not a field". Safe alongside
+    // the "no-arg seq conversion" case just below (`SeqMethods.contains(n)` on a bare no-paren
+    // `Term.Select`) since `.collect` always takes a partial-function argument and can never
+    // appear bare that way.
     val SeqMethods = Set("split", "toList", "toArray", "toVector", "toSeq", "toIndexedSeq",
-                         "zipWithIndex", "sorted", "reverse", "distinct")
+                         "zipWithIndex", "sorted", "reverse", "distinct", "collect")
     def seqCtor(rhs: m.Term): Option[Boolean] = rhs match  // Some(isArray) iff a seq ctor
       case m.Term.Apply.After_4_6_0(fn, _) =>
         val nm = fn match
@@ -6814,6 +6823,16 @@ object RustCodeWalk:
         if isOptionExpr(qual, ctx) && Set("nonEmpty", "isEmpty").contains(meth) =>
       renderTerm(qual, ctx).map(q => if meth == "isEmpty" then s"$q.is_none()" else s"$q.is_some()")
 
+    // `edges.collectFirst { … }.flatten` (`uniml/markdown`'s `MarkdownProjection.scala`'s
+    // `firstMarker`) — Scala's `Option[Option[T]].flatten` collapses one level of nesting; Rust's
+    // `Option<Option<T>>` has the IDENTICAL `.flatten()` method, so this is a direct name-for-name
+    // lowering, not a translation — the ONLY gap was that nothing recognized the RECEIVER as an
+    // Option at all, and it fell to the generic no-paren "collection member" refusal (which cannot
+    // tell a `Vec` from an `Option`, the same class of gap the `nonEmpty`/`isEmpty` case just
+    // above already fixes for those two members).
+    case m.Term.Select(qual, m.Term.Name("flatten")) if isOptionExpr(qual, ctx) =>
+      renderTerm(qual, ctx).map(q => s"($q).flatten()")
+
     // `lexed.issue.get` (`uniml/json`'s `JsonLexer.scala`) — Scala's no-paren `Option.get` unwraps
     // (panics if `None`, matching Scala's OWN behaviour on the JVM); Rust's `Option::unwrap` is the
     // direct equivalent. Without this it fell to the field-select path and rustc reported
@@ -8818,12 +8837,17 @@ object RustCodeWalk:
         // `List(1, 2, 3)` / `Vec(1, 2, 3)` → Rust `vec![1, 2, 3]` unless Vec is a user struct.
         // Vector/Seq/IndexedSeq/Iterable are eager immutable sequences — observably identical to
         // List in Rust's `Vec`-backed model (which is itself O(1)-indexed), so they alias List.
+        // `Set(...)` too — this lane's own established convention (`collectSeqParams`'s
+        // `isSeqType`, widened the same way for a Set-typed PARAMETER) represents a Scala `Set` as
+        // a plain `Vec` throughout, and the CONSTRUCTOR side had never followed: `Set("a", "b")`
+        // (`uniml/markdown`'s `MarkdownDialect.scala`'s `aliases`) reached rustc as a call to a
+        // function literally named `Set`, which this crate does not define.
         // collection-rust-array: `Array(...)` is ALSO a `vec![...]` — its mutability comes from the
         // `let mut` binding (collectLocalSeqs marks array locals) + the `a(i)=x` store path below.
         // (LazyList's laziness still needs a distinct runtime → handled via isRangeExpr, not here.)
         // (collection-vector-indexed / collection-rust-array.)
         val isListCtor = userCtorName.isEmpty && (fn match
-          case m.Term.Name("List" | "Vec" | "Vector" | "Seq" | "IndexedSeq" | "Iterable" | "Array") => true
+          case m.Term.Name("List" | "Vec" | "Vector" | "Seq" | "IndexedSeq" | "Iterable" | "Array" | "Set") => true
           case _                            => false)
         val isMapCtor = fn match
           case m.Term.Name("Map") => true
@@ -9830,7 +9854,12 @@ object RustCodeWalk:
     // Collection methods that RETURN an Option. Needed because printing one has to render it the
     // Scala way -- Rust's `Option` has no `Display`, so `"x = " + xs.find(p)` did not compile at
     // all until this list knew what produces an Option.
-    case m.Term.Apply.After_4_6_0(m.Term.Select(_, m.Term.Name("find" | "headOption" | "lastOption" | "get")), _) => true
+    // `edges.collectFirst { … }.flatten` (`uniml/markdown`'s `MarkdownProjection.scala`'s
+    // `firstMarker`) — `collectFirst` is missing from this exact list for the exact same reason
+    // the others were added: without it, `isOptionExpr` on the `.collectFirst` receiver answered
+    // `false`, so the newly-added `.flatten` case (guarded on `isOptionExpr`) never even reached
+    // — the "collection member" refusal it was meant to fix kept firing.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(_, m.Term.Name("find" | "headOption" | "lastOption" | "get" | "collectFirst")), _) => true
     case m.Term.Select(_, m.Term.Name("headOption" | "lastOption"))                                      => true
     // A CALL TO A DEF DECLARED `: Option[T]`. Read off the declaration — nothing is inferred here,
     // the signature already says it. Without this, `_normSegments(…).map(revParts => …)` in

@@ -885,10 +885,23 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # `ownFieldTypes`, folded into `paramTypes` at `Ctx`-construction time). Widened the existing
 # `.nonEmpty`/`.isEmpty` guard's bare-name disjunct — inline in this arm's own case, the growth.
 # Re-verified uniml/xml, uniml/json, and uniml/yaml all still build clean (0 errors).
+#
+# renderTerm 39241 -> 39320 (+79), continuing uniml/markdown, 25 -> 22 across three fixes. (1)
+# `edges.collectFirst { … }.flatten` — a NEW `renderTerm` arm lowering Option's own `.flatten`
+# (Rust's `Option<Option<T>>` has the identical method), guarded on `isOptionExpr`, which needed
+# `collectFirst` added to its own "collection methods that return an Option" list first (a separate
+# widening, in a helper, costs nothing) before the new arm could ever be reached. This new arm is
+# the growth. (2) `val rows = edges.collect { case … }` then `rows.headOption` — `.collect` added
+# to `collectLocalSeqs`'s own `SeqMethods` set (a separate function, costs nothing): it always
+# returns a `Vec` on this lane, matching every other method already in that set. (3) `Set("a",
+# "b")` — added to the list of constructor names lowering to `vec![...]` (this lane's own Set-as-
+# Vec convention, already used for a Set-typed PARAMETER); inline in the SAME pre-existing `Term.
+# Apply` case as `List`/`Vector`/`Array`, so no separate arm, no separate growth. Re-verified
+# uniml/xml, uniml/json, and uniml/yaml all still build clean (0 errors).
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-39241 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+39320 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF
