@@ -3749,9 +3749,11 @@ object RustCodeWalk:
     // headOption without parentheses ... it is a collection member, not a field". Safe alongside
     // the "no-arg seq conversion" case just below (`SeqMethods.contains(n)` on a bare no-paren
     // `Term.Select`) since `.collect` always takes a partial-function argument and can never
-    // appear bare that way.
+    // appear bare that way. `slice` added for `val window = lines.slice(index, last)`
+    // (`MarkdownBlocks.scala`'s `scanRefDef`) — same reasoning, also never appears bare (always
+    // 2-arg).
     val SeqMethods = Set("split", "toList", "toArray", "toVector", "toSeq", "toIndexedSeq",
-                         "zipWithIndex", "sorted", "reverse", "distinct", "collect")
+                         "zipWithIndex", "sorted", "reverse", "distinct", "collect", "slice")
     def seqCtor(rhs: m.Term): Option[Boolean] = rhs match  // Some(isArray) iff a seq ctor
       // `val pieces = MarkdownInlines.parse(content, refs, profile)` (`uniml/markdown`'s
       // `MarkdownBlocks.scala`'s `parse`) — this CORPUS alone has FOUR distinct `def parse(...)`,
@@ -6695,6 +6697,18 @@ object RustCodeWalk:
         if !isRangeExpr(qual) && a.values.size == 1 =>
       for q0 <- renderTerm(qual, ctx); k <- renderTerm(a.values.head, ctx)
       yield s"${cloneIfMoved(qual, q0, ctx)}.into_iter().skip($k as usize).collect::<Vec<_>>()"
+    // `lines.slice(index, last)` (`uniml/markdown`'s `MarkdownBlocks.scala`'s `scanRefDef`) — a
+    // sub-range read (does NOT consume the receiver, matching `.take`/`.drop`'s own reasoning two
+    // cases up), lowered via ordinary slice indexing + `.to_vec()`, this lane's established
+    // clone-liberal convention for "a new owned Vec built from part of another". Had NO lowering
+    // at all: "calls slice on a List and the rust backend has no lowering for it".
+    case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("slice")), a)
+        if !isRangeExpr(qual) && a.values.size == 2 =>
+      for
+        q0    <- renderTerm(qual, ctx)
+        from  <- renderTerm(a.values.head, ctx)
+        until <- renderTerm(a.values(1), ctx)
+      yield s"${cloneIfMoved(qual, q0, ctx)}[($from as usize)..($until as usize)].to_vec()"
     // Vec `.takeRight(n)` / `.dropRight(n)` → slice from the end (clones the kept tail).
     case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name(tr @ ("takeRight" | "dropRight"))), a)
         if a.values.size == 1 =>

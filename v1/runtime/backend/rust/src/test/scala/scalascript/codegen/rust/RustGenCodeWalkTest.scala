@@ -3220,6 +3220,27 @@ class RustGenCodeWalkTest extends AnyFunSuite:
       && g.contains("[rest @ .., MarkdownInline::HardBreak] => { let rest = rest.to_vec(); rest.clone() }"),
       s"case rest :+ X => rest must lower to a suffix slice pattern, the mirror of ::: \n$g")
 
+  test("`xs.slice(from, until)` lowers to index-range + to_vec, and is a known seq"):
+    // `val window = lines.slice(index, last)` then `window.iterator.map(_.raw).mkString`
+    // (`uniml/markdown`'s `MarkdownBlocks.scala`'s `scanRefDef`) — `.slice` had NO lowering at
+    // all ("calls slice on a List and the rust backend has no lowering for it"), and even once
+    // lowered, `window` was not recorded as a seq (`collectLocalSeqs`' own `SeqMethods` set), so
+    // the `.mkString` chained after `.iterator.map(...)` fell to the no-paren "collection member"
+    // refusal.
+    val src =
+      """```scalascript
+        |case class MdLine(raw: String)
+        |
+        |def scanRefDef(lines: Vector[MdLine], index: Int, last: Int): Int =
+        |  val window = lines.slice(index, last)
+        |  val joined = window.iterator.map(_.raw).mkString
+        |  joined.length
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("lines[(index as usize)..(last as usize)].to_vec()"),
+      s"xs.slice(from, until) must lower to index-range + to_vec, and be a known seq for the .mkString chained after it:\n$g")
+
   test("`xs.count(_.field == x)` / `xs.filter(_.field == x)` — a placeholder predicate types cleanly"):
     // `lexed.tokens.count(_.kind == "yaml.anchor")` / `ranges.filter(_.start == index)`
     // (`uniml/yaml`) — `renderVecIterBody`'s `Term.AnonymousFunction` branch wrapped the WHOLE
