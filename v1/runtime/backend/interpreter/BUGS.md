@@ -9,7 +9,7 @@ Newest first.
 
 ## point-free-class-method-never-eta-expands-on-int — `obj.method` under `--v1` fails differently, same given-vs-class shape
 
-<!-- status: open
+<!-- status: fixed
      lane: int
      kind: bug
      area: runtime
@@ -17,7 +17,7 @@ Newest first.
      reported-by: claude-code
      reported-at: 2026-08-28
      confirmed: yes
-     fixed-in: - -->
+     fixed-in: a948d71b8 -->
 
 Companion to `v2/BUGS.md`'s `point-free-class-method-never-eta-expands-on-native` — same repro,
 found on the SAME code (drafting `specs/aggregation-algebra.md`), but a genuinely different root
@@ -67,6 +67,21 @@ zero args → return the unapplied closure" branch, analogous to what
 `dispatchInstanceAfterMethods`'s field-lookup path already does for given-instance `FunV`s. No
 test anywhere in this module covers point-free access to a plain class's own instance method —
 untested gap, not a regression.
+
+**FIXED 2026-08-29 (`a948d71b8`).** Added `DispatchRuntime.dispatchBareSelection`, used only by
+`EvalRuntime`'s `case sel: Term.Select` (the one call site that already knows, unambiguously, that
+this is a bare selection with no call): it looks up the bare method the same way `pickArity` would,
+and when the resolved arity does not fit zero args AND no `name#0` overload exists (`pickArity`
+would otherwise have silently fallen back to the real wrong-arity closure), returns it unevaluated
+instead — the eta-expansion. Unlike the v2/native lane's twin fix, no "applied" flag was needed:
+`Term.Select` (bare) and `Term.Apply(Term.Select(...), args)` (a call, even with an explicit empty
+argument list) are different Scalameta AST node shapes evaluated at different sites in this lane,
+so an applied `r.k()` never reaches `dispatchBareSelection` at all and keeps throwing the same
+`missing argument for parameter` error as before — regression test:
+`EtaExpandClassMethodTest`'s applied-call rows. New coverage (the gap noted above):
+`v1/runtime/backend/interpreter/src/test/scala/scalascript/EtaExpandClassMethodTest.scala` (7
+cases — the point-free eta path, the original foldLeft repro, an applied wrong-arity refusal, an
+applied right-arity call, a real nullary method, and the given-instance control).
 
 ## bugs-index-gate-reads-prose-for-a-stale-open-entry-not-the-header — 18 entries carry a fix sha and read as open
 
