@@ -3291,6 +3291,29 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(g.contains(".filter(|__p0| { !__p0.is_empty() })"),
       s"opt.map(fnRef).filter(_.pred) must implement Option's own .filter, seeded from the map's return type:\n$g")
 
+  test("`xs.collectFirst { case p => body }.filter(_.pred)` seeds from the arms' own body type"):
+    // `edges.collectFirst { case UniEdge(_, UniNode.Token(t)) if t.kind == MdKind.Info =>
+    // decodeText(unescape(t.lexeme.trim)) }.filter(_.nonEmpty)` (`uniml/markdown`'s
+    // `MarkdownProjection.scala`'s `codeInfo`) — `.collectFirst`'s own element type is whatever
+    // every arm's BODY yields; `isStringExpr` (ctx-free) already answers that for a call to a def
+    // declared to return `String` — every arm must agree (Scala's own typechecking already
+    // guarantees it), so checking that ALL of them pass is enough to trust the result.
+    val src =
+      """```scalascript
+        |def decodeText(s: String): String = s.trim
+        |def unescape(s: String): String = s
+        |
+        |case class Tok(kind: String, lexeme: String)
+        |
+        |def codeInfo(edges: List[Tok]): Option[String] =
+        |  edges.collectFirst { case t if t.kind == "info" => decodeText(unescape(t.lexeme.trim)) }
+        |    .filter(_.nonEmpty)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("}).filter(|__p0| { !__p0.is_empty() })"),
+      s"xs.collectFirst { case p => body }.filter(_.pred) must seed from the arms' own body type:\n$g")
+
   test("`xs.count(_.field == x)` / `xs.filter(_.field == x)` — a placeholder predicate types cleanly"):
     // `lexed.tokens.count(_.kind == "yaml.anchor")` / `ranges.filter(_.start == index)`
     // (`uniml/yaml`) — `renderVecIterBody`'s `Term.AnonymousFunction` branch wrapped the WHOLE

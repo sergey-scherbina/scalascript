@@ -5611,6 +5611,20 @@ object RustCodeWalk:
       args.values.head match
         case m.Term.Name(fn) => _returnTypes.get(fn).map(_.stripPrefix("Option<").stripSuffix(">"))
         case _                => None
+    // `edges.collectFirst { case UniEdge(_, UniNode.Token(t)) if t.kind == MdKind.Info =>
+    // decodeText(unescape(t.lexeme.trim)) }.filter(_.nonEmpty)` (`uniml/markdown`'s
+    // `MarkdownProjection.scala`'s `codeInfo`) — `.collectFirst`'s own element type is whatever
+    // every arm's BODY yields; `isStringExpr` (ctx-free — no pattern-bound name resolution
+    // needed, just "is this term SYNTACTICALLY string-shaped") already answers that for a body
+    // like `decodeText(...)`, a call to a def declared to return `String`. Every arm must agree
+    // (Scala's own typechecking already guarantees it), so checking that ALL of them pass is
+    // enough to trust the result.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(_, m.Term.Name("collectFirst")), args)
+        if args.values.sizeIs == 1 =>
+      args.values.head match
+        case pf: m.Term.PartialFunction if pf.cases.nonEmpty && pf.cases.forall(c => isStringExpr(c.body)) =>
+          Some("String")
+        case _ => None
     case _ => None
 
   /** Seed a `Term.Function` argument's single named param with `qual`'s Option element type
