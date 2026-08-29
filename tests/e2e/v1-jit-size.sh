@@ -728,10 +728,18 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # not by the test suite (a `.contains` guard that is always `false` produces no compile error,
 # just silently never fires); fixed to a real pattern match. Re-verified uniml/xml and uniml/json
 # both still build clean (0 errors).
+#
+# renderTerm 37385 -> 37389 (+4), continuing the uniml/yaml real `cargo build` pass, 40 -> 39. The
+# SscChar `.0`-unwrap batch two commits ago needed no bump (all three fixes lived in helper
+# functions). `opt.exists(p)`'s own `Option::is_some_and` CONSUMES `self` — unlike `.contains`'s
+# `.as_ref()` two cases down, which only borrows — so `tag.exists(...)`, read again later in the
+# same `if/else` chain (`plainScalar`), needed the same multi-use clone every other by-value
+# position already gets: `error[E0382]: use of moved value: tag`. `cloneIfMoved` on the rendered
+# qualifier, inline in this arm.
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-37385 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+37389 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

@@ -7333,9 +7333,15 @@ object RustCodeWalk:
         m.Term.Select(qual, m.Term.Name("exists")), args
     ) if args.values.size == 1 && isOptionExpr(qual, ctx) =>
       for
-        q    <- renderTerm(qual, ctx)
+        q0   <- renderTerm(qual, ctx)
         pred <- renderTerm(args.values.head, ctx)
-      yield s"($q).is_some_and($pred)"
+      yield
+        // `Option::is_some_and` consumes `self` — unlike `.contains`'s own `.as_ref()` two cases
+        // down, which only borrows. `tag.exists(...)`, read AGAIN later in the same `if/else`
+        // chain (`plainScalar`), needs the same multi-use clone every other by-value position
+        // already gets: `error[E0382]: use of moved value: tag`.
+        val q = cloneIfMoved(qual, q0, ctx)
+        s"($q).is_some_and($pred)"
 
     // `opt.contains(x)` — Scala: `Some(v).contains(x) == (v == x)`, `None.contains(x) == false`.
     // Rust's `Option::contains` is nightly-only (`option_result_contains`), so there is no stable

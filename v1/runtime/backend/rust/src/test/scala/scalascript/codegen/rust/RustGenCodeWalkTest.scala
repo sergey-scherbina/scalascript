@@ -2489,3 +2489,19 @@ class RustGenCodeWalkTest extends AnyFunSuite:
       s"Some(...) around an SscChar value must unwrap .0:\n$g")
     assert(g.contains("((c.clone()).0, i)"),
       s"a tuple-literal element yielding SscChar must unwrap .0:\n$g")
+
+  test("`opt.exists(p)` clones a multi-use Option before the consuming is_some_and"):
+    // `tag.exists(...)`, read again LATER in the same `if/else` chain (`plainScalar`,
+    // `uniml/yaml`'s `YamlSemanticParser.scala`) — `Option::is_some_and` CONSUMES `self` (unlike
+    // `.contains`'s own `.as_ref()`, which only borrows), so a multi-use Option needed the same
+    // clone every other by-value position already gets: `error[E0382]: use of moved value: tag`.
+    val src =
+      """```scalascript
+        |def classify(tag: Option[String]): Int =
+        |  if tag.exists(v => v == "a") then 1
+        |  else if tag.exists(v => v == "b") then 2
+        |  else 0
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("tag.clone()).is_some_and"), s"a multi-use Option must be cloned before is_some_and:\n$g")
