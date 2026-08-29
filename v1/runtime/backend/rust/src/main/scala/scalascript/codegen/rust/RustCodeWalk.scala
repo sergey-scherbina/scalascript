@@ -6400,7 +6400,11 @@ object RustCodeWalk:
         // this loop, reassigning a captured `HashMap` on every iteration, needing its own fix this
         // lane does not have yet. Reverted after measuring net WORSE (17 -> 24 real errors) than
         // leaving `attribute` untyped here; left as a known, narrower gap instead of trading one
-        // failure mode for a bigger one.
+        // failure mode for a bigger one. RE-TESTED after several unrelated fixes landed later in
+        // the same session (byRefMut/cloneIfMoved, dropping `move` from PartialFunction closures,
+        // the collectLocalSscChars sibling-collision fix) in case any of them happened to also
+        // cover the reassigned-`HashMap` case — still net WORSE (9/10 -> 13 real errors), so the
+        // underlying gap is still open and unrelated to any of those three.
         body <- renderVecIterBody(args.values.head, q, enriched, method = "foreach")
       yield body
 
@@ -6455,13 +6459,30 @@ object RustCodeWalk:
         m.Term.Select(qual, m.Term.Name(mw @ ("takeWhile" | "dropWhile"))), args
     ) if args.values.size == 1 && isStringReceiverChain(qual, ctx) =>
       val rustMeth = if mw == "takeWhile" then "take_while" else "skip_while"
-      for
-        q    <- renderTerm(qual, ctx)
-        pred <- renderTerm(args.values.head, ctx)
-      // `Iterator::take_while`/`skip_while`'s OWN signature takes `&Item` (the SAME `.filter`
-      // shape `.count`'s own fix already found, not `.forall`/`.exists`'s by-value `Item`) — `__ch`
-      // here is `&char`, so `as u32` needs the SAME extra `*` `.count` needed.
-      yield s"$q.chars().$rustMeth(|__ch| ($pred)(((*__ch) as u32) as i64)).collect::<String>()"
+      args.values.head match
+        // `value.drop(2).takeWhile(char => !isXmlWhitespace(char) && char != '?')` (`uniml/xml`'s
+        // `Doc.scala`'s `validatePi`) — an explicit-param lambda argument, rendered generically via
+        // `renderTerm`, comes back as a `move |char| { … }` CLOSURE, which the `case _` branch below
+        // then calls as an IIFE (`($pred)(argExpr)`) — the same E0282 limitation `renderVecIterBody`'s
+        // own doubly-nested-closure comment already documents: rustc cannot infer `char`'s type
+        // through a closure-literal CALL the way it can through an ordinary function call.
+        // `{ let char = argExpr; body }` (a plain let-binding, not a closure at all) sidesteps the
+        // inference gap entirely, the same substitution `find`'s own `|__f| { let $p0 = …; $b }`
+        // shape already uses for the identical reason.
+        case fn2: m.Term.Function if fn2.paramClause.values.sizeIs == 1 =>
+          val p = fn2.paramClause.values.head.name.value
+          for
+            q <- renderTerm(qual, ctx)
+            b <- renderTerm(fn2.body, enteringClosure(ctx, Set(p)))
+          yield s"$q.chars().$rustMeth(|__ch| { let $p = ((*__ch) as u32) as i64; $b }).collect::<String>()"
+        case other =>
+          for
+            q    <- renderTerm(qual, ctx)
+            pred <- renderTerm(other, ctx)
+          // `Iterator::take_while`/`skip_while`'s OWN signature takes `&Item` (the SAME `.filter`
+          // shape `.count`'s own fix already found, not `.forall`/`.exists`'s by-value `Item`) —
+          // `__ch` here is `&char`, so `as u32` needs the SAME extra `*` `.count` needed.
+          yield s"$q.chars().$rustMeth(|__ch| ($pred)(((*__ch) as u32) as i64)).collect::<String>()"
 
     // `s.forall(p)` / `s.exists(p)` on a STRING receiver (`digits.forall(isHexDigit)`, `uniml/xml`'s
     // `Doc.scala`) — the general Vec-shaped case just below has no receiver-type guard at all, so a

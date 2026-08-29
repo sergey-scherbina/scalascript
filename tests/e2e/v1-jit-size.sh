@@ -401,10 +401,25 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # helper (which does NOT touch `renderTerm`) follows a `.drop`/`.take` chain down to a bare-name
 # base via `ctx.localStrings`, something `isStringExpr` alone (no `ctx`) cannot do. Same terms as
 # every entry above. 14 errors remain.
+#
+# renderTerm 33726 -> 33874 (+148), continuing "fix everything remaining" on uniml/xml, 11 -> 9
+# across four more commits (byRefMut/cloneIfMoved E0507 fix; dropping `move` from two
+# PartialFunction-closure sites, fixing an E0382 capture-then-reuse-after-move; a
+# collectLocalSscChars cross-sibling-def name-collision fix, the long-deferred `quote = char`
+# mystery; and this one). This entry: the String `.takeWhile`/`.dropWhile` case (added in the
+# entry above) special-cases an explicit-param lambda argument to render as `{ let p = argExpr;
+# body }` instead of calling a rendered closure literal as an IIFE (`(move |p| body)(argExpr)`) —
+# the IIFE form hit `error[E0282]: type annotations needed`, the SAME closure-literal-call
+# inference gap `renderVecIterBody`'s own doubly-nested-closure comment already documents
+# elsewhere; this is a NEW arm inside the SAME match case, hence it grows `renderTerm` itself.
+# Also tried and RE-REVERTED (re-tested after all of the above landed, in case any of them
+# incidentally covered the earlier regression too — they did not): the SAME `.foreach` `elemType`
+# threading noted in the entry above, still net WORSE (9/10 -> 13 errors) for the identical
+# reassigned-HashMap reason. 9 errors remain.
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-33726 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+33874 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

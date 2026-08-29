@@ -1453,6 +1453,25 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(!g.contains("move |__pf|"), s"a synchronously-consumed map closure must not `move`:\n$g")
 
+  test("`s.takeWhile(char => …)` on a String does not call a closure literal as an IIFE"):
+    // `value.drop(2).takeWhile(char => !isXmlWhitespace(char) && char != '?')` (`uniml/xml`'s
+    // `Doc.scala`'s `validatePi`) — the explicit-param lambda argument was rendered generically
+    // via `renderTerm` (a `move |char| { … }` closure), then CALLED as an IIFE:
+    // `(move |char| { … })(argExpr)` — rustc cannot infer `char`'s type through a closure-literal
+    // CALL the way it can through an ordinary function call: `error[E0282]: type annotations
+    // needed`. Fixed by rendering the param as a plain `let` binding instead of a closure at all.
+    val src =
+      """```scalascript
+        |def isSpace(c: Long): Boolean = c == 32L
+        |
+        |def firstWord(value: String): String =
+        |  value.takeWhile(char => !isSpace(char))
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(!g.contains("(move |char|"), s"the lambda must not be rendered as a closure literal called via IIFE:\n$g")
+    assert(g.contains("let char ="), s"the param should instead be bound via a plain `let`:\n$g")
+
   test("`Some(child)` clones a `byRefMut`-bound match-arm name used at a by-value position"):
     // `validateNamespaces`-style shape (`uniml/xml`'s `Doc.scala`): a typed with-fields-variant
     // binder (`case child: Markup.Elem => …`) is `byRefMut` (renders bare reads as `(*child)`),
