@@ -4261,7 +4261,28 @@ object RustCodeWalk:
                       case _ => ()
                     }
                   }
-              case _ => ()
+              // `val (handle, suffix) = if rawTag.startsWith("!!") then "!!" -> rawTag.drop(2)
+              // else if namedEnd >= 0 then rawTag.take(namedEnd + 1) -> rawTag.drop(namedEnd + 1)
+              // else "!" -> rawTag.drop(1)` (`uniml/yaml`'s `YamlTagEnvironment.expand`) — a
+              // TUPLE-PATTERN destructure whose rhs is an IF/ELSE chain of `->`-PAIR
+              // CONSTRUCTIONS, not a function call at all — the case just above only ever reads a
+              // CALLEE's declared tuple return type. Every leaf pair here is String×String (each
+              // branch already agrees, or Scala's own typechecking would have rejected it), so
+              // checking ONE leaf's own components (via `isStr`, the SAME per-component check the
+              // call-return case above delegates to implicitly) is enough — without this, `suffix`
+              // never registered as a String and `prefix + suffix` fell to Rust's native `+`,
+              // which wants `&str` on the right: `error[E0308]: expected &str, found String`.
+              case other =>
+                def arrowPairLeaf(t: m.Term): Option[(m.Term, m.Term)] = t match
+                  case m.Term.ApplyInfix.After_4_6_0(l, m.Term.Name("->"), _, r) if r.values.sizeIs == 1 =>
+                    Some((l, r.values.head))
+                  case ifx: m.Term.If => arrowPairLeaf(ifx.thenp).orElse(arrowPairLeaf(ifx.elsep))
+                  case _ => None
+                arrowPairLeaf(other) match
+                  case Some((l, r)) if elems.sizeIs == 2 =>
+                    (elems(0), l) match { case (m.Pat.Var(m.Term.Name(n)), lt) if isStr(lt) => strs += n; case _ => () }
+                    (elems(1), r) match { case (m.Pat.Var(m.Term.Name(n)), rt) if isStr(rt) => strs += n; case _ => () }
+                  case _ => ()
           case _                               => ()
         case v: m.Defn.Var => v.pats match
           case List(m.Pat.Var(m.Term.Name(n))) =>

@@ -2752,3 +2752,24 @@ class RustGenCodeWalkTest extends AnyFunSuite:
       s"groupBy on either receiver must build a Vec<(K, Vec<V>)> group accumulator:\n$g")
     assert(g.contains("for index in (0i64.."), s"the Range receiver must iterate directly, not via .iter():\n$g")
     assert(g.contains("for s in xs.iter().cloned()"), s"the Vec receiver must iterate via .iter().cloned():\n$g")
+
+  test("a tuple-destructured local from an if/else of `->`-pairs is known as a String"):
+    // `val (handle, suffix) = if rawTag.startsWith("!!") then "!!" -> rawTag.drop(2) else …`
+    // (`uniml/yaml`'s `YamlTagEnvironment.expand`) — a TUPLE-PATTERN destructure whose rhs is an
+    // IF/ELSE chain of `->`-pair constructions, not a function call — the existing tuple-pattern
+    // case only ever read a CALLEE's declared tuple return type. `suffix` never registered as a
+    // String, so `handle + suffix` fell to Rust's native `+`, which wants `&str` on the right:
+    // `error[E0308]: expected &str, found String`.
+    val src =
+      """```scalascript
+        |def expand(rawTag: String, namedEnd: Int): String =
+        |  val (handle, suffix) =
+        |    if rawTag.startsWith("!!") then "!!" -> rawTag.drop(2)
+        |    else if namedEnd >= 0 then rawTag.take(namedEnd + 1) -> rawTag.drop(namedEnd + 1)
+        |    else "!" -> rawTag.drop(1)
+        |  handle + suffix
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("format!(\"{}{}\", handle, suffix)"),
+      s"handle/suffix from an if/else of ->-pairs must feed the format! string-concat rewrite:\n$g")
