@@ -854,10 +854,19 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # `renderTerm`, and costs nothing here. Re-verified uniml/xml and uniml/json both still build
 # clean (0 errors). uniml/yaml: 184 -> 0 real `cargo build` errors this session, across many
 # small, individually-tested commits.
+#
+# renderTerm 37885 -> 38205 (+320), starting on `uniml/markdown` (a NEW dialect module, `--print-
+# only` diagnostics 64 -> 37 -> 29 across two fixes so far). `edges.collectFirst { case p if g =>
+# v }` had NO lowering at all — a genuinely new `renderTerm` arm (the growth), the first-match twin
+# of the pre-existing `.collect` arm just above it: same case-based partial-function rendering
+# (each arm wrapped in `Some(...)`), but `Iterator::find_map` already IS "first Some(...) wins,
+# short-circuiting" — no trailing `.collect()` needed, since `find_map` itself returns the
+# `Option<T>` `collectFirst` means. Re-verified uniml/xml, uniml/json, and uniml/yaml all still
+# build clean (0 errors).
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-37885 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+38205 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

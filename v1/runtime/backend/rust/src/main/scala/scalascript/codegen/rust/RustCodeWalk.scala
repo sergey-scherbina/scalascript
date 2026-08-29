@@ -8055,6 +8055,46 @@ object RustCodeWalk:
             s"partial function — only that form is lowered"
           )))
 
+    // `edges.collectFirst { case UniEdge(_, UniNode.Token(t)) if t.kind == MdKind.AtxMarker =>
+    // t.lexeme.length }` (`uniml/markdown`'s `MarkdownProjection.scala`, many call sites) — the
+    // FIRST-match twin of `.collect` just above: same `case`-based partial-function arm
+    // rendering (each arm wrapped in `Some(...)`, `cloneIfMoved`d the identical way), but
+    // `Iterator::find_map` IS ALREADY "first Some(...) wins, short-circuiting" — no `.collect()`
+    // needed at all, since `find_map` itself returns the `Option<T>` `collectFirst` means. Had NO
+    // lowering whatsoever before this: "calls collectFirst on a List and the rust backend has no
+    // lowering for it — the name would be emitted as a Rust method that does not exist".
+    case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("collectFirst")), args)
+        if args.values.sizeIs == 1 && (isKnownVecReceiver(qual, ctx) || isRangeExpr(qual)) =>
+      args.values.head match
+        case pf: m.Term.PartialFunction =>
+          val arms = pf.cases.map { c =>
+            val bodyCtx = variantBodyCtxExtra(c.pat, enteringClosure(ctx, patBoundNames(c.pat) + "__c"))
+            _pendingPatternGuards = Nil
+            for
+              pat      <- renderPattern(c.pat, ctx)
+              litGuards = _pendingPatternGuards
+              userGuard <- c.cond match
+                         case Some(g) => renderTerm(g, bodyCtx).map(gr => Some(gr))
+                         case None    => Right(None)
+              guard = (litGuards ++ userGuard.toList) match
+                         case Nil => ""
+                         case gs  => s" if ${gs.mkString(" && ")}"
+              bod   <- renderTerm(c.body, bodyCtx)
+            yield s"$pat$guard => Some(${cloneIfMoved(c.body, bod, bodyCtx)}),"
+          }
+          val (errs, ok) = arms.partitionMap(identity)
+          if errs.nonEmpty then Left(errs.flatten)
+          else
+            renderTerm(qual, ctx).map { q =>
+              val arm = s"|__c| match __c {\n${indent((ok :+ "_ => None,").mkString("\n"))}\n}"
+              s"$q.iter().cloned().find_map($arm)"
+            }
+        case _ =>
+          Left(List(unsupported(
+            s"def `${ctx.defName}` calls `collectFirst` with an argument that is not a `case`-based " +
+            s"partial function — only that form is lowered"
+          )))
+
     // Range chains: map on range/iterator → q.map(f)
     case m.Term.Apply.After_4_6_0(
         m.Term.Select(qual, m.Term.Name("map")),

@@ -2873,6 +2873,28 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(g.contains("all(|__p0| { !__p0.is_empty() })"),
       s"a val bound to .split(...).toVector must be known String-elemented, for a no-paren .nonEmpty on its placeholder:\n$g")
 
+  test("`xs.collectFirst { case p if g => v }` lowers to find_map, no .collect() needed"):
+    // `edges.collectFirst { case t if t.kind == "atx" => t.lexeme.length }` (`uniml/markdown`'s
+    // `MarkdownProjection.scala`, many call sites) — the FIRST-match twin of `.collect`: same
+    // case-based partial-function arm rendering (each arm wrapped in `Some(...)`), but
+    // `Iterator::find_map` already IS "first Some(...) wins, short-circuiting" — no trailing
+    // `.collect()` needed, since `find_map` itself returns the `Option<T>` `collectFirst` means.
+    // Had NO lowering at all before this: "calls collectFirst on a List and the rust backend has
+    // no lowering for it".
+    val src =
+      """```scalascript
+        |case class Tok(kind: String, lexeme: String)
+        |
+        |def headingLevel(edges: List[Tok]): Int =
+        |  edges.collectFirst { case t if t.kind == "atx" => t.lexeme.length }.getOrElse(1)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".find_map(|__c| match __c {")
+      && g.contains("Some((t.lexeme.len() as i64)),")
+      && g.contains("}).unwrap_or(1i64)"),
+      s"xs.collectFirst { case p if g => v } must lower to find_map with no trailing .collect():\n$g")
+
   test("`xs.count(_.field == x)` / `xs.filter(_.field == x)` — a placeholder predicate types cleanly"):
     // `lexed.tokens.count(_.kind == "yaml.anchor")` / `ranges.filter(_.start == index)`
     // (`uniml/yaml`) — `renderVecIterBody`'s `Term.AnonymousFunction` branch wrapped the WHOLE
