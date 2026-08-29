@@ -1453,6 +1453,23 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(!g.contains("move |__pf|"), s"a synchronously-consumed map closure must not `move`:\n$g")
 
+  test("`x.field.flatMap(f)` clones its receiver when the owning struct is read again"):
+    // `QName { namespace: name.prefix.flatMap(bindings.get), ..name }` (`uniml/xml`'s `Doc.scala`'s
+    // `resolveElement`) — `Option::and_then` takes its receiver BY VALUE, so `name.prefix` (a
+    // FIELD projection, not a bare name) partially moves `name`, and the struct-update's own
+    // `..name` spread — reading `name` as a whole right after — can no longer borrow it:
+    // `error[E0382]: borrow of partially moved value: name`.
+    val src =
+      """```scalascript
+        |case class QName(localName: String, prefix: Option[String])
+        |
+        |def resolve(name: QName, bindings: Map[String, String]): QName =
+        |  QName(localName = name.localName, prefix = name.prefix.flatMap(bindings.get))
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("name.prefix.clone().and_then"), s"the field-select receiver must be cloned:\n$g")
+
   test("a call to a lifted local def clones a multi-use argument"):
     // `emitKnownRange(start, lexeme, …)` then `lexeme` read again at the tail of the SAME function
     // (`uniml/xml`'s `Doc.scala`'s `scanName`) — the call-to-a-lifted-local-def rendering arm

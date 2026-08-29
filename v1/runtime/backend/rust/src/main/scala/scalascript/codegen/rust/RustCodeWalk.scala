@@ -6906,9 +6906,16 @@ object RustCodeWalk:
     ) if isOptionExpr(qual, ctx) && args.values.size == 1 =>
       val enriched = withTupleStringLocals(args.values.head, qual, ctx)
       for
-        q <- renderTerm(qual, enriched)
-        f <- renderTerm(args.values.head, enriched)
-      yield s"$q.and_then($f)"
+        q0 <- renderTerm(qual, enriched)
+        f  <- renderTerm(args.values.head, enriched)
+      // `name.prefix.and_then(…)` inside `QName { namespace: name.prefix.and_then(…), ..name }`
+      // (`uniml/xml`'s `Doc.scala`'s `resolveElement`) — `Option::and_then` takes its receiver BY
+      // VALUE, so `name.prefix` (a FIELD projection, not a bare name) is partially moved out of
+      // `name` — and the struct-update's OWN `..name` spread, reading `name` as a whole right
+      // after, can no longer borrow it: `error[E0382]: borrow of partially moved value: name`.
+      // `cloneIfMoved` already knows how to clone a `Term.Select` chain whose ROOT name is
+      // multi-use; this case just never called it.
+      yield s"${cloneIfMoved(qual, q0, enriched)}.and_then($f)"
 
     case m.Term.Apply.After_4_6_0(
         m.Term.Select(qual, m.Term.Name("getOrElse")),

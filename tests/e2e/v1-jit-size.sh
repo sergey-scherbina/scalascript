@@ -434,10 +434,23 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # `attribute` read again in a later `format!`) — the one-element array literal `[$r]` OWNS its
 # element, moving it out from under a later read, and had never been routed through
 # `cloneIfMoved` at all. Same terms as every entry above. 5 errors remain.
+#
+# renderTerm 33930 -> 33934 (+4), continuing "fix everything remaining" on uniml/xml, 5 -> 3. The
+# Option `.flatMap` -> `.and_then` case (`name.prefix.and_then(…)` inside `QName { namespace:
+# name.prefix.and_then(…), ..name }`, uniml/xml's Doc.scala resolveElement) never called
+# `cloneIfMoved` on its OWN receiver either: `Option::and_then` takes `self` by value, so a FIELD
+# projection receiver (not a bare name) partially moves the owning struct, and the struct-update's
+# `..name` spread reading `name` as a whole right after can no longer borrow it — `error[E0382]:
+# borrow of partially moved value: name`. Same terms as every entry above. 3 errors remain: an
+# untyped `.foreach` closure param needing the same `elemType` this session tried and reverted
+# twice (`E0599: no method named flatMap`); a `&mut Vec<String>` PARAMETER captured by a `move`
+# closure passed to a runtime helper (`scanOpaque`) whose OWN Rust signature needs a `'static`
+# bound it structurally cannot satisfy (`E0521`/`E0382: elements`) — a runtime-signature-level fix,
+# not a codegen one. Both left open; see the session's own commit history for the full analysis.
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-33930 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+33934 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF
