@@ -2577,6 +2577,33 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(g.contains(".lexeme.chars().take_while("),
       s"a String field read off an indexed Vec element must use the String take_while path, not Vec's:\n$g")
 
+  test("an Option element of a destructured tuple is recognized as an Option"):
+    // `val (styleChar, chomping, explicitIndent) = headerValue` where `headerValue =
+    // blockHeader(header).getOrElse{…}` (`uniml/yaml`'s `YamlSemanticParser.scala`'s `parse`) —
+    // `explicitIndent`'s Option-ness lives only in `blockHeader`'s OWN declared return type,
+    // `Option[(Char, Option[Char], Option[Int])]`; `collectLocalOptions`'s single-name case never
+    // read a `Pat.Tuple` at all, and even once it did, the tuple-pattern destructure's own RHS is
+    // a bare name (`headerValue`) one `val` away from the actual call — not the call itself.
+    // Without both the `Pat.Tuple` positional lookup AND seeing through that one-`val` indirection,
+    // `explicitIndent.map(f).getOrElse(d)` dispatched through the Vec-iterator path instead of
+    // Option's own: `error[E0599]: no method named unwrap_or found for struct Vec<i64>`.
+    val src =
+      """```scalascript
+        |def blockHeader(text: String): Option[(Char, Option[Char], Option[Int])] =
+        |  if text.isEmpty then None else Some(('|', None, Some(2)))
+        |
+        |def detectIndent(header: String, parentIndent: Int): Int =
+        |  val headerValue = blockHeader(header).getOrElse {
+        |    ('|', None, None)
+        |  }
+        |  val (styleChar, chomping, explicitIndent) = headerValue
+        |  explicitIndent.map(parentIndent + _).getOrElse(-1)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("explicitIndent.map(") && g.contains(").unwrap_or(-1i64)"),
+      s"an Option element of a destructured tuple must dispatch through Option's own map/unwrap_or, not Vec's:\n$g")
+
   test("`xs.count(_.field == x)` / `xs.filter(_.field == x)` — a placeholder predicate types cleanly"):
     // `lexed.tokens.count(_.kind == "yaml.anchor")` / `ranges.filter(_.start == index)`
     // (`uniml/yaml`) — `renderVecIterBody`'s `Term.AnonymousFunction` branch wrapped the WHOLE

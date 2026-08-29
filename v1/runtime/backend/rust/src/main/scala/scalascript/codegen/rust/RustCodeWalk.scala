@@ -4464,11 +4464,54 @@ object RustCodeWalk:
     // A name bound to an Option val is itself an Option (`val a = xs.find(p); val b = a`), so the
     // context grows as the walk proceeds rather than being computed once against the empty set.
     def isOpt(rhs: m.Term): Boolean = isOptionExpr(rhs, ctx.copy(localOptions = opts.toSet))
+    // Single-name `val` initializers seen so far, in program order (the walk visits a block's
+    // statements as `t.children` left-to-right) — lets `tupleElemTypes` see THROUGH one level of
+    // `val headerValue = blockHeader(header).getOrElse{…}` indirection before the tuple-pattern
+    // destructure (`val (styleChar, chomping, explicitIndent) = headerValue`) that actually reads
+    // it; the destructure's own RHS is a bare name, not the call, so `tupleElemTypes` needs
+    // somewhere to look the name up.
+    val singleValInits = scala.collection.mutable.Map.empty[String, m.Term]
+    // `val (styleChar, chomping, explicitIndent) = blockHeader(header).getOrElse{…}` (`uniml/yaml`'s
+    // `YamlSemanticParser.scala`'s `parse`) — a TUPLE-PATTERN destructure whose element types live
+    // only in `blockHeader`'s OWN declared return type, `Option[(Char, Option[Char],
+    // Option[Int])]`; the single-name case just above never reads a `Pat.Tuple` at all. Same
+    // convention as `collectLocalStrings`'s own `Pat.Tuple` case (RAW Scala type AST off
+    // `_defBodies`, matched positionally) — widened here to also unwrap ONE `.getOrElse` layer and
+    // ONE single-name `val` indirection (`singleValInits`), since a tuple-pattern destructure can
+    // only bind against the unwrapped tuple, never the `Option` itself, and this codebase's own
+    // style names that intermediate `.getOrElse` result before destructuring it rather than
+    // chaining the two. Without this, `explicitIndent: Option[Int]` was invisible as an Option and
+    // its `.map(f).getOrElse(d)` pipeline dispatched through the Vec path instead:
+    // `error[E0599]: no method named unwrap_or found for struct Vec<i64>`.
+    def tupleElemTypes(t: m.Term): Option[List[m.Type]] = t match
+      case m.Term.Apply.After_4_6_0(m.Term.Select(inner, m.Term.Name("getOrElse")), _) =>
+        tupleElemTypes(inner)
+      case m.Term.Name(n) if singleValInits.contains(n) =>
+        tupleElemTypes(singleValInits(n))
+      case m.Term.Apply.After_4_6_0(m.Term.Name(fn), _) =>
+        _defBodies.get(fn).flatMap(_.decltpe).collect {
+          case m.Type.Tuple(elemTypes) => elemTypes
+          case m.Type.Apply.After_4_6_0(m.Type.Name("Option"), argClause)
+              if argClause.values.size == 1 =>
+            argClause.values.toList match
+              case List(m.Type.Tuple(elemTypes)) => elemTypes
+              case _                              => Nil
+        }.filter(_.nonEmpty)
+      case _ => None
     def walk(t: m.Tree): Unit =
       t match
         case v: m.Defn.Val => v.pats match
-          case List(m.Pat.Var(m.Term.Name(n))) => if isOpt(v.rhs) then opts += n
-          case _                               => ()
+          case List(m.Pat.Var(m.Term.Name(n))) =>
+            singleValInits(n) = v.rhs
+            if isOpt(v.rhs) then opts += n
+          case List(m.Pat.Tuple(elems)) =>
+            tupleElemTypes(v.rhs).foreach { elemTypes =>
+              elems.zip(elemTypes).foreach {
+                case (m.Pat.Var(m.Term.Name(n)), m.Type.Apply.After_4_6_0(m.Type.Name("Option"), _)) => opts += n
+                case _ => ()
+              }
+            }
+          case _ => ()
         case v: m.Defn.Var => v.pats match
           case List(m.Pat.Var(m.Term.Name(n))) => if isOpt(v.body) then opts += n
           case _                               => ()
