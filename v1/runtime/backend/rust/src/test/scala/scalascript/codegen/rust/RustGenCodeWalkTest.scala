@@ -2269,3 +2269,29 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(g.contains("Either<Failure, ()>"), s"a Unit type argument must render as (), not an empty slot:\n$g")
+
+  test("`var continue` — a Scala identifier that spells a Rust reserved keyword"):
+    // `var continue = true; while continue do { … ; if cond then continue = false }`
+    // (`uniml/yaml`'s `YamlSemanticParser.scala`, a `while`-loop sentinel, ~10 defs) — a
+    // perfectly ordinary Scala identifier that happens to collide with Rust's `continue`
+    // keyword. `rustReserved`/`rustIdent` already existed and are used at every OTHER
+    // identifier-emitting site, but the `var` DECLARATION and the bare-name READ/reassignment
+    // fallback both emitted the raw word unescaped: `error[E0070]: invalid left-hand side of
+    // assignment` at every `continue = false` (rustc parsed the keyword, not a name), plus
+    // `error[E0590]: break or continue with no label in the condition of a while loop` at
+    // `while continue do`.
+    val src =
+      """```scalascript
+        |def loop(n: Int): Int =
+        |  var continue = true
+        |  var i = 0
+        |  while continue do
+        |    i += 1
+        |    if i >= n then continue = false
+        |  i
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("r#continue"), s"the reserved-keyword identifier must be escaped as a raw identifier:\n$g")
+    assert(!g.contains("let mut continue") && !g.contains("while continue") && !g.contains(" continue ="),
+      s"the raw keyword must never appear unescaped as an identifier:\n$g")

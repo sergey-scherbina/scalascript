@@ -11400,7 +11400,12 @@ object RustCodeWalk:
       case _ =>
         ctx.intrinsics.get(QualifiedName(n)) match
           case Some(RuntimeCall(target)) if ctx.userDefs.contains(target) => target
-          case _                                                         => n
+          // `continue = false` (`uniml/yaml`'s `YamlSemanticParser.scala`, a `while`-loop
+          // sentinel) — the READ side of the SAME reserved-keyword gap `renderLetBinding`'s
+          // declaration site has its own comment about: every other bare-name fallback in this
+          // function returns a resolved/looked-up name that is never a raw user identifier, but
+          // this LAST one is the literal ScalaScript spelling, unescaped.
+          case _                                                         => rustIdent(n)
 
   /** `Shape.Dot` — a QUALIFIED NILADIC enum constructor, and the THIRD twin in this family.
    *
@@ -11862,12 +11867,19 @@ object RustCodeWalk:
           val rhsC = cloneIfMoved(rhs, rhsRs, ctx)
           // Skip the after-the-fact coercion where the elements were already lifted: it would be a
           // no-op map over a collection that is already right, and emitting one reads as doubt.
-          s"$kw $name$tyAnn = ${if lifted then rhsC else liftToAnnotation(rhsC, tyAnn)};"
+          // `var continue = true` (`uniml/yaml`'s `YamlSemanticParser.scala`, a `while`-loop
+          // sentinel, ~10 defs) — a perfectly ordinary Scala identifier that happens to spell a
+          // Rust RESERVED KEYWORD; `rustReserved`/`rustIdent` already exist for exactly this and
+          // are already used at every OTHER identifier-emitting site this file has (`self.field`,
+          // a def name, a param name, …) — this declaration site was simply never routed through
+          // it: `error[E0070]: invalid left-hand side of assignment` at every later `continue =
+          // false`, because rustc parsed the bare keyword as the `continue` STATEMENT, not a name.
+          s"$kw ${rustIdent(name)}$tyAnn = ${if lifted then rhsC else liftToAnnotation(rhsC, tyAnn)};"
       // `val (a, b) = expr` / `val (a, _) = expr` — tuple destructuring.
       case List(m.Pat.Tuple(elems)) =>
         val kw = if mutable then "let mut" else "let"
         val patParts = elems.map {
-          case m.Pat.Var(m.Term.Name(n)) => Right(n)
+          case m.Pat.Var(m.Term.Name(n)) => Right(rustIdent(n))
           case m.Pat.Wildcard()          => Right("_")
           case other => Left(List(unsupported(
             s"def `${ctx.defName}` has an unsupported tuple-pattern element: ${other.productPrefix}"
