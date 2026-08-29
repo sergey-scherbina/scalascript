@@ -5560,7 +5560,17 @@ object RustCodeWalk:
    *  with no receiver-type information at all. */
   private def isKnownStringField(t: m.Term, ctx: Ctx): Boolean =
     def check(r: String, f: String): Boolean =
-      val ctorName = ctx.paramCtorNames.getOrElse(r, ctx.paramTypes.getOrElse(r, ""))
+      // `delim.lexeme.isEmpty` where `delim` was bound by `case delim: WDelim => …`
+      // (`uniml/markdown`'s `MarkdownInlines.scala`'s `flatten`) — `variantBodyCtxExtra` (the
+      // Pat.Typed-to-a-variant enrichment `renderMatch` threads into the arm body) sets `delim`'s
+      // `paramTypes` entry to the ENUM's own name (`"WNode"`, since `delim` is really bound as a
+      // `&WNode` reference — `renderPattern`'s own comment on this exact shape), NOT the specific
+      // ctor `"WDelim"`; the SPECIFIC ctor lives in `destructuredCtorNames` instead (the same
+      // table the bare-field-rewrite case a few hundred lines down already reads for the
+      // identical reason). Tried FIRST since it is the more precise source wherever it has an
+      // entry — falls back to the OLD lookup unchanged otherwise.
+      val ctorName = ctx.destructuredCtorNames.getOrElse(r,
+        ctx.paramCtorNames.getOrElse(r, ctx.paramTypes.getOrElse(r, "")))
       ctx.ctorMap.get(ctorName).exists { ec =>
         ec.fieldNames.indexOf(f) match
           case -1 => false

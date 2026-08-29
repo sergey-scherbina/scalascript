@@ -3084,6 +3084,32 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(g.contains("(c >> 10i64)"),
       s"a plain signed >> infix operator must be spelled identically in Rust:\n$g")
 
+  test("a no-paren String-field call resolves through a Pat.Typed-to-variant binder's SPECIFIC ctor"):
+    // `delim.lexeme.isEmpty` where `delim` was bound by `case delim: WDelim => …`
+    // (`uniml/markdown`'s `MarkdownInlines.scala`'s `flatten`) — `variantBodyCtxExtra` sets
+    // `delim`'s `paramTypes` entry to the ENUM's own name (`"WNode"`, since `delim` is really
+    // bound as a `&WNode` reference), not the specific ctor `"WDelim"`; the specific ctor lives in
+    // `destructuredCtorNames` instead. `isKnownStringField`'s own lookup only ever read
+    // `paramCtorNames`/`paramTypes`, so `ctx.ctorMap.get("WNode")` (not itself a ctorMap key)
+    // always missed: "reads isEmpty without parentheses ... it is a collection member, not a
+    // field".
+    val src =
+      """```scalascript
+        |case class Tok(kind: String, lexeme: String, tag: Option[String], channel: Int)
+        |
+        |private sealed trait WNode
+        |private final case class WFixed(pieces: Vector[Tok]) extends WNode
+        |private final case class WDelim(ch: Char, lexeme: String) extends WNode
+        |
+        |def flatten(node: WNode): Vector[Tok] = node match
+        |  case WFixed(pieces) => pieces
+        |  case delim: WDelim  => if delim.lexeme.isEmpty then Vector.empty else Vector(Tok("x", delim.lexeme, None, 0))
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("if lexeme.is_empty()"),
+      s"a no-paren String-field call on a Pat.Typed-to-variant binder must resolve through destructuredCtorNames:\n$g")
+
   test("`xs.count(_.field == x)` / `xs.filter(_.field == x)` — a placeholder predicate types cleanly"):
     // `lexed.tokens.count(_.kind == "yaml.anchor")` / `ranges.filter(_.start == index)`
     // (`uniml/yaml`) — `renderVecIterBody`'s `Term.AnonymousFunction` branch wrapped the WHOLE
