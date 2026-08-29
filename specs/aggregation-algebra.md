@@ -708,14 +708,15 @@ given aggProf[Acc]: Profunctor[[In, Out] =>> Aggregator[In, Acc, Out]] with
 SumAgg().dimap((s: String) => s.length, (n: Int) => "total=" + n.toString)
 ```
 
-parses and typechecks — a `Profunctor[P[_, _]]` trait (mirroring `std/bifunctor.ssc`'s existing
-`Bifunctor`), a `given` instance for `Aggregator` fixed at one `Acc` via a type lambda over a
-partially-applied type constructor — but calling it throws `unhandled runtime effect:
-SumAgg.dimap`: the extension method `given` never actually gets consulted at the call site, the
-same failure family as §12.1's `given` derivation gap (see §12.4). `ContramapAgg`/`dimapAgg` avoid
-the whole question by being ordinary functions, exactly like every other combinator in §4 — once
-`given` composition is fixed (§12.4's own next step), promoting this to a real
-`Profunctor[P[_, _]]` instance is a small, low-risk follow-up, not a redesign.
+parses, typechecks, and (**FIXED 2026-08-29**, see §12.4) now dispatches correctly — a
+`Profunctor[P[_, _]]` trait (mirroring `std/bifunctor.ssc`'s existing `Bifunctor`), a `given`
+instance for `Aggregator` fixed at one `Acc` via a type lambda over a partially-applied type
+constructor. Verified: `SumAgg().dimap((s: String) => s.length, (n: Int) => "total=" +
+n.toString).prepare("abc")` gives `3`. Before the fix this threw `unhandled runtime effect:
+SumAgg.dimap` — the extension method `given` was never actually consulted at the call site, the
+same failure family as §12.1's `given` derivation gap. `ContramapAgg`/`dimapAgg` still exist as
+ordinary functions (exactly like every other combinator in §4) rather than being retired in favor
+of the formal instance — both are cheap, neither is now more "correct" than the other.
 
 ### 11.4 What stays deliberately deferred
 
@@ -724,7 +725,8 @@ not rejected: `Either`/`A throws E` (pure failure) and `! Async` (the effect Sca
 uses for asynchrony) already cover what a `Future`/`Task` type would be reached for, so a new value
 type would duplicate rather than add; neither `Arrow` nor `Profunctor`-as-`Category` has a second
 concrete need in this document beyond §11.3's `dimap`, which needs no category structure to be
-useful. Revisit once §12.4's `given`-composition fix lands and a second genuine use surfaces.
+useful. §12.4's `given`-composition fix has landed (2026-08-29); revisit `Category` once a second
+genuine use surfaces.
 
 ## 12. Type-system constraints this design works within
 
@@ -857,7 +859,7 @@ result type is a tuple, a single-parameter wrapper, or a type lambda. Two differ
 symptoms across the three data points suggest more than one thing goes wrong along the way, not
 one — worth keeping in view rather than assuming a single-line fix once the real diagnosis starts.
 
-**FIXED 2026-08-29**, on the reference/legacy front — `v2/BUGS.md`
+**FIXED 2026-08-29**, on the reference front (`ssc1-front.ssc0` + `ssc1-lower.ssc0`) — `v2/BUGS.md`
 `parametric-given-declaration-corrupts-an-unrelated-earlier-given`. Root cause was narrower than
 "given resolution is broken": `ssc1-front.ssc0`'s `given` parser had never been taught to
 recognize a type-param list or a `(using ...)` clause between a given's name and its `:`, so it
@@ -868,12 +870,22 @@ near the mistake). Fixed with real derivation, not a refusal: `ssc1-lower.ssc0` 
 given's declared type against the request, recursively resolves each `using` requirement the same
 way, and builds the instance directly as CoreIR. Verified: the tuple case answers `(3, ab)`; the
 single-param wrapper case answers `7`; a TWO-LEVEL nested case (a tuple instance wrapped in
-another parametric given) answers `(3, ab)` too. The type-lambda `Profunctor` case in §11.3 is a
-DIFFERENT mechanism (extension-method dispatch by receiver type, not `summon[TC[X]]`) and remains
-unfixed — this entry's fix does not touch it. F (native)'s separate type-checking pass
-(`ssc1-check.ssc0`) does not know the new AST tag yet and gracefully falls back to the reference
-front for this construct — an honest gap, not a regression, tracked as a follow-up in the same
-BUGS.md entry.
+another parametric given) answers `(3, ab)` too.
+
+F (`specs/v2.2-p6.5-fsub.ssc`) is a SEPARATE self-hosted compiler, not a type-checking pass over
+the reference front's output — it does not parse this parametric-given syntax yet, so a file using
+it compiles via F's own designed fallback target (`bin/ssc1-run.ssc0`) instead, an honest gap
+(`ssc info --front-report` names it), not a regression. Porting the derivation into F itself is a
+separate, tracked follow-up in the same BUGS.md entry.
+
+The type-lambda `Profunctor` case in §11.3 is a DIFFERENT mechanism (extension-method dispatch by
+receiver type, not `summon[TC[X]]`) and was **also fixed, in the same commit** — see
+`v2/BUGS.md`'s `given-extension-typehead-mismatch-silently-returns-receiver`: the dispatcher used
+to derive its tag-test type from the enclosing `given`'s own type argument, which is wrong whenever
+that argument doesn't match the extension's own declared receiver type (a type lambda, a
+no-type-parameter trait, or simply a mismatched type argument all trigger it). Fixed on BOTH
+self-hosted compilers that can run ordinary (non-`given_poly`) extension dispatch — the reference
+front and F independently, since they are separate implementations of the same mechanism.
 
 ## 13. Explicitly out of scope for this document
 

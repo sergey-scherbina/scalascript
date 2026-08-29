@@ -436,6 +436,14 @@ val suite = List(
   // ordinary (non-parametric) case.
   Check("v2", "v2-parametric-given-derivation", "tests/e2e/v2-parametric-given-derivation-gate.sh",
         List(), 60000),
+  // A `given` extension-method dispatcher used to derive its tag-test typeHead from the ENCLOSING
+  // given's own type argument, which only coincides with the extension's declared receiver type
+  // for the Functor[F[_]]-style pattern; a no-type-param trait (HasArea) or a mismatched given
+  // type argument silently dispatched to "return the receiver unchanged" instead of erroring or
+  // routing correctly. Fixed independently on both self-hosted compilers that can run this shape
+  // (ssc1-front.ssc0+ssc1-lower.ssc0, and F / specs/v2.2-p6.5-fsub.ssc) — see the gate's own header.
+  Check("v2", "v2-given-extension-typehead", "tests/e2e/v2-given-extension-typehead-gate.sh",
+        List(), 60000),
   // The third of the same family, and the one that says a pattern form can be missing from TWO
   // parsers: `case ok @ Ctor(..)` had no rule in either resolver. On the ctor path it declined with
   // `unbound global: (global _)`; on the ordered path it was read as a catch-all VAR arm, making the

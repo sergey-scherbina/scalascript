@@ -2212,6 +2212,22 @@ def readTypeAnnotStr = (toks) =>
   if kindIs(":", toks) then readTypeAt(0, advance(toks), Nil)
   else pr("", toks)
 
+-- Non-destructive read of an upcoming `(name: Type, ...)` list's FIRST parameter's declared type
+-- — an `extension`'s own receiver clause, specifically. `toks` need not be re-threaded: the real
+-- parse (`parseParamList`) starts over from the SAME position right after this returns, so this
+-- reads its own throwaway view of the tokens rather than consuming the one the caller keeps.
+-- "" for anything not shaped like `(name: Type` (no parameter list, an untyped parameter, or one
+-- opening straight into `using`).
+def peekExtReceiverType = (toks) =>
+  if kindIs("(", toks) then
+    let ts1 = advance(toks) in
+    if kindIs(")", ts1) then ""
+    else if kwIs("using", ts1) then ""
+    else
+      let ts2 = advance(ts1) in
+      prV(readTypeAnnotStr(ts2))
+  else ""
+
 -- `(using ma: Monoid[A], mb: Monoid[B])` for a PARAMETRIC given, called with `toks` right after
 -- the `using` keyword. Returns `List[Pair(paramName, fullTypeStr)]` — unlike `parseUsingParams`,
 -- kept for the SAME clause on an ordinary `def`, this keeps the full type string per param.
@@ -3475,13 +3491,31 @@ def parseOneStmt = (toks) =>
       if #seq(v, "extension") then
         -- K62.18: retain receiver names through the virtual layout body. The
         -- top-level parse loop clears them when it consumes the matching `}`.
+        -- KC-ext: the RECEIVER's own declared type head (`extension (sh: Shape) …` → "Shape"),
+        -- read directly rather than through `paramTypesCell` — that cell is fed by
+        -- `recordParamTy`/`tychkKnownTyName`, a narrow, UNRELATED mechanism that only records a
+        -- param's type when it is one of exactly `Int`/`String`/`BigInt` (built for a different
+        -- optimization entirely), so it stays empty for every user-defined receiver type
+        -- (`Shape`, `Widget`, `Aggregator[...]`) — precisely the types extension dispatch most
+        -- needs. `peekExtReceiverType` is a non-destructive read of the SAME upcoming tokens
+        -- `parseParamList` is about to consume for real, just after it.
+        let recvTypeHead = peekExtReceiverType(skipTypeParams(advance(toks))) in
         let ts1 = skipTypeParams(advance(toks)) in
         let rp = if kindIs("(", ts1) then parseParamList(ts1) else pr(Nil, ts1) in
         let _ext = #cell.set(extensionParamsCell, prV(rp)) in
         let _extTy = #cell.set(extensionParamTypesCell, #cell.get(paramTypesCell)) in
         let ts2 = prT(rp) in
         let ts3 = if kindIs("{", ts2) then advance(ts2) else ts2 in
-        pr(Pair("extension_start", ""), ts3)
+        -- Extension dispatch used to derive its type head from the ENCLOSING `given`'s own type
+        -- argument instead (`given X: Monad[List] with extension (fa: List[A]) …` — "List" from
+        -- BOTH sides, by coincidence) — correct only when the given's type parameter happens to
+        -- equal the extension's receiver type, and silently wrong whenever it does not (a `given`
+        -- with no type argument at all, like `given shapeArea: HasArea with extension (sh: Shape)
+        -- …`, or one whose argument differs from the receiver). Carrying it on the node itself is
+        -- the fix; ssc1-lower.ssc0's collectExtDispatch/collectExtensionMethods prefer this when
+        -- present and fall back to the old derivation only when it is not (an extension with no
+        -- explicit parameter at all, `extension (using ...)`-only — vanishingly rare).
+        pr(Pair("extension_start", recvTypeHead), ts3)
       else if #seq(v, "multi") then
         let ts1 = advance(toks) in
         if kindIs("kw", ts1) then

@@ -645,6 +645,17 @@ def collectExtensionMethods = (stmts) =>
               match data { case Pair(gname, rest2) =>
                 match rest2 { case Pair(typeStr, gstmts) =>
                   appendL(go(gstmts, false), go(rest, active)) } }
+            else if #seq(tag, "given_poly") then
+              -- Same descent for a type-parameterized given (KC-poly) — see collectExtDispatch's
+              -- own comment for why this only matters, and only produces a callable global,
+              -- when the given's `using` clause is empty; registering the NAME here regardless
+              -- is harmless (it only changes how a call is ROUTED, not what answers it), but
+              -- kept mirrored for the same reason `given_obj`'s own entry above is unconditional.
+              match data { case Pair(gname, r1) =>
+                match r1 { case Pair(typeParams, r2) =>
+                  match r2 { case Pair(usingParams, r3) =>
+                    match r3 { case Pair(typeStr, gstmts) =>
+                      appendL(go(gstmts, false), go(rest, active)) } } } }
             else if active then
               if #seq(tag, "def") then
                 match data {
@@ -5204,6 +5215,72 @@ def lowerStmtToList = (stmt) =>
                 appendL(loweredMembers, Cons(IrDef(name, dictionary), Nil))
             }
         }
+      else if #seq(tag, "given_poly") then
+        -- KC-poly: a `given name[TypeParams](using ...): T with { … }` with an EMPTY `using`
+        -- clause needs no per-request derivation at all — it is generic/uniform regardless of
+        -- what its own type params end up being (the same reason an ordinary `def foo[A](x: A)`
+        -- needs no per-instantiation copies in a type-erased runtime), so it is emitted EAGERLY
+        -- here, exactly like `given_obj` (this is a straight copy of that arm, reading through
+        -- the one extra layer of nesting `given_poly`'s data carries). Without this, a
+        -- `given`'s `extension` methods — dispatched by RECEIVER TYPE, never through
+        -- `summon[TC[X]]` — had no implementation to dispatch TO: `resolvePolyGiven` is reached
+        -- only from a `summon` call site, which an extension-method call never is, so the given
+        -- produced no output at all and every call to its extension method threw "unhandled
+        -- runtime effect" (`v2/BUGS.md
+        -- given-poly-extension-methods-produce-no-implementation-without-a-summon-call`).
+        --
+        -- A NON-empty `using` clause still needs genuine per-request derivation (there is no
+        -- single instance to emit eagerly), so it stays exactly as before: no top-level output,
+        -- resolved on demand at each `summon[TC[Concrete]]` call site.
+        match data {
+          case Pair(name, r1) =>
+            match r1 {
+              case Pair(typeParams, r2) =>
+                match r2 {
+                  case Pair(usingParams, r3) =>
+                    match r3 {
+                      case Pair(typeStr, stmts) =>
+                        match usingParams {
+                          case Cons(upHead, upTail) => Nil
+                          case Nil =>
+                            let _reg = #cell.set(kc7bObjectsCell, Cons(name, #cell.get(kc7bObjectsCell))) in
+                            let prefix = #sconcat(name, "_") in
+                            let _ownerPrefix = #cell.set(kc7bOwnerPrefixCell, prefix) in
+                            let _ownerMembers = #cell.set(kc7bOwnerMembersCell, staticMemberNames(stmts)) in
+                            let rec prefixDefs = (ss) =>
+                              match ss {
+                                case Nil => Nil
+                                case Cons(s2, rest3) =>
+                                  match s2 {
+                                    case Pair(stag, sdata) =>
+                                      if #seq(stag, "def") then
+                                        match sdata {
+                                          case Pair(dname, drest) =>
+                                            match drest {
+                                              case Pair(dparams, dbody) =>
+                                                let pfxName = #sconcat(prefix, dname) in
+                                                let lowered =
+                                                  if #i.eq(lenL(dparams), 0) then
+                                                    Cons(IrDef(pfxName, lowerE(Nil, dbody)), Nil)
+                                                  else
+                                                    let prefixed = Pair("def", Pair(pfxName, drest)) in
+                                                    lowerStmtToList(prefixed) in
+                                                appendL(lowered, prefixDefs(rest3))
+                                            }
+                                        }
+                                      else prefixDefs(rest3)
+                                  }
+                              } in
+                            let loweredMembers = prefixDefs(stmts) in
+                            let _clearOwnerPrefix = #cell.set(kc7bOwnerPrefixCell, "") in
+                            let _clearOwnerMembers = #cell.set(kc7bOwnerMembersCell, Nil) in
+                            let dictionary = IrPrim("__mk_method_obj__", staticMemberObjectArgs(prefix, stmts)) in
+                            appendL(loweredMembers, Cons(IrDef(name, dictionary), Nil))
+                        }
+                    }
+                }
+            }
+        }
       else if #seq(tag, "effect_decl") then
         match data {
           case Pair(name, rest2) =>
@@ -6326,6 +6403,49 @@ def firstTypeArg = (t) =>
     else i in
   #sslice(t, 0, scan(0, 0))
 
+-- A `given`'s target type for a type-lambda-parameterized instance (`given aggProf[Acc]:
+-- Profunctor[[In, Out] =>> Aggregator[In, Acc, Out]] with ...`) reads, past `parseGivenType`'s
+-- own `Profunctor[...]` split, as `"[In, Out] =>> Aggregator[In, Acc, Out]"` — the lambda's
+-- parameter list, not the receiver's own constructor head. Extension dispatch needs the head
+-- ("Aggregator"), so strip a leading `[Params] =>> ` before handing the string to `firstTypeArg`.
+-- A type with no such prefix passes through unchanged.
+def stripTypeLambda = (t) =>
+  let trimmed = trimStr(t) in
+  let len = #slen(trimmed) in
+  if #i.eq(len, 0) then trimmed
+  else if #i.eq(#scodeAt(trimmed, 0), 91) then
+    let rec findClose = (i, depth) =>
+      if #i.ge(i, len) then #i.neg(1)
+      else
+        let c = #scodeAt(trimmed, i) in
+        if #i.eq(c, 91) then findClose(#i.add(i, 1), #i.add(depth, 1))
+        else if #i.eq(c, 93) then
+          (if #i.eq(depth, 1) then i else findClose(#i.add(i, 1), #i.sub(depth, 1)))
+        else findClose(#i.add(i, 1), depth) in
+    let ci = findClose(0, 0) in
+    if #i.lt(ci, 0) then trimmed
+    else
+      let after = trimStr(#sslice(trimmed, #i.add(ci, 1), len)) in
+      if #i.ge(#slen(after), 3) then
+        (if #seq(#sslice(after, 0, 3), "=>>") then trimStr(#sslice(after, 3, #slen(after))) else trimmed)
+      else trimmed
+  else trimmed
+
+-- The bare constructor-tag-comparable head of a type string carrying its own type arguments
+-- (`"Aggregator[A, Acc, B]"` → `"Aggregator"`; `"Shape"` → `"Shape"`, unchanged) — what
+-- `extension_start`'s receiver-type payload needs stripped down to before `extTypeTags` can use
+-- it, the same way `firstTypeArg` already strips a GIVEN's own type argument down for the same
+-- purpose (a different string shape: one comma-separated TC argument list vs. one type's own
+-- bracketed arguments, hence a separate, smaller helper rather than reusing that one).
+def typeHeadOf = (s) =>
+  let len = #slen(s) in
+  let rec findBr = (i) =>
+    if #i.ge(i, len) then #i.neg(1)
+    else if #i.eq(#scodeAt(s, i), 91) then i
+    else findBr(#i.add(i, 1)) in
+  let bi = findBr(0) in
+  if #i.lt(bi, 0) then s else #sslice(s, 0, bi)
+
 -- Extension methods declared at TOP LEVEL (not inside a given body). A method with BOTH a top-level
 -- extension AND given-body instances gets its top-level impl emitted under `m__ext_default`, and the
 -- bare `m` dispatcher falls back to it (instead of clobbering it / returning the receiver).
@@ -6376,31 +6496,86 @@ def collectExtDispatch = (stmts) =>
                   case Pair(typeStr, gstmts) =>
                     let typeHead = firstTypeArg(match parseGivenType(typeStr) { case Pair(tc, t) => t }) in
                     -- Track the extension group within the given body (extension_start/_end); a def
-                    -- while active is an extension method implemented for `typeHead`.
-                    let rec scan = (ss, active) =>
+                    -- while active is an extension method implemented for its receiver's OWN
+                    -- declared type (`activeHead`, carried on `extension_start` — see that node's
+                    -- own comment in ssc1-front.ssc0), falling back to the given's type argument
+                    -- only when the receiver's type could not be captured as one token.
+                    let rec scan = (ss, active, activeHead) =>
                       match ss {
                         case Nil => more
                         case Cons(s2, r2) =>
                           match s2 {
                             case Pair(stag, sdata) =>
-                              if #seq(stag, "extension_start") then scan(r2, true)
-                              else if #seq(stag, "extension_end") then scan(r2, false)
+                              if #seq(stag, "extension_start") then scan(r2, true, sdata)
+                              else if #seq(stag, "extension_end") then scan(r2, false, "")
                               else if #seq(stag, "def") then
                                 (if active then
                                   match sdata {
                                     case Pair(dname, drest) =>
                                       match drest {
                                         case Pair(dparams, dbody) =>
-                                          Cons(Pair(dname, Pair(typeHead,
+                                          let effHead = if #i.eq(#slen(activeHead), 0) then typeHead else typeHeadOf(activeHead) in
+                                          Cons(Pair(dname, Pair(effHead,
                                                  Pair(#sconcat(gname, #sconcat("_", dname)), lenL(dparams)))),
-                                               scan(r2, active))
+                                               scan(r2, active, activeHead))
                                       }
                                   }
-                                 else scan(r2, active))
-                              else scan(r2, active)
+                                 else scan(r2, active, activeHead))
+                              else scan(r2, active, activeHead)
                           }
                       } in
-                    scan(gstmts, false)
+                    scan(gstmts, false, "")
+                }
+            }
+          -- KC-poly: a `given name[TypeParams]: T with { extension ... }` — the type-lambda
+          -- Profunctor shape and, more generally, any type-parameterized given with an `extension`
+          -- group inside it. Only reachable for an EMPTY `using` clause: that is exactly the case
+          -- `lowerStmtToList`'s own `given_poly` arm emits eagerly as prefixed globals (`gname_
+          -- dname`) the dispatcher below can actually call — a non-empty `using` clause needs
+          -- per-request derivation instead (see that arm's own comment), so registering a
+          -- dispatch entry for it would point at a global that is never emitted.
+          else if #seq(tag, "given_poly") then
+            match data {
+              case Pair(gname, r1) =>
+                match r1 {
+                  case Pair(typeParams, r2) =>
+                    match r2 {
+                      case Pair(usingParams, r3) =>
+                        match r3 {
+                          case Pair(typeStr, gstmts) =>
+                            match usingParams {
+                              case Cons(upHead, upTail) => more
+                              case Nil =>
+                                let typeHead = firstTypeArg(stripTypeLambda(
+                                  match parseGivenType(typeStr) { case Pair(tc, t) => t })) in
+                                let rec scan = (ss, active, activeHead) =>
+                                  match ss {
+                                    case Nil => more
+                                    case Cons(s2, r2b) =>
+                                      match s2 {
+                                        case Pair(stag, sdata) =>
+                                          if #seq(stag, "extension_start") then scan(r2b, true, sdata)
+                                          else if #seq(stag, "extension_end") then scan(r2b, false, "")
+                                          else if #seq(stag, "def") then
+                                            (if active then
+                                              match sdata {
+                                                case Pair(dname, drest) =>
+                                                  match drest {
+                                                    case Pair(dparams, dbody) =>
+                                                      let effHead = if #i.eq(#slen(activeHead), 0) then typeHead else typeHeadOf(activeHead) in
+                                                      Cons(Pair(dname, Pair(effHead,
+                                                             Pair(#sconcat(gname, #sconcat("_", dname)), lenL(dparams)))),
+                                                           scan(r2b, active, activeHead))
+                                                  }
+                                              }
+                                             else scan(r2b, active, activeHead))
+                                          else scan(r2b, active, activeHead)
+                                      }
+                                  } in
+                                scan(gstmts, false, "")
+                            }
+                        }
+                    }
                 }
             }
           else more

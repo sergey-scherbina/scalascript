@@ -86,15 +86,20 @@ nested case (`Monoid[Box[(Int, String)]]`, requiring the tuple instance, which i
 primitive instances) answers `(3, ab)` too — recursion works through more than one hop. The
 two-plain-givens control is unaffected (still resolves both independently, unchanged).
 
-**F (native) front note:** `ssc1-check.ssc0`, F's separate type-checking pass, does not know the
-`given_poly` tag yet, so a file using this construct gets an HONEST, non-corrupting fallback to
-the reference front (`ssc info --front-report` reports it as a GAP — confirmed, not a crash, not a
-wrong answer) rather than F handling it directly. Porting the same derivation into `ssc1-check.ssc0`
-is a separate, tracked follow-up, not required for this fix: every request this entry's repro and
-gate cover already resolves correctly through the reference front today.
+**F (native) front note, corrected 2026-08-29:** F (`specs/v2.2-p6.5-fsub.ssc`) is a SEPARATE
+self-hosted compiler, not a type-checking pass layered over the reference front's output — the
+earlier version of this note called it one. F does not parse the `given_poly` parametric-given
+syntax yet, so a file using this construct compiles via F's own designed fallback target
+(`bin/ssc1-run.ssc0`, using `ssc1-front.ssc0` + `ssc1-lower.ssc0`) instead of F handling it directly
+— an HONEST, non-corrupting fallback (`ssc info --front-report` reports it as F declining, not a
+crash, not a wrong answer). Porting the same derivation into F itself is a separate, tracked
+follow-up, not required for this fix: every request this entry's repro and gate cover already
+resolves correctly through F's fallback today.
 
 **Extension-method dispatch through a `given` (a DIFFERENT mechanism — `recv.method(...)` resolved
-by the receiver's runtime type, not `summon[TC[X]]`) is UNCHANGED and out of scope for this entry.**
+by the receiver's runtime type, not `summon[TC[X]]`) was a SEPARATE defect, independently broken in
+both the reference front and F — see `given-extension-typehead-mismatch-silently-returns-receiver`
+below.**
 `specs/aggregation-algebra.md` §11.3 documents one such case (a formal `Profunctor[P[_, _]]`
 instance via a type-lambda `given`) that still does not dispatch — a different code path this fix
 does not touch.

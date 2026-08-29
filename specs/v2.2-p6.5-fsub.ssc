@@ -3158,6 +3158,28 @@ def intersectNames(xs, ys) = xs match { case Nil => Nil case h :: t => if memL(h
 // refers to the bare `m` (via __methodOrExt__). With 2+ instances there is no single `m`; synthesise a
 // bare `m` DISPATCHER that type-tests the receiver tag and forwards to the matching `g_m`. One entry per
 // given-body ext method: (mname, (typeHead, (implName, arity))), in source order. Emitted AFTER userDefs.
+//
+// typeHead used to be ALWAYS the enclosing given's OWN type argument (`TC[T]` -> "T") — correct only for
+// the `Functor[F[_]] with extension (fa: F[_])` pattern, where the given's type arg and the extension's
+// own declared receiver type happen to coincide. A trait with no type parameter (`HasArea`) or one whose
+// receiver type differs from the given's argument computed the WRONG typeHead, so the tag-test chain
+// below never matched and every call fell to edFallback's "receiver unchanged" branch — a SILENT wrong
+// answer, not a refusal (v2-given-extension-typehead-mismatch). Fix: read each extension member's OWN
+// declared receiver type off its `extension (recv: Type)` header when it is a simple nominal type, and
+// use THAT as the dispatch typeHead; fall back to the given's type argument only when it isn't (generic/
+// tuple/absent receiver type) — mirrors ssc1-lower's `activeHead`/`typeHeadOf` fix (2026-08).
+def extRecvTypeName(ts) = if isColonTok(hd(tl(tl(ts)))) then extRecvTypeName1(tl(tl(tl(ts)))) else ""
+def extRecvTypeName1(ts) = if fst(hd(ts)) == 3 then (if isTok(hd(tl(ts)), 2, 22) then snd(hd(ts)) else "") else ""
+// [(mname, recvTypeName)] for every extdef member of ONE given body — a slimmed-down parallel of
+// collectOM/collectOMExt/collectOMExtMs that keeps only the receiver-type override, not the full member.
+def collectExtTypeMap(ts) = collectETM(skipSemisF(ts))
+def collectETM(ts) = collectETM1(skipMemberMods(ts))
+def collectETM1(ts) = if isEmpty(ts) then Nil else (if isTok(hd(ts), 2, 29) then Nil else (if isTok(hd(ts), 2, 1) then collectETMskip(ts) else (if isTok(hd(ts), 2, 7) then collectETMskip(ts) else (if isVarHead(ts) then collectETMskip(ts) else (if isExtensionHead(ts) then collectETMExt(skipGen(tl(ts))) else collectETM(skipStmt(ts)))))))
+def collectETMskip(ts) = collectETM(skipSemisF(skipStmt(tl(tl(ts)))))
+def collectETMExt(ts) = if isTok(hd(ts), 2, 21) then (parseParams(tl(ts), Nil) match { case (renv, r) => collectETMExtMs(extRecvTypeName(ts), r) }) else collectETM(ts)
+def collectETMExtMs(th, ts) = if isTok(hd(ts), 2, 1) then Cons((snd(hd(tl(ts))), th), collectETMExtMs(th, skipExtBody(tl(tl(ts))))) else collectETM(ts)
+def lookupETM(mname, tmap) = tmap match { case Nil => "" case h :: t => h match { case (mn, ty) => if mn == mname then ty else lookupETM(mname, t) } }
+def edEffTh(th, mname, tmap) = if lookupETM(mname, tmap) == "" then th else lookupETM(mname, tmap)
 def collectExtDisp(ts) = if isEmpty(ts) then Nil else (if isGivenHead(ts) then collectED1(ts) else collectExtDisp(tl(ts)))
 def collectED1(ts) = if fst(hd(tl(ts))) == 1 then collectED2(snd(hd(tl(ts))), tl(tl(ts)), ts) else collectExtDisp(tl(ts))
 def collectED2(gname, t2, ts) = if isTok(hd(t2), 2, 34) then collectED3(gname, firstTypeArg(snd(parseTCType(tl(t2)))), skipTypeRef(tl(t2)), ts) else collectExtDisp(tl(ts))
@@ -3167,10 +3189,10 @@ def collectED2(gname, t2, ts) = if isTok(hd(t2), 2, 34) then collectED3(gname, f
 def firstTypeArg(t) = t.substring(0, ftaScan(t, 0, 0, t.length))
 def ftaScan(t, i, d, n) = if atEnd(i, n) then i else ftaScanC(t, i, d, n, t.charAt(i))
 def ftaScanC(t, i, d, n, c) = if c == 91 then ftaScan(t, i + 1, d + 1, n) else (if c == 93 then ftaScan(t, i + 1, d - 1, n) else (if c == 44 then (if d == 0 then i else ftaScan(t, i + 1, d, n)) else ftaScan(t, i + 1, d, n)))
-def collectED3(gname, th, t3, ts) = if isWord(hd(t3), "with") then appEnv(edMembers(gname, th, collectObjMembers(tl(objBodyToks(t3)))), collectExtDisp(tl(ts))) else collectExtDisp(tl(ts))
-def edMembers(gname, th, ms) = ms match { case Nil => Nil case h :: t => appEnv(edMember1(gname, th, h), edMembers(gname, th, t)) }
-def edMember1(gname, th, m) = m match { case (kind, nt) => if kind == "extdef" then edMember2(gname, th, nt) else Nil }
-def edMember2(gname, th, nt) = nt match { case (mname, rt) => rt match { case (renv, mts) => Cons((mname, (th, (gname ++ "_" ++ mname, extArity(renv, mts)))), Nil) } }
+def collectED3(gname, th, t3, ts) = if isWord(hd(t3), "with") then appEnv(edMembers(gname, th, collectExtTypeMap(tl(objBodyToks(t3))), collectObjMembers(tl(objBodyToks(t3)))), collectExtDisp(tl(ts))) else collectExtDisp(tl(ts))
+def edMembers(gname, th, tmap, ms) = ms match { case Nil => Nil case h :: t => appEnv(edMember1(gname, th, tmap, h), edMembers(gname, th, tmap, t)) }
+def edMember1(gname, th, tmap, m) = m match { case (kind, nt) => if kind == "extdef" then edMember2(gname, th, tmap, nt) else Nil }
+def edMember2(gname, th, tmap, nt) = nt match { case (mname, rt) => rt match { case (renv, mts) => Cons((mname, (edEffTh(th, mname, tmap), (gname ++ "_" ++ mname, extArity(renv, mts)))), Nil) } }
 def extArity(renv, ts) = extArity1(renv, skipGen(ts))
 def extArity1(renv, ts) = if isTok(hd(ts), 2, 21) then parseParams(tl(ts), renv) match { case (env, r) => dlen(env) } else dlen(renv)
 // Runtime constructor tags for a nominal type head (ssc1-lower extTypeTags :5303): built-ins + user ADTs.

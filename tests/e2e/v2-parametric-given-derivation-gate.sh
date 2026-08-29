@@ -31,11 +31,13 @@
 # CoreIR. Only consulted when the PLAIN given table has no exact/wildcard match — a request that
 # already resolved before this existed still resolves exactly the same way, unchanged.
 #
-# F FRONT NOTE: `ssc1-check.ssc0` (F's separate type-checking pass) does not know the `given_poly`
-# tag yet and falls back to the reference front for a file using this construct — an HONEST,
-# non-corrupting fallback (`ssc info --front-report` reports it as a GAP), not a wrong answer, and
-# not what this gate holds F to. `v2/BUGS.md`'s own entry for this defect tracks porting the
-# derivation to F's checker as a separate follow-up.
+# F FRONT NOTE: F (specs/v2.2-p6.5-fsub.ssc) is a SEPARATE self-hosted compiler, not a checking
+# pass over the reference front's output — it does not parse the `given_poly` parametric-given
+# syntax yet, so a file using this construct compiles via F's own designed fallback target
+# (`bin/ssc1-run.ssc0`, using ssc1-front.ssc0 + ssc1-lower.ssc0) instead. `ssc info --front-report`
+# reports this honestly as F declining, not as a wrong answer, and not what this gate holds F to.
+# `v2/BUGS.md`'s own entry for this defect tracks porting the derivation into F itself as a
+# separate follow-up.
 set -uo pipefail
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
