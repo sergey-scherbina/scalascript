@@ -3864,7 +3864,23 @@ object RustCodeWalk:
     val stringParams = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
       .collect { case p if p.decltpe.exists { case m.Type.Name("String") => true; case _ => false } => p.name.value }
       .toSet
-    val strs = collectLocalStrings(d.body, stringParams) ++ stringParams
+    // `def otherHelper(headerText: String, suffix: String) = var lexeme = headerText + suffix; …`
+    // nested inside `parse`, a SIBLING of `resolveImplicit(lexeme: String) = …` (`uniml/yaml`'s
+    // `YamlSemanticParser.scala`, `parse`'s own local defs) — `stringParams` above only ever seeds
+    // from `d`'s OWN (here, `parse`'s) top-level params, never a NESTED local def's own. Neither
+    // `headerText` nor `suffix` registered as a String, so `isCopyRhs`'s `+`-is-arithmetic guard
+    // misjudged `headerText + suffix` as numeric and added "lexeme" to THIS function's `out` set —
+    // which then subtracts from `multiUse` for `parse`'s ENTIRE render, silently un-cloning
+    // `resolveImplicit`'s COMPLETELY UNRELATED "lexeme" parameter everywhere it's read more than
+    // once: `error[E0382]: use of moved value: lexeme`, blamed on a name sharing nothing with the
+    // var that actually caused it. Seeded with every nested def's own String-typed params too,
+    // transitively, so a same-named local elsewhere in `d`'s body is never misjudged this way.
+    val nestedStringParams: Set[String] = d.body.collect {
+      case nested: m.Defn.Def =>
+        nested.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
+          .collect { case p if p.decltpe.exists { case m.Type.Name("String") => true; case _ => false } => p.name.value }
+    }.flatten.toSet
+    val strs = collectLocalStrings(d.body, stringParams ++ nestedStringParams) ++ stringParams ++ nestedStringParams
     d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).foreach { p =>
       // A FUNCTION-typed param is `impl Fn(…)`, which has no `clone`: `no method named clone found
       // for type parameter impl Fn(String) -> bool` (std/litdoc.ssc). It is treated as clone-free

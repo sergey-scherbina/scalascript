@@ -2338,3 +2338,38 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(g.contains(".as_str()"), s"a string-literal alternative pattern must coerce the subject to &str:\n$g")
+
+  test("a sibling lifted def's `+`-reassigned String var must not un-clone an UNRELATED same-named param"):
+    // `def otherHelper(headerText: String, suffix: String) = var lexeme = headerText + suffix; …`
+    // nested inside `parse`, a SIBLING of `resolveImplicit(lexeme: String) = …` (`uniml/yaml`'s
+    // `YamlSemanticParser.scala`) — `collectCopyNames` only ever seeded its own String-detection
+    // set from `parse`'s OWN top-level params, never a NESTED sibling def's own (`headerText`/
+    // `suffix`), so `isCopyRhs`'s `+`-is-arithmetic guard misjudged `headerText + suffix` as
+    // numeric and marked "lexeme" Copy-safe — which then subtracted "lexeme" from `multiUse` for
+    // `parse`'s ENTIRE render, silently un-cloning `resolveImplicit`'s COMPLETELY UNRELATED
+    // "lexeme" PARAMETER everywhere it reads more than once: `error[E0382]: use of moved value:
+    // lexeme`, on a name sharing nothing with the var that actually caused it.
+    val src =
+      """```scalascript
+        |enum Schema:
+        |  case A, B
+        |
+        |case class Scalar(value: String, lexeme: String)
+        |
+        |def parse(input: String, schema: Schema): Scalar =
+        |  def otherHelper(headerText: String, suffix: String): String =
+        |    var lexeme = headerText + suffix
+        |    lexeme = lexeme + "!"
+        |    lexeme
+        |
+        |  def resolveImplicit(lexeme: String): Scalar = schema match
+        |    case Schema.A => Scalar(lexeme, lexeme)
+        |    case Schema.B => Scalar("", lexeme)
+        |
+        |  otherHelper(input, "x")
+        |  resolveImplicit(input)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("value: lexeme.clone(), lexeme: lexeme.clone()"),
+      s"resolveImplicit's own unrelated `lexeme` param must still be cloned on repeated use:\n$g")
