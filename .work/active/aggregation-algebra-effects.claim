@@ -1,0 +1,11 @@
+slug: aggregation-algebra-effects
+branch: feature/aggregation-algebra-effects
+agent: claude-code
+started: 2026-08-29T08:34:46Z
+heartbeat: 2026-08-29T08:34:46Z
+status: claimed-before-planning
+items: aggregation-algebra-effects
+paths: file:specs/aggregation-algebra.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
