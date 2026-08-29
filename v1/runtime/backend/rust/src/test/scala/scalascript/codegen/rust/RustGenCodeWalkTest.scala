@@ -2572,3 +2572,21 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(g.contains("format!(\"{}{}\", headerText, suffix)"),
       s"a lifted local def's own String params must feed the format! string-concat rewrite:\n$g")
+
+  test("`(set: Set[String]) + (s: String)` is a Set add, never string concat, even when the RHS is a String"):
+    // `declared + handle` where `declared: Set[String]` and `handle: String`
+    // (`uniml/yaml`'s `YamlTagEnvironment.register`) — the `format!`-concat case's own guard only
+    // ever checked whether EITHER operand looks like a string, and `handle` alone always does;
+    // positioned before the Set/Vec single-element-add case, it always won — a genuine
+    // `Set[String] + String` (never string concatenation in Scala) rendered as
+    // `format!("{}{}", declared, handle)`: `error[E0308]: expected Vec<String>, found String`.
+    val src =
+      """```scalascript
+        |case class Env(declared: Set[String]):
+        |  def register(handle: String): Env =
+        |    copy(declared = declared + handle)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("[&(declared)[..], &[handle][..]].concat()"),
+      s"a Set/Vec + element must never take the string-concat lowering, even with a String RHS:\n$g")

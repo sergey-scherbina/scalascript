@@ -8394,8 +8394,17 @@ object RustCodeWalk:
     // whether one operand happens to look like a string. (rust-map-plus-pair-is-not-lowered.)
     // `String + any` / `any + String` — lower to `format!("{}{}", lhs, rhs)`.
     // Triggered when either side is a best-effort string expression.
+    //
+    // `declared + handle` where `declared: Set[String]` and `handle: String` (`uniml/yaml`'s
+    // `YamlTagEnvironment.register`) — `handle` alone satisfies `strOp` (it IS a String), so this
+    // case fired before the Vec/Set single-element-add case far below ever got a chance, and a
+    // genuine `Set[String] + String` (Scala never means string concatenation here — the LEFT side
+    // is never itself a String when this shape typechecks) rendered as `format!("{}{}", declared,
+    // handle)`: `error[E0308]: expected Vec<String>, found String`. `!isKnownVecReceiver(lhs, …)`
+    // excludes exactly the shape the OTHER case's own guard already checks FOR, so a Vec/Set LHS
+    // always wins that case instead, regardless of what the right operand looks like.
     case m.Term.ApplyInfix.After_4_6_0(lhs, m.Term.Name("+"), _, args)
-        if args.values.size == 1 && {
+        if args.values.size == 1 && !isKnownVecReceiver(lhs, ctx) && {
           def strOp(t: m.Term) = isStringExpr(t) || (t match
             case m.Term.Name(n) => ctx.localStrings.contains(n)
             case _              => false)

@@ -754,10 +754,24 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # green with no golden changes despite the shape change touching every placeholder-predicate
 # `.filter`/`.find`/`.takeWhile`/`.dropWhile` call in the corpus. Re-verified uniml/xml and
 # uniml/json both still build clean (0 errors).
+#
+# renderTerm 37393 -> 37405 (+12), continuing the uniml/yaml real `cargo build` pass, 34 -> 32 (the
+# localStrings-for-a-lifted-def's-own-param commit in between needed no bump). `declared + handle`
+# where `declared: Set[String]` and `handle: String` (`uniml/yaml`'s
+# `YamlTagEnvironment.register`) — the `String + any`/`any + String` `format!`-concat case's own
+# guard only ever checked whether EITHER operand looks like a string, and `handle` alone always
+# does; positioned BEFORE the Set/Vec single-element-add case further down, it always won,
+# rendering a genuine `Set[String] + String` (Scala never means string concatenation here — the
+# LEFT side is never itself a String when this shape typechecks) as `format!("{}{}", declared,
+# handle)`: `error[E0308]: expected Vec<String>, found String`. Fixed by excluding a known-Vec LHS
+# from the string-concat guard, the same shape the OTHER case's own guard already checks FOR — a
+# Vec/Set LHS now always wins that case regardless of what the right operand looks like. Inline in
+# `renderTerm`'s own match, the growth. Re-verified uniml/xml and uniml/json both still build
+# clean (0 errors).
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-37393 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+37405 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF
