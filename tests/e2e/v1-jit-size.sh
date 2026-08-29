@@ -313,10 +313,21 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # field, `_default = codec` — a literal new match arm + guard inside `renderTerm` itself); the READ
 # side (`bareNameOrNiladicCtor`'s `moduleMutFields` case) and the value-object case both sit outside
 # `renderTerm` and cost it nothing. Same terms as every entry above. 53 errors remain.
+#
+# renderTerm 30920 -> 31044 (+124), starting the "fix everything remaining" pass on uniml/xml (53
+# -> 50, across one commit): a lifted local `fn` item (`liftLocalDefs`) referencing a topval —
+# bare (`bareNameOrNiladicCtor`'s new `inLiftedFn` branch) or qualified
+# (`selectOrNiladicCtor`'s existing topval-inline case, widened to the same condition) — now
+# INLINES the topval's own init text instead of naming an outer `let` binding a Rust `fn` item
+# cannot capture (`error[E0434]`); `String.valueOf(c)` on a `char` (Java's static factory reached
+# through Scala's companion) is a new `renderTerm` arm, `.to_string()`. The growth is the new
+# `String.valueOf` arm plus the `qualifiedReferenced`-style guard widening; the two topval-inline
+# fixes sit in `bareNameOrNiladicCtor`/`selectOrNiladicCtor`, both outside `renderTerm`. Same terms
+# as every entry above. 50 errors remain.
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-30920 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+31044 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

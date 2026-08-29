@@ -957,3 +957,45 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(g.contains(".with(|c| *c.borrow_mut() = "), s"a bare write should borrow_mut+assign:\n$g")
     assert(!g.contains("Rc::new(CODEC"),
       s"the read must NOT be double-wrapped by the def's own dyn-trait return-wrap:\n$g")
+
+  test("a topval referenced inside a LIFTED LOCAL fn item is inlined, not captured"):
+    // `object XmlDialect: val id = "xml.1.0"` referenced (bare AND qualified) from inside a local
+    // `def` that `liftLocalDefs` lifts to a real Rust `fn` item (`eofDiagnostic`, `uniml/xml`'s
+    // `Doc.scala`'s `scan`) — a Rust `fn` item, unlike a closure, cannot capture ANYTHING from its
+    // enclosing scope, including the `let id = "xml.1.0".to_string();` preamble line the OUTER
+    // function gets. `liftLocalDefs`'s own capture-analysis `pool` never tracked topvals at all (only
+    // locals/params/self-fields), so this reached rustc as `error[E0434]: can't capture dynamic
+    // environment in a fn item`. Fixed by INLINING the topval's own init text wherever `Ctx.
+    // inLiftedFn` is set, instead of naming the (here, nonexistent) outer binding.
+    val src =
+      """```scalascript
+        |object Dialect:
+        |  val id: String = "xml"
+        |
+        |def useIt(x: Long): String =
+        |  def helper(n: Long): String =
+        |    Dialect.id + n.toString
+        |  helper(x)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("fn helper("), s"the local def should still be lifted to a Rust fn item:\n$g")
+    val fnBlock = g.substring(g.indexOf("fn helper("))
+    assert(fnBlock.contains("\"xml\".to_string()"),
+      s"the lifted fn's body should INLINE the topval's init text:\n$g")
+    assert(!fnBlock.take(fnBlock.indexOf('}')).contains(" id"),
+      s"the lifted fn's body must not reference an outer `id` binding it cannot capture:\n$g")
+
+  test("`String.valueOf(c)` on a Char lowers to `.to_string()`"):
+    // `String.valueOf(code.toChar)` (`uniml/xml`'s `Doc.scala`'s `numericReferenceValue`) — Java's
+    // static factory reached through Scala's implicit companion. `String` is a Rust TYPE name, not
+    // a value, so the generic Apply path rendered it as a field access on a type:
+    // `error[E0423]: expected value, found struct String`.
+    val src =
+      """```scalascript
+        |def toStr(code: Long): String = String.valueOf(code.toChar)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".to_string()"), s"String.valueOf(c) should lower to c.to_string():\n$g")
+    assert(!g.contains("String.valueOf"), s"the Scala spelling must not survive verbatim:\n$g")

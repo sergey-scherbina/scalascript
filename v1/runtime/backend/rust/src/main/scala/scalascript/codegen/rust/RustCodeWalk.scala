@@ -2888,7 +2888,19 @@ object RustCodeWalk:
       // Rust name, see `renderMutableCompanionObject`. `trueSelfFields`'s twin with no `self` at
       // all: a bare READ renders as `STATIC.with(|c| c.borrow().clone())` and a bare WRITE (a
       // `Term.Assign` whose lhs is this name) renders as `STATIC.with(|c| *c.borrow_mut() = …)`.
-      moduleMutFields: Map[String, String] = Map.empty
+      moduleMutFields: Map[String, String] = Map.empty,
+      // Rendering a LIFTED LOCAL DEF's own body (`liftLocalDefs`'s `childCtx`) — a Rust nested `fn`
+      // item, unlike a closure, cannot capture ANYTHING from its enclosing scope, including the
+      // `let name = init;` preamble line `topValPreamble` injects into the OUTER function for every
+      // topval that function references. `liftLocalDefs`'s own capture-analysis `pool` never
+      // includes topvals at all (only locals/params/self-fields), so a topval referenced from
+      // inside a lifted def was neither passed as a captured parameter NOR still in scope —
+      // `error[E0434]: can't capture dynamic environment in a fn item`. Read by
+      // `bareNameOrNiladicCtor`: when true, a bare name matching a topval INLINES that topval's own
+      // init text instead of naming the (here, nonexistent) outer binding — sound because a topval
+      // is a pure constant, so re-evaluating its initializer inside the nested fn produces the
+      // identical value the outer preamble binding would have.
+      inLiftedFn: Boolean = false
   ):
     def enumNames: Set[String] = ctorMap.values.map(_.enumName).toSet
     @annotation.unused def topValNames: Set[String] = topVals.map(_._1).toSet
@@ -4744,7 +4756,8 @@ object RustCodeWalk:
           }
           val childCtx = baseCtx.copy(
             defParams = ctx.defParams ++ ownParamNames ++ myCaptures.toSet,
-            byRefMut  = myByRefMut
+            byRefMut  = myByRefMut,
+            inLiftedFn = true
           )
           for
             ownParams <- renderParams(d, childCtx, None)
@@ -6542,6 +6555,19 @@ object RustCodeWalk:
         s     <- renderTerm(args.values.head, ctx)
         radix <- renderTerm(args.values(1), ctx)
       yield s"i64::from_str_radix(&($s), ($radix) as u32).unwrap_or(0)"
+
+    // `String.valueOf(code.toChar)` (`uniml/xml`'s `Doc.scala`'s `numericReferenceValue`) — Java's
+    // static `String` factory, reached through Scala's implicit companion. This general Apply case
+    // renders `String` (the QUALIFIER, a Rust TYPE name, not a value) via the generic `renderTerm`
+    // path first and got `String.valueOf(…)`, a field access on a type — `error[E0423]: expected
+    // value, found struct String`. `.toChar` already lowers to a real Rust `char`
+    // (`char::from_u32(…).unwrap_or(…)`, this backend's own convention), so `.to_string()` is the
+    // exact equivalent for THIS corpus's one call shape (a `char` argument); a `String` argument
+    // would already be a `String` and need no wrapping at all, so this stays as narrow as the one
+    // shape actually reached.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(m.Term.Name("String"), m.Term.Name("valueOf")), args)
+        if args.values.size == 1 =>
+      renderTerm(args.values.head, ctx).map(v => s"($v).to_string()")
 
     // `math.max(a, b)` (`uniml/xml`'s `Doc.scala`'s `validatePi`) — the Scala `scala.math` package
     // object; `i64`/`f64` both carry `.max`/`.min` inherently in Rust, so this is a pure rename.
@@ -9654,6 +9680,18 @@ object RustCodeWalk:
     // `trueSelfFields` for a mutable field with no `self` at all (`renderMutableCompanionObject`'s
     // own comment). `.with(|c| c.borrow().clone())` is `thread_local!`'s own access idiom.
     if ctx.moduleMutFields.contains(n) then s"${ctx.moduleMutFields(n)}.with(|c| c.borrow().clone())" else
+    // `XmlDialect_id` (a per-def preamble local for the topval `XmlDialect.id`) read inside a
+    // LIFTED LOCAL `fn` item (`Ctx.inLiftedFn`'s own comment has the full E0434 story) — that outer
+    // `let` binding is invisible from in here, so this INLINES the topval's own init text instead
+    // of naming it, which a nested `fn` item CAN always see (it is a fresh literal/expression, not
+    // a capture of anything).
+    if ctx.inLiftedFn then
+      ctx.topVals.find(_._1 == n) match
+        case Some((_, init)) => init
+        case None            => bareNameOrNiladicCtorTail(n, ctx)
+    else bareNameOrNiladicCtorTail(n, ctx)
+
+  private def bareNameOrNiladicCtorTail(n: String, ctx: Ctx): String =
     // `PureMarkupCodec` used BARE AS A VALUE (`case "pure" => PureMarkupCodec`, `uniml/xml`'s
     // `Doc.scala`'s `named`) — Scala's implicit upcast from the object to the `MarkupCodec` trait
     // it extends. `renderValueObjectImpl` gave it a zero-field unit struct + forwarding impl
@@ -9737,8 +9775,14 @@ object RustCodeWalk:
       // init text instead of a name reference — well-defined because `_topValInits` only ever
       // holds an EARLIER-declared topval's text by the time a later one's init is being rendered
       // (Scala's own `val` evaluation order forbids the reverse), so the lookup always hits.
+      //
+      // `ctx.inLiftedFn` — the SAME inline, for the SAME reason (no visible preamble), for a
+      // QUALIFIED topval reference (`XmlDialect.id`) inside a lifted local `fn` item
+      // (`eofDiagnostic`, `uniml/xml`'s `Doc.scala`'s `scan`) — `Ctx.inLiftedFn`'s own comment has
+      // the E0434 story; `bareNameOrNiladicCtor`'s twin case handles the UNQUALIFIED spelling.
       case m.Term.Name(enumName)
-          if ctx.topVals.isEmpty && ctx.defName == "<topval>" && _topValInits.contains((enumName, field)) =>
+          if (ctx.inLiftedFn || (ctx.topVals.isEmpty && ctx.defName == "<topval>")) &&
+             _topValInits.contains((enumName, field)) =>
         _topValInits((enumName, field))
       case m.Term.Name(enumName) if _topValOwners.get(field).exists(_.contains(enumName)) =>
         topValEmitName(field, Some(enumName))
