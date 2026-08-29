@@ -2,7 +2,7 @@
 
 Status: **design / planning**. No implementation yet; every code sample in this document has been
 run for real against this checkout's `bin/ssc-tools` to confirm it actually compiles and produces
-the stated result — see §10 for what that verification found (including one interpreter bug it
+the stated result — see §11 for what that verification found (including one interpreter bug it
 surfaced).
 
 Companion documents:
@@ -10,7 +10,7 @@ Companion documents:
   here with canonical instances (`Int` sum, `String` concat, `List` concat). This document adds
   `Group` and builds `Aggregator` on top; it does not redefine `Semigroup`/`Monoid`.
 - [`std/foldable-traversable.ssc`](../std/foldable-traversable.ssc) — documents the same
-  typeclass-resolution limits this spec designs around (§10.1).
+  typeclass-resolution limits this spec designs around (§11.1).
 - [`specs/distributed-streams.md`](distributed-streams.md) — `DStream[T]`/`Pipeline`, with real
   backends (native actor cluster, Spark, Kafka Streams, Flink, Beam) already implemented. Its
   `Status:` line ("design sign-off required before implementation starts") is stale — the backend
@@ -266,6 +266,13 @@ the same way) — the added `errorBound` is what a renderer or a report is expec
 to the number, so "approximately 2.1M distinct users (±1.6%)" is the honest default rendering, not
 an afterthought a careless caller can omit.
 
+Each sketch below is presented as a `precision`/`depth`-parameterized **class**, not a `given`, and
+each verified example threads a field through a local `val` before indexing it — see §11.3 for the
+two front limitations this sidesteps (a `given ... with` method capturing a free top-level `val`,
+and indexing a case-class field directly as `recv.field(i)`). Neither affects the algebra: every
+sketch below is still an ordinary `Monoid[Acc]` instance, just constructed with its tuning
+parameter passed explicitly rather than closed over.
+
 ### 6.1 HyperLogLog — approximate distinct count
 
 Register array of `2^p` small counters. `prepare` hashes the input and updates one register with
@@ -274,13 +281,18 @@ the position of its lowest set bit; `combine` takes the elementwise MAX of two r
 associative and commutative); `present` runs the harmonic-mean estimator over the registers.
 
 ```scalascript
-class HLLAcc(registers: Array[Int])   // length 2^precision
+case class HLLAcc(registers: Array[Int])   // length 2^precision
 
-given hllMonoid: Monoid[HLLAcc] with
-  def empty: HLLAcc = HLLAcc(Array.fill(1 << PRECISION)(0))
+class HLLMonoid(precision: Int) extends Monoid[HLLAcc]:
+  def empty: HLLAcc = HLLAcc(Array.fill(1 << precision)(0))
   def combine(a: HLLAcc, b: HLLAcc): HLLAcc =
-    HLLAcc(Array.tabulate(a.registers.length)(i => math.max(a.registers(i), b.registers(i))))
+    val ar = a.registers
+    val br = b.registers
+    HLLAcc(Array.tabulate(ar.length)(i => math.max(ar(i), br(i))))
 ```
+
+Verified: `HLLMonoid(4).empty.registers.length` is `16` (`2^4`); combining `HLLAcc(Array(1,2,3,4))`
+with `HLLAcc(Array(4,3,2,1))` gives registers starting `4, 3, …` (elementwise max), as expected.
 
 Standard error ≈ `1.04 / sqrt(2^precision)`; `precision = 14` (16 KB per sketch) gives ≈0.8% error
 regardless of the true cardinality — the defining property that makes it usable on unbounded data.
@@ -291,6 +303,43 @@ A 2-D array of counters (`depth` hash functions × `width` buckets). `prepare` i
 counter per row via a different hash; `combine` is elementwise sum (a monoid — sums of sums
 associate and commute); `present` (for a given key) takes the MIN across the `depth` rows — the
 sketch only ever overestimates, and the min row is the tightest available bound.
+
+```scalascript
+def strHash(seed: Int, s: String): Int =
+  var h = seed
+  for i <- 0 until s.length do
+    h = h * 31 + s.charAt(i).toInt
+  math.abs(h)
+
+case class CMSAcc(counts: Array[Array[Int]])
+
+class CMSMonoid(depth: Int, width: Int) extends Monoid[CMSAcc]:
+  def empty: CMSAcc = CMSAcc(Array.fill(depth)(Array.fill(width)(0)))
+  def combine(a: CMSAcc, b: CMSAcc): CMSAcc =
+    val ac = a.counts
+    val bc = b.counts
+    CMSAcc(Array.tabulate(depth)(r => Array.tabulate(width)(c => ac(r)(c) + bc(r)(c))))
+  // `add`/`estimate` are this Aggregator's `prepare`/`present` — kept as plain methods here
+  // rather than spelled out as a full Aggregator[String, CMSAcc, Int => Int] wrapper, which
+  // would add ceremony without changing what is being shown.
+  def add(acc: CMSAcc, key: String): CMSAcc =
+    val counts = acc.counts
+    CMSAcc(Array.tabulate(depth)(r => Array.tabulate(width)(c =>
+      if c == strHash(r * 7919 + 17, key) % width then counts(r)(c) + 1 else counts(r)(c))))
+  def estimate(acc: CMSAcc, key: String): Int =
+    val counts = acc.counts
+    var best = -1
+    for r <- 0 until depth do
+      val c = strHash(r * 7919 + 17, key) % width
+      val v = counts(r)(c)
+      if best == -1 || v < best then best = v
+    best
+```
+
+Verified: adding `apple` three times, `banana` twice, and `cherry` once (width 64, depth 4) gives
+`estimate` `3` / `2` / `1` respectively and `0` for a never-added key `durian` — exact at this small
+scale, as expected (Count-Min Sketch only ever overestimates, and there is no room for a hash
+COLLISION to inflate a count yet at four buckets per row and three keys).
 
 Error bound: with width `w` and depth `d`, estimates are within `ε · N` of the truth with
 probability `1 - δ`, for `w = ⌈e/ε⌉` and `d = ⌈ln(1/δ)⌉` (`N` = total count).
@@ -303,6 +352,54 @@ re-clustering pass, which stays commutative and associative up to the digest's c
 parameter. `present(q)` interpolates the requested quantile across the centroids. Accuracy is
 non-uniform by design — the tails (p99, p999) get proportionally more centroids than the middle,
 which is exactly the region monitoring/alerting dashboards care about most.
+
+```scalascript
+case class Centroid(mean: Double, weight: Double)
+case class TDigestAcc(centroids: List[Centroid])
+
+class TDigestMonoid(maxCentroids: Int) extends Monoid[TDigestAcc]:
+  def empty: TDigestAcc = TDigestAcc(Nil)
+  // The MERGE itself is exact (concatenate); COMPRESSION down to `maxCentroids` is a policy
+  // choice, not part of what makes `combine` a monoid. This one groups centroids into
+  // equal-size runs and folds each to its weighted mean — simpler than, and less accurate
+  // than, the real T-Digest's k-scale function (which allocates more, narrower centroids
+  // near the tails on purpose). The monoid law (associativity) holds either way; only the
+  // ACCURACY profile differs — swapping in a real scale function changes present()'s error
+  // distribution, not combine()'s correctness.
+  def combine(a: TDigestAcc, b: TDigestAcc): TDigestAcc =
+    val all = (a.centroids ++ b.centroids).sortBy(c => c.mean)
+    if all.length <= maxCentroids then TDigestAcc(all)
+    else
+      val groupSize = (all.length + maxCentroids - 1) / maxCentroids
+      val grouped = all.grouped(groupSize).toList
+      val merged = grouped.map { g =>
+        val totalW = g.foldLeft(0.0)((s, c) => s + c.weight)
+        val weightedMean = g.foldLeft(0.0)((s, c) => s + c.mean * c.weight) / totalW
+        Centroid(weightedMean, totalW)
+      }
+      TDigestAcc(merged)
+  def addPoint(acc: TDigestAcc, x: Double): TDigestAcc =
+    TDigestAcc(acc.centroids ++ List(Centroid(x, 1.0)))
+  def quantile(acc: TDigestAcc, q: Double): Double =
+    val sorted = acc.centroids.sortBy(c => c.mean)
+    val totalWeight = sorted.foldLeft(0.0)((s, c) => s + c.weight)
+    val target = q * totalWeight
+    var cum = 0.0
+    var result = 0.0
+    var found = false
+    for c <- sorted do
+      if !found then
+        cum = cum + c.weight
+        if cum >= target then
+          result = c.mean
+          found = true
+    result
+```
+
+Verified: feeding `1..100` into one digest and `101..200` into another, then `combine`-ing them
+(`maxCentroids = 20`) gives exactly `20` centroids after compression, `quantile(0.5)` ≈ `95.5`
+(true median of `1..200` is `100.5` — the uniform-grouping compression policy above, not the
+merge, accounts for the gap) and `quantile(0.99)` ≈ `195.5` (true p99 ≈ `198`).
 
 ## 7. Group vs. Monoid: why it decides whether a sliding window is cheap
 
@@ -375,6 +472,24 @@ def aggregatorCombOp[In, Acc, Out](agg: Aggregator[In, Acc, Out]): (Acc, Acc) =>
 // stream.keyBy(keyFn).aggregatePerKey(agg.monoid.empty)(aggregatorSeqOp(agg))(aggregatorCombOp(agg))
 ```
 
+Verified standalone (without a live `DStream` backend, which needs plugin infrastructure beyond a
+single-file check): `aggregatorSeqOp`/`aggregatorCombOp` are what `aggregatePerKey` calls
+internally, so folding two "partitions" with `seqOp` and merging their results with `combOp` must
+equal folding the whole input with `seqOp` directly — exactly the property that licenses running
+`aggregatePerKey` across any number of real partitions.
+
+```scalascript
+val agg    = CountAgg[String]()
+val seqOp  = aggregatorSeqOp(agg)
+val combOp = aggregatorCombOp(agg)
+val part1  = List("a", "b", "c").foldLeft(agg.monoid.empty)(seqOp)
+val part2  = List("d", "e").foldLeft(agg.monoid.empty)(seqOp)
+println(combOp(part1, part2))   // => 5, same as counting all five elements in one partition
+```
+
+This is a proof of the bridge's MECHANISM, not an end-to-end `DStream` integration test — it does
+not exercise `aggregatePerKey` itself, windowing, or any backend.
+
 Because §7's `Group` requirement for sliding windows is a property of `Aggregator.monoid` (whether
 it happens to be a `Group`, checkable by the caller or a future compiler capability-negotiation
 rule alongside `specs/distributed-streams.md`'s existing backend-capability negotiation), a
@@ -387,12 +502,70 @@ interpreter, Spark, Flink, a future Python/R target — must agree with. This is
 `specs/distributed-streams.md` assigns the native backend already (its correctness oracle); this
 document adds no second oracle.
 
-## 10. Type-system constraints this design works within
+## 10. Rendering results
+
+§12 used to list rendering as entirely out of scope, on the grounds that "no chart/table/render
+module exists" under `std/`. Checked directly rather than assumed: that is true for **charts**,
+but not for **tables** — `std/ui/data.ssc` already ships a live, reactive table component
+(`dataTable`/`staticDataTable`, with typed columns via `fcol`/`dcol`/`mcol`/`scol`/`lcol`), and
+`examples/std-ui/table.ssc`'s `Table.render(headers, rows, rightAlign)` shows the exact shape a
+*static* table renderer needs. Neither is `Aggregator`-aware today, and neither needs to be
+rewritten to become useful to one — both already consume the shape an aggregation result already
+has: rows of plain values.
+
+### 10.1 The bridge is a shape, not a new primitive
+
+An `Aggregator`'s `Out`, or a `groupBy` result's `Map[K, Out]` (§8), becomes renderable the moment
+it is turned into `List[String]` headers and `List[List[String]]` rows — nothing about §2–§9 needs
+to know this is coming. Verified standalone:
+
+```scalascript
+def renderTableHtml(headers: List[String], rows: List[List[String]]): String =
+  val head = headers.map(h => "<th>" + h + "</th>").mkString
+  val body = rows.map(row => "<tr>" + row.map(v => "<td>" + v + "</td>").mkString + "</tr>").mkString
+  "<table><thead><tr>" + head + "</tr></thead><tbody>" + body + "</tbody></table>"
+
+val counts = Map("apple" -> 3, "banana" -> 2, "cherry" -> 1)   // e.g. a groupBy(count) result
+val rows   = counts.toList.map((k, v) => List(k, v.toString))
+println(renderTableHtml(List("item", "count"), rows))
+// => <table><thead><tr><th>item</th><th>count</th></tr></thead><tbody>
+//      <tr><td>apple</td><td>3</td></tr><tr><td>banana</td><td>2</td></tr>
+//      <tr><td>cherry</td><td>1</td></tr></tbody></table>
+```
+
+The real `Table.render`/`staticDataTable` do more (styling, sorting, live updates from a
+`Signal`) but consume the identical `headers` + `rows` shape — this document's job stops at
+producing that shape from an `Aggregator`'s output; which existing renderer consumes it is a
+choice at the call site, not something §2–§9 needs an opinion about.
+
+### 10.2 JSON already works today, with no new code
+
+`jsonStringify` (`std/json.ssc`) already turns any `Map`/`List`/case-class value into JSON — an
+`Aggregator`'s `Out` or a `groupBy` result needs no bridge code at all for this format:
+
+```scalascript
+println(jsonStringify(counts))   // => {"apple":3,"banana":2,"cherry":1}
+```
+
+### 10.3 Charts remain the genuine gap, with a real extension point already in place
+
+No chart component exists anywhere under `std/` (verified: no `Chart`/`Series` type in `std/`,
+`std/ui/`, or `examples/`). This is not a placeholder gap invented for this document —
+`std/ui/content.ssc`'s `slots` registry (`ContentToolkitComponent(name, render)`) is ALREADY
+described, in its own comments, as "the escape hatch for content the declarative vocabulary can't
+express (a custom chart, a bespoke composite)": the extension point exists and is already used for
+other custom content; a future chart renderer plugs into it the same way, consuming an
+`Aggregator`'s `Out` (or a time series of them, for a live dashboard) the same way §10.1's table
+bridge does. Building that renderer is out of scope here (§12) — the point of this subsection is
+that "any format" (§1) does not need a new mechanism invented for charts specifically once it
+exists; it needs the same `headers`/`rows`-shaped bridge, or `slots`' existing escape hatch.
+
+## 11. Type-system constraints this design works within
 
 Two real constraints, found by running code against this checkout rather than assumed from the
 language grammar, shape every code sample above:
 
-### 10.1 No parametric `given` derivation via `using`
+### 11.1 No parametric `given` derivation via `using`
 
 ```scalascript
 given pairMonoid[A, B](using ma: Monoid[A], mb: Monoid[B]): Monoid[(A, B)] with
@@ -411,7 +584,7 @@ for the stated goal (§1: "guaranteed to work", explicitly preferred over clever
 combinator call always resolves to exactly the instance the two arguments name, with no
 implicit-search ambiguity to reason about at all, on any backend a future compiler targets.
 
-### 10.2 Point-free method references on a generically-typed class instance don't eta-expand correctly
+### 11.2 Point-free method references on a generically-typed class instance don't eta-expand correctly
 
 ```scalascript
 def combineAll[A](xs: List[A], m: Monoid[A]): A =
@@ -431,15 +604,62 @@ xs.foldLeft(m.empty)((a, b) => m.combine(a, b))    // works with EITHER kind of 
 
 Every combinator in this document (§3's `runAggregator`, §4's `ZipAgg`/`MapAgg`, §9's bridge
 helpers) uses the explicit-lambda form throughout, specifically because `Aggregator`/`Monoid`
-instances in this design are ordinary `class` values, not exclusively `given` ones (§10.1 already
-rules out `given`-based derivation for the composed cases). Filed as two compiler bugs — the
-underlying interpreter defect is real and worth fixing on its own merits, independent of this
-design: `v2/BUGS.md` `point-free-class-method-never-eta-expands-on-native` (the default lane) and
-`v1/runtime/backend/interpreter/BUGS.md` `point-free-class-method-never-eta-expands-on-int` (the
-`--v1` lane, a different root cause with the same given-vs-class shape). This document does not
-depend on either fix landing, because every sample here already avoids the point-free form.
+instances in this design are ordinary `class` values, not exclusively `given` ones (§11.1 already
+rules out `given`-based derivation for the composed cases).
 
-## 11. Explicitly out of scope for this document
+**FIXED 2026-08-29, independently on all three lanes** — `v2/BUGS.md`
+`point-free-class-method-never-eta-expands-on-native` (`ccd973ba9`),
+`v1/runtime/backend/interpreter/BUGS.md` `point-free-class-method-never-eta-expands-on-int`
+(`a948d71b8`), and `v3/BUGS.md` `point-free-class-method-reference-never-eta-expands`
+(`2cc79a78e` — v3 had never implemented this at all, on either of its own lanes, rather than
+regressing an existing one). `xs.foldLeft(m.empty)(m.combine)` now works unmodified on every
+lane. This document was written and verified *before* the fix landed and keeps the
+explicit-lambda form throughout regardless — not as a workaround left in place out of inertia,
+but because §11.1 already commits this design to explicit combinators over implicit `given`
+assembly for the same reason (no implicit-resolution ambiguity to reason about, on any backend).
+A future revision may adopt the point-free form now that it is safe on every lane; it would be a
+style change, not a correctness fix.
+
+### 11.3 Two further front limitations found while writing §6's sketches
+
+Neither blocks anything in this document — both have a straightforward workaround, already used
+throughout §6 — but both are real, reproduced directly against `bin/ssc-tools`, and worth naming
+so a future implementer does not lose time rediscovering them.
+
+**A `given ... with` method cannot close over a top-level `val`:**
+
+```scalascript
+val precision = 4
+given hllMonoid: Monoid[HLLAcc] with
+  def empty: HLLAcc = HLLAcc(Array.fill(1 << precision)(0))   // "expected Int, got ()"
+```
+
+fails at runtime; the identical body inside an ordinary `class HLLMonoid(precision: Int) extends
+Monoid[HLLAcc]` (§6.1) works. Every sketch in §6 is a parameterized `class`, never a `given`, for
+exactly this reason — which is also, independently, the more honest design: a sketch's tuning
+parameter (precision, depth×width, centroid budget) is a property of *that instance*, not a
+program-wide constant, so it belongs on the constructor either way.
+
+**A case-class field cannot be indexed directly — `recv.field(i)` reads as a method call, not an
+array index:**
+
+```scalascript
+case class Box(arr: Array[Int])
+val b = Box(Array(1, 2, 3))
+println(b.arr(0))   // `Box.arr` was called but does not exist, and the result reached output.
+```
+
+throws; extracting the field to a local first works unconditionally:
+
+```scalascript
+val a = b.arr
+println(a(0))        // 1
+```
+
+Every sketch in §6 threads each array field through a local `val` (`ar`, `br`, `counts`) before
+indexing it for this reason.
+
+## 12. Explicitly out of scope for this document
 
 Tracked as separate future specs, each of which consumes `Aggregator` as its computational core
 rather than redefining it:
@@ -453,10 +673,12 @@ rather than redefining it:
   `Aggregator` values the same way `aggregatorSeqOp`/`aggregatorCombOp` (§9) let `DStream` consume
   them today — a `Monoid[Acc]` translates to a target-language reduce/fold; nothing about §2–§8
   is backend-specific by construction.
-- **Rendering results as tables, charts, or any other output shape.** No such module exists yet
-  (verified: no chart/table/render module under `std/`). This is intentionally the LAST stage,
-  consuming an `Aggregator`'s `Out` (or a stream of them, for a live dashboard) — never something
-  the aggregation algebra itself needs to know about.
+- **A chart renderer**, and any polish beyond §10's `headers`/`rows` bridge (styling, a shared
+  table/chart abstraction spanning both, a canonical `Renderer[A]` typeclass). §10 established
+  that the *shape* an `Aggregator`'s output needs to become is already consumable by existing
+  code (`std/ui/data.ssc`'s live table, `examples/std-ui/table.ssc`'s static one, `jsonStringify`
+  for JSON) and that `std/ui/content.ssc`'s `slots` registry is where a future chart component
+  would plug in — building that component is real, separate work.
 - **Real-time streaming dashboards** are the composition of all of the above (an unbounded
-  `Source`, a `Group`-backed sliding-window `Aggregator` per §7, and a live `Renderer`) — not a
-  fifth primitive of their own.
+  `Source`, a `Group`-backed sliding-window `Aggregator` per §7, and a live chart renderer) — not
+  a fifth primitive of their own.

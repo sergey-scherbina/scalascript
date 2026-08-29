@@ -7,6 +7,81 @@ grepping for status.
 
 Newest first.
 
+## given-with-method-cannot-close-over-a-top-level-val — `expected Int, got ()`
+
+<!-- status: open
+     lane: native
+     kind: bug
+     area: front
+     gate: none
+     reported-by: claude-code
+     reported-at: 2026-08-29
+     confirmed: yes
+     fixed-in: - -->
+
+Found alongside `case-class-array-field-cannot-be-indexed-directly`, same spec, same section.
+
+```scalascript
+trait Monoid[A]:
+  def empty: A
+  def combine(a: A, b: A): A
+
+val precision = 4
+given hllMonoid: Monoid[HLLAcc] with
+  def empty: HLLAcc = HLLAcc(Array.fill(1 << precision)(0))
+
+case class HLLAcc(registers: Array[Int])
+```
+
+throws `expected Int, got ()` when `hllMonoid.empty` is evaluated — a top-level `val` (`precision`)
+referenced from inside a `given ... with` block's method body does not resolve correctly. The
+identical body inside an ordinary `class HLLMonoid(precision: Int) extends Monoid[HLLAcc]`, with
+`precision` a CONSTRUCTOR parameter rather than a captured free variable, works
+(`specs/aggregation-algebra.md` §6.1 uses this form throughout — every sketch is a parameterized
+`class`, never a `given`, for this reason). Not investigated further — no root-cause trace yet.
+Given `given ... with` bodies elsewhere in this same spec (e.g. `intSumGroup`, `intSum` in §2.2/§9)
+reference no free top-level `val` and work correctly, the defect is specifically about the
+CAPTURE, not `given ... with` bodies in general.
+
+## case-class-array-field-cannot-be-indexed-directly — `recv.field(i)` reads as a method call, not an array index
+
+<!-- status: open
+     lane: native
+     kind: bug
+     area: front
+     gate: none
+     reported-by: claude-code
+     reported-at: 2026-08-29
+     confirmed: yes
+     fixed-in: - -->
+
+Found while writing `specs/aggregation-algebra.md` §6's sketch implementations (HyperLogLog,
+Count-Min Sketch — both carry an `Array`-typed accumulator field).
+
+```scalascript
+case class Box(arr: Array[Int])
+def main(): Unit =
+  val b = Box(Array(1, 2, 3))
+  println(b.arr(0))
+```
+
+throws `Box.arr was called but does not exist, and the result reached output. This used to
+render as the text Stub and serialise as if it were data.` — the same Stub-breadcrumb-turned-
+refusal family as `v2-unknown-member-refuses`, but here the member is NOT unknown: `arr` is a
+real field. Extracting the field to a local first works unconditionally and is the workaround
+used throughout the spec:
+
+```scalascript
+val a = b.arr
+println(a(0))   // 1
+```
+
+Not investigated further — no root-cause trace yet, only the repro and the workaround. Likely
+shape, unconfirmed: `recv.field(args)` is ambiguous between "index the array-valued field" and
+"call a method named `field`", and whatever resolves that ambiguity for a real METHOD name (the
+`v2-unknown-member-refuses` gate's own `class-method-*` rows) does not also check "is this name a
+field with an indexable type" before falling through to a method-shaped dispatch.
+
 ## point-free-class-method-never-eta-expands-on-native — `obj.method` passed bare always calls it with zero args
 
 <!-- status: fixed
