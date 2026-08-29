@@ -7,5 +7,11 @@ status: in-progress
 items: aggregation-algebra-core-implementation
 paths: file:std/aggregator.ssc file:examples/std-aggregator.ssc file:specs/aggregation-algebra.md file:BACKLOG.md file:tests/conformance/std-aggregator.ssc file:tests/conformance/expected/std-aggregator.txt
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+  Land the aggregation-algebra spec's core primitive (specs/aggregation-algebra.md §2.2, §3, §4)
+  as a real std module: std/aggregator.ssc (Group, Aggregator[In,Acc,Out], zip/map composition,
+  sum/count/mean), examples/std-aggregator.ssc (runnable demo), and
+  tests/conformance/std-aggregator.ssc + its expected/ output (gate, all 3 v1 lanes).
+  §5-11 (canonical/approximate aggregators, DStream/Dataset bridge, rendering, effects) and
+  Arrow/Category/Future-Task-Result stay deliberately deferred — queued in BACKLOG.md
+  (aggregation-algebra-canonical-and-effectful), not attempted in this claim.
 next: implement core module, then run gates

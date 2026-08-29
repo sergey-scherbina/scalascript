@@ -1,3 +1,3 @@
-# generation: 3094
+# generation: 3095
 #slug	agent	started	items	paths
 aggregator-core-impl	claude-code	2026-08-29T16:21:07Z	aggregation-algebra-core-implementation	file:std/aggregator.ssc file:examples/std-aggregator.ssc file:specs/aggregation-algebra.md file:BACKLOG.md file:tests/conformance/std-aggregator.ssc file:tests/conformance/expected/std-aggregator.txt
