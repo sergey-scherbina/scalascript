@@ -13,15 +13,31 @@
      impact: none — deliberate scope cut, not a defect
      confirmed: no -->
 
-`specs/aggregation-algebra.md` §2.2 (`Group`) and §3–§4 (`Aggregator[In, Acc, Out]`, `zip`/`map`
-composition) landed as [`std/aggregator.ssc`](std/aggregator.ssc) (this claim). Everything past that
-is real, separate work the spec itself scopes out of the first slice — queued here rather than
-attempted in the same pass, per "central primitive first":
+`specs/aggregation-algebra.md` §2.2 (`Group`), §3–§4 (`Aggregator[In, Acc, Out]`, `zip`/`map`
+composition), and now part of §5 (`min`/`max`, `variance`/`stddev` — claim
+`aggregator-canonical-exact`, 2026-08-29) landed as [`std/aggregator.ssc`](std/aggregator.ssc).
+Everything past that is real, separate work the spec itself scopes out of the first slice — queued
+here rather than attempted in the same pass, per "central primitive first":
 
-- **§5 canonical exact aggregators** — `sum`/`count`/`mean` already ship (§4.3); `min`/`max` (needs
-  a `Top`/`Bottom` sentinel for `empty`), `variance`/`stddev` (the Chan/Golub/LeVeque merge, §5.1 —
-  the one exact statistic that is not simply "zip two simpler monoids"), and `first`/`last` (needs
-  an explicit ordering key) do not.
+- **§5 canonical exact aggregators** — `sum`/`count`/`mean` (§4.3), `min`/`max` (`Option[A]` as the
+  `Top`/`Bottom` sentinel, over any `Order[A]`), and `variance`/`stddev` (the Chan/Golub/LeVeque
+  merge, §5.1) all ship now. **`first`/`last` still does not** — it needs an explicit ordering key,
+  and there's a real open design question before it's an implementation task: how does a caller
+  attach a sequence number/timestamp before folding? The natural shape is a generalization of what
+  landed for `min`/`max` — a `minBy`/`maxBy`-keyed aggregator (`MinByAgg[A, K](keyOrd: Order[K], key:
+  A => K)`), where `first`/`last` fall out as `key = <the input's position>`. Worth deciding
+  explicitly rather than rushing a bespoke `First`/`Last` shape.
+- Landing `min`/`max` found **`std/order.ssc` shipped completely broken, with zero test coverage** —
+  three stacked defects (unnamed `given` instances unresolvable by `summon`/`using`; helpers
+  delegating to trait DEFAULT methods, which don't carry through a `given` instance per
+  `std/foldable-traversable.ssc`'s own note; and `compare` bodies calling `.compareTo`, which
+  ScalaScript's primitives don't implement). Fixed in the same claim, now with real coverage
+  (`tests/conformance/std-order.ssc`). Also found and filed, not fixed here (out of scope for a
+  std-library task): `v1/runtime/backend/js/BUGS.md`
+  `js-codegen-drops-generic-typeclass-resolution-when-multiple-instances-exist` — the JS backend
+  loses a `using` parameter or a `summon` binding once more than one named instance of a generic
+  trait is in scope. `std-order`/`std-aggregator`'s conformance cases carry `known-red: js` against
+  it.
 - **§6 approximate aggregators** — `ApproxAggregator` (adds `errorBound`) plus HyperLogLog,
   Count-Min Sketch, and T-Digest as parameterized classes. Real algorithmic work (hashing, register
   arrays), not a straightforward port of the spec's sketch.

@@ -7,6 +7,55 @@ grepping for status.
 
 Newest first.
 
+## js-codegen-drops-generic-typeclass-resolution-when-multiple-instances-exist
+
+<!-- status: open
+     lane: js
+     kind: bug
+     area: codegen
+     gate: tests/conformance/std-order.ssc (known-red js), tests/conformance/std-aggregator.ssc (known-red js)
+     reported-by: claude-code
+     reported-at: 2026-08-29
+     confirmed: yes -->
+
+Found landing `std/aggregator.ssc`'s `min`/`max` (needs `std/order.ssc`'s `Order[A]` typeclass) and
+writing its first real conformance coverage — `std/order.ssc` shipped with zero tests before this,
+so nothing had caught it. Two distinct symptoms, same root cause: when more than one named `given`
+instance of a generic trait is in scope, the JS backend's codegen for resolving one of them —
+whether via a `(using o: Order[A])` function parameter or an explicit `summon[Order[A]]` — loses
+the binding.
+
+**Symptom 1 — a `using` parameter is dropped from the generated function's parameter list.**
+`def compare[A](a: A, b: A)(using o: Order[A]): Int = o.compare(a, b)` (`std/order.ssc`) emits:
+
+    const compare = (a, b) => _dispatch(o, 'compare', [a, b]);
+
+`o` never appears in the parameter list — the call site (`compare(3, 5)`) passes only two
+arguments, so `o` is a free variable that was never bound anywhere, and every call throws
+`ReferenceError: o is not defined`.
+
+**Symptom 2 — `summon[T]` emits a bare identifier that only exists as a registry KEY.** Each named
+`given` is correctly registered in a runtime table (`_ssc_givens["Order_Int"] = orderInt`, etc.),
+but `summon[Order[Int]]` (used explicitly in `examples/std-aggregator.ssc`/its conformance case,
+e.g. `MinAgg(summon[Order[Int]])`) compiles the call site to:
+
+    _println(_call(runAggregator, ints, _call(MinAgg, Order_Int)));
+
+`Order_Int` is never declared as a binding anywhere in the emitted module — only the STRING
+`"Order_Int"` exists, as a key into `_ssc_givens`. This throws `ReferenceError: Order_Int is not
+defined`. The fix is presumably to emit `_ssc_givens["Order_Int"]` (or equivalent) at the summon
+site instead of a bare identifier matching the registry key's text.
+
+Neither symptom reproduces with exactly one instance of the trait in scope, nor on `int`/`jvm`
+(confirmed: both pass with the same source). `ssc info --front-report` on both repro files falls
+back from F to the reference front (a designed, pre-existing GAP, `__ambiguous_using_Order`/
+`__missing_using_Semigroup` — see `std-semigroup-monoid`'s own long-standing fallback) — the
+reference front then compiles a correct AST that the JS backend miscompiles from.
+
+Repro: `bin/ssc-tools emit-js tests/conformance/std-order.ssc` (symptom 1) or
+`bin/ssc-tools emit-js examples/std-aggregator.ssc` (symptom 2, in the `MinAgg`/`MaxAgg` lines) —
+both int/jvm run the same source correctly via `bin/ssc-tools run --v1`/plain `run`.
+
 ## agent-mcp-toolsource-js-mcpconnect-times-out-against-a-server-that-answers
 
 <!-- status: open

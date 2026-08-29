@@ -7,6 +7,49 @@ grepping for status.
 
 Newest first.
 
+## anonymous-given-instance-unresolvable-by-summon-or-using — an unnamed `given` cannot be found by `summon[T]` or a `(using x: T)` parameter, on either self-hosted front
+
+<!-- status: open
+     lane: native
+     kind: bug
+     area: front
+     gate: none
+     reported-by: claude-code
+     reported-at: 2026-08-29
+     confirmed: yes -->
+
+Found landing `std/aggregator.ssc`'s `min`/`max` (needs `std/order.ssc`'s `Order[A]` typeclass,
+which shipped with every instance unnamed — `given Order[Int] with`, no name before the `:`).
+Minimal repro, no ambiguity involved (exactly one instance of the trait in scope):
+
+```scalascript
+trait Foo[A]:
+  def x(a: A): Int
+
+given Foo[Int] with
+  def x(a: Int): Int = a + 1
+
+println(summon[Foo[Int]].x(5))
+```
+
+Both self-hosted fronts fail — F: `unbound global: (global summon) is neither a top-level def nor
+an @-cell`; the reference front: `unbound global: (global __summon_value_Foo) is neither a
+top-level def nor an @-cell`. A `(using o: Foo[A])` function parameter fails the same way, with a
+`__missing_using_Foo`-shaped unbound global instead. **Naming the identical instance
+(`given fooInt: Foo[Int] with`) fixes both** — `summon[Foo[Int]].x(5)` then compiles via F directly
+and runs correctly. `v1`'s tree-walking interpreter is unaffected either way (`summon` on the
+anonymous instance works there).
+
+This is a single-instance defect and is NOT the same as the already-designed, already-tolerated
+"F declines when multiple named instances of a generic trait are in scope" fallback (F emits
+`__ambiguous_using_<Trait>`/`__missing_using_<Trait>` and falls back to the reference front, which
+is how `tests/conformance/std-semigroup-monoid.ssc`'s `combineAll[A: Monoid]` — three named
+instances — has always run; that is a reported GAP, not a bug, and stays out of this entry's scope).
+This entry is specifically: a lone, UNNAMED instance is unresolvable at all, on both fronts, by
+either resolution mechanism. Worked around for now by naming every instance in `std/order.ssc`
+(not a full fix — any future module that ships an anonymous `given` and relies on `summon`/`using`
+will hit this again).
+
 ## f-parametric-given-derivation-missing — F could not derive a `given X[A](using ...): TC[...] with {...}` instance, and fell back
 
 <!-- status: fixed
