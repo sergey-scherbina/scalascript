@@ -8704,7 +8704,16 @@ object RustCodeWalk:
     // always wins that case instead, regardless of what the right operand looks like.
     case m.Term.ApplyInfix.After_4_6_0(lhs, m.Term.Name("+"), _, args)
         if args.values.size == 1 && !isKnownVecReceiver(lhs, ctx) && {
-          def strOp(t: m.Term) = isStringExpr(t) || (t match
+          // `isKnownStringField` too, not just `isStringExpr`/`localStrings` — `lexeme + line.raw
+          // + line.lineBreak` (`uniml/yaml`'s `YamlSemanticParser.scala`'s `parseBlockScalar`,
+          // left-associative: `(lexeme + line.raw) + line.lineBreak`) — the INNER `+` correctly
+          // becomes a `format!`, but neither `strOp` closure recognized ITS result feeding the
+          // OUTER `+` as string-shaped: `line.raw`/`line.lineBreak` are `receiver.field` selects
+          // (`isKnownStringField`'s own shape), which `isStringExpr` (ctx-free) cannot see and
+          // `localStrings` (bare-name-only) does not cover either. The OUTER guard then failed
+          // entirely and fell through to a generic `+`, which is `Add<&str> for String` only:
+          // `error[E0308]: expected &str, found String`.
+          def strOp(t: m.Term) = isStringExpr(t) || isKnownStringField(t, ctx) || (t match
             case m.Term.Name(n) => ctx.localStrings.contains(n)
             case _              => false)
           strOp(lhs) || strOp(args.values.head)
@@ -8721,7 +8730,12 @@ object RustCodeWalk:
       // keeps `(1 + 2)` as a single numeric operand rather than splitting an addition.
       def isConcat(t: m.Term): Boolean = t match
         case m.Term.ApplyInfix.After_4_6_0(l2, m.Term.Name("+"), _, a2) if a2.values.size == 1 =>
-          def strOp(x: m.Term) = isStringExpr(x) || (x match
+          // Same `isKnownStringField` widening as the outer guard just above, for the SAME reason
+          // — without it, `lexeme + line.raw + line.lineBreak` still compiles (each `format!`
+          // nests inside the next as a `{}` operand, since a `String` also implements `Display`),
+          // but stays needlessly unflattened one level: `format!("{}{}", format!("{}{}", lexeme,
+          // line.raw), line.lineBreak)` instead of one 3-placeholder call.
+          def strOp(x: m.Term) = isStringExpr(x) || isKnownStringField(x, ctx) || (x match
             case m.Term.Name(n) => ctx.localStrings.contains(n)
             case _              => false)
           strOp(l2) || strOp(a2.values.head.asInstanceOf[m.Term])

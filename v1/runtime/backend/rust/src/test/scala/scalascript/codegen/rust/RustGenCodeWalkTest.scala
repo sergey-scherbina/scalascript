@@ -2655,6 +2655,27 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(g.contains("crate::runtime::_str_substring_from(&line.raw,"),
       s"a String field read off a local bound to an indexed capture must use the String substring path, not Vec's:\n$g")
 
+  test("a chain of `+` over struct fields flattens into one `format!`, not a nested one"):
+    // `lexeme + line.raw + line.lineBreak` (`uniml/yaml`'s `YamlSemanticParser.scala`'s
+    // `parseBlockScalar`, left-associative: `(lexeme + line.raw) + line.lineBreak`) — the INNER
+    // `+` correctly becomes a `format!`, but neither `strOp` closure in the OUTER `+`'s own case
+    // recognized `line.raw`/`line.lineBreak` (`receiver.field` selects, `isKnownStringField`'s own
+    // shape) as string-shaped: `isStringExpr` is ctx-free and cannot see a struct field, and
+    // `localStrings` only covers a bare name. The OUTER guard failed entirely and fell through to
+    // a generic `+`, which is `Add<&str> for String` only: `error[E0308]: expected &str, found
+    // String`.
+    val src =
+      """```scalascript
+        |case class Line(raw: String, lineBreak: String)
+        |
+        |def buildLexeme(lexeme: String, line: Line): String =
+        |  lexeme + line.raw + line.lineBreak
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("""format!("{}{}{}", lexeme, line.raw, line.lineBreak)"""),
+      s"a chain of + over struct fields must flatten into ONE format!, not a nested or bare + :\n$g")
+
   test("`xs.count(_.field == x)` / `xs.filter(_.field == x)` — a placeholder predicate types cleanly"):
     // `lexed.tokens.count(_.kind == "yaml.anchor")` / `ranges.filter(_.start == index)`
     // (`uniml/yaml`) — `renderVecIterBody`'s `Term.AnonymousFunction` branch wrapped the WHOLE
