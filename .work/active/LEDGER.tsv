@@ -1,4 +1,5 @@
-# generation: 3203
+# generation: 3204
 #slug	agent	started	items	paths
 f-param-type-retention	claude-code	2026-08-30T23:21:59Z	f-erases-parameter-types-at-parse-time	file:specs/v2.2-p6.5-fsub.ssc file:v2/BUGS.md file:BACKLOG.md
 v3-trait-typed-receiver-dispatch	claude-code	2026-08-30T23:23:08Z	v3-trait-typed-receiver-dispatch	file:v3/src/Lower.scala file:v3/SPRINT.md file:v3/BUGS.md
+v3-class-branch-rootcause	claude-code	2026-08-30T23:24:48Z	v3-own-front-has-no-plain-class-branch	file:v3/BUGS.md
