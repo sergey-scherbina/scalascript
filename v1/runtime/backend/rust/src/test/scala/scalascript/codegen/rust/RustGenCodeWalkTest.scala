@@ -4042,6 +4042,53 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(expected.findFirstIn(g).isDefined,
       s"a Vec-typed field destructured through a fixed-arity Vector sub-pattern must rewrite to an if-let + slice match, not refuse as an unknown ctor:\n$g")
 
+  test("a NESTED positional ctor field (one level deeper than the pattern's own top-level ctor) threads its own String/Vec/Map/Option type too, in both a standalone match and a `.collect`/`.collectFirst` PartialFunction arm"):
+    // `case UniEdge(_, UniNode.Branch(MdBranch.ListItem, itemEdges, _, _)) =>
+    // itemEdges.flatMap(…)` (`uniml/markdown`'s `MarkdownProjection.scala`'s `projectBlock`/
+    // `taskState`/`listStart`) — `itemEdges` sits ONE CTOR DEEPER than the pattern this lane used
+    // to handle (`Branch`'s own second field, nested inside `UniEdge`'s own second field), so the
+    // FLAT per-field type-threading — which only ever looked at DIRECT children of the top-level
+    // ctor — silently skipped it entirely (a nested `Pat.Extract`, not a `Pat.Var`, matches
+    // neither of that flat pass's own cases): `error[E0599]: no method named flatMap found for
+    // struct Vec<UniEdge>`. Fixed by making the shared per-field threading (`ctorFieldBindCtx`)
+    // RECURSE into a nested `Pat.Extract` field. A SEPARATE gap surfaced once the recursive
+    // version compiled clean for a standalone `match` but the corpus's own `.collect { case … }`
+    // shape still failed identically: `.collect`/`.collectFirst` build their OWN PartialFunction-
+    // arm `bodyCtx` entirely separately from `renderMatch`'s, via the narrower `variantBodyCtxExtra`
+    // alone (only a whole-value `Pat.Typed` bind) — never chained to `ctorFieldBindCtx` at all.
+    val src =
+      """```scalascript
+        |enum MdBranch:
+        |  case ListItem
+        |  case Other
+        |
+        |enum UniNode:
+        |  case Branch(kind: MdBranch, edges: Vector[UniEdge], a: Int, b: Int)
+        |  case Leaf(text: String)
+        |
+        |case class UniEdge(role: Option[String], child: UniNode)
+        |
+        |def flattenChild(n: UniNode): Vector[String] = n match
+        |  case UniNode.Leaf(t) => Vector(t)
+        |  case _ => Vector.empty
+        |
+        |def taskState(edges: Vector[UniEdge]): Vector[String] =
+        |  edges.head match
+        |    case UniEdge(_, UniNode.Branch(MdBranch.ListItem, itemEdges, _, _)) =>
+        |      itemEdges.flatMap(e => flattenChild(e.child))
+        |    case _ => Vector.empty
+        |
+        |def projectBlock(edges: Vector[UniEdge]): Vector[Vector[String]] =
+        |  edges.collect {
+        |    case UniEdge(_, UniNode.Branch(MdBranch.ListItem, itemEdges, _, _)) =>
+        |      itemEdges.flatMap(e => flattenChild(e.child))
+        |  }
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("itemEdges.iter().cloned().flat_map(move |e| { flattenChild(e.child.clone()) }).collect::<Vec<_>>()"),
+      s"a nested positional ctor field must resolve as a Vec in BOTH the standalone match and the .collect PartialFunction arm:\n$g")
+
   test("a call to a LOCAL (nested) def declared `: Option[T]` is recognized as Option-typed, not just a top-level def"):
     // `localTextOf(nodes(i)).isDefined` / `localTextOf(nodes(i)).get` (`uniml/markdown`'s
     // `MarkdownInlines.scala`'s `emailLocalBackscan`; `def localTextOf(node: WNode): Option[

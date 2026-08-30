@@ -9223,7 +9223,19 @@ object RustCodeWalk:
       args.values.head match
         case pf: m.Term.PartialFunction =>
           val arms = pf.cases.map { c =>
-            val bodyCtx = variantBodyCtxExtra(c.pat, enteringClosure(ctx, patBoundNames(c.pat) + "__c"))
+            // `edges.collect { case UniEdge(_, UniNode.Branch(MdBranch.ListItem, itemEdges, _, _))
+            // => itemEdges.flatMap(…) }` (`uniml/markdown`'s `MarkdownProjection.scala`'s
+            // `projectBlock`) — `.collect`/`.collectFirst` build their OWN arm `bodyCtx` here,
+            // entirely separately from `renderMatch`'s (a STANDALONE `subject match {…}` never
+            // reaches this code at all) — so `renderMatch`'s own per-field String/Vec/Map/Option
+            // type-threading (`ctorFieldBindCtx`, this file's OTHER PartialFunction-arm
+            // constructor) never ran for THIS shape either: `itemEdges` never joined
+            // `ctx.localSeqs`, and `.flatMap`/`.collectFirst` on it fell to the generic refusal:
+            // `error[E0599]: no method named flatMap found for struct Vec<UniEdge>`. Chained onto
+            // `variantBodyCtxExtra`'s own (narrower — only a whole-value `Pat.Typed` bind) result,
+            // the same composition `renderMatch` doesn't need since its OWN inline cases already
+            // called `ctorFieldBindCtx` directly.
+            val bodyCtx = ctorFieldBindCtx(c.pat, variantBodyCtxExtra(c.pat, enteringClosure(ctx, patBoundNames(c.pat) + "__c")))
             _pendingPatternGuards = Nil
             for
               pat      <- renderPattern(c.pat, ctx)
@@ -9275,7 +9287,19 @@ object RustCodeWalk:
       args.values.head match
         case pf: m.Term.PartialFunction =>
           val arms = pf.cases.map { c =>
-            val bodyCtx = variantBodyCtxExtra(c.pat, enteringClosure(ctx, patBoundNames(c.pat) + "__c"))
+            // `edges.collect { case UniEdge(_, UniNode.Branch(MdBranch.ListItem, itemEdges, _, _))
+            // => itemEdges.flatMap(…) }` (`uniml/markdown`'s `MarkdownProjection.scala`'s
+            // `projectBlock`) — `.collect`/`.collectFirst` build their OWN arm `bodyCtx` here,
+            // entirely separately from `renderMatch`'s (a STANDALONE `subject match {…}` never
+            // reaches this code at all) — so `renderMatch`'s own per-field String/Vec/Map/Option
+            // type-threading (`ctorFieldBindCtx`, this file's OTHER PartialFunction-arm
+            // constructor) never ran for THIS shape either: `itemEdges` never joined
+            // `ctx.localSeqs`, and `.flatMap`/`.collectFirst` on it fell to the generic refusal:
+            // `error[E0599]: no method named flatMap found for struct Vec<UniEdge>`. Chained onto
+            // `variantBodyCtxExtra`'s own (narrower — only a whole-value `Pat.Typed` bind) result,
+            // the same composition `renderMatch` doesn't need since its OWN inline cases already
+            // called `ctorFieldBindCtx` directly.
+            val bodyCtx = ctorFieldBindCtx(c.pat, variantBodyCtxExtra(c.pat, enteringClosure(ctx, patBoundNames(c.pat) + "__c")))
             _pendingPatternGuards = Nil
             for
               pat      <- renderPattern(c.pat, ctx)
@@ -13008,25 +13032,37 @@ object RustCodeWalk:
          |}""".stripMargin
 
   /** The SAME per-field String/Vec/Map/Option type-threading `renderMatch`'s own bare
-   *  `Pat.Extract(callee, argClause)` case already does (that case's own comment has the shape),
-   *  factored out so a `Pat.Tuple` element can reuse it — see that new case's own comment for why. */
+   *  `Pat.Extract(callee, argClause)` case already did (that case's own comment has the original
+   *  shape; it now just calls here), factored out so a `Pat.Tuple` element can reuse it too — see
+   *  that case's own comment for why.
+   *
+   *  RECURSES into a positional field that is ITSELF a `Pat.Extract`, not just a `Pat.Var` — `case
+   *  UniEdge(_, UniNode.Branch(MdBranch.ListItem, itemEdges, _, _)) => itemEdges.flatMap(…)`
+   *  (`uniml/markdown`'s `MarkdownProjection.scala`'s `taskState`/`listStart`) — `itemEdges` sits
+   *  ONE CTOR DEEPER than the pattern this used to handle (`Branch`'s own second field, nested
+   *  inside `UniEdge`'s own second field), so the flat `argClause.values.zip(ec.fieldTypes)
+   *  .collect { case (Pat.Var(…), t) => … }` — which only ever looks at DIRECT children — silently
+   *  skipped it (a `Pat.Extract`, not a `Pat.Var`, matches none of that `collect`'s cases) and
+   *  left it untyped: `error[E0599]: no method named flatMap found for struct Vec<UniEdge>`. Each
+   *  field is now handled by its OWN shape — `Pat.Var` records it exactly as before, a nested
+   *  `Pat.Extract` recurses (using the OUTER field's own declared ctor name for the RECURSIVE
+   *  call's `pat`, unchanged — `ctorNameOf` reads it straight off the nested pattern's own callee,
+   *  so nothing needs to be threaded through). */
   private def ctorFieldBindCtx(pat: m.Pat, ctx: Ctx): Ctx = pat match
     case m.Pat.Extract.After_4_6_0(callee, argClause)
         if ctorNameOf(callee).flatMap(ctx.ctorMap.get).exists(_.fieldNames.sizeIs == argClause.values.size) =>
       val ec = ctx.ctorMap(ctorNameOf(callee).get)
-      val binds = argClause.values.zip(ec.fieldTypes).collect {
-        case (m.Pat.Var(m.Term.Name(bn)), t) => bn -> t
+      argClause.values.zip(ec.fieldTypes).foldLeft(ctx) { case (acc, (fieldPat, t)) =>
+        fieldPat match
+          case m.Pat.Var(m.Term.Name(bn)) =>
+            if t == "String" then acc.copy(localStrings = acc.localStrings + bn)
+            else if t.startsWith("Vec<") then acc.copy(localSeqs = acc.localSeqs + bn)
+            else if t.startsWith("std::collections::HashMap<") then acc.copy(localMaps = acc.localMaps + bn)
+            else if t.startsWith("Option<") then acc.copy(localOptions = acc.localOptions + bn)
+            else acc
+          case nested: m.Pat.Extract => ctorFieldBindCtx(nested, acc)
+          case _ => acc
       }
-      val strNames    = binds.collect { case (bn, "String") => bn }.toSet
-      val vecNames    = binds.collect { case (bn, t) if t.startsWith("Vec<") => bn }.toSet
-      val mapNames    = binds.collect { case (bn, t) if t.startsWith("std::collections::HashMap<") => bn }.toSet
-      val optionNames = binds.collect { case (bn, t) if t.startsWith("Option<") => bn }.toSet
-      ctx.copy(
-        localStrings = ctx.localStrings ++ strNames,
-        localSeqs    = ctx.localSeqs ++ vecNames,
-        localMaps    = ctx.localMaps ++ mapNames,
-        localOptions = ctx.localOptions ++ optionNames
-      )
     case _ => ctx
 
   private def renderMatch(
@@ -13400,30 +13436,21 @@ object RustCodeWalk:
         // `data.nonEmpty` (`PI.data: String`, `uniml/xml`'s `Doc.scala`'s `serializeNode`) fell to
         // the by-name-only "collection member" refusal because a positionally-destructured field
         // had never been typed here, only a WHOLE-VALUE bind (`Pat.Typed`, above) had.
-        case m.Pat.Extract.After_4_6_0(callee, argClause)
-            if ctorNameOf(callee).flatMap(ctx.ctorMap.get).exists(_.fieldNames.sizeIs == argClause.values.size) =>
-          val ec = ctx.ctorMap(ctorNameOf(callee).get)
-          val binds = argClause.values.zip(ec.fieldTypes).collect {
-            case (m.Pat.Var(m.Term.Name(bn)), t) => bn -> t
-          }
-          val strNames = binds.collect { case (bn, "String") => bn }.toSet
-          val vecNames = binds.collect { case (bn, t) if t.startsWith("Vec<") => bn }.toSet
-          val mapNames = binds.collect { case (bn, t) if t.startsWith("std::collections::HashMap<") => bn }.toSet
-          // `case InlinePiece.Tok(kind, lex, r, ch) => r.orElse(fallback)` (`uniml/markdown`'s
-          // `MarkdownInlines.scala`) — `r`, a POSITIONALLY-destructured `Option[String]` field, was
-          // never registered anywhere `isOptionExpr`'s own bare-name case reads (`ctx.localOptions`/
-          // `ctx.paramTypes`, the SAME two tables `strNames`/`vecNames`/`mapNames` just above already
-          // populate for their own field types) — `isOptionExpr(r, ctx)` answered `false`, so the
-          // existing `.orElse` case's own guard never fired and `r.orElse(fallback)` reached rustc
-          // as a literal camelCase method name: `error[E0599]: no method named orElse found for
-          // enum Option<T>`.
-          val optionNames = binds.collect { case (bn, t) if t.startsWith("Option<") => bn }.toSet
-          ctx.copy(
-            localStrings = ctx.localStrings ++ strNames,
-            localSeqs    = ctx.localSeqs ++ vecNames,
-            localMaps    = ctx.localMaps ++ mapNames,
-            localOptions = ctx.localOptions ++ optionNames
-          )
+        // `case InlinePiece.Tok(kind, lex, r, ch) => r.orElse(fallback)` (`uniml/markdown`'s
+        // `MarkdownInlines.scala`) — `r`, a POSITIONALLY-destructured `Option[String]` field, was
+        // never registered anywhere `isOptionExpr`'s own bare-name case reads (`ctx.localOptions`/
+        // `ctx.paramTypes`, the SAME two tables `ctorFieldBindCtx` also populates for their own
+        // field types) — `isOptionExpr(r, ctx)` answered `false`, so the existing `.orElse` case's
+        // own guard never fired and `r.orElse(fallback)` reached rustc as a literal camelCase
+        // method name: `error[E0599]: no method named orElse found for enum Option<T>`.
+        //
+        // Body factored out to `ctorFieldBindCtx` (this case's own former inline logic, unchanged
+        // in every OTHER respect) once it needed to RECURSE into a nested `Pat.Extract` field too
+        // — see that function's own comment for the corpus site that needed it. No guard needed
+        // HERE beyond the bare type match: `ctorFieldBindCtx` carries the identical ctor/arity
+        // check internally and returns `ctx` UNCHANGED (via its own `case _ => ctx`) for anything
+        // that doesn't satisfy it — the same no-op this case's own removed guard used to produce.
+        case p: m.Pat.Extract => ctorFieldBindCtx(p, ctx)
         // `case (Some(MarkdownInline.Text(a)), MarkdownInline.Text(b)) => … MarkdownInline.Text(a +
         // b)` (`uniml/markdown`'s `MarkdownProjection.scala`'s `projectInlines`'s `appendMerging`,
         // matching `(out.lastOption, inline)`) — a TUPLE pattern, one element bare, the other
