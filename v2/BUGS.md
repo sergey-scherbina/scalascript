@@ -85,6 +85,68 @@ rather than shipped broken or contorted around this; `EffAggregator`'s trait def
 `runEffAggregator`, and a single concrete `EffAggregator` implementation (no wrapped `F`-typed
 field) all work correctly and are landed.
 
+### Investigation 2026-08-31 — the mechanism is a `val`/`var` MODIFIER the F front cannot parse, and the arity error is two failures downstream
+
+**The reported symptom is three steps removed from the cause, which is why the original report
+could not find it.** Measured, in order:
+
+1. **F does not parse a `val` constructor parameter AT ALL.** The smallest case is two lines and
+   needs no generics, no import, no second class:
+
+   ```scalascript
+   class Holder(val n: Int)
+   println(Holder(7).n)
+   ```
+
+   `ssc info --front-report` says `GAP  expected Str, got 7`. `case class Holder(val n: Int)`
+   fails identically, and `case class P(val a: Int, b: Int)` too — so this is neither plain-vs-case
+   nor about the higher-kinded class at all. Removing `val` gives `F` (clean parse) in every one.
+
+2. **`7` in that message is the `val` KEYWORD CODE, not a count.** `kwCode` maps `val` to 7
+   (`v2.2-p6.5-fsub.ssc:80`) and the lexer emits it as token `(2, 7)` — kind 2, code 7. The raise
+   site is `v2/src/Runtime.scala:3989`, a prim that wanted a `StrV` and got the Int `7`:
+   some field-name reader took `snd(token)` on the `val` keyword, where `snd` yields the numeric
+   code rather than a lexeme. So the modifier is being read AS the field name. The "given" count
+   the original report correlated with field counts is a downstream artifact of that shift, not an
+   independent clue.
+
+3. **The `arity: 0 expected, 1 given` is the REFERENCE front's error, not F's.** Because F
+   declines, the lane silently falls back (`BOTH-UNBOUND` on the full repro, whose second half
+   reads `REF: unbound global: (global app) is neither a top-level def nor an @-cell`). `app` is
+   the higher-kinded class's own constructor field: on the fallback path it is emitted as a bare
+   global instead of a bound parameter, and calling it fails the arity check at
+   `v2/src/Runtime.scala:552`. That is why the error names an arity and points nowhere near a
+   `val`, and why it appears only when BOTH ingredients are present — the val-class supplies the
+   decline, the `F[_]` class supplies the thing the reference front then miscompiles.
+
+**Attempted fix, measured and REVERTED rather than landed.** `collectField`
+(`v2.2-p6.5-fsub.ssc`) reads `snd(hd(ts))` as the name and `tl(tl(ts))` to skip `name :`, with no
+modifier handling — every OTHER parser site that meets a `val` consumes it explicitly
+(`parseBlockVal(tl(ts), …)`, `collectOMk("val", ts)`), so this looked like the omission. Adding a
+guard there (`if isFieldMod(hd(ts)) then …skip…`, covering `val` as token `(2,7)` and `var` as the
+word) built cleanly, was confirmed staged into `bin/lib/tower/bin/fsub.ssc`, was retested with
+`SSC_FRONT_CACHE=off` to rule out the front-IR cache — **and changed nothing**: all three probes
+above still report `expected Str, got 7`. So the modifier is consumed BEFORE `collectField` runs,
+and the guard was reverted rather than left in as a change that fixes nothing.
+
+**What the next attempt needs.** The remaining unknown is narrow and specific: which reader
+touches the `val` token first. Every field-collecting pre-pass measured
+(`collectCC1`/`collectCC2`, `collectTCcc`, `collectSRadd`, `skipCCHead`) funnels through the same
+`collectFields`, and `isCCHead` gates them all on `case class` — with plain `class` rewritten into
+`case class` upstream by `caseBC1` (`:4251`), so plain classes do reach that path. That leaves the
+cursor-positioning helpers (`skipNameGenParen` → `skipGenParen` → `skipGen`/`ccOpenSkip`, `:3445`–
+`:3455`) or a layout pass ahead of them. Confirming it wants runtime instrumentation of the
+self-hosted front (the front compiles itself, so a `println` probe is not free) rather than more
+reading — which is where this investigation stopped rather than guess at a second speculative fix.
+
+**Scope correction for whoever picks this up:** the entry's title and repro frame this as a
+higher-kinded/arity problem. It is not. It is "F cannot parse `val`/`var` on a constructor
+parameter", which is a much broader and much cheaper-to-state defect — any file anywhere in an
+import graph that writes `class C(val x: T)` silently costs its importers the F front. The
+higher-kinded class is only the most visible victim, because the reference front's own handling of
+an `F[_]`-typed constructor field is separately broken. Those are arguably two bugs; this entry
+now documents both halves.
+
 ## trait-typed-parameter-accepts-a-non-conforming-argument — a function whose parameter requires trait `T` accepts a value whose static type only extends `T`'s SUPERTRAIT, and the mismatch surfaces at first method dispatch, not at the call site
 
 <!-- status: open
