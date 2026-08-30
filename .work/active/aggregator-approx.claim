@@ -5,7 +5,7 @@ started: 2026-08-30T04:20:56Z
 heartbeat: 2026-08-30T04:20:56Z
 status: in-progress
 items: aggregation-algebra-canonical-and-effectful
-paths: file:std/aggregator.ssc file:examples/std-aggregator.ssc file:specs/aggregation-algebra.md file:BACKLOG.md file:tests/conformance/std-aggregator.ssc file:tests/conformance/expected/std-aggregator.txt file:v1/runtime/backend/interpreter/BUGS.md file:tests/conformance/contract-roster.tsv file:tests/conformance/corpus-baseline.tsv
+paths: file:std/aggregator.ssc file:examples/std-aggregator.ssc file:examples/std-aggregator-approx.ssc file:specs/aggregation-algebra.md file:BACKLOG.md file:tests/conformance/std-aggregator.ssc file:tests/conformance/expected/std-aggregator.txt file:tests/conformance/std-aggregator-approx.ssc file:tests/conformance/expected/std-aggregator-approx.txt file:v1/runtime/backend/interpreter/BUGS.md file:v1/runtime/backend/js/BUGS.md file:tests/conformance/contract-roster.tsv file:tests/conformance/corpus-baseline.tsv
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: file 3 v1-interpreter bugs (class-body val, Array.tabulate cross-module, missing math.log), add known-red, test all lanes, land
+next: commit and land §6 (approximate aggregators)
