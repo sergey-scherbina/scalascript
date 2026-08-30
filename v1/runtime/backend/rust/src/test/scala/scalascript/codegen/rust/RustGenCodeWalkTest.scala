@@ -4042,6 +4042,32 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(expected.findFirstIn(g).isDefined,
       s"a Vec-typed field destructured through a fixed-arity Vector sub-pattern must rewrite to an if-let + slice match, not refuse as an unknown ctor:\n$g")
 
+  test("a multi-use name in a bare if/else branch tail position gets the SAME clone-on-move safety a call argument already gets"):
+    // `val trivia = if cut >= 0 then blankContent.substring(0, cut) else blankContent` / `val keep
+    // = if cut >= 0 then blankContent.substring(cut) else ""` (`uniml/markdown`'s
+    // `MarkdownBlocks.scala`'s `finishParagraph`, `blankContent` a tuple-destructured `.foreach`
+    // closure param, read four times total) — the if/else renderer never ran either branch's bare
+    // tail value through `cloneIfMoved` at all, unlike every OTHER position that can hand back a
+    // bare multi-use name (a call argument, a closure return, a `.getOrElse` default): the bare
+    // `else { blankContent }` branch MOVED it, and the same name is read again building `keep`
+    // right after: `error[E0382]: borrow of moved value: blankContent`.
+    val src =
+      """```scalascript
+        |private def indentCut(s: String, n: Int): Int = if s.length > n then n else -1
+        |
+        |def process(held: Vector[(String, String)]): Unit =
+        |  held.foreach { case (blankContent, ending) =>
+        |    val cut = indentCut(blankContent, 4)
+        |    val trivia = if cut >= 0 then blankContent.substring(0, cut) else blankContent
+        |    val keep = if cut >= 0 then blankContent.substring(cut) else ""
+        |    println(trivia + keep)
+        |  }
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("} else { blankContent.clone() };"),
+      s"a multi-use name in a bare if/else tail position must be cloned, not moved:\n$g")
+
   test("`case Some(x) => x.field` over a `Map[K, Enum.Variant].get(...)` subject resolves the SPECIFIC variant, not the collapsed enum"):
     // `refs.get(normalizeLabel(labelText)) match { case Some(defn) => (defn.destination, defn.
     // title); … }` (`uniml/markdown`'s `MarkdownProjection.scala`'s `linkOrImage`, `refs: Map[

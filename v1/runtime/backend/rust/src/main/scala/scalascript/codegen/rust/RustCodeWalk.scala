@@ -7048,13 +7048,40 @@ object RustCodeWalk:
       // was strictly narrower and is retired in its favor.
       val thenIsCharAt = yieldsSscChar(ifExpr.thenp, ctx)
       val elseIsCharAt = yieldsSscChar(ifExpr.elsep, ctx)
+      // `val trivia = if cut >= 0 then blankContent.substring(0, cut) else blankContent` /
+      // `val keep = if cut >= 0 then blankContent.substring(cut) else ""` (`uniml/markdown`'s
+      // `MarkdownBlocks.scala`'s `finishParagraph`, `blankContent` a tuple-destructured `.foreach`
+      // closure param, read FOUR times total across both `val`s) — this if/else renderer never ran
+      // either branch's bare tail value through `cloneIfMoved` at all (every OTHER position that
+      // can hand back a bare multi-use name — a call argument, a closure return, a `.getOrElse`
+      // default — already does): the bare `else { blankContent }` branch MOVED it, and the SAME
+      // name read again building `keep` right after: `error[E0382]: borrow of moved value:
+      // blankContent`. `cloneIfMoved`'s own `needs()` check is already narrow (topVals, multiUse,
+      // in-closure-non-param, byRefMut, in-while-loop-defParam), so applying it to a SINGLE-use
+      // name is a no-op — safe to add below. Two exclusions, both existing goldens that regressed
+      // without them: skipped entirely on the branch that gets the SscChar `.0` unwrap (that
+      // projection is already a Copy `i64` — cloning it is a redundant no-op, not a correctness
+      // fix, and `foldCase`'s own golden asserts the bare `.0` text); and never applied to a bare
+      // `None`/`Nil` (`collectMultiUse`'s counter is pure NAME-TEXT, no scope awareness, so the
+      // ubiquitous keyword-like `None` reads as "multi-use" the moment it appears more than once
+      // ANYWHERE in the same def — harmless to construct twice either way, but `listStart`'s own
+      // golden asserts the bare `None` text).
+      def skipClone(t: m.Term): Boolean = t match
+        case m.Term.Name("None" | "Nil") => true
+        case _                           => false
       for
         c0 <- renderTerm(ifExpr.cond, ctx)
         c   = if isValueRead(ifExpr.cond, ctx) then coerceFromValue(c0, "bool") else c0
         t0 <- renderTerm(ifExpr.thenp, ctx)
         e0 <- renderTerm(ifExpr.elsep, ctx)
-        t1 = if thenIsCharAt && !elseIsCharAt then s"($t0).0" else t0
-        e1 = if elseIsCharAt && !thenIsCharAt then s"($e0).0" else e0
+        t1 =
+          if thenIsCharAt && !elseIsCharAt then s"($t0).0"
+          else if skipClone(ifExpr.thenp) then t0
+          else cloneIfMoved(ifExpr.thenp, t0, ctx)
+        e1 =
+          if elseIsCharAt && !thenIsCharAt then s"($e0).0"
+          else if skipClone(ifExpr.elsep) then e0
+          else cloneIfMoved(ifExpr.elsep, e0, ctx)
       yield
         s"if $c { $t1 } else { $e1 }"
 
