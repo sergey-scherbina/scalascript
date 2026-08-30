@@ -337,7 +337,7 @@ if [ "$nfronts" -ge 2 ]; then
   # or the ceiling becomes a formality: v3's own LEXER refuses `@` outright, and the skip belongs in
   # `Parser.scala`, which another claim holds. `Lexer.scala` is mine and tokenising `@` alone
   # changes nothing observable, so the pair has to land together.
-  UOCEIL="${SSC3_FRONT_UNIML_ONLY_CEILING:-2}"
+  UOCEIL="${SSC3_FRONT_UNIML_ONLY_CEILING:-1}"
   if [ "$unimlonly" -gt "$UOCEIL" ]; then
     echo "  FAIL uniml-only fixtures rose to $unimlonly, above the ceiling $UOCEIL — the two fronts"
     echo "       are drifting apart, which is the opposite of what this gate is for"

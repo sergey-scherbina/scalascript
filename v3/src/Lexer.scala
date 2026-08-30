@@ -402,8 +402,11 @@ object Lexer:
       while !done(s) && (Chars.isOpChar(at(s)) || at(s) == ':') do
         text = text + at(s); s = adv(s)
       (Tok.TOp(text, p), s)
+    // `@` is PUNCTUATION and not an operator character, so `@tailrec` lexes as two tokens and an
+    // annotation never fuses with a neighbouring symbol by maximal munch. Nothing here decides what
+    // it MEANS — the parser skips whole annotations before it dispatches on a declaration keyword.
     else if c == '(' || c == ')' || c == ',' || c == ':' || c == '.' || c == ';' ||
-            c == '{' || c == '}' || c == '[' || c == ']' then
+            c == '{' || c == '}' || c == '[' || c == ']' || c == '@' then
       (Tok.TPunct(c.toString, p), adv(s0))
     else throw LexError(p, "unexpected character '" + c + "'")
 

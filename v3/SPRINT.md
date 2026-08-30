@@ -4330,3 +4330,54 @@ already named in a sibling's release note.
 `catch` is refused by name at `parseTry` — a Tier-0 boundary that predates this work and is a
 decision to re-put, not a bug. And an early `return` out of a `try` body cannot skip the finalizer
 here for the simplest possible reason: `return` is not in Tier 0 at all (`unknown name 'return'`).
+
+## SSC3-17 — v3's own front lexes `@`, and the backlog had grouped two unrelated fixtures (claim `v3-lexer-annotations`)
+
+**Landed.** The third of the four cheap slices of 2026-08-30. `v3/src/Lexer.scala` is `ssc3-core`'s
+and `v3/src/Parser.scala` is `ssc3-multi-effect`'s, so the pair landed together exactly as the
+backlog said it had to: tokenising `@` alone changes nothing observable and only moves the refusal
+one layer down.
+
+**`@` IS PUNCTUATION, NOT AN OPERATOR CHARACTER.** Admitting it to the operator munch would let
+`@tailrec` fuse with a neighbouring symbol; as punctuation it is two tokens and the lexer decides
+nothing about what it MEANS. The meaning is decided in one skip loop before the declaration
+dispatch, which is where UniML's is.
+
+**NOTHING AT TIER 0 READS AN ANNOTATION, so the whole thing is consumed and discarded** — dotted
+names (`@scala.annotation.tailrec` is one name to skip, not several), bracketed type arguments, and
+a parenthesised argument list skipped by DEPTH rather than parsed, because `@nowarn("msg=unused")`
+must not become a call. Carrying a field no pass consults would have been the dishonest version.
+
+**THE LAYOUT AFTER THE ANNOTATION IS SKIPPED TOO, and that is why this is a loop rather than one
+arm.** An annotation on its own line ends in a newline, and the newline is a statement separator:
+leaving it makes the annotation an empty statement and the declaration a second one. That is the
+precise shape of `ssc1-front-annotation-before-declaration`, the reference front's own filed bug,
+which it fixed the same way. On the same line as its declaration there is no newline and the loop
+just exits. The same loop runs in `parseMembers`, since an annotation sits on a member as readily
+as on a top-level declaration — placed before the `}`/DEDENT tests there, because it consumes the
+very layout those tests read.
+
+**THE BACKLOG GROUPED TWO FIXTURES UNDER ONE SLICE AND THEY ARE NOT ONE PROBLEM.** It reads that
+`annotation-own-line` and `object-nested-class` are "the two fixtures `front-diff.sh` counts as
+declared uniml-only, and the ceiling is at 2 because of them", with the annotation one "the
+cheaper". The ceiling part is true and the implication is not: `object-nested-class` does not
+contain an `@` at all, and refuses with **`only `def` members are supported in a object at Tier 0,
+found case`** — a `case class` nested in an `object`, which is a members-dispatch gap and its own
+piece of work. So this slice closes ONE of the two and the ceiling drops 2 → 1, not 2 → 0.
+
+**Measured.** Front agreement **86 → 87 of 88 fixtures**, 0 differing, uniml-only **2 → 1**, and the
+`SSC3_FRONT_UNIML_ONLY_CEILING` default drops with it so the new state is guarded rather than
+merely reached. `annotation-own-line` on `SSC3_FRONT=v3` now prints `10` / `x`, its checked-in
+`.expected`, where it refused with `unexpected character '@'` at 4:1. selftest, exec-gate (97 cases,
+both lanes agree) and bridge-gate (7 programs) GREEN. Corpus **N = 276 / 380, DIFF 0, CRASH 0 —
+UNMOVED, and that is the expected result, not a disappointment**: the corpus report runs the UNIML
+front, which already lexed `@`, so a fix to v3's OWN front cannot show up there. `front-diff.sh` is
+the instrument that can see this change, and it is the one that moved.
+
+**THE FIRST FRONT-DIFF RUN OF THIS SLICE PROVED NOTHING, and the trap is already written down.**
+It reported `GREEN (88 fixture(s), 1 front(s), agree 0)` — a fresh worktree has no `v3/.jars/uniml.cp`,
+that file is gitignored and per-checkout, so only v3's own front was runnable and the gate compared
+nothing while printing a green line in the usual shape. `v3/uniml-classpath.sh`, then re-run, is what
+produced the 87/88 above. Same shape as
+`v3-gates-open-red-in-every-fresh-worktree-because-uniml-cp-is-per-checkout`, met from the other
+side: front-diff does not go red for it, it goes green with one front.

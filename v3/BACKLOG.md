@@ -11,7 +11,7 @@ backlog ("все это запланировать в беклог и делат
 claim(s), landed wave by wave; a stage does not start before the previous one's numbers are in:
 
 1. **(in flight)** the four cheap slices of 2026-08-30: abstract `val` in `extern class` (landed),
-   `finally` (landed, SSC3-16), lexer `@`, `extension` in `Lower`'s dispatch.
+   `finally` (landed, SSC3-16), lexer `@` (landed, SSC3-17), `extension` in `Lower`'s dispatch.
 2. **Rewrite-door R2–R4** — the markers (`Focus` 5, `direct` 3, `Prism` 1 = 9 cases), per
    `specs/60-compile-time-extension.md`; R1 landed. Closes
    `v3-a-marker-is-a-compile-time-rewrite-nothing-in-a-library-can-answer`.
@@ -200,13 +200,23 @@ it without putting markup into the language.
 
 ## v3's own front cannot lex `@` — two fixtures are uniml-only because of it
 
-`annotation-own-line` and `object-nested-class` are the two fixtures `front-diff.sh` counts as
-declared uniml-only, and the ceiling is at 2 because of them. The annotation one is the cheaper:
-v3's lexer refuses `@` with `unexpected character`, and the skip itself belongs where UniML's is —
-one loop before the declaration dispatch.
+**THE `@` HALF IS DONE — SSC3-17.** `@` lexes as punctuation and whole annotations are skipped by
+one loop before the declaration dispatch (and before the member dispatch), layout included.
+Agreement 86 → 87 of 88, uniml-only 2 → 1, ceiling lowered with it.
+
+**AND THIS SECTION GROUPED TWO FIXTURES THAT ARE NOT ONE PROBLEM.** It read that
+`annotation-own-line` and `object-nested-class` are "the two fixtures `front-diff.sh` counts as
+declared uniml-only, and the ceiling is at 2 because of them" — the ceiling part is true, the
+implication is not. **`object-nested-class` contains no `@` at all.** It refuses with
+`only `def` members are supported in a object at Tier 0, found case` — a `case class` nested in an
+`object`, a members-dispatch gap and its own slice, still open and now the only fixture holding the
+ceiling at 1.
+
+The annotation half was the cheaper: v3's lexer refused `@` with `unexpected character`, and the
+skip belonged where UniML's is — one loop before the declaration dispatch.
 
 `v3/src/Lexer.scala` is `ssc3-core`'s and `v3/src/Parser.scala` is `ssc3-multi-effect`'s, so the
-pair has to land together; tokenising `@` on its own changes nothing observable and would just move
+pair had to land together; tokenising `@` on its own changes nothing observable and would just move
 the refusal one layer down.
 
 The reference front parses these files (`ssc1-front-annotation-before-declaration` was ITS bug and

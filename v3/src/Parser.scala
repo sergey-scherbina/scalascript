@@ -271,6 +271,43 @@ object Parser:
       val last = cur.toString.trim
       ((if last.isEmpty then out else out :+ last), t)
 
+  /** `@tailrec`, `@main`, `@nowarn("msg=unused")` — CONSUMED AND DISCARDED, however many of them
+    * stand in a row and whichever line they sit on.
+    *
+    * Nothing at Tier 0 reads an annotation: `@tailrec` describes an optimisation the executor
+    * already performs on every call, and `@main` names an entry point this language decides by
+    * having a top-level `main`. So the honest handling is to skip the whole thing rather than to
+    * carry a field no pass consults.
+    *
+    * THE LAYOUT AFTER THE ANNOTATION IS SKIPPED TOO, which is the entire reason this is a loop and
+    * not one arm. An annotation on its OWN line ends with a newline, and the newline is a statement
+    * separator — leaving it makes the annotation an empty statement and the declaration a second
+    * one, which is how the reference front's own `ssc1-front-annotation-before-declaration` read.
+    * On the same line as its declaration there is no newline to eat and the loop just exits.
+    *
+    * The argument list is skipped by paren depth rather than parsed: its contents are arbitrary
+    * expressions no pass will look at, and `@nowarn("msg=unused")` must not become a call. */
+  private def skipAnnotations(ts0: List[Tok]): List[Tok] =
+    var t = ts0
+    while isPunct(peek(t), "@") do
+      t = t.tail
+      if !isPlainName(peek(t)) then
+        throw ParseFail(posOf(t), "an annotation is `@` followed by a name, found " + Lexer.show(peek(t)))
+      t = t.tail
+      // A dotted annotation name — `@scala.annotation.tailrec` — is one name to skip, not several.
+      while isPunct(peek(t), ".") && t.tail.nonEmpty && isPlainName(peek(t.tail)) do t = t.tail.tail
+      t = skipBrackets(t)
+      if isPunct(peek(t), "(") then
+        var depth = 1
+        t = t.tail
+        while depth > 0 do
+          if peek(t).isInstanceOf[Tok.TEof] then throw ParseFail(posOf(t), "unclosed '(' in an annotation")
+          if isPunct(peek(t), "(") then depth = depth + 1
+          else if isPunct(peek(t), ")") then depth = depth - 1
+          t = t.tail
+      t = skipLayout(t)
+    t
+
   private def skipBrackets(ts: List[Tok]): List[Tok] =
     if !isPunct(peek(ts), "[") then ts
     else
@@ -1719,7 +1756,10 @@ object Parser:
     var members: List[Def] = Nil
     var go = true
     while go do
-      ts = if braced then skipLayout(ts) else skipNewlines(ts)
+      // An annotation sits on a MEMBER as readily as on a top-level declaration, and is skipped by
+      // the same loop. It runs before the `}`/DEDENT tests because it consumes layout, and a member
+      // annotation is followed by exactly the newline those tests are reading.
+      ts = skipAnnotations(if braced then skipLayout(ts) else skipNewlines(ts))
       if braced && isPunct(peek(ts), "}") then
         ts = ts.tail; go = false
       else if !braced && ts.head.isInstanceOf[Tok.TDedent] then
@@ -2047,7 +2087,7 @@ object Parser:
     var effects: List[TraitDef] = Nil
     var go = true
     while go do
-      ts = skipSeps(ts)
+      ts = skipAnnotations(skipSeps(ts))
       if peek(ts).isInstanceOf[Tok.TEof] then go = false
       // `sealed trait Shape` / `abstract class …` — a MODIFIER on the declaration that follows.
       // Dropped here, exactly as `override`/`final` are dropped inside a body. Without this the
