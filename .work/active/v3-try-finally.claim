@@ -1,0 +1,11 @@
+slug: v3-try-finally
+branch: feature/v3-try-finally
+agent: claude-code
+started: 2026-08-30T14:23:03Z
+heartbeat: 2026-08-30T14:23:03Z
+status: claimed-before-planning
+items: v3-try-finally
+paths: file:v3/src/Ast.scala file:v3/src/AstText.scala file:v3/src/Parser.scala file:v3/src/Lower.scala file:v3/uniml/UniFront.scala file:v3/SPRINT.md file:v3/BACKLOG.md file:v3/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
