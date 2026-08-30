@@ -3461,6 +3461,25 @@ class RustGenCodeWalkTest extends AnyFunSuite:
       && g.contains("if !lexeme.is_empty()"),
       s"a captured var's tuple-string positions must flow through a bare-name alias and a .foreach destructure:\n$g")
 
+  test("`opt.isDefined` on a known Option lowers to `.is_some()`, the same as `.nonEmpty`"):
+    // `startsFence(trimmed).isDefined` (`uniml/markdown`'s `MarkdownBlocks.scala`'s `parse` — 8
+    // instances in the corpus) — `isDefined` is Scala's own SYNONYM for `nonEmpty` on an `Option`
+    // (identical semantics, a separate name only) and had no case at all: a no-paren member read on
+    // a known `Option[String]` reached the FIELD-access diagnostic path directly, since `isDefined`
+    // was never even in the existing `nonEmpty`/`isEmpty`-on-Option case's own name set:
+    // `error[E0609]: no field isDefined on type Option<String>`.
+    val src =
+      """```scalascript
+        |def startsFence(x: Int): Option[String] = if x > 0 then Some("fence") else None
+        |
+        |def check(x: Int): Boolean =
+        |  startsFence(x).isDefined
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("startsFence(x).is_some()"),
+      s"Option.isDefined must lower to .is_some(), the same as .nonEmpty:\n$g")
+
   test("`s.indexOf(charExpr)` on a String receiver must NOT fall to the generic Vec-shaped `.indexOf`, and a genuine SscChar needle needs its own `.0` unwrap"):
     // `lexeme.indexOf('\n')` (`uniml/markdown`'s `MarkdownInlines.scala`'s `spliceSwallowedBreaks`)
     // — the existing one-arg `String.indexOf` case only fired when BOTH the receiver AND the

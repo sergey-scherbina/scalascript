@@ -7364,8 +7364,14 @@ object RustCodeWalk:
     // `is_empty`, only `is_none`/`is_some`. Without this it fell all the way to the name-only
     // `CollectionOnlyMembers` refusal below, which cannot tell a `Vec` from an `Option` and so
     // refuses both by name — the one case that guard is not general enough to fix on its own.
+    // `isDefined` (`startsFence(trimmed).isDefined`, `uniml/markdown`'s `MarkdownBlocks.scala`'s
+    // `parse` — 8 instances in the corpus) is Scala's own SYNONYM for `nonEmpty` on an `Option`
+    // (identical semantics, a separate name only), and had no case here at all: `error[E0609]: no
+    // field isDefined on type Option<…>` (a no-paren member read reaches the FIELD-access diagnostic
+    // path, not the "collection member" one `nonEmpty`'s absence used to hit, since `isDefined` was
+    // never even in that refusal's own name list).
     case m.Term.Select(qual, m.Term.Name(meth))
-        if isOptionExpr(qual, ctx) && Set("nonEmpty", "isEmpty").contains(meth) =>
+        if isOptionExpr(qual, ctx) && Set("nonEmpty", "isEmpty", "isDefined").contains(meth) =>
       renderTerm(qual, ctx).map(q => if meth == "isEmpty" then s"$q.is_none()" else s"$q.is_some()")
 
     // `edges.collectFirst { … }.flatten` (`uniml/markdown`'s `MarkdownProjection.scala`'s
