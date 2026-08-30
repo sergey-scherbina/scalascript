@@ -13454,8 +13454,30 @@ object RustCodeWalk:
         // `i64` (see `yieldsSscChar`'s own comment), and a Rust pattern can't match a bare `i64`
         // literal against a struct. Unwrapped here so `renderPattern`'s `Lit.Char` case (which
         // renders a char literal the SAME way `renderTerm`'s own does, as its code point) can stay
-        // a plain `i64` literal and know nothing about `SscChar` at all.
+        // a plain `i64` literal and know nothing about `SscChar` at all. Checked BEFORE the
+        // `ctx.inWhileLoop` clone case just below: `SscChar` derives `Copy`, so it never needs
+        // cloning at all, and a first attempt at that case being ordered ahead of this one
+        // shadowed the `.0` unwrap entirely — `char match { case '\'' | '"' => … }` inside a
+        // `while` loop (`uniml/xml`'s `Doc.scala`) got `(char).clone()` instead of `(char).0`,
+        // comparing a genuine `SscChar` against bare `i64` literal patterns: `error[E0308]:
+        // expected SscChar, found i64`, caught by a real `cargo build` on uniml/xml (not
+        // markdown) before this reached a commit.
         else if yieldsSscChar(subject, ctx) then s"($s0).0"
+        // `endMarkers match { case None => …; case Some(markers) => … }` inside a `while` loop
+        // (`uniml/markdown`'s `MarkdownBlocks.scala`'s `htmlBlockLoop`; `endMarkers: Option[
+        // Vector[String]]`, a loop-INVARIANT `val` declared before the loop, never reassigned
+        // inside it) — matching an enum BY VALUE moves it; the first iteration's `Some(markers)`
+        // arm moves `endMarkers` out, and the second iteration's own `match endMarkers { … }`
+        // reads it again: `error[E0382]: use of moved value` ("in previous iteration of loop").
+        // The SAME "read again across iterations" fact `cloneIfMoved`'s own `ctx.inWhileLoop`
+        // case already exists for — but scoped there to `ctx.defParams` only (that case's own
+        // comment: widening it to plain locals broke an existing golden for a REASSIGNED loop
+        // variable, which never has this problem since each iteration starts from a fresh value).
+        // A match SUBJECT is a narrower, safer place to widen: unconditionally cloning it costs
+        // nothing when the subject already IS freshly assigned each pass (a harmless redundant
+        // `.clone()`, never a compile error, since every ctor this lane emits derives `Clone`),
+        // and is exactly the fix when it is not.
+        else if ctx.inWhileLoop && subject.isInstanceOf[m.Term.Name] then s"($s0).clone()"
         else s0
       if errs.nonEmpty then Left(errs.flatten)
       else

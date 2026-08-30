@@ -4042,6 +4042,53 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(expected.findFirstIn(g).isDefined,
       s"a Vec-typed field destructured through a fixed-arity Vector sub-pattern must rewrite to an if-let + slice match, not refuse as an unknown ctor:\n$g")
 
+  test("a match subject read again across `while`-loop iterations is cloned, except an SscChar subject (Copy) which still gets its `.0` unwrap instead"):
+    // `endMarkers match { case None => …; case Some(markers) => … }` inside a `while` loop
+    // (`uniml/markdown`'s `MarkdownBlocks.scala`'s `htmlBlockLoop`; `endMarkers: Option[Vector[
+    // String]]`, a loop-INVARIANT `val` declared before the loop, never reassigned inside it) —
+    // matching an enum BY VALUE moves it; the first iteration's `Some(markers)` arm moves
+    // `endMarkers` out, and the second iteration's own `match endMarkers { … }` reads it again:
+    // `error[E0382]: use of moved value` ("in previous iteration of loop"). A first fix placed
+    // the new `ctx.inWhileLoop` clone case AHEAD of the existing `yieldsSscChar` case, and it
+    // shadowed the `.0` unwrap entirely for a genuine `SscChar` subject read the same way inside
+    // a loop (`char match { case '\'' | '"' => … }`, `uniml/xml`'s `Doc.scala`) — `SscChar`
+    // derives `Copy` and never needed cloning, but `(char).clone()` still compared as a struct
+    // against bare `i64` literal patterns: `error[E0308]: expected SscChar, found i64`, caught
+    // by a real `cargo build` on uniml/xml (not markdown) before it reached a commit. Fixed by
+    // ordering the SscChar check first.
+    val src =
+      """```scalascript
+        |def scan(lines: Vector[String], index: Int): Int =
+        |  val endMarkers: Option[Vector[String]] = Some(Vector("-->"))
+        |  var i = index
+        |  var done = false
+        |  while i < lines.size && !done do
+        |    val l = lines(i)
+        |    endMarkers match
+        |      case None => done = true
+        |      case Some(markers) =>
+        |        i += 1
+        |        if markers.exists(l.contains) then done = true
+        |  i
+        |
+        |def scanQuote(s: String, quoteC: Char): Char =
+        |  var quote = quoteC
+        |  var i = 0
+        |  while i < s.length do
+        |    val char = s.charAt(i)
+        |    char match
+        |      case '\'' | '"' => quote = char
+        |      case _          => ()
+        |    i += 1
+        |  quote
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("match (endMarkers).clone() {"),
+      s"a loop-invariant Option local read again across while-loop iterations must be cloned before the match:\n$g")
+    assert(g.contains("match (char).0 {"),
+      s"an SscChar match subject must still get its .0 unwrap, not a redundant .clone():\n$g")
+
   test("a `.contains`/`.contains_key` method reference (eta-expansion) borrows its argument, except when `find` already hands it one"):
     // `markers.exists(lc.contains)` (`uniml/markdown`'s `MarkdownBlocks.scala`'s
     // `finishParagraph`; `markers: Vector[String]`) — the method-reference-to-closure arm always
