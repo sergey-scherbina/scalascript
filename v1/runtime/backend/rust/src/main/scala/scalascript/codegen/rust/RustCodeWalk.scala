@@ -4400,6 +4400,27 @@ object RustCodeWalk:
       Some((n, args.values.head))
     case _ => None
 
+  /** Renders a one-arg `Char => T` function passed to `String.filter`/`.map` (`isThematicBreak`'s
+   *  `trimmed.filter(c => …)`, `codeSpanValue`'s `raw.map(c => …)`) so the param sees the i64 code
+   *  point `argExpr` computes. A genuine `Term.Function` LITERAL (`c => …`) is LET-SPLICED — the
+   *  param bound via a `let` right before its body, not called — because calling a closure
+   *  LITERAL immediately (`(move |c| { … })(argExpr)`) is exactly the shape rustc cannot infer
+   *  `c`'s type through on its own: `error[E0282]: type annotations needed`, three instances of it
+   *  (`uniml/markdown`'s `MarkdownProjection.scala`'s `hasCodeSpan`/`autolinkAtWWW`/`codeSpanValue`)
+   *  once this codegen actually started reaching the `.filter`/`.map` cases that build this call —
+   *  `renderVecIterBody`'s own `Term.AnonymousFunction` case documents the identical fix for the
+   *  identical reason (`bodyOnly`, spliced into a `let`-binding there too). A METHOD REFERENCE
+   *  (`isHexDigit`, a bare name) has no such ambiguity — its own signature already fixes the
+   *  argument's type — so that shape keeps the simpler immediately-invoked-call form unchanged. */
+  private def renderCharPredOrFn(arg: m.Term, ctx: Ctx, argExpr: String): Either[List[Diagnostic], String] =
+    arg match
+      case fn: m.Term.Function if fn.paramClause.values.sizeIs == 1 =>
+        val p = fn.paramClause.values.head.name.value
+        val bodyCtx = enteringClosure(ctx, Set(p)).copy(paramTypes = ctx.paramTypes + (p -> "i64"))
+        renderTerm(fn.body, bodyCtx).map(b => s"{ let $p = $argExpr; $b }")
+      case other =>
+        renderTerm(other, ctx).map(f => s"($f)($argExpr)")
+
   private def cloneIfMoved(arg: m.Term, rendered: String, ctx: Ctx): String =
     val topValNames = ctx.topVals.map(_._1).toSet
     def needs(r: String): Boolean =
@@ -8533,8 +8554,8 @@ object RustCodeWalk:
         })) =>
       for
         q    <- renderTerm(qual, ctx)
-        pred <- renderTerm(args.values.head, ctx)
-      yield s"$q.chars().filter(|__ch| ($pred)((*__ch as u32) as i64)).collect::<String>()"
+        pred <- renderCharPredOrFn(args.values.head, ctx, "(*__ch as u32) as i64")
+      yield s"$q.chars().filter(|__ch| $pred).collect::<String>()"
     case m.Term.Apply.After_4_6_0(
         m.Term.Select(qual, m.Term.Name("map")), args
     ) if args.values.size == 1 &&
@@ -8544,8 +8565,8 @@ object RustCodeWalk:
         })) =>
       for
         q <- renderTerm(qual, ctx)
-        f <- renderTerm(args.values.head, ctx)
-      yield s"$q.chars().map(|__ch| char::from_u32((($f)((__ch as u32) as i64)) as u32).unwrap_or('\\u{FFFD}')).collect::<String>()"
+        f <- renderCharPredOrFn(args.values.head, ctx, "(__ch as u32) as i64")
+      yield s"$q.chars().map(|__ch| char::from_u32(($f) as u32).unwrap_or('\\u{FFFD}')).collect::<String>()"
 
     // xs.map(f) → xs.iter().cloned().map(move |p| body).collect::<Vec<_>>()
     case m.Term.Apply.After_4_6_0(
@@ -8747,8 +8768,8 @@ object RustCodeWalk:
       val rustMeth = if meth == "forall" then "all" else "any"
       for
         q    <- renderTerm(qual, ctx)
-        pred <- renderTerm(args.values.head, ctx)
-      yield s"$q.chars().$rustMeth(|__ch| ($pred)((__ch as u32) as i64))"
+        pred <- renderCharPredOrFn(args.values.head, ctx, "(__ch as u32) as i64")
+      yield s"$q.chars().$rustMeth(|__ch| $pred)"
 
     // `lexeme.count(p)` on a STRING receiver (`uniml/xml`'s `Doc.scala`'s `readName`'s own
     // `validXmlName`-adjacent check) — the SAME `.chars()` shape `.forall`/`.exists` just above use;
@@ -8761,11 +8782,11 @@ object RustCodeWalk:
         (isStringExpr(qual) || (qual match { case m.Term.Name(n) => ctx.localStrings.contains(n); case _ => false })) =>
       for
         q    <- renderTerm(qual, ctx)
-        pred <- renderTerm(args.values.head, ctx)
+        pred <- renderCharPredOrFn(args.values.head, ctx, "((*__ch) as u32) as i64")
       // `Iterator::filter`'s OWN signature takes `&Item` (unlike `.all`/`.any`, which take `Item` by
       // value — `.forall`/`.exists` two arms up need no deref for exactly that reason) — `__ch` here
       // is `&char`, so `as u32` needs the EXTRA `*` this shape alone among its siblings does.
-      yield s"($q.chars().filter(|__ch| ($pred)(((*__ch) as u32) as i64)).count() as i64)"
+      yield s"($q.chars().filter(|__ch| $pred).count() as i64)"
 
     // `lexed.tokens.count(_.kind == "yaml.anchor")` on a Vec receiver (`uniml/yaml`'s
     // `YamlSemanticParser.scala`) — the STRING-scoped `.count(p)` case just above only fires for a

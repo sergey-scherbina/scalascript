@@ -4042,6 +4042,45 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(expected.findFirstIn(g).isDefined,
       s"a Vec-typed field destructured through a fixed-arity Vector sub-pattern must rewrite to an if-let + slice match, not refuse as an unknown ctor:\n$g")
 
+  test("a genuine lambda passed to String.filter/.map/.forall/.exists/.count is LET-SPLICED, not called as an IIFE rustc cannot infer through"):
+    // `scheme.forall(c => MdChars.isAsciiAlnum(c) || c == '+' || …)` / `inner.exists(c =>
+    // MdChars.isUnicodeWhitespace(c) || c == '<')` (`uniml/markdown`'s `MarkdownInlines.scala`'s
+    // `autolinkScheme`/`hasCodeSpan`) — `renderTerm`/`renderCharPredOrFn`'s own String-receiver
+    // cases all rendered a one-arg lambda argument as a bare CLOSURE LITERAL, then called it
+    // immediately (`(move |c| { … })(argExpr)`) — exactly the shape rustc cannot infer `c`'s type
+    // through on its own (no different from `renderVecIterBody`'s own doubly-nested-closure gap,
+    // documented there for the identical reason): `error[E0282]: type annotations needed`.
+    // Surfaced by an EARLIER fix in this same area (`.filter`/`.map` on a String, added this
+    // session): once those stopped erroring, rustc's own analysis reached these THREE further,
+    // previously-unseen sites in the SAME two functions. Fixed with one shared helper
+    // (`renderCharPredOrFn`) used by `.filter`/`.map`/`.forall`/`.exists`/`.count` alike: a
+    // genuine `Term.Function` literal is LET-SPLICED (the param bound via `let` right before its
+    // body, never called), while a bare method reference (no such ambiguity — its own signature
+    // already fixes the argument type) keeps the simpler immediately-invoked-call form.
+    val src =
+      """```scalascript
+        |object MdChars:
+        |  def isUnicodeWhitespace(c: Char): Boolean = c == ' ' || c == '\t'
+        |  def isAsciiAlnum(c: Char): Boolean = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
+        |
+        |def scheme(scheme: String): Boolean =
+        |  scheme.forall(c => MdChars.isAsciiAlnum(c) || c == '+' || c == '.' || c == '-')
+        |
+        |def hasBadChar(inner: String): Boolean =
+        |  inner.isEmpty || inner.exists(c => MdChars.isUnicodeWhitespace(c) || c == '<')
+        |
+        |def countBad(lexeme: String): Int =
+        |  lexeme.count(c => c == '<')
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".all(|__ch| { let c = (__ch as u32) as i64;"),
+      s"String.forall's lambda argument must be let-spliced, not called as an IIFE:\n$g")
+    assert(g.contains(".any(|__ch| { let c = (__ch as u32) as i64;"),
+      s"String.exists's lambda argument must be let-spliced, not called as an IIFE:\n$g")
+    assert(g.contains(".filter(|__ch| { let c = ((*__ch) as u32) as i64;") && g.contains(").count() as i64)"),
+      s"String.count's lambda argument must be let-spliced, not called as an IIFE:\n$g")
+
   test("a match subject read again across `while`-loop iterations is cloned, except an SscChar subject (Copy) which still gets its `.0` unwrap instead"):
     // `endMarkers match { case None => …; case Some(markers) => … }` inside a `while` loop
     // (`uniml/markdown`'s `MarkdownBlocks.scala`'s `htmlBlockLoop`; `endMarkers: Option[Vector[
