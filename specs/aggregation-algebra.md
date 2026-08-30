@@ -329,10 +329,13 @@ inherits the pre-existing, already-tracked `int-width` non-conformance (a 64-bit
 `sqrt`'s exact wiring) and `List.sortBy` on a `Double` key sorted lexicographically instead of
 numerically (`sortby-on-a-non-int-key-sorts-lexicographically-not-numerically` — a second numeric
 fast path now covers `Double`/mixed `Int`+`Double` keys, alongside the untouched `Int`-only one).
-Landing this also found and fixed a JS syntax error in `groupByAgg` (§8) that had been silently
-masking part of an already-filed bug's own diagnosis since that section landed — see
-`v1/runtime/backend/js/BUGS.md`
-`js-val-tuple-destructuring-does-not-escape-a-reserved-word-component-name`.
+Landing this also found a JS syntax error in `groupByAgg` (§8) that had been silently masking part
+of an already-filed bug's own diagnosis since that section landed — `v1/runtime/backend/js/BUGS.md`
+`js-val-tuple-destructuring-does-not-escape-a-reserved-word-component-name`, worked around at the
+time by renaming `groupByAgg`'s `in` to `item`. **Now fixed for real** (the codegen itself, not just
+this one call site): `val (a, b) = tuple`-style destructuring now escapes a JS-reserved-word
+component name exactly like a lambda parameter's own destructuring already did. `groupByAgg`'s `in`
+reverted to its original name.
 
 Exact distinct-count, exact quantiles, and exact top-K cannot be computed in bounded memory over
 unbounded data — there is no monoid that does it. The industry answer (Flajolet et al. for

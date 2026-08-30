@@ -77,8 +77,12 @@ itself scopes out of the first slice — queued here rather than attempted in th
   — this had been silently masking part of an already-filed JS bug's diagnosis in every conformance
   case landed since §8, since a JS syntax error prevents the file from running AT ALL regardless of
   which line actually gets reached. The underlying JS codegen defect (a reserved word used as a
-  `val`-tuple name isn't escaped, though the identical shape in a lambda PARAMETER's destructuring
-  correctly is) remains open and filed; only `std/aggregator.ssc`'s own usage was renamed.
+  `val`-tuple name wasn't escaped, though the identical shape in a lambda PARAMETER's destructuring
+  correctly was) is **now fixed for real** (claim `js-val-tuple-reserved-word`, 2026-08-30):
+  `genPatDestructure`'s `Pat.Var` case now escapes a reserved-word name and registers the mapping
+  into `paramRenames` so later bare references resolve too (a destructuring statement has no
+  enclosing-body scope to thread a rename through the way a lambda parameter's `withParamRenames`
+  does). `groupByAgg`'s `item` reverted to `in`, the original name.
   Also found, and now fixed (claim `interp-class-body-val-field`, 2026-08-30): a class-body `val`
   field (not a constructor parameter — `HLLAgg`'s `hllMonoid`/`m`) threw `Undefined: <name>` when
   read from a different method of the same class — the class-body scan collected only `Defn.Def`

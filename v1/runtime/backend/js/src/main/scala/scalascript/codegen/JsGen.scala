@@ -4546,17 +4546,38 @@ class JsGen(
     case t: Term => genExpr(t) + ";"
     case _ => "/* stat */;"
 
+  /** A `val (a, b) = e` / `val Tuple(a, b) = e` destructuring binds names that are then
+   *  referenced FREELY in later statements via bare `Term.Name` — unlike a lambda or method
+   *  parameter, whose renames are pushed via `withParamRenames` around just the body, a
+   *  destructuring statement has no such enclosing scope available at this call site. A
+   *  JS-reserved-word component name (`val (a, in) = pair`) needs the SAME escaping wherever
+   *  it's mentioned afterward, and the mapping is a fixed, deterministic function of the
+   *  reserved word alone (`safeJsParam`) — so registering it in `paramRenames` PERMANENTLY
+   *  (not scoped/restored) is safe: every future mention of this exact reserved word,
+   *  anywhere in this module, needs the identical escape regardless of which destructuring
+   *  statement introduced it. Without this, `const [a, in] = pair;` was a JS `SyntaxError:
+   *  Unexpected token 'in'` — the identical shape in a LAMBDA PARAMETER's own destructuring
+   *  was already correctly escaped (that path threads through `withParamRenames`), only this
+   *  statement form missed it. js-val-tuple-destructuring-does-not-escape-a-reserved-word-
+   *  component-name. */
+  private def escapeDestructuredName(name: String): String =
+    if jsReservedWords.contains(name) then
+      val escaped = safeJsParam(name)
+      paramRenames(name) = escaped
+      escaped
+    else name
+
   private[codegen] def genPatDestructure(pat: Pat): String = pat match
     case Pat.Tuple(pats) =>
       "[" + pats.map(p => p match
-        case Pat.Var(n) => n.value
+        case Pat.Var(n) => escapeDestructuredName(n.value)
         // A `_` wildcard is a discard — emit a FRESH unique name, not the literal
         // `_`. Two `val (a, _) = …` at the same scope both bound `const _` → JS
         // "Identifier '_' has already been declared". (js-wildcard-destructure-dup.)
         case Pat.Wildcard() => freshTmp()
         case inner => genPatDestructure(inner)
       ).mkString(", ") + "]"
-    case Pat.Var(n) => n.value
+    case Pat.Var(n) => escapeDestructuredName(n.value)
     case Pat.Wildcard() => freshTmp()
     case _ => freshTmp()
 

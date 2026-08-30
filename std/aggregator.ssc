@@ -602,8 +602,8 @@ class MapMonoid[K, Acc](inner: Monoid[Acc]) extends Monoid[Map[K, Acc]]:
 def groupByAgg[K, In, Acc, Out](xs: List[(K, In)], agg: Aggregator[In, Acc, Out]): Map[K, Out] =
   val monoid = MapMonoid[K, Acc](agg.monoid)
   val acc = xs.foldLeft(monoid.empty) { (m, kv) =>
-    val (k, item) = kv
-    monoid.combine(m, Map(k -> agg.prepare(item)))
+    val (k, in) = kv
+    monoid.combine(m, Map(k -> agg.prepare(in)))
   }
   acc.toList.foldLeft(Map[K, Out]()) { (m, kv) =>
     val (k, v) = kv
