@@ -1044,10 +1044,31 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # `.split` made that SAME receiver satisfy the refusal's own guard too, and match order means
 # whichever comes first wins). Re-verified uniml/xml, uniml/json, and uniml/yaml all still build
 # clean (0 errors).
+# renderTerm 40836 -> 41252 (+416), continuing the same backlog, 35 -> next (E0599x2: two of the
+# ten). `trimmed.filter(c => …)` (`uniml/markdown`'s `MarkdownBlocks.scala`'s `isThematicBreak`)
+# and `raw.map(c => …)` (`MarkdownProjection.scala`'s `codeSpanValue`) — `.filter`/`.map` on a
+# STRING receiver had NO dedicated lowering at all anywhere in this backend (unlike their siblings
+# `.forall`/`.exists`/`.count`, which already special-case a String receiver a few hundred lines
+# up): the generic Vec-shaped `.map`/`.filter` cases have no receiver-type guard, so a String
+# reached `renderVecIterBody`'s `.iter().cloned()` shape and `String` has no `.iter()`:
+# `error[E0599]`. Two new inline arms, `.chars()` + this lane's i64-code-point convention (same
+# idiom `.forall`/`.exists` already use), placed AHEAD of the generic Vec cases for the identical
+# match-ordering reason the `.toMap` fix just needed — the growth. Re-verified uniml/xml,
+# uniml/json, and uniml/yaml all still build clean (0 errors).
+# renderTerm 41252 -> 41352 (+100), continuing the same backlog. `spaced.head`/`spaced.last`
+# (`uniml/markdown`'s `MarkdownProjection.scala`'s `codeSpanValue`, `spaced` now a genuine String
+# local after the `.map`-on-String fix just above) — `yieldsSscChar`'s own `isStringReceiverChain`
+# case already knew this shape needed the `.0`-unwrap coercion at a CONSUMER position, but nothing
+# ever LOWERED the access itself: `error[E0609]: no field head on type String`. Two new inline
+# arms routing to `crate::runtime::_str_char_at` at index `0` / `length - 1`, mirroring every
+# other indexed String read on this lane — the growth. Also needed: `"map"` added to
+# `collectLocalStrings`'s `StringPreserving` set (a separate helper, costs nothing here) — without
+# it `spaced` never joined `ctx.localStrings` and this fix's own guard never fired. Re-verified
+# uniml/xml, uniml/json, and uniml/yaml all still build clean (0 errors).
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-40836 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+41352 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

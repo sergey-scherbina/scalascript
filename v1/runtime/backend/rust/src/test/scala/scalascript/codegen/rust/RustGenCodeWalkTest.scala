@@ -4042,6 +4042,37 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(expected.findFirstIn(g).isDefined,
       s"a Vec-typed field destructured through a fixed-arity Vector sub-pattern must rewrite to an if-let + slice match, not refuse as an unknown ctor:\n$g")
 
+  test("`.filter`/`.map` on a String receiver lower via `.chars()`, and a String-typed local built from `.map` still resolves `.head`/`.last`"):
+    // `trimmed.filter(c => …)` (`uniml/markdown`'s `MarkdownBlocks.scala`'s `isThematicBreak`) and
+    // `raw.map(c => …)` (`MarkdownProjection.scala`'s `codeSpanValue`) — `.filter`/`.map` on a
+    // STRING receiver had NO dedicated lowering at all (unlike `.forall`/`.exists`/`.count`, which
+    // already special-case a String receiver): the generic Vec-shaped cases have no receiver-type
+    // guard, so a String reached `.iter()`, which it does not have (`error[E0599]`). Once `raw.
+    // map(...)` lowers correctly, the RESULTING local (`spaced`) must ALSO be recognized as a
+    // String by `collectLocalStrings` (`"map"` added to `StringPreserving`) so `spaced.head`/
+    // `spaced.last` — String's own no-paren first/last-char accessors, previously unlowered
+    // entirely (`error[E0609]`) — resolve too.
+    val src =
+      """```scalascript
+        |private def isThematicBreak(trimmed: String): Boolean =
+        |  val stripped = trimmed.filter(c => c != ' ' && c != '\t')
+        |  stripped.length >= 3
+        |
+        |private def codeSpanValue(raw0: Option[String]): String =
+        |  val raw = raw0.getOrElse("")
+        |  val spaced = raw.map(c => if c == '\n' || c == '\r' then ' ' else c)
+        |  if spaced.length >= 2 && spaced.head == ' ' && spaced.last == ' ' then spaced.substring(1, spaced.length - 1) else spaced
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".chars().filter(|__ch| ") && g.contains(").collect::<String>()"),
+      s"String.filter must lower via .chars() + collect::<String>(), not the Vec-shaped .iter():\n$g")
+    assert(g.contains(".chars().map(|__ch| char::from_u32("),
+      s"String.map must lower via .chars() + char::from_u32 + collect::<String>():\n$g")
+    assert(g.contains("crate::runtime::_str_char_at(&spaced, 0i64)") &&
+           g.contains("crate::runtime::_str_char_at(&spaced, crate::runtime::_str_length(&spaced) - 1i64)"),
+      s"spaced.head/spaced.last must route through _str_char_at once spaced is known to be a String:\n$g")
+
   test("a topval referencing an EARLIER SIBLING topval by bare name resolves, and the chain it builds (.split/.iterator/String.indexOf/.toMap) all lower correctly"):
     // `val table: Map[String, String] = encoded.split(…).iterator.map { record => … }.toMap`
     // (`uniml/markdown`'s `MarkdownEntitiesGenerated.scala`, referencing `private val encoded:

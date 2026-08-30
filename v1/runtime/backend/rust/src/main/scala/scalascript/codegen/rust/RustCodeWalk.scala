@@ -4696,8 +4696,16 @@ object RustCodeWalk:
     // only trusts once `seed` carries it — which is why this function now takes one, so a caller
     // can hand in its String-typed params (see both call sites' own comments for why THAT was
     // deferred rather than computed here: only the caller knows the def's parameter list).
+    // `val spaced = raw.map(c => if c == '\n' || c == '\r' then ' ' else c)` (`uniml/markdown`'s
+    // `MarkdownProjection.scala`'s `codeSpanValue`) — `"map"` was missing from this set even though
+    // `renderTerm` now has a dedicated String `.map` case (`Char => Char`, the only shape Scala's
+    // own `.map` keeps a `String` result for — anything else widens to an unrelated collection, so
+    // trusting it here is sound for exactly the shape that render case itself accepts). Without
+    // this, `spaced` never joined `ctx.localStrings`, so `spaced.head`/`spaced.last` (String's OWN
+    // no-paren first/last-char accessors) fell to the generic field-access path: `error[E0609]: no
+    // field head on type String`.
     val StringPreserving = Set("drop", "take", "dropWhile", "takeWhile", "dropRight", "takeRight",
-                               "stripPrefix", "stripSuffix", "stripMargin", "filter", "filterNot",
+                               "stripPrefix", "stripSuffix", "stripMargin", "filter", "filterNot", "map",
                                "replace", "replaceAll", "toLowerCase", "toUpperCase", "strip", "reverse")
     def isStr(rhs: m.Term): Boolean = rhs match
       case m.Lit.String(_)                            => true
@@ -7573,6 +7581,19 @@ object RustCodeWalk:
     case m.Term.Select(qual, m.Term.Name("reverse")) if isStringReceiverChain(qual, ctx) =>
       renderTerm(qual, ctx).map(q => s"$q.chars().rev().collect::<String>()")
 
+    // `spaced.head` / `spaced.last` on a STRING receiver (`uniml/markdown`'s
+    // `MarkdownProjection.scala`'s `codeSpanValue`) — Scala's `String.head`/`.last` answer the
+    // FIRST/LAST character; `yieldsSscChar`'s own `isStringReceiverChain` case already knows this
+    // shape needs the SscChar `.0`-unwrap coercion at a CONSUMER position, but nothing actually
+    // LOWERED the access itself — it fell to the generic no-paren field path, `error[E0609]: no
+    // field head on type String`. `.charAt`'s own runtime helper is the direct equivalent, indexed
+    // at `0` / `length - 1` — same UTF-16-code-unit basis, same `SscChar` return every OTHER
+    // indexed String read on this lane already carries.
+    case m.Term.Select(qual, m.Term.Name("head")) if isStringReceiverChain(qual, ctx) =>
+      renderTerm(qual, ctx).map(q => s"crate::runtime::_str_char_at(&$q, 0i64)")
+    case m.Term.Select(qual, m.Term.Name("last")) if isStringReceiverChain(qual, ctx) =>
+      renderTerm(qual, ctx).map(q => s"crate::runtime::_str_char_at(&$q, crate::runtime::_str_length(&$q) - 1i64)")
+
     // `elements.nonEmpty` / `elements.isEmpty` (`XmlDialect.scala`'s `XmlScanner.scan`, `var
     // elements: Vector[String]`) — the STRING-receiver case just above never claims a known Vec,
     // and nothing else in this file lowered `.nonEmpty`/`.isEmpty` for one at all; `Vec` has both
@@ -8414,6 +8435,44 @@ object RustCodeWalk:
         // underlying gap is still open and unrelated to any of those three.
         body <- renderVecIterBody(args.values.head, q, enriched, method = "foreach", elemType = elementTypeOf(qual, ctx))
       yield body
+
+    // `trimmed.filter(c => …)` / `raw.map(c => …)` on a STRING receiver (`uniml/markdown`'s
+    // `MarkdownBlocks.scala`'s `isThematicBreak`, `MarkdownProjection.scala`'s `codeSpanValue`) —
+    // the generic Vec-shaped `.map`/`.filter` cases just below have NO receiver-type guard at all
+    // (unlike `.forall`/`.exists`/`.count`'s own String cases a few hundred lines up, which DO),
+    // so a String reached `renderVecIterBody`'s `.iter().cloned()` shape and `String` has no
+    // `.iter()`: `error[E0599]`. Same `.chars()` + i64-code-point convention those cases already
+    // use, same two-part receiver guard (`isStringExpr` for a syntactic shape, `ctx.localStrings`/
+    // `ctx.paramTypes` for a bound name) — MUST be placed here, ahead of the generic cases, for the
+    // identical "case after a total fallback is dead code" reason this file's `.toMap` fix just
+    // ran into. `.filter`'s predicate is `Char => Boolean`, so the closure is unchanged going in
+    // and `.collect::<String>()` rebuilds a String from the surviving `char`s. `.map`'s function is
+    // `Char => Char` (the only shape Scala's OWN `.map` keeps a `String` result for — anything else
+    // widens to a `String`-unrelated collection, not this corpus's shape), so its i64 RESULT also
+    // needs converting back to a displayable `char` before collecting, the same `char::from_u32`
+    // widening `.charAt`'s own consumers already use.
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(qual, m.Term.Name("filter")), args
+    ) if args.values.size == 1 &&
+        (isStringExpr(qual) || (qual match {
+          case m.Term.Name(n) => ctx.localStrings.contains(n) || ctx.paramTypes.get(n).contains("String")
+          case _ => false
+        })) =>
+      for
+        q    <- renderTerm(qual, ctx)
+        pred <- renderTerm(args.values.head, ctx)
+      yield s"$q.chars().filter(|__ch| ($pred)((*__ch as u32) as i64)).collect::<String>()"
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(qual, m.Term.Name("map")), args
+    ) if args.values.size == 1 &&
+        (isStringExpr(qual) || (qual match {
+          case m.Term.Name(n) => ctx.localStrings.contains(n) || ctx.paramTypes.get(n).contains("String")
+          case _ => false
+        })) =>
+      for
+        q <- renderTerm(qual, ctx)
+        f <- renderTerm(args.values.head, ctx)
+      yield s"$q.chars().map(|__ch| char::from_u32((($f)((__ch as u32) as i64)) as u32).unwrap_or('\\u{FFFD}')).collect::<String>()"
 
     // xs.map(f) → xs.iter().cloned().map(move |p| body).collect::<Vec<_>>()
     case m.Term.Apply.After_4_6_0(
