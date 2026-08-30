@@ -12452,29 +12452,38 @@ object RustCodeWalk:
         // position. Reads the CURRENT def's own raw params off `_defBodies`, keyed by `ctx.defName`.
         _defBodies.get(ctx.defName).exists(_.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
           .exists(p => p.name.value == n && (p.decltpe match { case Some(m.Type.Name("Char")) => true; case _ => false }))) ||
-        // `val open2 = content.charAt(i); val close2 = if open2 == '(' then ')' else open2` then
-        // `content.indexOf(close2, i + 1)` (`uniml/markdown`'s `MarkdownInlines.scala`'s
+        // `if … then val open2 = content.charAt(i); val close2 = if open2 == '(' then ')' else
+        // open2; content.indexOf(close2, i + 1)` (`uniml/markdown`'s `MarkdownInlines.scala`'s
         // `linkOrImage`'s destination-title scan) — `close2` is a LOCAL VAL bound to an if/else
         // between a `Lit.Char` and `open2` (itself SscChar, `.charAt`-bound), so it is genuinely
         // "conceptually a char" but bound through NEITHER shape the two cases above check (not a
         // niladic def, not the CURRENT def's own declared parameter) — the needle rendered as a
         // raw `i64` fed straight into a `&str` pattern position: `error[E0308]: expected &str,
-        // found &i64`. Reads the CURRENT def's own top-level `val` declarations off `ctx.bodyStats`
-        // (the same table `inferCaptureType`'s callers already use for a local's own initializer
-        // shape) and recurses through `isConceptuallyChar` on each if/else arm — deliberately NOT a
-        // new `Ctx`-threaded collection like `localSscChars`: this asks the identical "conceptually
-        // char" question that function already answers, just one level of `if`/`else` indirection
-        // deeper, so no new bookkeeping is needed to keep it in sync.
-        ctx.bodyStats.collectFirst {
-          case v: m.Defn.Val if v.pats match {
-            case List(m.Pat.Var(m.Term.Name(vn))) => vn == n
-            case _                                => false
-          } => v.rhs
-        }.exists {
-          case ifx: m.Term.If =>
-            (ifx.thenp.isInstanceOf[m.Lit.Char] || isConceptuallyChar(ifx.thenp, ctx)) &&
-            (ifx.elsep.isInstanceOf[m.Lit.Char] || isConceptuallyChar(ifx.elsep, ctx))
-          case _ => false
+        // found &i64`. `ctx.bodyStats` alone is NOT enough — that table is only the def's own
+        // TOP-level statements, and this `val` sits one `if`-block deeper (`inferCaptureType`'s
+        // callers can afford that narrowness because a captured LOCAL is always top-level by
+        // construction; a nested one like `close2` is not) — so this walks the CURRENT def's whole
+        // raw body (`_defBodies`, keyed by `ctx.defName`) recursively instead, stopping at the
+        // first nested `def` (a DIFFERENT scope, the same boundary `collectLocalSscChars`'s own
+        // walk already draws) so a same-named local in a sibling function can never be mistaken
+        // for this one's. Recurses through `isConceptuallyChar` on each if/else arm — deliberately
+        // NOT a new `Ctx`-threaded collection like `localSscChars`: this asks the identical
+        // "conceptually char" question that function already answers, just one level of `if`/`else`
+        // indirection deeper, so no new bookkeeping is needed to keep it in sync.
+        {
+          def findLocalValRhs(t: m.Tree): Option[m.Term] = t match
+            case _: m.Defn.Def => None
+            case v: m.Defn.Val if v.pats match {
+              case List(m.Pat.Var(m.Term.Name(vn))) => vn == n
+              case _                                => false
+            } => Some(v.rhs)
+            case _ => t.children.iterator.map(findLocalValRhs).collectFirst { case Some(rhs) => rhs }
+          _defBodies.get(ctx.defName).flatMap(d => findLocalValRhs(d.body)).exists {
+            case ifx: m.Term.If =>
+              (ifx.thenp.isInstanceOf[m.Lit.Char] || isConceptuallyChar(ifx.thenp, ctx)) &&
+              (ifx.elsep.isInstanceOf[m.Lit.Char] || isConceptuallyChar(ifx.elsep, ctx))
+            case _ => false
+          }
         }
       case _ => false)
 
