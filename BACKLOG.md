@@ -54,10 +54,15 @@ itself scopes out of the first slice — queued here rather than attempted in th
   except `Arrow`/`Category`/a new `Future`/`Task`/`Result` type (§11.4, deliberately deferred, not a
   gap) is now landed. Found landing it: `HLLAgg` was known-red on `int` (`math.log` missing from the
   interpreter's `math` object) and was known-red on `js` (a sibling zero-arg `def` referenced by bare
-  name resolved to nothing — fixed, claim `js-sibling-zeroarg-def`, 2026-08-30; `js` now stays
-  known-red against a newer, sibling defect surfaced re-testing this fix: a class-body `val` field
-  is never computed or attached to the instance object at all,
-  `js-codegen-never-computes-or-attaches-a-class-body-val-field`, filed not fixed);
+  name resolved to nothing — fixed, claim `js-sibling-zeroarg-def`, 2026-08-30). That fix surfaced a
+  sibling defect re-testing against the real `HLLAgg`: a class-body `val` field was never computed
+  or attached to the instance object at all — **also now fixed** (claim `js-classbody-val-field`,
+  2026-08-30, shared helper used by both `Defn.Class` codegen sites). Landing THAT fix surfaced a
+  THIRD, unrelated defect: `Array.fill`/`List.fill`/`*.tabulate` reject a `BigInt` count, which
+  `1 << precision`-style `Int` arithmetic produces on `js`
+  (`js-codegen-array-fill-and-tabulate-reject-a-bigint-count`, filed not fixed — likely a specific
+  manifestation of the broader, already-acknowledged `int-width` non-conformance, which carries no
+  BUGS slug of its own to fix against). `js` stays known-red against this third bug.
   `TDigestMonoid` was known-red on `int` (`List.sortBy` on a `Double` key
   sorted lexicographically, not numerically); the whole `std-aggregator-approx` conformance case is
   also known-red on `jvm` (the pre-existing, already-tracked `int-width` non-conformance, triggered

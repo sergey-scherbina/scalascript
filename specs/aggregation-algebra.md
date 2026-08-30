@@ -316,12 +316,12 @@ correctly; every tuple-destructuring lambda in `std/aggregator.ssc` uses this fo
 **`CMSMonoid` is correct on every lane; `HLLAgg` and `TDigestMonoid` are known-red on `js` and
 `jvm`** (their two `int`-lane bugs are now fixed, see below), one distinct, independently filed bug
 per remaining lane (all found landing this, none assumed): `HLLAgg`'s hash needed a real bit-mixing
-finalizer that isn't in the original design (below); `js` never computes or attaches a class-body
-`val` field to the instance object at all (`v1/runtime/backend/js/BUGS.md`
-`js-codegen-never-computes-or-attaches-a-class-body-val-field` — a sibling DEFECT,
-`js-codegen-does-not-resolve-a-sibling-zero-arg-def-from-another-method`, is now fixed, but
-`HLLAgg`'s `hllMonoid`/`m` are `val`s, not `def`s, matching the design, so this lane stays known-red
-against the newer bug); `jvm`'s transpilation
+finalizer that isn't in the original design (below); `js`'s `Array.fill`/`List.fill`/`*.tabulate`
+reject a `BigInt` count, which `1 << precision`-style `Int` arithmetic produces
+(`v1/runtime/backend/js/BUGS.md` `js-codegen-array-fill-and-tabulate-reject-a-bigint-count` — TWO
+sibling defects that used to block reaching this one are now fixed:
+`js-codegen-does-not-resolve-a-sibling-zero-arg-def-from-another-method` and
+`js-codegen-never-computes-or-attaches-a-class-body-val-field`); `jvm`'s transpilation
 inherits the pre-existing, already-tracked `int-width` non-conformance (a 64-bit `Long` literal
 `fmix64` needs doesn't fit the 32-bit `Int` `run-jvm` emits). **`int`'s two bugs are fixed**: the
 `math` object was missing `log` entirely (`v1/runtime/backend/interpreter/BUGS.md`

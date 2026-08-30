@@ -3176,9 +3176,21 @@ class JsGen(
       val typeName = d.name.value
       val ctorName = emittedName(typeName)
       val paramsStr = paramListWithDefaults(paramVals)
-      val fields   = params.map(p => s"$p: $p").mkString(", ")
+      val (valDecls, valNames) = classBodyValFields(d.templ.body.stats)
+      val allFieldNames = params ++ valNames
+      val fields   = allFieldNames.map(p => s"$p: $p").mkString(", ")
       val tagField = caseClassTagMap.get(typeName).map(t => s"_tag: $t, ").getOrElse("")
-      line(s"function $ctorName($paramsStr) ${intParamReturnBody(paramVals, s"{_type: '$typeName', ${tagField}$fields}")}")
+      val objLit   = s"{_type: '$typeName', ${tagField}$fields}"
+      // A class-body val's RHS needs the ctor's own params already narrowed/coerced (e.g. a
+      // declared-Int param), so its `const` goes AFTER the int guards and BEFORE the return —
+      // intParamReturnBody only supports a single trailing `return`, so build the body directly
+      // when there is a val to evaluate.
+      val ctorBody = if valDecls.isEmpty then intParamReturnBody(paramVals, objLit)
+        else
+          val guards = intParamGuardLines(paramVals)
+          val pre = (guards ++ valDecls).mkString(" ")
+          s"{ $pre return $objLit; }"
+      line(s"function $ctorName($paramsStr) $ctorBody")
       line(jsTypedJsonRegisterProduct(typeName, params, ctorName))
       // Compile case-class body methods (e.g. `override def toString`, or trait
       // methods on a class that `extends` an interface — a FixtureVfs's
@@ -3190,7 +3202,7 @@ class JsGen(
       // redeclaration of a lambda param is a JS syntax error).  Curried methods
       // (>1 param clause) are left unregistered — their calling convention would
       // not match `_dispatch`'s flat argument array.
-      caseClassBodyMethodRegistrations(typeName, params, d.templ.body.stats).foreach(line)
+      caseClassBodyMethodRegistrations(typeName, allFieldNames, d.templ.body.stats).foreach(line)
 
     case d: Defn.Object =>
       val objName = emittedName(d.name.value)
@@ -3379,6 +3391,31 @@ class JsGen(
    *  field is NOT re-destructured (a `const` redeclaration of a lambda param is a JS syntax error).
    *  Curried methods (>1 param clause) are left unregistered — their calling convention would not match
    *  `_dispatch`'s flat argument array. */
+  /** A class-body `val` (not a constructor parameter) needs its RHS evaluated PER INSTANCE, with
+   *  the constructor's OWN parameters already in scope — unlike an object's body val (a
+   *  singleton, evaluated once, `genObjectAsExpr`'s own `Defn.Val` arm), a class is compiled to a
+   *  reusable constructor FUNCTION, so this cannot be hoisted to a top-level `const`. Returns the
+   *  `const name = rhs;` declarations to emit inside the constructor body (in source order, so a
+   *  later val referencing an earlier one sees a real JS binding) and the plain field names to add
+   *  alongside the constructor params — both to the returned object literal and to
+   *  `caseClassBodyMethodRegistrations`'s destructuring, so a sibling method or an external read
+   *  can see the field exactly like a constructor param.
+   *
+   *  Only a single-variable `val name = rhs` is handled (the common case, matching every other
+   *  `Defn.Val(_, List(Pat.Var(n)), _, rhs)` site in this file); a tuple/pattern-destructured
+   *  class-body val is left unhandled — no repro has needed it yet.
+   *
+   *  Deliberately NOT added to `jsTypedJsonRegisterProduct`'s field list: inferring a val's type
+   *  with no explicit annotation for JSON-schema purposes is separate work (mirrors the `int`
+   *  lane's own `class-body-val-field-undefined-in-a-sibling-method` fix, which made the same
+   *  narrower-scope call for `typeFieldTypes`/`typeFieldSchemas`).
+   *  js-codegen-never-computes-or-attaches-a-class-body-val-field. */
+  private def classBodyValFields(stats: List[Stat]): (List[String], List[String]) =
+    val valStats = stats.collect { case v @ Defn.Val(_, List(_: Pat.Var), _, _) => v }
+    val decls = valStats.map { case Defn.Val(_, List(Pat.Var(n)), _, rhs) => s"const ${n.value} = ${genExpr(rhs)};" }
+    val names = valStats.map { case Defn.Val(_, List(Pat.Var(n)), _, _) => n.value }
+    (decls, names)
+
   private def caseClassBodyMethodRegistrations(
       typeName: String, params: Seq[String], stats: List[Stat]): List[String] =
     // This class's own parenless (zero-arg) sibling defs — the same "no explicit param clause at
@@ -3683,12 +3720,20 @@ class JsGen(
         val params    = paramVals.map(_.name.value)
         val typeName  = d.name.value
         val paramsStr = paramListWithDefaults(paramVals)
-        val fields    = params.map(p => s"$p: $p").mkString(", ")
+        val (valDecls, valNames) = classBodyValFields(d.templ.body.stats)
+        val allFieldNames = params ++ valNames
+        val fields    = allFieldNames.map(p => s"$p: $p").mkString(", ")
         val tagField  = caseClassTagMap.get(typeName).map(t => s"_tag: $t, ").getOrElse("")
-        decls += s"function $typeName($paramsStr) ${intParamReturnBody(paramVals, s"{_type: '$typeName', ${tagField}$fields}")}"
+        val objLit    = s"{_type: '$typeName', ${tagField}$fields}"
+        val ctorBody  = if valDecls.isEmpty then intParamReturnBody(paramVals, objLit)
+          else
+            val guards = intParamGuardLines(paramVals)
+            val pre = (guards ++ valDecls).mkString(" ")
+            s"{ $pre return $objLit; }"
+        decls += s"function $typeName($paramsStr) $ctorBody"
         decls += jsTypedJsonRegisterProduct(typeName, params, typeName)
         // Body methods, which this path used to drop entirely — see the helper's comment.
-        decls ++= caseClassBodyMethodRegistrations(typeName, params, d.templ.body.stats)
+        decls ++= caseClassBodyMethodRegistrations(typeName, allFieldNames, d.templ.body.stats)
         names += typeName
       case d: Defn.Enum =>
         val enumName = d.name.value
