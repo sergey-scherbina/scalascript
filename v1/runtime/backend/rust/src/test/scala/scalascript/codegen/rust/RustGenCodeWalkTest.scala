@@ -3461,6 +3461,30 @@ class RustGenCodeWalkTest extends AnyFunSuite:
       && g.contains("if !lexeme.is_empty()"),
       s"a captured var's tuple-string positions must flow through a bare-name alias and a .foreach destructure:\n$g")
 
+  test("`+` string concat over case-class fields bound via a self-clone preamble is recognized, not left as a raw Rust `+` chain"):
+    // `indent + labelLex + colon + afterColon + destLex + betweenDestTitle + titleLex + trailing`
+    // inside a case class's own method (`uniml/markdown`'s `MarkdownBlocks.scala`'s `RefDef`) — the
+    // `+`-is-string-concat rewrite (which flattens a whole chain into ONE `format!` call) has its
+    // OWN copy of the "is this operand a known String" guard, checking `isStringExpr`/
+    // `isKnownStringField`/`ctx.localStrings` — but `labelLex`/`colon`/… are ALL the case class's
+    // OWN constructor params, bound to locals by the method's own self-clone preamble (`let
+    // labelLex = self.labelLex.clone();`), never in `ctx.localStrings` (LOCAL `val`s only) — the
+    // SAME gap the `.forall`/`.exists`-on-String fix's own history entry already closed for THAT
+    // one call site. The guard failed for the WHOLE 8-operand chain and fell to Rust's native `+`
+    // (`Add<&str> for String` only): `error[E0308]: expected &str, found String`, at every operand
+    // after the first.
+    val src =
+      """```scalascript
+        |case class RefDef(indent: String, labelLex: String, colon: String, afterColon: String,
+        |                   destLex: String, betweenDestTitle: String, titleLex: String, trailing: String):
+        |  def raw: String =
+        |    indent + labelLex + colon + afterColon + destLex + betweenDestTitle + titleLex + trailing
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("format!(\"{}{}{}{}{}{}{}{}\", indent, labelLex, colon, afterColon, destLex, betweenDestTitle, titleLex, trailing)"),
+      s"an 8-way + chain over case-class fields must flatten into one format! call, not a raw Rust + chain:\n$g")
+
   test("`val opener = nodes(found).asInstanceOf[WDelim]` destructures instead of leaving a bare field access on the whole enum"):
     // `val opener = nodes(found).asInstanceOf[WDelim]` (`uniml/markdown`'s `MarkdownInlines.scala`'s
     // `processEmphasis`) — `.asInstanceOf[T]`'s existing case is a no-op identity, right for a value

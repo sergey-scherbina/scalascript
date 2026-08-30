@@ -9703,8 +9703,15 @@ object RustCodeWalk:
           // `localStrings` (bare-name-only) does not cover either. The OUTER guard then failed
           // entirely and fell through to a generic `+`, which is `Add<&str> for String` only:
           // `error[E0308]: expected &str, found String`.
+          // `ctx.paramTypes` TOO — `indent + labelLex + colon + … + trailing` inside a case class's
+          // own method (`uniml/markdown`'s `MarkdownBlocks.scala`'s `RefDef`) — `labelLex`/`colon`/…
+          // are ALL the case class's OWN constructor params, bound to locals by the method's own
+          // self-clone preamble (`let labelLex = self.labelLex.clone();`), never in `ctx.
+          // localStrings` (LOCAL `val`s only) — the SAME gap `content.forall`'s own history entry
+          // already fixed for THAT one call site; this is the identical fix for the `+` operator's
+          // own, separate copy of the same bare-name guard.
           def strOp(t: m.Term) = isStringExpr(t) || isKnownStringField(t, ctx) || (t match
-            case m.Term.Name(n) => ctx.localStrings.contains(n)
+            case m.Term.Name(n) => ctx.localStrings.contains(n) || ctx.paramTypes.get(n).contains("String")
             case _              => false)
           strOp(lhs) || strOp(args.values.head)
         } =>
@@ -9720,13 +9727,13 @@ object RustCodeWalk:
       // keeps `(1 + 2)` as a single numeric operand rather than splitting an addition.
       def isConcat(t: m.Term): Boolean = t match
         case m.Term.ApplyInfix.After_4_6_0(l2, m.Term.Name("+"), _, a2) if a2.values.size == 1 =>
-          // Same `isKnownStringField` widening as the outer guard just above, for the SAME reason
-          // — without it, `lexeme + line.raw + line.lineBreak` still compiles (each `format!`
-          // nests inside the next as a `{}` operand, since a `String` also implements `Display`),
-          // but stays needlessly unflattened one level: `format!("{}{}", format!("{}{}", lexeme,
-          // line.raw), line.lineBreak)` instead of one 3-placeholder call.
+          // Same `isKnownStringField`/`paramTypes` widening as the outer guard just above, for the
+          // SAME reason — without it, `lexeme + line.raw + line.lineBreak` still compiles (each
+          // `format!` nests inside the next as a `{}` operand, since a `String` also implements
+          // `Display`), but stays needlessly unflattened one level: `format!("{}{}",
+          // format!("{}{}", lexeme, line.raw), line.lineBreak)` instead of one 3-placeholder call.
           def strOp(x: m.Term) = isStringExpr(x) || isKnownStringField(x, ctx) || (x match
-            case m.Term.Name(n) => ctx.localStrings.contains(n)
+            case m.Term.Name(n) => ctx.localStrings.contains(n) || ctx.paramTypes.get(n).contains("String")
             case _              => false)
           strOp(l2) || strOp(a2.values.head.asInstanceOf[m.Term])
         case _ => false
