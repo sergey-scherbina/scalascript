@@ -56,6 +56,13 @@ bound, a client's `Refusal` keeping its `:line:col:` shape, and an unclaimed mar
 CLIENT'S output rather than the name the user wrote. Reading the code added the seventh rule: the
 lazy-prelude retry lowers a failing file twice, so a rewrite runs twice and must be a function.
 
+**[x] LANDED — the row was never ticked, and nothing but this line was missing.** The door is in
+`v3/src/Plugins.scala` (`registerRewrite`, `hasRewrite`, `Refusal`, `Ctx.fresh`) and the pass is
+wired exactly where this row says, at `Lower.programOf`'s first line — its comment there restates
+the seam and rule 7 in the same words. `v3/rewrite-gate.sh` asserts all seven rules, each with its
+own `MarkerProbe` lever, plus an eighth check comparing the three spellings byte for byte on both
+fronts. Ticked 2026-08-31 after an agent was handed R2 as work to do and read the code first.
+
 **R3 — `direct[F] { … }`, the first client, 3 cases.** THE RULE IS THE REFERENCE'S, VERBATIM —
 `v2/lib/ssc1-lower.ssc0:2256-2312`, read before writing rather than re-derived, because a
 re-derivation is how the bridge lane and the frozen goldens come to disagree:
@@ -117,11 +124,16 @@ Four optic KINDS, not one, and composition between kinds (`andThen` of a Lens an
   `Lens.andThen(Traversal)` is a traversal by the same rule whether the halves came from one `Focus`
   or from a user's own `andThen` of two of them.
 - **[x] R4c** `prisms` — landed earlier, and independently as planned.
-- **[ ] R4e's `optic-polish` — BLOCKED, and on nothing to do with optics.** It needs `println(lens)`
-  to print `Lens(_.x)`, which no lane can do for a ScalaScript value, and positional/mixed `copy`.
-  Both are filed (`v3-an-optic-cannot-print-itself-…`, `v3-copy-with-positional-or-mixed-arguments`).
-  The `copy` fix is written and measured and is HELD: landing it alone makes `optic-polish` stop
-  refusing and start answering WRONGLY, which moved DIFF 0 → 1 in the A/B — and DIFF is a floor.
+- **[x] R4e's `optic-polish` — LANDED, by the claim that unblocked it rather than by this one.** It
+  needed `println(lens)` to print `Lens(_.x)`, which no lane could do for a ScalaScript value, and
+  positional/mixed `copy`. Both were filed (`v3-an-optic-cannot-print-itself-…`,
+  `v3-copy-with-positional-or-mixed-arguments`) and the `copy` fix was deliberately HELD, because
+  landing it alone made `optic-polish` stop refusing and start answering WRONGLY — DIFF 0 → 1 in the
+  A/B, and DIFF is a floor. **Holding it was right and the pair landed together** under
+  `v3-value-show-and-copy` (`8580f7480`): the rendering rule the `copy` fix was waiting for arrived
+  with it, `optic-polish` passes as the sixth of the six optics cases, exec 277 → 278 and bridge
+  274 → 275 with DIFF 0 and CRASH unchanged. **So all six of R4's cases run, and the whole R2–R4
+  series is complete.** Ticked 2026-08-31 from the release record, not from a re-run.
 
 **A SECOND SHARED LIBRARY CAME OUT OF THE SAME MEASUREMENT.** `std/html.ssc` — `html(parts, args)`,
 `raw(v)` and the escaper, with the escape set copied verbatim from `v2/src/Runtime.scala` — makes
