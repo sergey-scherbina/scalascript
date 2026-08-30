@@ -393,7 +393,11 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |```
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
-    assert(g.contains("e.children.is_empty()") || g.contains("children.is_empty()"),
+    // `(*children)` — a `Pat.Typed`-to-variant bind's OWN fields are now ALSO `byRefMut` (the
+    // `emailLocalBackscan` field-deref fix, `renderMatch`'s `bodyCtx` case), so a bare field read
+    // derefs the same way the outer bind name always has; `.is_empty()` autoderefs either way
+    // (verified via a real `cargo build`, /tmp/t95.scala this session).
+    assert(g.contains("e.children.is_empty()") || g.contains("children.is_empty()") || g.contains("(*children).is_empty()"),
       s"typed-bind field isEmpty did not lower:\n$g")
 
   test("`.isInstanceOf[T]` lowers to Rust's `matches!` against a known enum variant"):
@@ -1464,7 +1468,12 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(g.contains("ref frame @ Frame::ObjectFrame { ref state }"), s"a bare-typed with-fields bind must destructure:\n$g")
-    assert(g.contains("match state {"), s"the inner match must see the destructured field, not a dangling name:\n$g")
+    // `(*state)` — `state` is now ALSO `byRefMut` (the `emailLocalBackscan` field-deref fix), so the
+    // inner match's subject derefs the same way an outer bind's own reads always have; matching
+    // `true`/`false` against a `bool` works identically either way (verified via a real `cargo
+    // build`, /tmp/t96.scala this session).
+    assert(g.contains("match state {") || g.contains("match (*state) {"),
+      s"the inner match must see the destructured field, not a dangling name:\n$g")
 
   test("`.map { case x: Variant => x }` (a PartialFunction dispatcher) applies the SAME byRefMut enrichment `renderMatch` gives a standalone match"):
     // `element.children.collect { case child: Markup.Element => child }` (`uniml/xml`'s
@@ -3107,7 +3116,10 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |```
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
-    assert(g.contains("if lexeme.is_empty()"),
+    // `(*lexeme)` — `lexeme` is now ALSO `byRefMut` (the `emailLocalBackscan` field-deref fix), so
+    // a bare field read derefs the same way the outer bind name always has; `.is_empty()` autoderefs
+    // either way (verified via a real `cargo build`, /tmp/t97.scala this session).
+    assert(g.contains("if lexeme.is_empty()") || g.contains("if (*lexeme).is_empty()"),
       s"a no-paren String-field call on a Pat.Typed-to-variant binder must resolve through destructuredCtorNames:\n$g")
 
   test("a val bound to a QUALIFIED call resolves its seq-ness through the SPECIFIC def, not by bare name"):
@@ -3448,6 +3460,92 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(g.contains("let lexeme = format!(\"{}{}\", blankContent, ending);")
       && g.contains("if !lexeme.is_empty()"),
       s"a captured var's tuple-string positions must flow through a bare-name alias and a .foreach destructure:\n$g")
+
+  test("`case WFixed(Vector(Tok(MdKind.Text, lexeme, _, _))) => …` — a Vec-typed field destructured through a fixed-arity sequence sub-pattern"):
+    // `emailLocalBackscan`'s own `localTextOf` (`uniml/markdown`'s `MarkdownInlines.scala`):
+    //   def localTextOf(node: WNode): Option[String] = node match
+    //     case WFixed(Vector(Tok(MdKind.Text, lexeme, _, _))) => Some(lexeme)
+    //     case d: WDelim if d.ch == '_'                       => Some(d.lexeme)
+    //     case _                                              => None
+    // Three compounding gaps, each surfaced only after fixing the prior one (never trust
+    // --print-only alone — a REAL cargo build found two of these three):
+    //
+    // 1. `Vec<T>` has no Rust constructor pattern — `renderMatch`'s own `isListPattern`/`.as_slice()`
+    // trick only ever converts the WHOLE match subject, never a field buried one level inside
+    // another pattern — so `renderPattern`'s generic `Pat.Extract` case recursed into `Vector(…)` as
+    // if it might be a real enum constructor: "extracts `Vector` which is not a known enum
+    // constructor". `vectorFieldMatchArm`/`renderVectorFieldMatch` (new) detect the single-field,
+    // Vec-typed, fixed-arity shape and rewrite the WHOLE match into `if let Enum::Ctor { field:
+    // __vecfieldN } = (subject).clone() { match __vecfieldN.as_slice() { [elems…] => body, _ =>
+    // <trailing-wildcard body> } } else { <every other arm, via a recursive renderMatch call> }` —
+    // sound only because no other arm targets the same ctor and the match ends in a bare wildcard
+    // (both required by the detector; see its own comment for why the fallback is otherwise unsafe).
+    //
+    // 2. `MdKind.Text` (a String-valued topval reference used as a direct positional arg of `Tok(…)`)
+    // rendered as a BARE literal (`kind: "text"`) — correct only when the WHOLE match subject is
+    // separately coerced to `.as_str()` (the top-level `case MdBranch.Heading => …` shape a sibling
+    // test already covers), never true for a field reached through a slice element. `error[E0308]:
+    // expected String, found &str`. Fixed the same way the pre-existing `Lit.String`-as-direct-arg
+    // case already was: a fresh-name-plus-guard rewrite (`__litpat1 == "text"`), not a text literal.
+    //
+    // 3. `d.ch == '_'` (`d: WDelim` bound via `Pat.Typed`) — `renderPattern`'s own twin case borrows
+    // EVERY field with `ref` (`ref lexeme, ref ch, …`; destructuring a field out of a borrowed `d`
+    // while `d` stays borrowed can only borrow that field too), but `renderMatch`'s own `bodyCtx`
+    // only ever marked the OUTER bind name (`d`) as `byRefMut`, never the individual fields — so a
+    // bare `ch` read (after `d.ch` rewrites to bare `ch`) stayed un-dereffed: `error[E0277]: can't
+    // compare &i64 with i64`. Fixed by adding `ec.fieldNames` to `byRefMut` alongside `n` in that
+    // SAME bodyCtx case, plus two call sites that needed to actually CONSUME that fact:
+    // `Term.Select`'s own destructured-field rewrite (applies `(*_)` itself now, rather than
+    // returning a bare name for a later pass that never re-visits it) and `cloneIfMoved` (a
+    // by-value use of such a field, `Some(d.lexeme)`, now clones through the new `(*_)` wrapper
+    // instead of silently skipping it — `error[E0507]: cannot move out of *lexeme`).
+    //
+    // Verified via a real `cargo build` AND an actual `cargo run` of the isolated repro
+    // (/tmp/t91.scala this session): matching WFixed → `Some("hello")`, wrong-kind WFixed → `None`,
+    // empty/two-element WFixed → `None` (the slice pattern's own fixed arity), matching WDelim →
+    // `Some("_")`, non-matching WDelim → `None` — all six cases correct.
+    val src =
+      """```scalascript
+        |object MdKind:
+        |  val Text = "text"
+        |
+        |enum InlinePiece:
+        |  case Open(kind: String, role: Option[String] = None)
+        |  case Close(expectedKind: Option[String] = None, role: Option[String] = None)
+        |  case Tok(kind: String, lexeme: String, role: Option[String], channel: Int)
+        |
+        |private sealed trait WNode
+        |private final case class WFixed(pieces: Vector[InlinePiece]) extends WNode
+        |private final case class WDelim(lexeme: String, ch: Char, canOpen: Boolean, canClose: Boolean) extends WNode
+        |
+        |def localTextOf(node: WNode): Option[String] = node match
+        |  case WFixed(Vector(Tok(MdKind.Text, lexeme, _, _))) => Some(lexeme)
+        |  case d: WDelim if d.ch == '_'                       => Some(d.lexeme)
+        |  case _                                              => None
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    // `__litpatN` — `_pendingPatternGuardCounter` is a MODULE-level counter never reset between
+    // compiles, so its exact number depends on how many OTHER string-literal-in-pattern rewrites
+    // ran earlier in THIS SAME test-suite process, not just this one test in isolation. A literal
+    // `__litpat1` passed running this test alone and failed running the full suite for exactly that
+    // reason — matched by shape here instead of pinning the number.
+    val expected = ("""pub fn localTextOf\(node: WNode\) -> Option<String> \{
+    let Text = "text"\.to_string\(\);
+    if let WNode::WFixed \{ pieces: __vecfield0 \} = \(node\)\.clone\(\) \{
+        match __vecfield0\.as_slice\(\) \{
+            \[InlinePiece::Tok \{ kind: __litpat(\d+), lexeme, role: _, channel: _ \}\] if __litpat\1 == "text" => Some\(lexeme\.clone\(\)\),
+            _ => None,
+        \}
+    \} else \{
+        match node \{
+            ref d @ WNode::WDelim \{ ref lexeme, ref ch, ref canOpen, ref canClose \} if \(\(\*ch\) == 95i64\) => Some\(\(\*lexeme\)\.clone\(\)\),
+            _ => None,
+        \}
+    \}
+\}""").r
+    assert(expected.findFirstIn(g).isDefined,
+      s"a Vec-typed field destructured through a fixed-arity Vector sub-pattern must rewrite to an if-let + slice match, not refuse as an unknown ctor:\n$g")
 
   test("`sealed trait Container: def frame: String` + three case classes each overriding it — synthesized virtual dispatch, not the free-function overload refusal"):
     // `sealed trait Container: def frame: String` + `case class Blockquote()`/`ListFrame(ordered)`/

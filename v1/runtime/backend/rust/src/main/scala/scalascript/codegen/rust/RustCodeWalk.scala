@@ -4241,6 +4241,19 @@ object RustCodeWalk:
       case m.Term.Name(n)
           if needs(n) && !rendered.matches(raw"-?\d+i64|-?\d+\.\d+f64|true|false") =>
         s"$rendered.clone()"
+      // `Some(d.lexeme)` where `lexeme` is a FIELD destructured out of a `ref`-bound match arm
+      // (`d.ch == '_'`'s own bodyCtx fix — see that `byRefMut` assignment's comment) — `renderTerm`'s
+      // `destructuredCtorNames` case now renders such a field as `(*lexeme)`, not bare `lexeme`, so
+      // this function's own general `Term.Select` case just below — guarded `!rendered.contains("(")`
+      // specifically to leave an ALREADY-handled paren shape alone — never reaches it: `Some((*lexeme))`
+      // tries to MOVE the `String` out of the borrow the same E0507 the general case's own comment
+      // describes for a whole-value bind, one syntax position further in. `(*lexeme).clone()` is the
+      // same fix, just recognised by TEXT SHAPE here because `needs`'s underlying `ctx.byRefMut` was
+      // already consulted (and answered yes) to produce the `(*…)` wrapper in the first place.
+      case _: m.Term.Select
+          if rendered.startsWith("(*") && rendered.endsWith(")") &&
+             ctx.byRefMut.contains(rendered.stripPrefix("(*").stripSuffix(")")) =>
+        s"$rendered.clone()"
       // `Some(JsonDialect.id)` inside a `while` loop (`uniml/json`'s `JsonProjection.scala`'s
       // `duplicateDiagnostics`) — a QUALIFIED reference to an AMBIGUOUS topval (`JsonDialect.id`,
       // contested with another topval also named `id`) doesn't render as a field projection at
@@ -6487,7 +6500,18 @@ object RustCodeWalk:
       // `documents` collides with an unrelated `var documents` elsewhere in the same def, binds
       // under `__dstruct_documents` instead, and every read site (this one) must follow that
       // rename too, or it silently reads whichever OTHER binding happens to share the bare name.
-      Right(ctx.destructuredFieldRenames.getOrElse(field, field))
+      //
+      // `d.ch == '_'` (`uniml/markdown`'s `MarkdownInlines.scala`'s `emailLocalBackscan`'s own
+      // `localTextOf`) — this case returns the bare field NAME as a STRING directly, never re-
+      // entering `renderTerm` as a `Term.Name` node, so the SEPARATE bare-name `ctx.byRefMut` deref
+      // case (a few lines down) never gets a chance to fire for it — `renderPattern`'s own
+      // `Pat.Typed`-to-a-variant twin case binds EVERY field with `ref` (a borrow: destructuring a
+      // field out of a borrowed `r` while `r` itself stays borrowed can only borrow that field too),
+      // so a bare read of one is `&T`, and applying `(*_)` needs doing HERE, at the point the field
+      // name is produced, not deferred to a re-render that never happens. `byRefMut`'s own bodyCtx
+      // case now adds every field name alongside the outer bind for exactly this reason.
+      val fieldName = ctx.destructuredFieldRenames.getOrElse(field, field)
+      Right(if ctx.byRefMut.contains(fieldName) then s"(*$fieldName)" else fieldName)
 
     // Plain identifier — parameter / in-scope fn name, OR a top-level `val`.
     // Top-level vals aren't emitted as Rust items, so inline their (already-rendered)
@@ -11995,6 +12019,126 @@ object RustCodeWalk:
     case other =>
       renderTerm(other, ctx).map(r => s"$r;")
 
+  /** Detects the ONE shape `emailLocalBackscan`'s own `localTextOf` needs (`uniml/markdown`'s
+   *  `MarkdownInlines.scala`): a match arm's pattern is `OuterCtor(Vector(elem, …))` — a
+   *  single-field ctor whose one field is `Vec<...>`-typed, destructured through a FIXED-arity
+   *  sequence sub-pattern nested one level inside the ctor's own extractor.
+   *
+   *  `Vec<T>` has no Rust constructor pattern (`renderMatch`'s own `isListPattern`/`.as_slice()`
+   *  trick only ever converts the WHOLE match SUBJECT, never a field buried one level inside
+   *  another pattern) — `renderPattern`'s generic `Pat.Extract` case recurses into `Vector(…)` as
+   *  if it might be a real enum constructor and refuses it: "extracts `Vector` which is not a known
+   *  enum constructor".
+   *
+   *  The sound Rust equivalent destructures the field to a bound name and slice-matches it
+   *  separately (`renderVectorFieldMatch`) — but doing that CORRECTLY for an inner-pattern mismatch
+   *  requires knowing what the original (un-rewritten) match would have done in that case, and the
+   *  only provably right answer without a general dataflow proof is "whatever the trailing wildcard
+   *  arm does" — sound ONLY when no OTHER arm in the SAME match also targets `OuterCtor` (otherwise
+   *  the original match would have tried THAT arm next, not jumped straight to the wildcard).
+   *  Requiring a bare, unguarded, TRAILING wildcard and ctor-uniqueness makes that the only
+   *  fallback the rewrite can ever need to represent. Anything else (a guard on the special arm, no
+   *  trailing wildcard, two arms sharing `OuterCtor`, a further nested Vector inside an element)
+   *  returns `None` and the ordinary path runs unchanged — still refused loudly if it can't lower,
+   *  never silently wrong. */
+  private def vectorFieldMatchArm(
+      cases: List[m.Case], ctx: Ctx
+  ): Option[(m.Case, String, String, List[m.Pat])] =
+    def isSeqCtorName(n: String) = n == "Vector" || n == "List" || n == "Array" || n == "Seq"
+    def seqSubPattern(p: m.Pat): Option[(String, String, List[m.Pat])] = p match
+      case m.Pat.Extract.After_4_6_0(m.Term.Name(outerCtor), argClause) if argClause.values.sizeIs == 1 =>
+        argClause.values.head match
+          case m.Pat.Extract.After_4_6_0(m.Term.Name(seqCtor), innerClause) if isSeqCtorName(seqCtor) =>
+            for
+              ec        <- ctx.ctorMap.get(outerCtor)
+              if ec.fieldNames.sizeIs == 1
+              fieldType <- ec.fieldTypes.headOption
+              if fieldType.startsWith("Vec<")
+              // one level of nesting only — an element pattern that is ITSELF another sequence
+              // pattern is out of scope (unseen in this corpus; recursing safely needs its own proof).
+              if !innerClause.values.exists {
+                case m.Pat.Extract.After_4_6_0(m.Term.Name(n2), _) => isSeqCtorName(n2)
+                case _                                              => false
+              }
+            yield (outerCtor, ec.fieldNames.head, innerClause.values.toList)
+          case _ => None
+      case _ => None
+    val candidates = cases.filter(_.cond.isEmpty).flatMap(c => seqSubPattern(c.pat).map(c -> _))
+    candidates match
+      case List((specialCase, (outerCtor, fieldName, elemPats))) =>
+        val isTrailingWildcard = cases.lastOption.exists { c =>
+          c.cond.isEmpty && (c.pat match { case m.Pat.Wildcard() => true; case _ => false })
+        }
+        val otherArmSharesCtor = cases.exists { c =>
+          !(c eq specialCase) && (c.pat match
+            case m.Pat.Extract.After_4_6_0(m.Term.Name(n), _) => n == outerCtor
+            case _                                             => false)
+        }
+        if isTrailingWildcard && !otherArmSharesCtor && !(specialCase eq cases.last)
+        then Some((specialCase, outerCtor, fieldName, elemPats))
+        else None
+      case _ => None
+
+  /** Render the ONE special arm `vectorFieldMatchArm` found — see its own comment for why this
+   *  shape, and specifically the trailing-wildcard fallback, is sound:
+   *
+   *  ```rust
+   *  if let Enum::OuterCtor { field: __vecfieldN } = (subject).clone() {
+   *      match __vecfieldN.as_slice() {
+   *          [elem, …] => <special arm's body>,
+   *          _         => <trailing wildcard's body>,
+   *      }
+   *  } else {
+   *      match subject { <every OTHER arm, unchanged> }
+   *  }
+   *  ```
+   *
+   *  `.clone()` on the subject (this lane's own established fix for a destructure that must
+   *  survive being read again — `hasFieldDestructurePat`'s own comment has the E0382 story) gives
+   *  the `if let` its own owned value to destructure, so `<every OTHER arm>` can still read the
+   *  ORIGINAL, un-moved `subject` in the `else` branch — rendered by RECURSING into `renderMatch`
+   *  itself over every case except the special one: the ordinary path already knows how to lower
+   *  each of those correctly (a `WDelim` guard arm, a trailing wildcard, …), and duplicating that
+   *  logic here would be a second copy of "how a match arm becomes Rust" drifting from the first. */
+  private def renderVectorFieldMatch(
+      subject: m.Term, cases: List[m.Case],
+      specialCase: m.Case, outerCtor: String, fieldName: String, elemPats: List[m.Pat],
+      ctx: Ctx, wrapArm: String => String, armTail: Boolean, isUnit: Boolean
+  ): Either[List[Diagnostic], String] =
+    val ec = ctx.ctorMap(outerCtor)
+    val seqVar = "__vecfield0"
+    val outerPat = if ec.isStruct then s"$outerCtor { $fieldName: $seqVar }" else s"${ec.enumName}::$outerCtor { $fieldName: $seqVar }"
+    val defaultCase = cases.last
+    def renderArmBody(c: m.Case, bctx: Ctx): Either[List[Diagnostic], String] =
+      if armTail then renderValueTail(c.body, bctx)
+      else if isUnit then renderUnitTerm(c.body, bctx)
+      else renderTerm(c.body, bctx).map(r0 => cloneIfMoved(c.body, r0, bctx))
+    for
+      subjRendered      <- renderTerm(subject, ctx)
+      _                  = { _pendingPatternGuards = Nil }
+      elemPatsRendered  <- elemPats.foldLeft[Either[List[Diagnostic], List[String]]](Right(Nil)) { (acc, p) =>
+                              for xs <- acc; r <- renderPattern(p, ctx) yield xs :+ r
+                            }
+      litGuards          = _pendingPatternGuards
+      specialBody        <- renderArmBody(specialCase, ctx)
+      defaultBody        <- renderArmBody(defaultCase, ctx)
+      // Every OTHER arm, unchanged — see this function's own doc comment for why recursing is
+      // preferred over a second, hand-rolled copy of the ordinary per-arm rendering.
+      restText           <- renderMatch(subject, cases.filterNot(_ eq specialCase), ctx, wrapArm, armTail, isUnit)
+    yield
+      val guardTxt      = if litGuards.isEmpty then "" else s" if ${litGuards.mkString(" && ")}"
+      val slicePat       = s"[${elemPatsRendered.mkString(", ")}]$guardTxt"
+      val specialBodyW   = if armTail then specialBody else wrapArm(specialBody)
+      val defaultBodyW   = if armTail then defaultBody else wrapArm(defaultBody)
+      s"""if let $outerPat = ($subjRendered).clone() {
+         |    match $seqVar.as_slice() {
+         |        $slicePat => $specialBodyW,
+         |        _ => $defaultBodyW,
+         |    }
+         |} else {
+         |${indent(restText)}
+         |}""".stripMargin
+
   private def renderMatch(
       subject: m.Term, cases: List[m.Case], ctx: Ctx,
       // Applied to each arm's BODY. Identity everywhere except when the match sits in a tail
@@ -12077,6 +12221,16 @@ object RustCodeWalk:
       if hasCtorArm && cases.lastOption.exists(isIdentityCatchAll)
       then cases.filterNot(isIdentityCatchAll)
       else cases
+    // `case WFixed(Vector(Tok(MdKind.Text, lexeme, _, _))) => …` (`uniml/markdown`'s
+    // `MarkdownInlines.scala`'s `emailLocalBackscan`'s own `localTextOf`) — see
+    // `vectorFieldMatchArm`'s own comment for the full shape and why it is safe to rewrite.
+    // Short-circuits the rest of this function entirely: the special arm renders as its own
+    // `if let … else { … }`, not a Rust `match` at all, so none of the ordinary subject-coercion or
+    // per-arm machinery below applies to it.
+    vectorFieldMatchArm(cases1, ctx) match
+      case Some((specialCase, outerCtor, fieldName, elemPats)) =>
+        return renderVectorFieldMatch(subject, cases1, specialCase, outerCtor, fieldName, elemPats, ctx, wrapArm, armTail, isUnit)
+      case None => ()
     // An `Any` subject holds a `Value::Obj`, not a struct, so Rust patterns cannot see into it.
     // Only diverts when BOTH are true — the subject is known to be an `Any` (from a declaration)
     // and some arm destructures a standalone case class. Anything else keeps the typed path, which
@@ -12182,8 +12336,18 @@ object RustCodeWalk:
             // `renderPattern`'s twin case renders this pattern with `ref $n @ …` — a BORROW, not a
             // move — so `n` is `&Enum` here, and every read (`.clone()` above all — see that arm's
             // own comment) needs the SAME deref-on-read `ctx.byRefMut` already gives a lifted def's
-            // captured `&mut` parameter, just non-mut.
-            byRefMut                = ctx.byRefMut + n,
+            // captured `&mut` parameter, just non-mut. `renderPattern`'s SAME case ALSO binds every
+            // FIELD with its own `ref` (`ref lexeme, ref ch, …` — a full borrow needs every binder
+            // borrowed, not just the outer one, or destructuring `ch` out of `d` while `d` itself
+            // stays borrowed would move a field out of a reference), so a bare read of one of THOSE
+            // — `d.ch == '_'` (`uniml/markdown`'s `MarkdownInlines.scala`'s `emailLocalBackscan`'s
+            // own `localTextOf`), rewritten to bare `ch` the same way `d.field` always is — needs
+            // the identical deref-on-read `byRefMut` gives `n`, or it stays an un-dereffed `&i64`
+            // compared against a bare `i64` literal: `error[E0277]: can't compare &i64 with i64`.
+            // Found only by a REAL `cargo build` (`--print-only` has no diagnostic for a pattern
+            // that resolved to valid Rust and was merely the wrong TYPE) — pre-existing, and
+            // independent of the Vector-in-field-position rewrite that first reached this arm.
+            byRefMut                = ctx.byRefMut + n ++ ec.fieldNames.toSet,
             seqFields               = if vecFields.isEmpty then ctx.seqFields else ctx.seqFields + (n -> vecFields),
             mapFields               = if hmapFields.isEmpty then ctx.mapFields else ctx.mapFields + (n -> hmapFields)
           )
@@ -13133,6 +13297,25 @@ object RustCodeWalk:
               _pendingPatternGuardCounter += 1
               val fresh = s"__litpat${_pendingPatternGuardCounter}"
               _pendingPatternGuards :+= s"""$fresh == "${escapeRustString(lit.value)}""""
+              Right(fresh)
+            // `Tok(MdKind.Text, lexeme, _, _)` (`uniml/markdown`'s `MarkdownInlines.scala`'s
+            // `localTextOf`) — a String-valued TOPVAL reference (`MdKind.Text`, `object MdKind: val
+            // Text = "text"`), used as a direct positional arg of an Extract, the SAME shape as the
+            // `Lit.String` case just above and needing the identical fix for the identical reason:
+            // `renderPattern`'s own general `Term.Select`-as-topval case (a few hundred lines down)
+            // returns the BARE literal text (`"text"`) for USE AS THE WHOLE MATCH SUBJECT, where
+            // `renderMatch` has already coerced the subject to `.as_str()` (`hasStringPat`) so a
+            // bare `&str` literal matches. Reached here — a NESTED field position, never coerced —
+            // it emitted VERBATIM against an owned `String` field: `error[E0308]: expected String,
+            // found &str`. Found only by a REAL `cargo build` of an isolated repro (`--print-only`
+            // has no diagnostic for "resolved to a valid pattern shape and still wrong"), pre-
+            // existing and independent of the Vector-in-field-position rewrite that surfaced it.
+            case m.Term.Select(m.Term.Name(objName), m.Term.Name(valName))
+                if _topValInits.get((objName, valName)).exists(_.endsWith(".to_string()")) =>
+              _pendingPatternGuardCounter += 1
+              val fresh = s"__litpat${_pendingPatternGuardCounter}"
+              val lit   = _topValInits((objName, valName)).stripSuffix(".to_string()")
+              _pendingPatternGuards :+= s"$fresh == $lit"
               Right(fresh)
             case other => renderPattern(other, ctx)
           }
