@@ -1,0 +1,11 @@
+slug: aggregator-production-slice
+branch: feature/aggregator-production-slice
+agent: claude-code
+started: 2026-08-30T13:57:09Z
+heartbeat: 2026-08-30T13:57:09Z
+status: claimed-before-planning
+items: aggregator-production-readiness-slice-1
+paths: file:tests/conformance/std-aggregator-properties.ssc file:tests/conformance/corpus-baseline.tsv file:tests/conformance/contract-roster.tsv file:bench/corpus/aggregator-fold.ssc file:specs/aggregation-algebra.md file:BACKLOG.md file:examples/
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
