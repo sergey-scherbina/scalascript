@@ -1,0 +1,11 @@
+slug: v3-trait-typed-receiver-dispatch
+branch: feature/v3-trait-typed-receiver-dispatch
+agent: claude-code
+started: 2026-08-30T23:23:08Z
+heartbeat: 2026-08-30T23:23:08Z
+status: claimed-before-planning
+items: v3-trait-typed-receiver-dispatch
+paths: file:v3/src/Lower.scala file:v3/SPRINT.md file:v3/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
