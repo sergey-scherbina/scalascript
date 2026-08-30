@@ -868,11 +868,20 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     // struct at all, so there was nothing to construct: `error[E0425]: cannot find value
     // PureMarkupCodec in this scope`. `renderValueObjectImpl` gives such an object a zero-field
     // unit struct + a THIN FORWARDING `impl Trait for X` (calling the already-flattened free
-    // functions, since an object's own methods never touch instance state); the bare reference
-    // itself stays UNWRAPPED (no `Rc::new` at the reference site) because `named`'s own return type
-    // IS the dyn trait, so `renderDef`'s existing whole-body wrap already applies `Rc::new` once —
-    // self-wrapping too gave `Rc<Rc<dyn MarkupCodec>>`, caught by an isolated `cargo build` before
-    // it reached the real corpus.
+    // functions, since an object's own methods never touch instance state).
+    //
+    // The wrap SITE moved when `dialectFor` (`uniml/markdown`'s `MarkdownDialect.scala`) landed:
+    // a dyn-trait-returning def whose body is a match over THREE different implementors cannot
+    // take `renderDef`'s whole-body `Rc::new(match …)` (the arms are distinct concrete types and
+    // must unify FIRST — `error[E0308]: match arms have incompatible types`), so the wrap is now
+    // pushed INTO each arm (`renderMatch`'s `wrapArm`), where every `Rc::new(ConcreteN)`
+    // unsize-coerces to the expected return type independently. The bare reference itself still
+    // renders unwrapped and receives exactly ONE `Rc::new` — per arm now, not whole-body — and a
+    // DIVERGING arm (the `throw`) stays unwrapped entirely: `Rc::new(panic!(…))` hands the never
+    // type to inference with nothing to pin it, rustc's fallback types it `()`, and the coercion
+    // to `Rc<dyn Codec>` fails (`error[E0277]` — this golden caught it the same round). Both
+    // shapes re-verified by a REAL `cargo build` of this exact source (/tmp/t156.scala) before
+    // the assertions below were rewritten.
     val src =
       """```scalascript
         |trait Codec:
@@ -892,9 +901,10 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(g.contains("pub struct PureCodec;"), s"value object should get a unit struct:\n$g")
     assert(g.contains("impl Codec for PureCodec"), s"value object should get a forwarding impl:\n$g")
-    assert(g.contains("\"pure\" => PureCodec,"),
-      s"the bare reference must stay UNWRAPPED, relying on the enclosing def's own Rc::new:\n$g")
-    assert(!g.contains("Rc::new(PureCodec)"), s"self-wrapping would double-wrap under named's own Rc::new:\n$g")
+    assert(g.contains("\"pure\" => std::rc::Rc::new(PureCodec),"),
+      s"the arm must carry exactly one per-arm Rc::new (the whole-body wrap cannot unify mixed-implementor arms):\n$g")
+    assert(!g.contains("Rc::new(std::rc::Rc::new"), s"the per-arm wrap must not stack on a whole-body wrap:\n$g")
+    assert(!g.contains("Rc::new(panic!"), s"a diverging throw arm must stay unwrapped (Rc::new(panic!) types as Rc<()>):\n$g")
 
   test("a value object's trait member satisfied by a `val`, or by neither, is not force-forwarded"):
     // Regression on the FIRST cut of `renderValueObjectImpl`, which blindly forwarded EVERY trait
@@ -4244,6 +4254,67 @@ class RustGenCodeWalkTest extends AnyFunSuite:
       s"the zipWithIndex closure's first param must carry the collect-arm-pinned Branch variant so item.edges resolves:\n$g")
     assert(g.contains(".position(|__pf| match __pf {") && g.contains(".map(|__i| __i as i64).unwrap_or(-1))"),
       s"Vec .indexWhere must lower to Iterator::position with the -1 sentinel:\n$g")
+
+  test("a dyn-trait-returning match wraps `Rc::new` PER ARM, and a constructed implementor into a `Rc<dyn Trait>` parameter gets wrapped at the call"):
+    // `private def dialectFor(profile: MarkdownProfile): DialectAdapter = profile match { case
+    // CommonMark => CommonMarkDialect; case Gfm => GfmDialect; case ScalaScript =>
+    // ScalaScriptMarkdownDialect }` + `UniML.parse(source, ConfiguredMarkdownDialect(profile,
+    // limits), limits.core)` (`uniml/markdown`'s `MarkdownDialect.scala`) — the last two errors
+    // of the whole corpus, one root cause in two positions (Scala's implicit trait upcast has no
+    // Rust spelling; `Rc::new` is the explicit one, and it must land where the coercion happens):
+    // (1) `renderDef`'s whole-body `Rc::new(match …)` forces THREE distinct unit structs to unify
+    // FIRST (`error[E0308]: match arms have incompatible types`) — pushed into each arm via
+    // `renderMatch`'s `wrapArm`, where every `Rc::new(ConcreteN)` unsize-coerces to the expected
+    // return type independently; (2) the ARGUMENT position never wrapped at all (`error[E0308]:
+    // expected Rc<dyn DialectAdapter>, found ConfiguredMarkdownDialect`) — `needsRcDynWrap` reads
+    // the RAW declared parameter type off the def the call actually names (`_ownedDefBodies`;
+    // NEVER the bare-name `_paramTypes` want-list, where this corpus's four `def parse` shadow
+    // each other), gated structurally on the argument being a ctor construction so a name passing
+    // a dialect along can never double-wrap. Both shapes hand-proven in a standalone crate first.
+    val src =
+      """```scalascript
+        |enum MarkdownProfile:
+        |  case CommonMark, Gfm, ScalaScript
+        |
+        |trait DialectAdapter:
+        |  def id: String
+        |
+        |object CommonMarkDialect extends DialectAdapter:
+        |  val id: String = "markdown.commonmark"
+        |
+        |object GfmDialect extends DialectAdapter:
+        |  val id: String = "markdown.gfm"
+        |
+        |object ScalaScriptMarkdownDialect extends DialectAdapter:
+        |  val id: String = "markdown.scalascript"
+        |
+        |case class Limits(maxDepth: Int)
+        |
+        |private final case class ConfiguredMarkdownDialect(profile: MarkdownProfile, maxDepth: Int)
+        |    extends DialectAdapter:
+        |  val id: String = "markdown.configured"
+        |
+        |object UniML:
+        |  def parse(source: String, dialect: DialectAdapter, limits: Limits): String = dialect.id
+        |
+        |private def dialectFor(profile: MarkdownProfile): DialectAdapter = profile match
+        |  case MarkdownProfile.CommonMark   => CommonMarkDialect
+        |  case MarkdownProfile.Gfm          => GfmDialect
+        |  case MarkdownProfile.ScalaScript  => ScalaScriptMarkdownDialect
+        |
+        |object Markdown:
+        |  def parse(source: String, profile: MarkdownProfile, limits: Limits): String =
+        |    UniML.parse(source, ConfiguredMarkdownDialect(profile, 3), limits)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("MarkdownProfile::CommonMark => std::rc::Rc::new(CommonMarkDialect),")
+        && g.contains("MarkdownProfile::Gfm => std::rc::Rc::new(GfmDialect),"),
+      s"each arm of a dyn-trait-returning match must carry its own Rc::new:\n$g")
+    assert(!g.contains("std::rc::Rc::new(match"),
+      s"the whole-body wrap must not stack on the per-arm wraps:\n$g")
+    assert(g.contains("UniML_parse(source, std::rc::Rc::new(ConfiguredMarkdownDialect { profile: profile, maxDepth: 3i64 }), limits)"),
+      s"a constructed implementor into a Rc<dyn Trait> parameter must be wrapped at the call:\n$g")
 
   test("a call to a LOCAL (nested) def declared `: Option[T]` is recognized as Option-typed, not just a top-level def"):
     // `localTextOf(nodes(i)).isDefined` / `localTextOf(nodes(i)).get` (`uniml/markdown`'s

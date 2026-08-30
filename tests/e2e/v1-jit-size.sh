@@ -1089,10 +1089,22 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # the growth; the rendering itself lives in `renderVecIterBody`'s own dispatch tables (separate
 # helper, no cost here). Re-verified uniml/xml, uniml/json, and uniml/yaml all still build clean
 # (0 errors).
+# renderTerm 41956 -> 41960 (+4), the LAST error of the backlog: `UniML.parse(source,
+# ConfiguredMarkdownDialect(profile, limits), limits.core)` (`uniml/markdown`'s
+# `MarkdownDialect.scala`'s `Markdown.parse`) — a constructed implementor into a `Rc<dyn Trait>`
+# parameter needs the explicit `Rc::new` Scala's implicit trait upcast never spells
+# (`error[E0308]: expected Rc<dyn DialectAdapter>, found ConfiguredMarkdownDialect`). One new
+# coercion arm in the call-argument block, its whole predicate factored to a top-level helper
+# (`needsRcDynWrap` — which reads the RAW declared param type off `_ownedDefBodies`, never the
+# bare-name want-list this corpus's four `def parse` shadow) precisely to keep the inline cost at
+# these four bytecodes. The sibling per-arm `Rc::new` wrap for a dyn-trait-returning MATCH landed
+# in `renderDef`/`renderMatch` (separate methods, no cost here). With this the full uniml/markdown
+# merged corpus reaches 0 real `cargo build` errors, from 155 at the start of the run.
+# Re-verified uniml/xml, uniml/json, and uniml/yaml all still build clean (0 errors).
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-41956 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+41960 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

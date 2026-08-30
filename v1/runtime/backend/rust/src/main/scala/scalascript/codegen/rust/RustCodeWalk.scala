@@ -3951,6 +3951,26 @@ object RustCodeWalk:
         ret     <- renderReturnType(d, ctx)
         bodyRs  <- if useTCO then renderTCOBody(name, pNames, d.body, ctx, isUnit = ret.isEmpty)
                    else if ret == "crate::value::Value" then renderValueTail(d.body, ctx)
+                   // A dyn-dispatch-trait-returning def whose body IS a match over DIFFERENT
+                   // concrete implementors — `private def dialectFor(profile: MarkdownProfile):
+                   // DialectAdapter = profile match { case CommonMark => CommonMarkDialect; case
+                   // Gfm => GfmDialect; … }` (`uniml/markdown`'s `MarkdownDialect.scala`) — the
+                   // whole-body `Rc::new(match …)` wrap below (`bodyOut`, its comment has the base
+                   // story) forces every ARM to unify to ONE concrete type FIRST (`error[E0308]:
+                   // match arms have incompatible types` — `CommonMarkDialect` vs `GfmDialect`,
+                   // three distinct unit structs), where the wrap pushed INTO each arm lets every
+                   // `Rc::new(ConcreteN)` unsize-coerce to the EXPECTED `Rc<dyn Trait>` return type
+                   // independently (per-arm coercion against a known expected type — hand-proven
+                   // standalone before this was written). `renderMatch`'s own `wrapArm` is exactly
+                   // this hook (`renderValueTail` pushes the `Value::from` lift through it for the
+                   // same one-type-per-arm reason); `bodySkipsWrap` below keeps the whole-body wrap
+                   // off this shape.
+                   else if ret.startsWith("std::rc::Rc<dyn ") then
+                     d.body match
+                       case mt: m.Term.Match =>
+                         renderMatch(mt.expr, mt.casesBlock.cases.toList, ctx,
+                           wrapArm = b => s"std::rc::Rc::new($b)")
+                       case _ => renderBody(d.body, ctx, isUnit = ret.isEmpty)
                    else            renderBody(d.body, ctx, isUnit = ret.isEmpty)
       yield
         // The def's OWN type params (`def map[B](...)`'s `B`, NOT `ownTparams` — the owning
@@ -4022,6 +4042,10 @@ object RustCodeWalk:
         // from text; anything else still gets the unconditional wrap the paragraph above defends.
         val bodySkipsWrap = d.body match
           case m.Term.Name(n) => ctx.moduleMutFields.contains(n)
+          // A match body already carries the wrap INSIDE each arm (the `bodyRs` branch above, its
+          // comment has the arms-cannot-unify story) — wrapping the whole match again here would
+          // be the exact double-wrap that branch exists to avoid.
+          case _: m.Term.Match => true
           case _              => false
         val bodyOut = if ret.startsWith("std::rc::Rc<dyn ") && !bodySkipsWrap then s"std::rc::Rc::new($bodyRs)" else bodyRs
         val src =
@@ -4570,6 +4594,47 @@ object RustCodeWalk:
     fn match
       case m.Term.Name(n) => ctx.paramTypes.get(n).map(fnParamTypes).filter(_.nonEmpty)
       case _              => None
+
+  /** A CONSTRUCTED implementor flowing into a `Rc<dyn Trait>`-typed PARAMETER needs the explicit
+   *  `Rc::new` Scala's implicit trait upcast never spells — `UniML.parse(source,
+   *  ConfiguredMarkdownDialect(profile, limits), limits.core)` (`uniml/markdown`'s
+   *  `MarkdownDialect.scala`'s `Markdown.parse`; `UniML.parse`'s own `dialect: DialectAdapter`
+   *  parameter maps to `std::rc::Rc<dyn DialectAdapter>`): the bare struct literal reached the
+   *  call unwrapped — `error[E0308]: expected Rc<dyn DialectAdapter>, found
+   *  ConfiguredMarkdownDialect`. The ARGUMENT-position twin of `renderDef`'s own whole-body
+   *  `Rc::new` wrap for a trait-RETURNING def (its comment has the base story).
+   *
+   *  Reads the RAW declared parameter type off the SPECIFIC def the call names (`_ownedDefBodies`
+   *  for a qualified call, `_defBodies` for a bare one) — NEVER the coercion block's own
+   *  `_paramTypes` want-list, which is BARE-name keyed and last-write-wins: this corpus has FOUR
+   *  distinct `def parse`, and `Markdown.parse`'s own signature shadowed `UniML.parse`'s there,
+   *  so a `target`-string check simply never saw the `Rc<dyn …>` (the same collision
+   *  `_ownedDefBodies`'s own comment exists to solve, and the same read-the-raw-AST answer
+   *  `eitherSideCtorName` already established). A dyn-dispatch trait is recognized the same way
+   *  `mapType`'s own `Rc<dyn $n>` arms do: `_dynTraitTparams`. Gated STRUCTURALLY on the argument
+   *  being a ctor construction of a known struct/variant — an already-`Rc<dyn>`-typed argument (a
+   *  name passing a dialect along) is a bare name, never a ctor apply, so it can never
+   *  double-wrap. A top-level helper, not an inline predicate: `renderTerm` is frozen past
+   *  HugeMethodLimit and every inline conjunct there costs ratchet budget
+   *  (the `closureCalleeParamTypes` factoring above exists for the same reason). */
+  private def needsRcDynWrap(fn: m.Term, i: Int, argTerm: m.Term, ctx: Ctx): Boolean =
+    val ctorArg = argTerm match
+      case m.Term.Apply.After_4_6_0(callee, _) => ctorNameOf(callee).exists(ctx.ctorMap.contains)
+      case _                                    => false
+    ctorArg && {
+      val calleeDef = fn match
+        case m.Term.Select(m.Term.Name(owner), m.Term.Name(mem)) => _ownedDefBodies.get((owner, mem))
+        case m.Term.Name(n)                                       => _defBodies.get(n)
+        case _                                                     => None
+      calleeDef
+        .flatMap(d => d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).lift(i))
+        .flatMap(_.decltpe)
+        .exists {
+          case m.Type.Name(n)                              => _dynTraitTparams.get(n).exists(_.isEmpty)
+          case m.Type.Apply.After_4_6_0(m.Type.Name(n), _) => _dynTraitTparams.contains(n)
+          case _                                            => false
+        }
+    }
 
   /** Every name a `val`/`var` DECLARES anywhere inside `t` — used to EXCLUDE a closure's own
    *  locally-declared names from its move-capture clone-prelude. `val opening = ranges.filter(…)…
@@ -10217,6 +10282,12 @@ object RustCodeWalk:
                 // i64 and cost every call site a method that does nothing.
                 case (Some(argTerm), Some(target)) if target == "i64" && yieldsSscChar(argTerm, ctx) =>
                   s"($rendered).0"
+                // A constructed implementor into a `Rc<dyn Trait>` parameter — `needsRcDynWrap`'s
+                // own comment has the story, the structural no-double-wrap gate, and why it reads
+                // the raw declared type off the named def rather than trusting `target` (this
+                // block's own bare-name want-list is shadowed for `parse`).
+                case (Some(argTerm), _) if needsRcDynWrap(fn, i, argTerm, ctx) =>
+                  s"std::rc::Rc::new($rendered)"
                 case _ => rendered
             }
           else renderedArgs
@@ -13188,6 +13259,18 @@ object RustCodeWalk:
    *  itself over every case except the special one: the ordinary path already knows how to lower
    *  each of those correctly (a `WDelim` guard arm, a trailing wildcard, …), and duplicating that
    *  logic here would be a second copy of "how a match arm becomes Rust" drifting from the first. */
+  /** An arm body that DIVERGES (a `throw`, or a block ending in one) — rendered as `panic!(…)`,
+   *  whose `!` type already unifies with every sibling arm on its own. `wrapArm` must SKIP it:
+   *  `std::rc::Rc::new(panic!(…))` hands the never-type to inference with nothing to pin it, and
+   *  rustc's fallback types it `()` — `error[E0277]: the trait bound (): Codec is not satisfied`
+   *  (`Codec.named`'s own `case other => throw new NoSuchElementException(…)` arm, the unit-struct
+   *  value-object golden — caught by that golden the same round the per-arm `Rc::new` wrap was
+   *  added for `dialectFor`). Identity wraps are unaffected (skipping identity is identity). */
+  private def divergingArmBody(t: m.Term): Boolean = t match
+    case _: m.Term.Throw => true
+    case b: m.Term.Block => b.stats.lastOption.exists { case tt: m.Term => divergingArmBody(tt); case _ => false }
+    case _               => false
+
   private def renderVectorFieldMatch(
       subject: m.Term, cases: List[m.Case],
       specialCase: m.Case, outerCtor: String, fieldName: String, elemPats: List[m.Pat],
@@ -13216,8 +13299,8 @@ object RustCodeWalk:
     yield
       val guardTxt      = if litGuards.isEmpty then "" else s" if ${litGuards.mkString(" && ")}"
       val slicePat       = s"[${elemPatsRendered.mkString(", ")}]$guardTxt"
-      val specialBodyW   = if armTail then specialBody else wrapArm(specialBody)
-      val defaultBodyW   = if armTail then defaultBody else wrapArm(defaultBody)
+      val specialBodyW   = if armTail || divergingArmBody(specialCase.body) then specialBody else wrapArm(specialBody)
+      val defaultBodyW   = if armTail || divergingArmBody(defaultCase.body) then defaultBody else wrapArm(defaultBody)
       s"""if let $outerPat = ($subjRendered).clone() {
          |    match $seqVar.as_slice() {
          |        $slicePat => $specialBodyW,
@@ -13727,7 +13810,9 @@ object RustCodeWalk:
                  else if isUnit then renderUnitTerm(c.body, bodyCtx)
                  else renderTerm(c.body, bodyCtx).map(r0 => cloneIfMoved(c.body, r0, bodyCtx))
       yield
-        val bodW = if armTail then bod else wrapArm(bod)
+        // `divergingArmBody` — a `throw` arm's `panic!` must stay UNWRAPPED (its own comment has
+        // the `Rc::new(panic!(…))`-types-as-`()` story); identity wraps are unaffected.
+        val bodW = if armTail || divergingArmBody(c.body) then bod else wrapArm(bod)
         // A MULTI-STATEMENT ARM BODY NEEDS BRACES OF ITS OWN — but only on the `armTail` path,
         // and that is measured, not assumed. `renderTerm` already renders a Scala block as a Rust
         // block, so an ordinary typed match arm arrives braced. `renderValueTail` does NOT: its
