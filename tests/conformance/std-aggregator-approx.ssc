@@ -1,7 +1,7 @@
 ---
 name: conformance-std-aggregator-approx
 version: 1.0.0
-known-red: "js, jvm — two independent, filed codegen bugs, one per lane (int's own two bugs — missing math.log, lexicographic sortBy on a Double key — are fixed, see v1/runtime/backend/interpreter/BUGS.md). js: HLLAgg's monoid method references a sibling zero-arg def by bare name, which the JS backend emits as an unbound free identifier instead of a dispatch on the receiver (v1/runtime/backend/js/BUGS.md js-codegen-does-not-resolve-a-sibling-zero-arg-def-from-another-method). jvm: run-jvm transpiles a 64-bit Long literal (fmix64's mixing constants) into a context requiring a 32-bit Int, a symptom of the pre-existing, already-tracked int-width non-conformance (see int-width's own known-red). CMSMonoid alone is unaffected and correct on every lane. EXPIRES when both remaining bugs are fixed."
+known-red: "js, jvm — two independent, filed codegen bugs, one per lane (int's own two bugs — missing math.log, lexicographic sortBy on a Double key — are fixed, see v1/runtime/backend/interpreter/BUGS.md). js: HLLAgg's monoid/errorBound methods read sibling class-body val fields (hllMonoid, m), and the JS backend never computes or attaches a class-body val to the instance object at all (v1/runtime/backend/js/BUGS.md js-codegen-never-computes-or-attaches-a-class-body-val-field). jvm: run-jvm transpiles a 64-bit Long literal (fmix64's mixing constants) into a context requiring a 32-bit Int, a symptom of the pre-existing, already-tracked int-width non-conformance (see int-width's own known-red). CMSMonoid alone is unaffected and correct on every lane. EXPIRES when both remaining bugs are fixed."
 ---
 
 # Std — Approximate Aggregators (HyperLogLog, Count-Min Sketch, T-Digest)

@@ -53,8 +53,12 @@ itself scopes out of the first slice — queued here rather than attempted in th
   on the reference front. **This closes out the last open section of the spec** — every section
   except `Arrow`/`Category`/a new `Future`/`Task`/`Result` type (§11.4, deliberately deferred, not a
   gap) is now landed. Found landing it: `HLLAgg` was known-red on `int` (`math.log` missing from the
-  interpreter's `math` object) and is known-red on `js` (a sibling zero-arg `def` referenced by bare
-  name resolves to nothing); `TDigestMonoid` was known-red on `int` (`List.sortBy` on a `Double` key
+  interpreter's `math` object) and was known-red on `js` (a sibling zero-arg `def` referenced by bare
+  name resolved to nothing — fixed, claim `js-sibling-zeroarg-def`, 2026-08-30; `js` now stays
+  known-red against a newer, sibling defect surfaced re-testing this fix: a class-body `val` field
+  is never computed or attached to the instance object at all,
+  `js-codegen-never-computes-or-attaches-a-class-body-val-field`, filed not fixed);
+  `TDigestMonoid` was known-red on `int` (`List.sortBy` on a `Double` key
   sorted lexicographically, not numerically); the whole `std-aggregator-approx` conformance case is
   also known-red on `jvm` (the pre-existing, already-tracked `int-width` non-conformance, triggered
   by a `Long` literal `HLLAgg`'s hash mixer needs). **Both `int`-lane bugs are now fixed** (claim

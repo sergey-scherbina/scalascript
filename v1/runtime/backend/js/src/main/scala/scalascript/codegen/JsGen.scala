@@ -474,6 +474,13 @@ class JsGen(
   private val topLevelUserRenames = mutable.Map.empty[String, String]
   // Active parameter renames for JS reserved-word param names (e.g. `default` → `default_p`).
   private val paramRenames = mutable.Map.empty[String, String]
+  // Names of the CURRENT class body's own parenless (zero-arg) sibling `def`s, active only
+  // while generating one of that class's own method bodies (caseClassBodyMethodRegistrations).
+  // A bare reference to one from inside another method must dispatch on `_self`, not emit a
+  // free-standing identifier — unlike zeroParamFns (top-level only), a class-body method lambda's
+  // only bound names are `_self` and its own params, so a sibling method name is otherwise
+  // unbound. js-codegen-does-not-resolve-a-sibling-zero-arg-def-from-another-method.
+  private val siblingZeroArgMethods = mutable.Set.empty[String]
   // Set when the module uses runAsyncParallel; causes the user code sections to
   // be wrapped in a top-level async IIFE so `await _runAsyncParallel(...)` works.
   private var usesRunAsyncParallel: Boolean = false
@@ -3374,6 +3381,13 @@ class JsGen(
    *  `_dispatch`'s flat argument array. */
   private def caseClassBodyMethodRegistrations(
       typeName: String, params: Seq[String], stats: List[Stat]): List[String] =
+    // This class's own parenless (zero-arg) sibling defs — the same "no explicit param clause at
+    // all" test `zeroParamFns`'s top-level pre-pass uses. Real Scala would refuse a name collision
+    // with a ctor param, so subtracting `params` is defensive, not load-bearing.
+    val siblingDefNames = stats.collect {
+      case m: Defn.Def if m.paramClauseGroups.flatMap(_.paramClauses).filterNot(_.mod.nonEmpty).isEmpty =>
+        m.name.value
+    }.toSet -- params
     stats.collect {
       case meth: Defn.Def
           if meth.paramClauseGroups.flatMap(_.paramClauses).filterNot(_.mod.nonEmpty).sizeIs <= 1 =>
@@ -3387,7 +3401,9 @@ class JsGen(
         val fields      = params.filterNot(methParams.contains)
         val destructure = if fields.isEmpty then "" else s"const {${fields.mkString(", ")}} = _self; "
         val recv        = ("_self" :: methParams.map(safeJsParam)).mkString(", ")
-        val bodyJs      = withParamRenames(methRenames)(genExpr(meth.body))
+        // A method's own parameter shadows a sibling def of the same name.
+        val siblings    = siblingDefNames -- methParams
+        val bodyJs      = withParamRenames(methRenames)(withSiblingZeroArgMethods(siblings)(genExpr(meth.body)))
         val guards      = intParamGuardLines(methParamVals).mkString(" ")
         // Default parameter values were dropped here entirely — the signature was built from bare
         // names — so `K().m(1, c = 9)` left `b` undefined and the arithmetic gave NaN.
@@ -3402,7 +3418,7 @@ class JsGen(
         val defaults = methParamVals.flatMap { p =>
           p.default.map { d =>
             val n = safeJsParam(p.name.value)
-            s"if ($n === undefined) $n = ${withParamRenames(methRenames)(genExpr(d))};"
+            s"if ($n === undefined) $n = ${withParamRenames(methRenames)(withSiblingZeroArgMethods(siblings)(genExpr(d)))};"
           }
         }.mkString(" ")
         val defaultsStr = if defaults.isEmpty then "" else s"$defaults "
@@ -4760,6 +4776,16 @@ class JsGen(
     case Lit.Char(v)    => s"_char(${v.toInt})"
     case Lit.Unit()     => "undefined"
     case Lit.Null()     => "null"
+
+    // A bare reference to a sibling parenless `def` from inside another method of the
+    // SAME class must dispatch on the receiver (`_self`), not emit a free-standing
+    // identifier: a class-body method's registration lambda only binds `_self` and its
+    // own params, so a sibling method name is otherwise unbound, throwing a JS
+    // ReferenceError. Checked BEFORE zeroParamFns below — a class member shadows an
+    // outer top-level def of the same name, matching Scala's own scoping.
+    // js-codegen-does-not-resolve-a-sibling-zero-arg-def-from-another-method.
+    case Term.Name(name) if siblingZeroArgMethods(name) && !paramRenames.contains(name) =>
+      s"_dispatch(_self, '$name', [])"
 
     // A parenless `def f: T = …` is re-evaluated on every reference (Scala
     // semantics), so a BARE reference to it — as a value or argument, NOT a call
@@ -6242,6 +6268,20 @@ class JsGen(
       zeroParamFns ++= names
       try f
       finally names.foreach(n => if !alreadyThere(n) then zeroParamFns -= n)
+
+  /** Active while generating one method body from `caseClassBodyMethodRegistrations`: `names` are
+   *  that class's OWN parenless sibling methods (minus the one currently generating, if it shadows
+   *  itself via a same-named ctor param — real Scala would refuse the collision, this is just
+   *  defensive). See `siblingZeroArgMethods`'s doc for why this needs its own set rather than
+   *  reusing `zeroParamFns` (whose codegen — a direct `name()` call — assumes a JS-scope-visible
+   *  function, which a class-body method, reachable only via `_dispatch`, is not). */
+  private[codegen] def withSiblingZeroArgMethods[A](names: Set[String])(f: => A): A =
+    if names.isEmpty then f
+    else
+      val alreadyThere = names.filter(siblingZeroArgMethods.contains)
+      siblingZeroArgMethods ++= names
+      try f
+      finally names.foreach(n => if !alreadyThere(n) then siblingZeroArgMethods -= n)
 
   private[codegen] def withParamRenames[A](renames: Map[String, String])(f: => A): A =
     val saved = renames.keysIterator.map(k => k -> paramRenames.get(k)).toMap

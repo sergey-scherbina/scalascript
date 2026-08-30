@@ -39,6 +39,50 @@ all resolve the identical source correctly. No workaround found; `HLLAgg` keeps 
 shape (needed regardless, to work around the `int`-lane class-body-`val` bug in
 `v1/runtime/backend/interpreter/BUGS.md`) and stays known-red on `js`.
 
+## js-codegen-never-computes-or-attaches-a-class-body-val-field — a class-body `val` (not a constructor parameter) is never evaluated, stored, or destructured; reading it throws `ReferenceError`, even from outside the class
+
+<!-- status: open
+     lane: js
+     kind: bug
+     area: codegen
+     gate: tests/conformance/std-aggregator-approx.ssc (known-red js)
+     reported-by: claude-code
+     reported-at: 2026-08-30
+     confirmed: yes -->
+
+Found re-verifying `js-codegen-does-not-resolve-a-sibling-zero-arg-def-from-another-method`'s fix
+against the real `HLLAgg` (`std/aggregator.ssc`, `specs/aggregation-algebra.md` §6.1): its
+`hllMonoid`/`m` are class-body `val`s (not constructor parameters), following the `int`-lane
+`class-body-val-field-undefined-in-a-sibling-method` fix that landed earlier the same day and let
+`HLLAgg` drop its `def`-based workaround. Minimal repro, no sibling-method call involved at all:
+
+```scalascript
+class Thing(n: Int):
+  val doubled: Int = n * 2
+  def get: Int = doubled
+
+println(Thing(4).get)
+```
+
+emits `_registerExt('get', (_self) => { const {n} = _self;  return doubled; }, 'Thing');` —
+`doubled` is left as a bare, unbound identifier, throwing `ReferenceError: doubled is not defined`.
+This is a DIFFERENT, more fundamental gap than the sibling-`def` bug above: the constructor function
+itself (`JsGen`'s `case d: Defn.Class =>`) builds the returned object literal from constructor
+PARAMETERS only (`fields = params.map(p => s"$p: $p")`) — a class-body `Defn.Val` is never scanned,
+never evaluated, and never attached to the instance object at all, so `doubled` doesn't exist on
+`_self` for the destructuring (`caseClassBodyMethodRegistrations`'s `fields` list) to pick up even
+if it were extended to look for it. Reading `doubled` from OUTSIDE the class (`Thing(4).doubled`)
+fails identically — it is not a missing-destructuring problem, the value is never computed anywhere.
+`int`/`native`/`run-jvm` all resolve the identical source correctly (the `int` lane had the exact
+mirror-image bug — evaluated per-instance but never added to any registry sibling methods or
+external access could see — fixed the same day in `StatRuntime.scala`'s `Defn.Class` case; a
+similar fix here would need the constructor function to evaluate each val's RHS, with the ctor's
+OWN parameters in scope, and include the results in the returned object literal). No workaround
+found short of reverting to a `def` (which recomputes on every access rather than caching, and is
+itself blocked here in one case by the sibling-`def` bug above, now fixed). `HLLAgg`'s `hllMonoid`/
+`m` stay `val`s (correct, matching the design) and `std-aggregator-approx.ssc` stays known-red on
+`js` pending this fix.
+
 ## js-val-tuple-destructuring-does-not-escape-a-reserved-word-component-name — `val (a, in) = pair` emits `in` literally, a JS reserved word, while the SAME name in a lambda parameter's destructuring is correctly escaped
 
 <!-- status: open

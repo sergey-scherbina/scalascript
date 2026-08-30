@@ -247,9 +247,17 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # `Ctx.copy(...)` call sites × field count, not the arm count) no attempt was made to shrink it back
 # down by extraction; each new arm is a genuine `error[E0xxx]` this repo's own `cargo build` caught,
 # not a refactor. `uniml/core` went from 64 cargo errors to 0 across the three commits.
+# genExpr 25328 -> 25384 (+56), from the fix for js-codegen-does-not-resolve-a-sibling-zero-arg-def-
+# from-another-method (v1/runtime/backend/js/BUGS.md): one new Term.Name arm dispatches a bare
+# reference to a class's own sibling parenless `def` on `_self` instead of emitting it as a
+# free-standing (and unbound) identifier. RAISED, NOT REVERTED, on the same terms as every entry
+# above: genExpr is already 3.17x the 8000-bytecode limit and has not been JIT-compiled for a long
+# time, so +56 is drift, not a new performance hazard — the arm was necessary to fix a real
+# ReferenceError, not something to extract elsewhere (this method's cost is dispatch-arm COUNT,
+# same lesson as renderTerm's Ctx.copy() sites, and this is one new arm, not a restructuring).
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
-25328 scalascript.codegen.JsGen::genExpr
+25384 scalascript.codegen.JsGen::genExpr
 23885 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
