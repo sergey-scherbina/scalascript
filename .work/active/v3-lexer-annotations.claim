@@ -5,7 +5,7 @@ started: 2026-08-30T21:18:52Z
 heartbeat: 2026-08-30T21:18:52Z
 status: claimed-before-planning
 items: v3-lexer-annotations
-paths: file:v3/src/Lexer.scala,file:v3/src/Parser.scala,file:v3/SPRINT.md,file:v3/BACKLOG.md,file:v3/front-diff.sh,dir:v3/tests/front
+paths: mod:v3
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement

@@ -1,4 +1,4 @@
-# generation: 3180
+# generation: 3181
 #slug	agent	started	items	paths
 run-gated-by-check	claude-code	2026-08-30T20:13:19Z	run-gated-by-check	file:v1/tools/cli/ file:v1/lang/core/src/main/scala/scalascript/typer/Typer.scala file:BACKLOG.md
-v3-lexer-annotations	claude-code	2026-08-30T21:18:52Z	v3-lexer-annotations	file:v3/src/Lexer.scala,file:v3/src/Parser.scala,file:v3/SPRINT.md,file:v3/BACKLOG.md,file:v3/front-diff.sh,dir:v3/tests/front
+v3-lexer-annotations	claude-code	2026-08-30T21:18:52Z	v3-lexer-annotations	mod:v3
