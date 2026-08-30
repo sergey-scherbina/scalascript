@@ -1,2 +1,3 @@
-# generation: 3147
+# generation: 3148
 #slug	agent	started	items	paths
+js-multi-given-resolution	claude-code	2026-08-30T12:29:52Z	js-codegen-drops-generic-typeclass-resolution-when-multiple-instances-exist	file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/ file:v1/runtime/backend/js/BUGS.md file:specs/aggregation-algebra.md file:BACKLOG.md file:std/aggregator.ssc file:std/order.ssc
