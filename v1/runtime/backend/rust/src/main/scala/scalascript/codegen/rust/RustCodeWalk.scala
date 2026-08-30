@@ -11248,7 +11248,7 @@ object RustCodeWalk:
     // it — `tokens.iterator.map(…)` was judged NOT a known Vec, and the trailing bare `.mkString`
     // fell to the generic no-paren refusal.
     case m.Term.Select(q, m.Term.Name("iterator")) => isKnownVecReceiver(q, ctx)
-    // `encoded.split(' ').iterator.map { … }` (`uniml/markdown`'s
+    // `encoded.split('\u0000').iterator.map { … }` (`uniml/markdown`'s
     // `MarkdownEntitiesGenerated.scala`'s `table`) — `.split` is a STRING method (not a Vec-to-Vec
     // combinator like the alternation just above, which all recurse INTO an already-known Vec),
     // but its RESULT is a genuine `Vec<String>` — the one-arg `.split` case elsewhere in this file
