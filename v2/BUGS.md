@@ -132,9 +132,45 @@ invisible for callers who happen not to. `std/aggregator.ssc`'s §7 sliding wind
 to describe this honestly (accepted at the call site, fails at first `.group` access) rather than
 claiming a compile-time rejection that does not currently exist.
 
-Not investigated further: whether this is a gap in trait-conformance checking specifically, or a
-broader case of ScalaScript's argument-passing being effectively structural/dynamic regardless of
-declared trait bounds — that's real, separate type-checker work.
+**Investigated 2026-08-30** (claim `v2-trait-param-conformance`) — the open question above is
+answered: it is the broader case. Argument passing on the run path is structural/dynamic BY DESIGN
+of the shared lowering contract, not an F-specific checking gap:
+
+1. **Neither self-hosted front has a typer to put the check in.** F
+   (`specs/v2.2-p6.5-fsub.ssc`) erases every parameter type at parse time — its own comment at
+   `parseParams` (:2627): "Types are ERASED by the reference lowerer (measured: `def g(a: String,
+   b: String)` -> `(lam 2 ...)`), so skipping them is byte-faithful." The only type information
+   that survives is the F5b optimization: a param declared `Int`/`String`/`BigInt` (nothing else —
+   `knownTyName` knows exactly those three) is embedded as `name:Type` in the env string for the
+   numeric prefix classifier. A trait name like `Dog` is never recorded anywhere. Making F reject
+   `Cat`-for-`Dog` means building a nominal-subtype-aware typer into the self-hosted front (a
+   static type for every expression, a conformance registry — `subtypeChildren` exists but serves
+   pattern-match tag tests only — and threading through every call form): a project, not a fix.
+   `SSC_FRONT_STRICT=1` is unchanged, confirming F itself accepts (not a fallback artifact).
+
+2. **The check already exists, correct and corpus-clean, in the third component.**
+   `bin/ssc-tools check` (parse + `scalascript.typer.Typer`) rejects this entry's exact repro with
+   `error: Type mismatch: expected Dog, found Cat` (13:17). Measured on the full conformance
+   corpus: **408/408 cases pass `check`**, 9.4s wall for all 408 in one JVM invocation (~23ms/file
+   amortized). Gating would be corpus-clean today.
+
+3. **The run path never invokes that typer.** The default lane (F → CoreIR → v2 VM) has no typer
+   stage at all; the v1 interpreter lane runs the Typer only opt-in (`SSC_JIT_TYPESTATS`,
+   `Main.scala` ~:373) and explicitly best-effort — "never fail the run on a type error". Wiring
+   `check` into `run` (opt-in `run --check`, or default-on) is therefore the FEASIBLE fix shape —
+   a deliberate product decision in the v1 CLI (script-style tolerance vs. safety), separate work
+   outside the front, with measured cost (small) and measured corpus impact (zero refusals).
+
+4. **One limit found while measuring**: the typer catches both the generic single-file variant
+   (`emptyWindow[In, Out](agg: GroupAggregator[In, Out], ...)` given a plain `Aggregator` —
+   `Type mismatch: expected GroupAggregator[In, Out], found MinAgg`) and the non-generic one, but
+   NOT the cross-module version (the real §7 shape importing `GroupAggregator`/`MinAgg` from
+   `std/aggregator.ssc` — `check` says OK): imported types appear to type loosely. Run-gating
+   would not catch the sliding-window motivating case until the typer's import handling is
+   extended.
+
+Status stays `open`: the entry's defect (run-path acceptance) is real and unfixed; the actionable
+fix is CLI gating on the existing typer plus the typer's cross-module gap, not front work.
 
 <!-- status: open
      lane: native
