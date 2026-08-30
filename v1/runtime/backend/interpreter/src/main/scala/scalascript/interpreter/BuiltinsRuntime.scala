@@ -9,6 +9,35 @@ import scala.collection.immutable.{Map => IMap}
  */
 private[interpreter] object BuiltinsRuntime:
 
+  /** Wrap CoreIntrinsics' raw "Map" NativeFnV in a companion InstanceV, like
+   *  List/Vector/Array/Set already are, so `Map.empty` selects a real field instead of
+   *  falling through DispatchRuntime.dispatch's "auto-call a parameterless native global
+   *  in receiver position" heuristic: left as a bare NativeFnV, `Map.empty` auto-calls
+   *  `Map()` with zero args to get a value, then dispatches "empty" on the resulting
+   *  EMPTY map itself, which reads it as a STRING KEY lookup and throws `No key 'empty'
+   *  in map` — map-dot-empty-reads-empty-as-a-literal-key-not-the-companion-accessor.
+   *
+   *  Tagged "MapCompanion", NOT "Map": CallRuntime.callValue has a pre-existing, unrelated
+   *  `case Value.InstanceV("Map", fields) =>` for a Map-typed value that arrives as an
+   *  InstanceV from elsewhere (e.g. a `Map[String, Any]` handler-param pass-through in
+   *  TypedHandlerWrapper) and treats `fields` as the map's own DATA entries. Reusing the
+   *  literal name "Map" here collided with that case: calling `Map("a" -> 1)` matched it
+   *  first and misread this companion's OWN "empty"/"apply" fields as map data.
+   *
+   *  Called from BOTH `initBuiltins` and `setupPluginCompanions`: the interpreter backend
+   *  registers itself as one of `BackendRegistry`'s in-process backends, so a later lazy
+   *  plugin load (`ensurePluginsLoaded`/`installPlugins`) re-runs `installNativeIntrinsicEntries`
+   *  over ITS OWN core intrinsics too — including "Map" — clobbering this wrapping back to
+   *  a fresh raw NativeFnV. Idempotent: a no-op once "Map" is already the companion. */
+  private def wrapMapCompanion(interp: Interpreter): Unit =
+    interp.globals.get("Map") match
+      case Some(fn: Value.NativeFnV) =>
+        interp.globals("Map") = Value.InstanceV("MapCompanion", Map(
+          "empty" -> Value.MapV(Map.empty),
+          "apply" -> fn
+        ))
+      case _ => ()
+
   def initBuiltins(interp: Interpreter): Unit =
     def nativeP(name: String)(f: List[Value] => Value): Unit =
       interp.globals(name) = Value.NativeFnV(name, Computation.pureFn(f))
@@ -231,7 +260,9 @@ private[interpreter] object BuiltinsRuntime:
       "empty" -> Value.SetV(Set.empty),
       "apply" -> setNative
     ))
-    // Map / math.sqrt-round now live in CoreIntrinsics (Stage 5+/E).
+    // Map — see wrapMapCompanion; also re-applied in setupPluginCompanions since a later
+    // lazy plugin load can reset "Map" back to a raw native.
+    wrapMapCompanion(interp)
     interp.globals("None") = Value.NoneV
     interp.globals("Some") = Value.NativeFnV("Some", { case List(v) => Pure(Value.someV(v)); case _ => throw InterpretError("Some requires exactly one argument") })
     interp.globals("Nil")  = Value.EmptyList
@@ -983,6 +1014,11 @@ private[interpreter] object BuiltinsRuntime:
    *  Must be called after `installNativeIntrinsics(pluginImpls)` so the
    *  underlying globals are present. */
   def setupPluginCompanions(interp: Interpreter): Unit =
+    // Re-apply: the interpreter backend is itself a registered in-process backend, so
+    // ensurePluginsLoaded/installPlugins re-runs installNativeIntrinsicEntries over its
+    // own core intrinsics too (including "Map"), resetting initBuiltins's wrapping back
+    // to a raw NativeFnV. See wrapMapCompanion's doc for the full mechanism.
+    wrapMapCompanion(interp)
     interp.globals.get("DriverManager.getConnection").foreach { impl =>
       interp.globals("DriverManager") = Value.InstanceV("DriverManager", Map(
         "getConnection" -> impl

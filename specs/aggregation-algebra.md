@@ -577,13 +577,13 @@ def groupByAgg[K, In, Acc, Out](xs: List[(K, In)], agg: Aggregator[In, Acc, Out]
   }
 ```
 
-Two front limitations found landing this, both worked around rather than blocking: `Map` values
-have no `.foldLeft` — go through `.toList` first (`b.toList.foldLeft(...)`, matching the codebase's
-own precedent in `auth-full.ssc`-style code); and `Map.empty` throws under the v1 interpreter (`--v1`)
-— it reads the literal string `"empty"` as a key lookup on an already-empty map rather than
-recognizing the companion accessor ("No key 'empty' in map"), while `Map[K, V]()` works everywhere,
-including `--v1` — see `v1/runtime/backend/interpreter/BUGS.md`
-`map-dot-empty-reads-empty-as-a-literal-key-not-the-companion-accessor` (filed, not fixed).
+Two front limitations found landing this: `Map` values have no `.foldLeft` — go through `.toList`
+first (`b.toList.foldLeft(...)`, matching the codebase's own precedent in `auth-full.ssc`-style
+code), a real, permanent limitation; and `Map.empty` used to throw under the v1 interpreter
+(`--v1`) — see `v1/runtime/backend/interpreter/BUGS.md`
+`map-dot-empty-reads-empty-as-a-literal-key-not-the-companion-accessor`, now **fixed** (`Map` is
+wrapped in a companion object, like `List`/`Vector`/`Set` already were). `MapMonoid.empty` uses
+`Map.empty` again, as originally designed.
 
 "Group by key, aggregate per group" is this `Map`-monoid wrapping ANY `Aggregator`'s own monoid —
 not a separate primitive the language needs to define. This is also exactly what `keyBy` +

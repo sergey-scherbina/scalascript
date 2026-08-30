@@ -102,12 +102,23 @@ itself scopes out of the first slice — queued here rather than attempted in th
   re-discovering per feature.
 - **§8 `groupBy` — DONE** (claim `aggregator-groupby`, 2026-08-29). `MapMonoid[K, Acc]` +
   `groupByAgg[K, In, Acc, Out](xs: List[(K, In)], agg): Map[K, Out]` ship in `std/aggregator.ssc`.
-  Found landing it: `Map.empty` throws under the v1 interpreter (`--v1`) — it reads `"empty"` as a
+  Found landing it: `Map.empty` threw under the v1 interpreter (`--v1`) — it read `"empty"` as a
   literal key lookup on an already-empty map instead of the companion accessor, "No key 'empty' in
-  map" — while `int`/`native`/`jvm` via `Map[K, V]()` all work correctly. Filed, not fixed (real,
-  separate interpreter work): `v1/runtime/backend/interpreter/BUGS.md`
-  `map-dot-empty-reads-empty-as-a-literal-key-not-the-companion-accessor`. Worked around throughout
-  `std/aggregator.ssc` with `Map[K, V]()` instead of `Map.empty`.
+  map" — while `int`/`native`/`jvm` via `Map[K, V]()` all worked correctly. Worked around throughout
+  `std/aggregator.ssc` with `Map[K, V]()` instead of `Map.empty` at the time. **Now fixed** (claim
+  `interp-map-dot-empty`, 2026-08-30): `v1/runtime/backend/interpreter/BUGS.md`
+  `map-dot-empty-reads-empty-as-a-literal-key-not-the-companion-accessor` — `Map`, unlike
+  `List`/`Vector`/`Array`/`Set`, was never wrapped in a companion object, so `Map.empty` fell
+  through a heuristic meant for things like `args.length` ("auto-call a parameterless native global
+  in receiver position"), calling `Map()` then reading `"empty"` as a key on the result. Fixed by
+  wrapping `Map` in a companion too (`BuiltinsRuntime.wrapMapCompanion`), tagged `"MapCompanion"`
+  rather than `"Map"` to avoid colliding with an unrelated pre-existing `CallRuntime` case for a
+  `Map[String, Any]` handler-param value, and re-applied from `setupPluginCompanions` too since the
+  interpreter backend re-registering itself as an in-process plugin on first lazy plugin load was
+  independently resetting the wrapping back to a raw native — reproduced ONLY cross-module.
+  `MapMonoid.empty` uses `Map.empty` again. Verified: 1898/1898 `backendInterpreter` sbt tests pass,
+  `std-aggregator`/`std-aggregator-approx` conformance PASS on `int` including the real cross-module
+  `groupByAgg` call that originally surfaced this.
 - **§9 bridge to `DStream`/`Pipeline` and `Dataset` — DONE** (claim `aggregator-dstream-bridge`,
   2026-08-30). `aggregatorSeqOp`/`aggregatorCombOp` turn an `Aggregator`'s `(monoid, prepare)` into
   the `zero`/`seqOp`/`combOp` triple `aggregatePerKey`/`runFold` already accept, verified by the

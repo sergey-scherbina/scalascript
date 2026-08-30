@@ -586,13 +586,11 @@ If `Acc` is a `Monoid`, `Map[K, Acc]` is a `Monoid`: combine two maps key-by-key
 aggregate per group" is this `Map`-monoid wrapping any `Aggregator`'s own monoid — not a separate
 concept the language needs. Tuples are destructured with a `val` binding inside the lambda body
 (`val (k, v) = kv`), not as lambda parameters, matching this module's own §5.2 finding about a
-tuple-destructuring lambda parameter miscompiling on the reference front. `Map[K, V]()` builds the
-empty map, not `Map.empty` — see `v1/runtime/backend/interpreter/BUGS.md`
-`map-dot-empty-reads-empty-as-a-literal-key-not-the-companion-accessor`:
+tuple-destructuring lambda parameter miscompiling on the reference front.
 
 ```scalascript
 class MapMonoid[K, Acc](inner: Monoid[Acc]) extends Monoid[Map[K, Acc]]:
-  def empty: Map[K, Acc] = Map[K, Acc]()
+  def empty: Map[K, Acc] = Map.empty
   def combine(a: Map[K, Acc], b: Map[K, Acc]): Map[K, Acc] =
     b.toList.foldLeft(a) { (acc, kv) =>
       val (k, v) = kv
