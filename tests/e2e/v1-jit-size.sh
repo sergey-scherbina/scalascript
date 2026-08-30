@@ -973,10 +973,22 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # INDEX ASSIGNMENT (`m2[k as usize] = v`) instead — one new `if` branch inline in this arm's own
 # case, the growth. Re-verified uniml/xml, uniml/json, and uniml/yaml all still build clean (0
 # errors).
+#
+# renderTerm 39740 -> 39848 (+108), continuing the same backlog, 50 -> 47. `MdLine.split(text)`
+# (`MarkdownBlocks.scala`'s `parse`, `object MdLine: def split(text: String): Vector[MdLine] = ...`)
+# — the one-arg `(s: String).split(sep)` case had NO receiver-type guard at all and matched on the
+# bare method name "split" alone, so it fired for this companion-object STATIC call too and
+# rendered the bare object reference `MdLine` followed by `.split(...)` as if it were a String:
+# `error[E0423]: expected value, found struct MdLine`. The case now steps aside via an inline
+# `_objectMembers` lookup (the same map an existing SITE-2 callee-name lookup elsewhere in this
+# method already keys off of) whenever `qual` is a bare object name that itself declares a "split"
+# member, letting the ordinary object-member call machinery resolve it instead — the added `match`
+# guard inline in this arm's own case is the growth. Re-verified uniml/xml, uniml/json, and
+# uniml/yaml all still build clean (0 errors).
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-39740 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+39848 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

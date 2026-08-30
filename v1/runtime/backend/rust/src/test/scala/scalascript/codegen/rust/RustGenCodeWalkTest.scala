@@ -4042,6 +4042,36 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(expected.findFirstIn(g).isDefined,
       s"a Vec-typed field destructured through a fixed-arity Vector sub-pattern must rewrite to an if-let + slice match, not refuse as an unknown ctor:\n$g")
 
+  test("a companion-object static method sharing the bare name `split` with `String.split` resolves as an object-member call, not the String lowering"):
+    // `MdLine.split(text)` (`uniml/markdown`'s `MarkdownBlocks.scala`'s `parse`, `object MdLine:
+    // def split(text: String): Vector[MdLine] = ...`) — the one-arg `(s: String).split(sep)` case
+    // had NO receiver-type guard at all and matched on the bare method name "split" alone, so it
+    // fired for this companion-object STATIC call too, rendering the bare object reference `MdLine`
+    // as if it were a String value followed by `.split(...)`: `error[E0423]: expected value, found
+    // struct MdLine`. Fixed by having that case step aside — via the same `_objectMembers` lookup an
+    // existing SITE-2 callee-name check elsewhere in this method already keys off of — whenever
+    // `qual` is a bare object name that itself declares a "split" member, letting the ordinary
+    // object-member call machinery resolve it instead.
+    val src =
+      """```scalascript
+        |case class MdLine(content: String, ending: String)
+        |
+        |object MdLine:
+        |  def split(text: String): Vector[MdLine] =
+        |    Vector(MdLine(text, ""))
+        |
+        |class Parser(limits: Int):
+        |  def parse(text: String): Vector[MdLine] =
+        |    val lines = MdLine.split(text)
+        |    lines
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("let lines = split(text);"),
+      s"MdLine.split(text) must resolve via the object-member call path, not the String.split lowering:\n$g")
+    assert(!g.contains("MdLine.split"),
+      s"the bare object reference must never be rendered as a String.split receiver:\n$g")
+
   test("`sealed trait Container: def frame: String` + three case classes each overriding it — synthesized virtual dispatch, not the free-function overload refusal"):
     // `sealed trait Container: def frame: String` + `case class Blockquote()`/`ListFrame(ordered)`/
     // `ListItemFrame(ordered, contentIndent)`, each with its own `def frame = MdBranch.<Ctor>`

@@ -9225,8 +9225,22 @@ object RustCodeWalk:
 
     // `(s: String).split(sep)` emits `Vec<String>`, matching bench expectations.
     // sep must be a &str pattern (not owned String) — render bare literal.
+    // GUARD ADDED for `uniml/markdown`'s `MdLine.split(text)` (`object MdLine: def split(text:
+    // String): Vector[MdLine] = ...`, called from `MarkdownBlocks.parse`) — a companion-object
+    // STATIC method sharing the bare name "split" with `String.split`. This case had no
+    // receiver-type check at all, so it fired for ANY one-arg `.split(...)` call and rendered
+    // `qual` (here `Term.Name("MdLine")`, a bare object reference, not a String value) followed
+    // by `.split(...)`, producing `MdLine.split(&(text)).map(...)…` — `error[E0423]: expected
+    // value, found struct MdLine`. The real fix is routing to the ordinary object-member call
+    // machinery instead (the `_objectMembers`-keyed dispatch used at the SITE-2 callee-name
+    // lookup below, ~line 9653), so this case must step aside whenever `qual` is a bare object
+    // name that itself declares a "split" member — mirroring that exact same `_objectMembers`
+    // lookup rather than inventing a second one.
     case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("split")), args)
-        if args.values.size == 1 =>
+        if args.values.size == 1 && !(qual match
+          case m.Term.Name(o) => _objectMembers.get(o).exists(_.contains("split"))
+          case _              => false
+        ) =>
       for
         q <- renderTerm(qual, ctx)
         sep <- renderStrPatternArg(args.values.head, ctx)
