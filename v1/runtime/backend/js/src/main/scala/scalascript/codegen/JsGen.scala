@@ -5141,6 +5141,16 @@ class JsGen(
           s"_makePrism('$variantName')"
         case _ => genExpr(t.fun)
 
+    // `Map.empty` — the ScalaScript Map companion has no JS binding of its own; a bare `Map` in
+    // receiver position reaches JavaScript's built-in Map CLASS, and `_dispatch(Map, 'empty', [])`
+    // throws `Method not found: empty on <function>`. Lower it to `_Map()` directly, the same way
+    // call-position `Map(...)` already does. (`Map.empty[K, V]` arrives as Term.ApplyType whose
+    // default arm recurses into this Select, so both spellings take this case.) `List.empty` and
+    // `Set.empty` need no such case — those companions ARE real runtime objects with an `empty`
+    // member. js-codegen-map-dot-empty-has-no-companion-handling.
+    case Term.Select(Term.Name("Map"), Term.Name("empty")) =>
+      "_Map()"
+
     // v1.51.2 Streams — Source.empty / Sink.ignore / Sink.toList (field access, no args)
     case Term.Select(Term.Name("Source"), Term.Name("empty")) =>
       "_makeAsyncStream((async function*() {})(  ))"

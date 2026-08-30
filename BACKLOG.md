@@ -46,10 +46,17 @@ itself scopes out of the first slice — queued here rather than attempted in th
   `summon`'s fallback for an explicit user given emitted a bare identifier spelled like the
   registry key, which no given was ever bound to (now `_ssc_givens[key] ?? _resolveGiven(key)`).
   `std-order`'s conformance case now PASSES on `js` outright (known-red deleted);
-  `std-aggregator`'s stays known-red on `js` against a third, later bug this fix exposed in
-  `groupByAgg` (`js-codegen-map-dot-empty-has-no-companion-handling`, filed not fixed — the JS
-  backend's own `Map.empty` gap, mechanically different from the interpreter's same-named bug
-  fixed earlier the same day).
+  `std-aggregator`'s stayed known-red on `js` against a third, later bug this fix exposed in
+  `groupByAgg` (`js-codegen-map-dot-empty-has-no-companion-handling` — the JS backend's own
+  `Map.empty` gap, mechanically different from the interpreter's same-named bug fixed earlier the
+  same day). **That third bug is also now fixed** (claim `js-map-dot-empty`, 2026-08-30): a
+  `Term.Select(Map, empty)` case lowers to `_Map()` directly, both spellings (`Map.empty`,
+  `Map.empty[K, V]`). Landing IT exposed a FOURTH pre-existing defect, in `runEffAggregator`:
+  a method reference through a receiver in argument position (`accF.flatMap(agg.present)`) is
+  invoked with zero args instead of eta-expanded to a function
+  (`js-codegen-method-reference-in-argument-position-is-invoked-not-eta-expanded`, filed not
+  fixed, minimal repro verified standalone against `int`). `std-aggregator` stays known-red on
+  `js` against the fourth bug.
 - **§6 approximate aggregators — DONE** (claim `aggregator-approx`, 2026-08-30). `ApproxAggregator`
   (adds `errorBound`), `HLLAgg` (a real `Aggregator`), and `CMSMonoid`/`TDigestMonoid` (kept as
   `Monoid` plus `add`/`estimate`/`addPoint`/`quantile` methods, per the spec's own reasoning —

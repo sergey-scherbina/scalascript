@@ -262,9 +262,14 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # REVERTED, same terms as above: drift on a method already 3.18x the limit and never JIT-compiled,
 # in exchange for a real ReferenceError fix; not a restructuring candidate for the same arm-count
 # reason as every prior entry.
+# genExpr 25468 -> 25540 (+72), from the fix for js-codegen-map-dot-empty-has-no-companion-handling
+# (v1/runtime/backend/js/BUGS.md): one new Term.Select arm lowers `Map.empty` to `_Map()` — a bare
+# `Map` in receiver position otherwise reaches JavaScript's own built-in Map class and the dispatch
+# throws `Method not found: empty on <function>`. RAISED, NOT REVERTED, same terms as above: one
+# necessary arm on a method whose cost is arm count, already 3.19x the never-JIT'd limit.
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
-25468 scalascript.codegen.JsGen::genExpr
+25540 scalascript.codegen.JsGen::genExpr
 23885 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
