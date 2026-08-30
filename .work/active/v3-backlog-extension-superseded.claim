@@ -1,0 +1,11 @@
+slug: v3-backlog-extension-superseded
+branch: feature/v3-backlog-extension-superseded
+agent: claude-code
+started: 2026-08-30T22:04:25Z
+heartbeat: 2026-08-30T22:04:25Z
+status: claimed-before-planning
+items: v3-extension-backlog-section-is-superseded
+paths: file:v3/BACKLOG.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
