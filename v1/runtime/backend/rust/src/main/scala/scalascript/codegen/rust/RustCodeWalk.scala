@@ -5945,6 +5945,17 @@ object RustCodeWalk:
       case m.Term.Apply.After_4_6_0(m.Term.Name(fn), args) if args.values.size == 1 =>
         elementTypeOf(m.Term.Name(fn), ctx).orElse(_returnTypes.get(fn))
       case m.Term.Apply.After_4_6_0(m.Term.Name(fn), _) => _returnTypes.get(fn)
+      // `val window = lines.slice(index, last)` (`uniml/markdown`'s `MarkdownBlocks.scala`'s
+      // `scanRefDef`) — `.slice` is element-preserving the SAME way `elementTypeOf`'s own
+      // `.filter`/`.sorted`/`.distinct`/`.reverse`/`.take`/`.drop` pass-through cases already are,
+      // but THIS function (`fromInit`, answering "what is `window`'s own declared type", a full
+      // `Vec<T>` string) had no case for it at all — every case above matches a narrower shape.
+      // Without this, `window`'s type never resolved, so `elementTypeOf(window, ctx)` (fed by the
+      // `Term.Name` case a few lines down) answered `None` too, and `window.iterator.map(_.raw)`'s
+      // placeholder `_` reached its body with no type to resolve `raw` (a genuine zero-arg METHOD,
+      // ambiguous by NAME alone against `RawHtml`/`HtmlBlock`'s own `raw` FIELDS) against at all.
+      case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("slice")), args) if args.values.size == 2 =>
+        elementTypeOf(qual, ctx).map(t => s"Vec<$t>")
       // `var nodes = input` where `input: Vector[WDelim]` is the ENCLOSING def's OWN parameter
       // (`uniml/markdown`'s `MarkdownInlines.scala`'s `processEmphasis`) — a bare-name initializer
       // referencing ANOTHER already-typed name (a param here; `ctx.paramTypes` already carries
@@ -7639,6 +7650,22 @@ object RustCodeWalk:
           .exists(_.members.exists(mem => mem.name == field && mem.params.isEmpty)) =>
       renderTerm(qual, ctx).map(q => s"$q.${rustIdent(field)}()")
 
+    // SAME precise fix, for a receiver that is a CALL RESULT rather than a bare name —
+    // `dialectFor(profile).id` (`uniml/markdown`'s `MarkdownDialect.scala`'s `dialectId`;
+    // `dialectFor: MarkdownProfile => DialectAdapter`, a dyn-dispatch trait declaring `def id:
+    // String`). "id" collides with `Source.scala`'s OWN genuine field `SourceToken.id: Long` the
+    // identical way "label"/"destination"/"title" collided above, so the name-only
+    // `_zeroArgDefNames` catch-all refuses it everywhere: `error[E0615]: attempted to take value
+    // of method id on type Rc<dyn DialectAdapter>`. The case just above only matches a bare
+    // `Term.Name` qualifier; here the qualifier is `dialectFor(profile)`, a call to an ordinary
+    // user def, so its type comes from `_returnTypes` (keyed by the CALLEE's name) instead of
+    // `ctx.paramTypes` (keyed by a bound name) — same `dynTraitNameOfRustType`/`_dispatchTraits`
+    // lookup once that type is in hand.
+    case m.Term.Select(call @ m.Term.Apply.After_4_6_0(m.Term.Name(fn), _), m.Term.Name(field))
+        if _returnTypes.get(fn).flatMap(dynTraitNameOfRustType).flatMap(_dispatchTraits.get)
+          .exists(_.members.exists(mem => mem.name == field && mem.params.isEmpty)) =>
+      renderTerm(call, ctx).map(q => s"$q.${rustIdent(field)}()")
+
     // The SAME precise fix, for a receiver whose known type is a concrete STRUCT rather than a dyn
     // trait — `val vm = TreeVm(limits); vm.start` (`UniML.scala`'s `parse`): "start" collides with
     // `SourceSpan.start`, so the name-only `_zeroArgDefNames` guard below refuses it everywhere, but
@@ -7657,6 +7684,33 @@ object RustCodeWalk:
     case m.Term.Select(qual @ m.Term.Name(n), m.Term.Name(field))
         if ctx.paramTypes.get(n).orElse(ctx.paramCtorNames.get(n)).flatMap(_structZeroArgMethods.get).exists(_.contains(field)) =>
       renderTerm(qual, ctx).map(q => s"$q.${rustIdent(field)}()")
+
+    // TWO MORE precise-receiver shapes for the identical gap, both from `window.iterator.map(_.raw)`
+    // / `window(linesUsed).raw.length` (`uniml/markdown`'s `MarkdownBlocks.scala`'s `scanRefDef`,
+    // `MdLine.raw`, a genuine zero-arg METHOD) — the name-only `_zeroArgDefNames` catch-all a few
+    // lines down refuses "raw" EVERYWHERE, by design, because `MarkdownValue.scala` also declares
+    // `case RawHtml(raw: String)` / `case HtmlBlock(raw: String)`, genuine FIELDS sharing the same
+    // name: `error[E0615]: attempted to take value of method raw on type MdLine`. Neither of the
+    // two PRECISE cases just above covers this: their qualifier must be a bare `Term.Name`, but
+    // `_.raw`'s qualifier is a `Term.Placeholder` (rendered as the literal name `__p0`, the SAME
+    // convention `renderVecIterBody`'s own `Term.AnonymousFunction` arm already seeds into
+    // `ctx.paramTypes`), and `window(linesUsed).raw`'s qualifier is an INDEXING `Term.Apply`, not a
+    // name at all — its element type comes from `elementTypeOf` on the indexed receiver instead of
+    // a direct `ctx.paramTypes` lookup.
+    case m.Term.Select(ph: m.Term.Placeholder, m.Term.Name(field))
+        if ctx.paramTypes.get("__p0").flatMap(_structZeroArgMethods.get).exists(_.contains(field)) =>
+      // `renderTerm(ph, ctx)` is called for its SIDE EFFECT, not its string: the enclosing
+      // `Term.AnonymousFunction` case (`_phCounters`) only learns a placeholder was consumed, and
+      // so only emits a `|__p0|` parameter at all, when the placeholder's OWN render case actually
+      // runs — this case used to short-circuit straight to a literal `"__p0.raw()"` without ever
+      // rendering `ph`, so the closure came out `|| { __p0.raw() }` (an UNBOUND `__p0`, zero
+      // params): `error[E0425]` + `error[E0593]: closure is expected to take 1 argument`. `ph`'s
+      // own render answer is always exactly `"__p0"` (the counter starts at 0 and there is only
+      // ever one placeholder for this shape), so it is discarded in favor of the same literal.
+      renderTerm(ph, ctx).map(_ => s"__p0.${rustIdent(field)}()")
+    case m.Term.Select(indexed @ m.Term.Apply.After_4_6_0(recv, idxArgs), m.Term.Name(field))
+        if idxArgs.values.size == 1 && elementTypeOf(recv, ctx).flatMap(_structZeroArgMethods.get).exists(_.contains(field)) =>
+      renderTerm(indexed, ctx).map(q => s"$q.${rustIdent(field)}()")
 
     // A bare zero-arg DEF read without parens (`vm.start`, `TreeVm`/`Processor`'s own def with no
     // `()` at the Scala use site — a parameterless `def` elides them there) reaches here identical

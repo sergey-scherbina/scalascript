@@ -4042,6 +4042,51 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(expected.findFirstIn(g).isDefined,
       s"a Vec-typed field destructured through a fixed-arity Vector sub-pattern must rewrite to an if-let + slice match, not refuse as an unknown ctor:\n$g")
 
+  test("a zero-arg METHOD read without parens, sharing its bare name with a genuine FIELD elsewhere, resolves precisely for a placeholder/indexing/call-result receiver"):
+    // Three receiver shapes the name-only `_zeroArgDefNames` catch-all cannot help with once the
+    // SAME bare name is ALSO a genuine struct FIELD somewhere else in the module (it refuses
+    // EVERY use of that name, by design): `window.iterator.map(_.raw)` (a `Term.Placeholder`
+    // qualifier), `window(linesUsed).raw` (an INDEXING `Term.Apply` qualifier), and
+    // `dialectFor(x).id` (a CALL-RESULT qualifier) — each needs its own precise, receiver-type-
+    // aware fallback (`uniml/markdown`'s `MarkdownBlocks.scala`'s `scanRefDef` for `raw`
+    // colliding with `MarkdownValue.scala`'s `RawHtml(raw: String)`; `MarkdownDialect.scala`'s
+    // `dialectId` for `id` colliding with `Source.scala`'s `SourceToken.id: Long`).
+    val src =
+      """```scalascript
+        |case class MdLine(content: String, ending: String):
+        |  def raw: String = content + ending
+        |
+        |case class RawHtml(raw: String)
+        |
+        |trait DialectAdapter:
+        |  def id: String
+        |
+        |object CommonMarkDialect extends DialectAdapter:
+        |  val id: String = "commonmark"
+        |
+        |case class SourceToken(id: Long, text: String)
+        |
+        |private def dialectFor(x: Int): DialectAdapter = CommonMarkDialect
+        |
+        |def scanWindow(lines: Vector[MdLine], index: Int, last: Int): String =
+        |  val window = lines.slice(index, last)
+        |  window.iterator.map(_.raw).mkString
+        |
+        |def scanWindow2(window: Vector[MdLine], linesUsed: Int): Int =
+        |  window(linesUsed).raw.length
+        |
+        |def dialectId(x: Int): String =
+        |  dialectFor(x).id
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".map(|__p0| { __p0.raw() })"),
+      s"a placeholder-bound receiver's zero-arg method must resolve with parens, not as a field:\n$g")
+    assert(g.contains("window[(linesUsed) as usize].clone().raw().len()"),
+      s"an INDEXED receiver's zero-arg method must resolve with parens, not as a field:\n$g")
+    assert(g.contains("dialectFor(x).id()"),
+      s"a CALL-RESULT receiver's zero-arg method must resolve with parens, not as a field:\n$g")
+
   test("`xs.zipWithIndex.exists { (item, idx) => … }` destructures the tuple param, not just `xs.zipWithIndex.map`"):
     // `items.iterator.zipWithIndex.exists { (item, idx) => … idx … }` (`uniml/markdown`'s
     // `MarkdownProjection.scala`'s `listLoose`) — the genuine two-param-closure-over-a-tuple shape

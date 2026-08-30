@@ -1013,10 +1013,28 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # more PRE-EXISTING instances of the identical gap in `Doc.scala`'s `numericReferenceValue`,
 # masked until now for the same "error-typed arm unifies with anything" reason. Re-verified
 # uniml/xml, uniml/json, and uniml/yaml all still build clean (0 errors).
+# renderTerm 40040 -> 40788 (+748), continuing the same backlog, 41 -> 39 (three more instances
+# of one root cause: `_zeroArgDefNames`'s name-only catch-all refuses a genuine zero-arg METHOD
+# read without parens whenever that SAME bare name is ALSO a genuine struct FIELD somewhere else
+# in this large corpus — by design, "it would rather miss a call than wrongly rewrite someone
+# else's field" — leaving only the two PRECISE, receiver-type-aware fallbacks above it (bare
+# `Term.Name` qualifier, keyed off `ctx.paramTypes`/`ctx.paramCtorNames`) to catch what the
+# catch-all won't touch). `window.iterator.map(_.raw)` / `window(linesUsed).raw.length`
+# (`uniml/markdown`'s `MarkdownBlocks.scala`'s `scanRefDef`, `MdLine.raw` colliding with
+# `MarkdownValue.scala`'s `RawHtml(raw: String)`/`HtmlBlock(raw: String)` fields) — TWO new
+# precise cases: a `Term.Placeholder` qualifier (rendered as `__p0`, the SAME convention
+# `renderVecIterBody`'s own `AnonymousFunction` arm seeds into `ctx.paramTypes`) and an INDEXING
+# `Term.Apply` qualifier (element type via `elementTypeOf` on the indexed receiver). And
+# `dialectFor(profile).id` (`uniml/markdown`'s `MarkdownDialect.scala`'s `dialectId`, colliding
+# with `Source.scala`'s `SourceToken.id: Long`) — a THIRD new precise case for a call-result
+# qualifier, keyed off `_returnTypes` instead of `ctx.paramTypes`. All three are the identical
+# `dynTraitNameOfRustType`/`_structZeroArgMethods` lookup already established just above, applied
+# to a receiver SHAPE neither existing precise case covered. Re-verified uniml/xml, uniml/json,
+# and uniml/yaml all still build clean (0 errors).
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-40040 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+40788 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF
