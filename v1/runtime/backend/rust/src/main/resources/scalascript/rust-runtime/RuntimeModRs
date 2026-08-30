@@ -296,6 +296,31 @@
       |    }
       |}
       |
+      |// `content.regionMatches(true, i, "www.", 0, 4)` (`uniml/markdown`'s `MarkdownInlines.scala`'s
+      |// `autolinkAtWWW`/`autolinkScheme` — scanning for a URL scheme or `www.` at the current
+      |// position, case-insensitively) — same UTF-16-code-unit basis as `_str_starts_with_at`/
+      |// `_str_index_of_from` above, and the SAME "out of range answers false, never panics"
+      |// contract Java's own `String.regionMatches` has (a negative offset or a region running past
+      |// either string's end is not exceptional here, just a non-match). `ignoreCase`, when set,
+      |// decodes each region back to a `String` and compares lowercased — the ordinary Rust idiom
+      |// for case-insensitive text comparison, and exact enough for the ASCII scheme names
+      |// (`http`/`https`/`mailto`/`www.`) this lane's own callers actually probe for.
+      |#[allow(dead_code)]
+      |pub fn _str_region_matches(s: &str, ignore_case: bool, toffset: i64, other: &str, ooffset: i64, len: i64) -> bool {
+      |    if toffset < 0 || ooffset < 0 || len < 0 { return false; }
+      |    let s_units: Vec<u16> = s.encode_utf16().collect();
+      |    let o_units: Vec<u16> = other.encode_utf16().collect();
+      |    let (to, oo, l) = (toffset as usize, ooffset as usize, len as usize);
+      |    if to + l > s_units.len() || oo + l > o_units.len() { return false; }
+      |    if !ignore_case {
+      |        s_units[to..to + l] == o_units[oo..oo + l]
+      |    } else {
+      |        let sa = String::from_utf16_lossy(&s_units[to..to + l]);
+      |        let oa = String::from_utf16_lossy(&o_units[oo..oo + l]);
+      |        sa.to_lowercase() == oa.to_lowercase()
+      |    }
+      |}
+      |
       |#[allow(dead_code)]
       |pub fn _exists(path: &str) -> bool { std::path::Path::new(path).exists() }
       |

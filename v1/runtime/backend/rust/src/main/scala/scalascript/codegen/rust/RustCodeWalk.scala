@@ -9276,6 +9276,22 @@ object RustCodeWalk:
         at     <- renderTerm(args.values(1), ctx)
       yield s"crate::runtime::_str_starts_with_at(&$q, &($prefix), $at)"
 
+    // `content.regionMatches(true, i, s, 0, s.length)` (`uniml/markdown`'s `MarkdownInlines.scala`'s
+    // `autolinkAtWWW`/`autolinkScheme`) — had NO lowering at all anywhere in this backend, same
+    // no-case-existed-yet gap `_str_starts_with_at`'s own five-arg cousin closes. Routed to a
+    // dedicated runtime helper for the SAME Unicode-safety reason (`_str_region_matches`, its own
+    // comment has the full contract).
+    case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("regionMatches")), args)
+        if args.values.size == 5 =>
+      for
+        q           <- renderTerm(qual, ctx)
+        ignoreCase  <- renderTerm(args.values.head, ctx)
+        toffset     <- renderTerm(args.values(1), ctx)
+        other       <- renderTerm(args.values(2), ctx)
+        ooffset     <- renderTerm(args.values(3), ctx)
+        len         <- renderTerm(args.values(4), ctx)
+      yield s"crate::runtime::_str_region_matches(&$q, $ignoreCase, $toffset, &($other), $ooffset, $len)"
+
     // `(s: String).contains/startsWith/endsWith(pat)` — str predicates take a
     // Pattern (&str/char), not an owned String. Render the literal/expr bare/borrowed.
     case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name(pred)), args)

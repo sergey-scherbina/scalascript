@@ -953,10 +953,19 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # found for struct String`. A NEW `renderTerm` arm mirroring the one-arg `indexOf` case exactly
 # (same Unicode-safe find-then-UTF-16-count technique, `str::rfind` in place of `str::find`) is the
 # growth. Re-verified uniml/xml, uniml/json, and uniml/yaml all still build clean (0 errors).
+#
+# renderTerm 39668 -> 39736 (+68), continuing the same backlog, 54 -> 52. `content.regionMatches(
+# true, i, "www.", 0, 4)` (`MarkdownInlines.scala`'s `autolinkAtWWW`/`autolinkScheme`) —
+# `String.regionMatches` (the 5-arg overload) had NO lowering at all: `error[E0599]: no method
+# named regionMatches found for struct String`. A NEW `renderTerm` arm routing to a NEW runtime
+# helper (`_str_region_matches`, added to `RuntimeModRs` — same Unicode-safe UTF-16-code-unit basis
+# and out-of-range-answers-false contract every OTHER indexed String helper in this file already
+# uses) is the growth; the helper itself lives in the runtime template, not renderTerm, and costs
+# nothing here. Re-verified uniml/xml, uniml/json, and uniml/yaml all still build clean (0 errors).
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-39668 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+39736 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

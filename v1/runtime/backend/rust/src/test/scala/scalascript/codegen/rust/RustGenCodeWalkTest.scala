@@ -3461,6 +3461,23 @@ class RustGenCodeWalkTest extends AnyFunSuite:
       && g.contains("if !lexeme.is_empty()"),
       s"a captured var's tuple-string positions must flow through a bare-name alias and a .foreach destructure:\n$g")
 
+  test("`s.regionMatches(ignoreCase, toffset, other, ooffset, len)` routes to a new Unicode-safe runtime helper"):
+    // `content.regionMatches(true, i, "www.", 0, 4)` (`uniml/markdown`'s `MarkdownInlines.scala`'s
+    // `autolinkAtWWW`/`autolinkScheme`) — `String.regionMatches` (the 5-arg overload) had NO
+    // lowering at all: `error[E0599]: no method named regionMatches found for struct String`.
+    // Fixed with a NEW runtime helper (`_str_region_matches`), the SAME UTF-16-code-unit basis and
+    // out-of-range-answers-false contract every other indexed String helper in this file already
+    // uses.
+    val src =
+      """```scalascript
+        |def matchesWww(content: String, i: Int): Boolean =
+        |  content.regionMatches(true, i, "www.", 0, 4)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("crate::runtime::_str_region_matches(&content, true, i, &(\"www.\".to_string()), 0i64, 4i64)"),
+      s"String.regionMatches must route to the new _str_region_matches runtime helper:\n$g")
+
   test("`s.lastIndexOf(charExpr)` on a String lowers the same way `.indexOf` already does, via `str::rfind`"):
     // `lex.lastIndexOf(']')` (`uniml/markdown`'s `MarkdownInlines.scala`'s `linkOrImage`) —
     // `String.lastIndexOf` had NO lowering at all anywhere in this backend, even though its forward
