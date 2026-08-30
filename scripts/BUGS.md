@@ -1,3 +1,44 @@
+## claim-path-comma-separator-and-dir-prefix — a comma-joined `--paths` claimed nothing, and the refusal printed the paths it would not match
+
+<!-- status: fixed
+     lane: apparatus
+     area: build
+     kind: bug
+     reported-by: claude-code
+     reported-at: 2026-08-30
+     confirmed: yes
+     gate: scripts/coord-claim --self-test
+     fixed-in: 019ad165b -->
+
+Found by an agent whose every commit was refused as "outside the claim" while the refusal's own
+`Declared paths:` line listed the files it was rejecting — the most misleading shape a guard can
+take, because the message points away from the cause.
+
+TWO independent defects, one symptom:
+
+1. **The separator was never agreed.** `coord-claim --paths` documents a space-separated list, and
+   both guards read `paths:` with an unquoted `for p in $paths` — whitespace splitting, stated
+   outright in `.githooks/pre-push`'s own header. Nothing REJECTED a comma-joined string, so
+   `--paths "file:a,file:b"` was stored verbatim and split into ONE token, `file:a,file:b`, which
+   is a prefix of nothing. Every file in the claim was then "outside" it. Measured on claim
+   `v3-lexer-annotations`, whose four comma-joined paths could not commit a single file; it got
+   through only by narrowing to one token, `mod:v3` — a workaround that silently BROADENS the
+   claim, which is the opposite of what the mutex is for.
+
+2. **`dir:` was a scope level no guard understood.** `pre-commit` stripped `repo:`/`mod:`/`file:`
+   and `pre-push`'s `scope_path` stripped the same three, so a `dir:` claim compared the literal
+   `dir:v3/tests/front` against the staged `v3/tests/front/x` and never matched. Exactly the shape
+   of the `file:` gap fixed on 2026-07-30 (`301202efc`), found the same way — by the first claim to
+   use the new level.
+
+**FIXED** at the source rather than in both readers: `--paths` normalises commas to spaces before
+the claim is written, so the ledger and both guards keep ONE vocabulary — the rule this apparatus
+keeps re-learning (`pre-commit`'s own notes: "duplicated logic needs the same vocabulary on both
+sides, or it is not one guard but two"). `dir:` is added to both guards' prefix stripping, and to
+`pre-push`'s `scope_level` as a SUBTREE (ranking with `mod:`, not `file:` — a directory claim must
+overlap-check like the subtree it is). `scripts/coord-claim --self-test` gains two checks: the
+comma list normalises, and the result splits into the expected number of scope tokens.
+
 ## next-displays-a-defaulted-kind-as-if-declared — the tool that picks everyone's work asserted a field its data lacks
 
 <!-- status: fixed
