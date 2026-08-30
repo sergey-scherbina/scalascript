@@ -2929,7 +2929,16 @@ def isObjVarMember(name, m, cx) = if name == "" then false else memL(m, objVarMe
 // skipper written for this shape (with-body → skip the layout `{…}`; `= expr` → to `;`), so the three
 // erasing branches use it instead. It also covers heads skipStmt cannot see: `given [T] …` opens on `[`.
 def isGivenHead(ts) = isWord(hd(ts), "given")
-def givenItem(ts, cx) = if fst(hd(tl(ts))) == 1 then givenNamed(snd(hd(tl(ts))), tl(tl(ts)), ts, cx) else (("", ""), skipGivenDecl(ts))
+// ANON-GIVEN: `given TC[T] with { body }` / `given TC[T] = expr` — no instance name, the TYPE head
+// (an uppercase kind-3 token) sits right after `given`. Scala's own rule synthesizes a name; here it
+// is `given_TC_T` (anonG, sanitized to identifier chars so the emitted `(def name ...)` stays a legal
+// core token). The named machinery is reused whole: givenAfterColon already dispatches `with`→object
+// and `=`→val, and the same synthesized name is registered by collectGTAnon (summon/using table) and
+// collectGivenReg (objReg static dispatch), so table build and lookup cannot drift. Anonymous POLY
+// givens (`given TC[..](using ..)`) and anonymous givens with extension members stay unsupported —
+// collectPolyGivenTable/collectExtDisp are unchanged and skip them exactly as before.
+// BUGS v2 anonymous-given-instance-unresolvable-by-summon-or-using.
+def givenItem(ts, cx) = if fst(hd(tl(ts))) == 1 then givenNamed(snd(hd(tl(ts))), tl(tl(ts)), ts, cx) else (if fst(hd(tl(ts))) == 3 then givenAfterColon(anonG(tl(ts)), skipTypeRef(tl(ts)), ts, cx) else (("", ""), skipGivenDecl(ts)))
 // KC-poly (2026-08-29): `given gname[T,...](using u: Ty, ...): TargetTC[pattern] with { body }` —
 // a `given` that is itself generic and takes another `given` as a `using` parameter. Recognized by
 // `[` right after the name (an ordinary given's name is followed by `:` or `=`). Emits NOTHING at
@@ -2953,7 +2962,10 @@ def givenMethodObj(gname, ms, cx) = "(def " ++ gname ++ " (prim __mk_method_obj_
 def givenObjArgs(gname, ms, cx) = ms match { case Nil => "" case h :: t => givenObjArg1(gname, h, cx) ++ givenObjArgs(gname, t, cx) }
 def givenObjArg1(gname, m, cx) = m match { case (kind, nt) => if kind == "var" then "" else (nt match { case (mname, toks) => " (lit (str " ++ dqOf(cx) ++ mname ++ dqOf(cx) ++ ")) (global " ++ gname ++ "_" ++ mname ++ ")" }) }
 // pre-pass: also register given_obj names in objReg for static dispatch (like collectObjReg for objects).
-def collectGivenReg(ts) = if fst(hd(tl(ts))) == 1 then collectGivenReg1(snd(hd(tl(ts))), tl(tl(ts)), ts) else collectObjReg(tl(ts))
+// ANON-GIVEN objReg twin: same synthesized name as collectGTAnon/givenItem, so `summon[TC[T]].m(..)`
+// static-dispatches through the same objReg slot a named given would get. collectGivenReg2's own
+// `with` guard keeps the val form (no members) out, exactly as for named givens.
+def collectGivenReg(ts) = if fst(hd(tl(ts))) == 1 then collectGivenReg1(snd(hd(tl(ts))), tl(tl(ts)), ts) else (if fst(hd(tl(ts))) == 3 then collectGivenReg2(anonG(tl(ts)), skipTypeRef(tl(ts)), ts) else collectObjReg(tl(ts)))
 def collectGivenReg1(gname, t2, ts) = if isTok(hd(t2), 2, 34) then collectGivenReg2(gname, skipTypeRef(tl(t2)), ts) else collectObjReg(tl(ts))
 def collectGivenReg2(gname, t3, ts) = if isWord(hd(t3), "with") then collectGivenObj(gname, objBodyToks(t3)) else collectObjReg(tl(ts))
 // A `given … with` body registers into the SAME objReg as a plain `object`, so it must carry the
@@ -2976,8 +2988,21 @@ def collectGO1(gname, ms, bodyTs) = Cons((gname, (memberNamesOf(ms), objVarMembe
 // from the tokens (parseTCType), consistent between table build and summon lookup — the exact format need
 // only agree with itself, not the oracle's readTypeStr.
 def collectGivenTable(ts) = if isEmpty(ts) then Nil else (if isGivenHead(ts) then collectGT(ts) else (if isCCHead(ts) then collectCCGiven(ts) else collectGivenTable(tl(ts))))
-def collectGT(ts) = if fst(hd(tl(ts))) == 1 then collectGT1(snd(hd(tl(ts))), tl(tl(ts)), ts) else collectGivenTable(tl(ts))
+def collectGT(ts) = if fst(hd(tl(ts))) == 1 then collectGT1(snd(hd(tl(ts))), tl(tl(ts)), ts) else (if fst(hd(tl(ts))) == 3 then collectGTAnon(tl(ts), ts) else collectGivenTable(tl(ts)))
 def collectGT1(gname, t2, ts) = if isTok(hd(t2), 2, 34) then Cons((parseTCType(tl(t2)), gname), collectGivenTable(tl(ts))) else collectGivenTable(tl(ts))
+// ANON-GIVEN registration twin of collectGT1: type head at tts, name synthesized (anonG). Guarded to
+// the two shapes givenItem actually EMITS (`with` object / `=` val, mirroring givenAfterColon) so the
+// table never holds a name no declaration defines — an unguarded entry would turn summon's clear
+// `(global summon)` refusal into an unbound synthesized global.
+def collectGTAnon(tts, ts) = collectGTAnon1(skipTypeRef(tts), tts, ts)
+def collectGTAnon1(t3, tts, ts) = if isWord(hd(t3), "with") then Cons((parseTCType(tts), anonG(tts)), collectGivenTable(tl(ts))) else (if isTok(hd(t3), 2, 20) then Cons((parseTCType(tts), anonG(tts)), collectGivenTable(tl(ts))) else collectGivenTable(tl(ts)))
+// Synthesized anonymous-given name: `given_TC` / `given_TC_Inner`, inner sanitized char-by-char to
+// [A-Za-z0-9_] so nested/tupled type args (`Map[String,Int]`) still yield one legal identifier.
+def anonG(tts) = anonG1(parseTCType(tts))
+def anonG1(p) = p match { case (tc, inner) => if inner == "*" then "given_" ++ tc else "given_" ++ tc ++ "_" ++ sanTy(inner, 0, inner.length, "") }
+def sanTy(s, i, n, acc) = if i >= n then acc else sanTy(s, i + 1, n, acc ++ sanCh(s, i))
+def sanCh(s, i) = if isWordCh(s.charAt(i)) then s.substring(i, i + 1) else "_"
+def isWordCh(c) = if c >= 97 then c <= 122 else (if c >= 65 then (if c <= 90 then true else c == 95) else (if c >= 48 then c <= 57 else false))
 // A `case class T(..) derives TC1, TC2` synthesises given-table entries (ssc1-lower caseGeneratedGiven-
 // Entries :683): Mirror.Of/ProductOf[T] (+deriving.* aliases) -> __mirror_T (a top-level DEF, so summon
 // resolves it to a bare global), and TC[T] -> __derived_TC_T (a top-level VAL/cell, so summon resolves it
