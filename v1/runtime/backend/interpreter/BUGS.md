@@ -170,13 +170,14 @@ typeclasses, OpenAPI schemas, optics, named-arg construction), 118/118 smoke-ci 
 
 ## map-dot-empty-reads-empty-as-a-literal-key-not-the-companion-accessor — `Map.empty` throws "No key 'empty' in map" under `--v1`
 
-<!-- status: open
+<!-- status: fixed
      lane: int
      kind: bug
      area: runtime
      gate: none
      reported-by: claude-code
      reported-at: 2026-08-29
+     fixed-in: 064ca399a
      confirmed: yes -->
 
 Found landing `std/aggregator.ssc`'s `groupByAgg` (§8 of `specs/aggregation-algebra.md`) —
@@ -198,16 +199,54 @@ scalascript.interpreter.InterpretError: [line 1, col 28] No key 'empty' in map
 	at scalascript.interpreter.DispatchRuntime$.dispatchMap(DispatchRuntime.scala:2651)
 ```
 
-The interpreter appears to treat `Map.empty` as "look up the literal string key `\"empty\"` in an
-already-empty map value" rather than recognizing it as the companion-object accessor that returns
-an empty map — `dispatchMap` calls `getOrElse` against the empty singleton map with `"empty"` as
-the key, which of course finds nothing. `Map.empty[K, V]` (with an explicit type argument) fails
-identically. `Map[K, V]()` and bare `Map()` both work correctly on every lane, including `--v1`, and
-are the workaround used throughout `std/aggregator.ssc`.
+`Map.empty[K, V]` (with an explicit type argument) failed identically. `Map[K, V]()` and bare
+`Map()` both worked correctly on every lane, including `--v1`, and were the workaround used
+throughout `std/aggregator.ssc`.
 
-Existing usages of `Map.empty` in this repo (`std/dstreams.ssc`, `std/graphql.ssc`,
-`std/openapi.ssc`) are all in *default parameter position* — never observed to be evaluated at
-runtime by an existing test, which is presumably why this went uncaught until now.
+**FIXED**: `Map`, unlike `List`/`Vector`/`Array`/`Set`, was never wrapped in a companion
+`Value.InstanceV` — it stayed CoreIntrinsics' raw `Value.NativeFnV` in `interp.globals`, registered
+(like every native) in `pluginNativeNames`. `DispatchRuntime.dispatch` has a heuristic for exactly
+this shape — "a parameterless native global used in receiver position is auto-called to its value,
+then the member is re-dispatched on the result" (built for things like `args.length`) — and `Map`
+unintentionally qualified: `Map.empty` auto-called `Map()` with zero args to build an empty map
+VALUE, then re-dispatched `"empty"` on THAT value, which `dispatchMap`'s catch-all reads as a
+STRING KEY lookup on the (now-empty) map, finding nothing.
+
+Fixed in `BuiltinsRuntime.wrapMapCompanion`: wrap the raw native in a companion `InstanceV`, exactly
+like `List`/`Vector`/`Array`/`Set` already are, so `Map.empty` selects a real field instead of
+hitting the auto-call heuristic at all. Two things made this less than a one-line fix:
+
+1. **Naming the companion literally `"Map"` collided with a different, legitimate mechanism** —
+   `CallRuntime.callValue` has a pre-existing `case Value.InstanceV("Map", fields) =>` for an
+   actual MAP VALUE that arrives as an `InstanceV` from elsewhere (a `Map[String, Any]`
+   handler-param pass-through in `TypedHandlerWrapper`), treating `fields` as the map's own data
+   entries. Tagging the companion `"Map"` too made `Map("a" -> 1, "b" -> 2)` match that case
+   instead of the generic apply-field dispatch, misreading the companion's OWN `"empty"`/`"apply"`
+   fields as map data. Fixed by tagging the companion `"MapCompanion"` instead — an internal marker
+   never exposed to user code, so ordinary field/method dispatch (which doesn't special-case by
+   type name except for a short reserved list `"MapCompanion"` isn't in) handles it exactly like
+   `List`'s or `Set`'s companion.
+2. **The wrapping didn't survive a later lazy plugin load.** The interpreter backend registers
+   itself as one of `BackendRegistry`'s in-process backends, so `Interpreter.ensurePluginsLoaded`/
+   `installPlugins` — triggered the first time a module references ANY plugin-only name — re-runs
+   `installNativeIntrinsicEntries` over its OWN core intrinsics too (not just the triggering
+   plugin's), which includes `Map`, resetting `interp.globals("Map")` straight back to a fresh raw
+   `NativeFnV` and silently undoing `initBuiltins`'s wrapping. This reproduced ONLY cross-module,
+   with the fresh native's identity confirmed via `System.identityHashCode` — the same interpreter
+   instance, "Map" correctly wrapped right after `initBuiltins`, then found reset to a *different*
+   raw `NativeFnV` closure by the time a later-loaded module's code ran. Fixed by calling
+   `wrapMapCompanion` a second time from `BuiltinsRuntime.setupPluginCompanions` too (already called
+   at the end of both plugin-loading paths, and already used for exactly this "re-wrap after a
+   plugin (re)install" purpose — `DriverManager`/`Db`/`Graph`/`Source` etc. all follow the same
+   guard-and-wrap pattern there) — idempotent, a no-op once `Map` is already the companion.
+
+`std/aggregator.ssc`'s `MapMonoid.empty` reverted from the `Map[K, Acc]()` workaround back to
+`Map.empty`, as originally designed. Existing usages of `Map.empty` elsewhere in this repo
+(`std/dstreams.ssc`, `std/graphql.ssc`, `std/openapi.ssc`), all in *default parameter position*,
+were never observed to be evaluated at runtime by an existing test — presumably why this went
+uncaught until `groupByAgg` actually called it. Verified: 1898/1898 `backendInterpreter` sbt tests
+pass, `std-aggregator`/`std-aggregator-approx` conformance PASS on `int` end-to-end (including the
+real cross-module `groupByAgg` call that originally surfaced this).
 
 ## point-free-class-method-never-eta-expands-on-int — `obj.method` under `--v1` fails differently, same given-vs-class shape
 
