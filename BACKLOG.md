@@ -52,13 +52,18 @@ itself scopes out of the first slice — queued here rather than attempted in th
   compresses 200 points to 20 centroids and estimates the median/p99 within the expected range —
   on the reference front. **This closes out the last open section of the spec** — every section
   except `Arrow`/`Category`/a new `Future`/`Task`/`Result` type (§11.4, deliberately deferred, not a
-  gap) is now landed. Found landing it, all filed, none fixed here (real, separate front/interpreter
-  work): `HLLAgg` is known-red on `int` (`math.log` missing from the interpreter's `math` object)
-  and `js` (a sibling zero-arg `def` referenced by bare name resolves to nothing); `TDigestMonoid` is
-  known-red on `int` (`List.sortBy` on a `Double` key sorts lexicographically, not numerically); the
-  whole `std-aggregator-approx` conformance case is also known-red on `jvm` (the pre-existing,
-  already-tracked `int-width` non-conformance, triggered by a `Long` literal `HLLAgg`'s hash mixer
-  needs). Also found and fixed IN this claim (not filed, since it was `std/aggregator.ssc`'s own
+  gap) is now landed. Found landing it: `HLLAgg` was known-red on `int` (`math.log` missing from the
+  interpreter's `math` object) and is known-red on `js` (a sibling zero-arg `def` referenced by bare
+  name resolves to nothing); `TDigestMonoid` was known-red on `int` (`List.sortBy` on a `Double` key
+  sorted lexicographically, not numerically); the whole `std-aggregator-approx` conformance case is
+  also known-red on `jvm` (the pre-existing, already-tracked `int-width` non-conformance, triggered
+  by a `Long` literal `HLLAgg`'s hash mixer needs). **Both `int`-lane bugs are now fixed** (claim
+  `interp-math-log-and-sortby`, 2026-08-30) — `math.log`/`math.exp` added to the interpreter's
+  intrinsics and wired into the `math` object; `sortBy` gained a second numeric fast path for
+  `Double`/mixed `Int`+`Double` keys, leaving the existing `Int`-only path and the string fallback
+  for genuinely non-numeric keys untouched. `std-aggregator-approx` is green on `int`; `js`/`jvm`
+  stay known-red against their own separate, still-open bugs. Also found and fixed IN the original
+  claim (not filed, since it was `std/aggregator.ssc`'s own
   bug): `groupByAgg` (§8) used `in` as a `val`-tuple-destructured name, which is a JS reserved word
   — this had been silently masking part of an already-filed JS bug's diagnosis in every conformance
   case landed since §8, since a JS syntax error prevents the file from running AT ALL regardless of

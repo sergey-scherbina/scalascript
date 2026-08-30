@@ -568,6 +568,8 @@ private[interpreter] object BuiltinsRuntime:
     ))
     interp.globals("math") = Value.InstanceV("math", Map(
       "sqrt"  -> interp.globals("math.sqrt"),
+      "log"   -> interp.globals("math.log"),
+      "exp"   -> interp.globals("math.exp"),
       "abs"   -> interp.globals("math.abs"),
       "pow"   -> interp.globals("math.pow"),
       "max"   -> interp.globals("math.max"),

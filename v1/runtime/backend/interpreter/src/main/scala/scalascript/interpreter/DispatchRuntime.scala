@@ -2212,18 +2212,48 @@ private[interpreter] object DispatchRuntime:
                   i -= 1
                 Value.ListV(result2)
               else
-                // Build (value, strKey) array in one pass — avoids zip + map double-list.
-                val arr = new Array[(Value, String)](n)
-                var i = 0; var lRem = ls; var kRem = keys
-                while lRem.nonEmpty do
-                  arr(i) = (lRem.head, Value.show(kRem.head))
-                  i += 1; lRem = lRem.tail; kRem = kRem.tail
-                java.util.Arrays.sort(arr, java.util.Comparator.comparing[(Value, String), String](_._2))
-                var result: List[Value] = Nil; i = n - 1
-                while i >= 0 do
-                  result = arr(i)._1 :: result
-                  i -= 1
-                Value.ListV(result)
+                // Fast path: every key is numeric (all Double, or a mix of Int/Double) —
+                // sort by the Double value, not lexicographically. Measured 2026-08-30:
+                // without this, sortBy(c => c.mean) on a Double field sorted the STRINGS
+                // "1"/"10"/"100"/"2"/"20" (BUGS `sortby-on-a-non-int-key-sorts
+                // -lexicographically-not-numerically`) — the `allIntKeys` check above only
+                // ever excluded non-Int keys from the numeric path, it never asked whether
+                // they were numeric another way.
+                var allNumericKeys = true; var kChk2 = keys
+                while allNumericKeys && kChk2.nonEmpty do
+                  kChk2.head match
+                    case _: Value.IntV | _: Value.DoubleV => ()
+                    case _                                => allNumericKeys = false
+                  kChk2 = kChk2.tail
+                if allNumericKeys then
+                  val arrD = new Array[(Value, Double)](n)
+                  var i2 = 0; var lR2 = ls; var kR2 = keys
+                  while lR2.nonEmpty do
+                    val d = kR2.head match
+                      case Value.IntV(v)    => v.toDouble
+                      case Value.DoubleV(v) => v
+                      case _                => 0.0 // unreachable — guarded by allNumericKeys above
+                    arrD(i2) = (lR2.head, d)
+                    i2 += 1; lR2 = lR2.tail; kR2 = kR2.tail
+                  java.util.Arrays.sort(arrD, java.util.Comparator.comparingDouble[(Value, Double)](_._2))
+                  var result3: List[Value] = Nil; i2 = n - 1
+                  while i2 >= 0 do
+                    result3 = arrD(i2)._1 :: result3
+                    i2 -= 1
+                  Value.ListV(result3)
+                else
+                  // Build (value, strKey) array in one pass — avoids zip + map double-list.
+                  val arr = new Array[(Value, String)](n)
+                  var i = 0; var lRem = ls; var kRem = keys
+                  while lRem.nonEmpty do
+                    arr(i) = (lRem.head, Value.show(kRem.head))
+                    i += 1; lRem = lRem.tail; kRem = kRem.tail
+                  java.util.Arrays.sort(arr, java.util.Comparator.comparing[(Value, String), String](_._2))
+                  var result: List[Value] = Nil; i = n - 1
+                  while i >= 0 do
+                    result = arr(i)._1 :: result
+                    i -= 1
+                  Value.ListV(result)
             case _ => recv
           }
         case _       => dispatchFallback(recv, name, args, env, interp)

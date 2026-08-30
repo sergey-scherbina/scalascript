@@ -84,6 +84,20 @@ val CoreIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
       case _               => ()
   ),
 
+  QualifiedName("math.log") -> NativeImpl((_, args) =>
+    args match
+      case List(d: Double) => math.log(d)
+      case List(n: Long)   => math.log(n.toDouble)
+      case _               => ()
+  ),
+
+  QualifiedName("math.exp") -> NativeImpl((_, args) =>
+    args match
+      case List(d: Double) => math.exp(d)
+      case List(n: Long)   => math.exp(n.toDouble)
+      case _               => ()
+  ),
+
   QualifiedName("math.abs") -> NativeImpl((_, args) =>
     args match
       case List(d: Double) => math.abs(d)

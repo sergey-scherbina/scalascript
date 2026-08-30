@@ -15,8 +15,9 @@ serious front defect this surfaced). Runnable at
 [`examples/std-aggregator-approx.ssc`](../examples/std-aggregator-approx.ssc) and gated by
 `tests/conformance/std-aggregator.ssc` + `tests/conformance/std-aggregator-approx.ssc` +
 `tests/conformance/std-order.ssc`. `std-aggregator`: INT green, JS and JVM known-red against two
-filed codegen bugs. `std-aggregator-approx`: INT, JS, and JVM all known-red against three MORE
-filed bugs (one per lane — see §6's own note); every sketch is verified correct on the reference
+filed codegen bugs. `std-aggregator-approx`: INT green (its two interpreter bugs — missing
+`math.log`, lexicographic `sortBy` on a `Double` key — are fixed), JS and JVM still known-red
+against two remaining, separate codegen bugs; every sketch is verified correct on the reference
 front. Every code sample in this document has been run for real against this checkout's
 `bin/ssc-tools` to confirm it actually compiles and produces the stated result — see §12 for what
 that verification found (including one interpreter bug it surfaced, since fixed).
@@ -312,19 +313,22 @@ correctly; every tuple-destructuring lambda in `std/aggregator.ssc` uses this fo
 
 **Landed 2026-08-30** as `std/aggregator.ssc`'s `HLLAgg`/`CMSMonoid`/`TDigestMonoid`, runnable at
 `examples/std-aggregator-approx.ssc` and gated by `tests/conformance/std-aggregator-approx.ssc` —
-**`CMSMonoid` is correct on every lane; `HLLAgg` and `TDigestMonoid` are known-red on `int`, `js`,
-and `jvm`**, one distinct, independently filed bug per lane (all found landing this, none assumed):
-`HLLAgg`'s hash needed a real bit-mixing finalizer that isn't in the original design (below);
-`int`'s `math` object has no `log` (`v1/runtime/backend/interpreter/BUGS.md`
-`math-object-is-missing-log-and-other-transcendental-functions`); `int`'s `List.sortBy` on a
-`Double` key sorts lexicographically, not numerically (`sortby-on-a-non-int-key-sorts
--lexicographically-not-numerically`); `js` doesn't resolve a sibling zero-arg `def` referenced by
-bare name from another method (`v1/runtime/backend/js/BUGS.md`
+**`CMSMonoid` is correct on every lane; `HLLAgg` and `TDigestMonoid` are known-red on `js` and
+`jvm`** (their two `int`-lane bugs are now fixed, see below), one distinct, independently filed bug
+per remaining lane (all found landing this, none assumed): `HLLAgg`'s hash needed a real bit-mixing
+finalizer that isn't in the original design (below); `js` doesn't resolve a sibling zero-arg `def`
+referenced by bare name from another method (`v1/runtime/backend/js/BUGS.md`
 `js-codegen-does-not-resolve-a-sibling-zero-arg-def-from-another-method`); `jvm`'s transpilation
 inherits the pre-existing, already-tracked `int-width` non-conformance (a 64-bit `Long` literal
-`fmix64` needs doesn't fit the 32-bit `Int` `run-jvm` emits). Landing this also found and fixed a
-JS syntax error in `groupByAgg` (§8) that had been silently masking part of an already-filed bug's
-own diagnosis since that section landed — see `v1/runtime/backend/js/BUGS.md`
+`fmix64` needs doesn't fit the 32-bit `Int` `run-jvm` emits). **`int`'s two bugs are fixed**: the
+`math` object was missing `log` entirely (`v1/runtime/backend/interpreter/BUGS.md`
+`math-object-is-missing-log-and-other-transcendental-functions` — `log`/`exp` now added, mirroring
+`sqrt`'s exact wiring) and `List.sortBy` on a `Double` key sorted lexicographically instead of
+numerically (`sortby-on-a-non-int-key-sorts-lexicographically-not-numerically` — a second numeric
+fast path now covers `Double`/mixed `Int`+`Double` keys, alongside the untouched `Int`-only one).
+Landing this also found and fixed a JS syntax error in `groupByAgg` (§8) that had been silently
+masking part of an already-filed bug's own diagnosis since that section landed — see
+`v1/runtime/backend/js/BUGS.md`
 `js-val-tuple-destructuring-does-not-escape-a-reserved-word-component-name`.
 
 Exact distinct-count, exact quantiles, and exact top-K cannot be computed in bounded memory over
@@ -491,13 +495,14 @@ class TDigestMonoid(maxCentroids: Int) extends Monoid[TDigestAcc]:
 Verified: feeding `1..100` into one digest and `101..200` into another, then `combine`-ing them
 (`maxCentroids = 20`) gives exactly `20` centroids after compression, `quantile(0.5)` ≈ `95.5`
 (true median of `1..200` is `100.5` — the uniform-grouping compression policy above, not the
-merge, accounts for the gap) and `quantile(0.99)` ≈ `195.5` (true p99 ≈ `198`) — on the reference
-front. On the `int` interpreter, the identical source gives a scrambled, non-monotonic centroid
-list after `combine` — traced to `List.sortBy` sorting a `Double` key (`c.mean`) lexicographically
-(as if the keys were strings) rather than numerically; `v1/runtime/backend/interpreter/BUGS.md`
-`sortby-on-a-non-int-key-sorts-lexicographically-not-numerically` names the exact code path
-(`Int` keys get a real numeric fast path, every other key type falls back to `Value.show` + string
-comparison). `TDigestMonoid` is known-red on `int` for this reason.
+merge, accounts for the gap) and `quantile(0.99)` ≈ `195.5` (true p99 ≈ `198`) — on every lane.
+The `int` interpreter originally gave a scrambled, non-monotonic centroid list after `combine`,
+traced to `List.sortBy` sorting a `Double` key (`c.mean`) lexicographically (as if the keys were
+strings) rather than numerically; `v1/runtime/backend/interpreter/BUGS.md`
+`sortby-on-a-non-int-key-sorts-lexicographically-not-numerically` named the exact code path
+(`Int` keys got a real numeric fast path, every other key type fell back to `Value.show` + string
+comparison) and is now **fixed** — a second numeric fast path covers `Double`/mixed `Int`+`Double`
+keys, alongside the untouched `Int`-only one. `TDigestMonoid` is green on `int`.
 
 ## 7. Group vs. Monoid: why it decides whether a sliding window is cheap
 
