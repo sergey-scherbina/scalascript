@@ -6220,6 +6220,68 @@ object RustCodeWalk:
         case _ => None
     case _ => None
 
+  /** The SPECIFIC variant ctor of a Vec-expression's elements, when the Vec was built by a
+   *  `.collect` whose every arm RETURNS a pattern-bound name — `val items = edges.collect { case
+   *  UniEdge(_, b @ UniNode.Branch(MdBranch.ListItem, _, _, _)) => b }` (`uniml/markdown`'s
+   *  `MarkdownProjection.scala`'s `listLoose`). `elementTypeOf` (via `inferCaptureType`) can at
+   *  best answer the OWNING ENUM (`UniNode`) for such a local — correctly, since the Rust `Vec`
+   *  genuinely is `Vec<UniNode>` (`mapType`'s deliberate collapse: no independent Rust type
+   *  exists for one case) — but the arm PATTERN pins every collected element to ONE variant, and
+   *  a downstream field read (`item.edges`, `Branch`'s own field) needs exactly that variant
+   *  name to resolve through the match-extract mechanism. Deliberately a SEPARATE helper, never
+   *  fed into `inferCaptureType`'s own answers: those flow into RENDERED type positions (a
+   *  lifted def's capture annotations), where a variant name is not a valid Rust type — this
+   *  answer must only ever reach closure-param TYPE-THREADING (the same channel
+   *  `optionElementTypeOf`'s variant answers already travel). Every arm must agree on the ctor
+   *  and every arm's body must be a bound bare name, else `None` (the enum-name status quo). */
+  private def collectArmBoundCtorElem(t: m.Term, ctx: Ctx): Option[String] = t match
+    case m.Term.Select(inner, m.Term.Name("iterator")) => collectArmBoundCtorElem(inner, ctx)
+    case m.Term.Apply.After_4_6_0(m.Term.Select(_, m.Term.Name("collect")), args)
+        if args.values.sizeIs == 1 =>
+      def boundCtorIn(p: m.Pat, bn: String): Option[String] = p match
+        case m.Pat.Bind(m.Pat.Var(m.Term.Name(`bn`)), m.Pat.Extract.After_4_6_0(callee, _)) =>
+          ctorNameOf(callee).filter(cn => ctx.ctorMap.get(cn).exists(_.fieldNames.nonEmpty))
+        case m.Pat.Extract.After_4_6_0(_, argClause) =>
+          argClause.values.iterator.flatMap(boundCtorIn(_, bn)).nextOption()
+        case m.Pat.Tuple(elements) =>
+          elements.iterator.flatMap(boundCtorIn(_, bn)).nextOption()
+        case _ => None
+      val arms = args.values.head match
+        case pf: m.Term.PartialFunction                     => pf.cases.toList
+        case m.Term.Block(List(pf: m.Term.PartialFunction)) => pf.cases.toList
+        case _                                              => Nil
+      val ctors = arms.map { c =>
+        c.body match
+          case m.Term.Name(bn) => boundCtorIn(c.pat, bn)
+          case _               => None
+      }
+      if ctors.nonEmpty && ctors.forall(_.isDefined) && ctors.flatten.distinct.sizeIs == 1
+      then ctors.head
+      else None
+    case m.Term.Name(n) =>
+      ctx.bodyStats.collectFirst {
+        case v: m.Defn.Val
+            if v.pats.exists { case m.Pat.Var(m.Term.Name(nn)) => nn == n; case _ => false } =>
+          v.rhs
+      }.flatMap(collectArmBoundCtorElem(_, ctx))
+    case _ => None
+
+  /** The tuple's FIRST-component element type for a `.zipWithIndex`-shaped receiver —
+   *  `items.iterator.zipWithIndex.exists { (item, idx) => … item.edges … }` (`uniml/markdown`'s
+   *  `MarkdownProjection.scala`'s `listLoose`). A 2-param function literal reaching `.exists`/
+   *  `.forall`/`.map` can ONLY type-check via `.zipWithIndex`'s tupled element auto-unpacking
+   *  (`renderVecIterBody`'s own 2-param destructure cases establish exactly this invariant), so
+   *  the receiver's BASE element type IS the first param's own — but `elementTypeOf` on the whole
+   *  chain must stay `None` (the chain's true element is the 2-tuple, and a 1-param closure over
+   *  the same receiver binds the PAIR, not its head), which is why this is a separate reading fed
+   *  only to `renderVecIterBody`'s own `tupleFirstElemType`, never mixed into `elemType`. Prefers
+   *  the collect-arm-pinned SPECIFIC variant (`collectArmBoundCtorElem` above) over the generic
+   *  element type, for the same field-resolution reason documented there. */
+  private def zipWithIndexFirstElemType(t: m.Term, ctx: Ctx): Option[String] = t match
+    case m.Term.Select(inner, m.Term.Name("zipWithIndex")) =>
+      collectArmBoundCtorElem(inner, ctx).orElse(elementTypeOf(inner, ctx))
+    case _ => None
+
   /** Seed a `Term.Function` argument's single named param with `qual`'s Option element type
    *  (`optionElementTypeOf`), the SAME way `renderVecIterBody`'s `Term.Function` branch already
    *  seeds a Vec closure's own param — factored out since `.exists`/`.map`/`.flatMap` on an
@@ -7428,6 +7490,29 @@ object RustCodeWalk:
         q    <- renderTerm(qual, ctx)
         pred <- renderTerm(args.values.head, ctx)
       yield s"($q.chars().position(|__ch| ($pred)((__ch as u32) as i64)).map(|__i| __i as i64).unwrap_or(-1))"
+    // `itemEdges.indexWhere { case UniEdge(_, UniNode.Token(t)) => t.kind == MdKind.Blank; case _
+    // => false }` (`uniml/markdown`'s `MarkdownProjection.scala`'s `listLoose`) — the Vec-receiver
+    // twin of the String case just above (tried FIRST, so a String receiver never reaches here):
+    // Rust's `Vec` has no `indexWhere` under any spelling, and the generic method-call fallback
+    // re-emitted the Scala name verbatim. `Iterator::position` over the same `.iter().cloned()`
+    // shape every other predicate dispatch here uses is the direct equivalent, with Scala's own
+    // not-found sentinel (`-1`, `Int`) restored by the same `.map(as i64).unwrap_or(-1)` tail the
+    // String case already established. LATENT until this same commit's closure-param threading
+    // landed: `itemEdges` was error-typed (`item.edges`, the E0609 this commit fixes), and rustc
+    // reports nothing further about a receiver whose type is already an error.
+    //
+    // The DEFAULT (no `isKnownVecReceiver` gate), not a recognized-Vec special case — `itemEdges`
+    // is a CLOSURE-local `val` bound to a threaded param's field, a name no def-level walk
+    // (`collectLocalSeqs` runs once per def, before any closure param is typed) can ever have
+    // recorded; the same default-Vec convention `.drop`/`.exists`'s own generic dispatches already
+    // use, with the String case just above tried FIRST so every positively-recognized String
+    // receiver still routes there.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("indexWhere")), args)
+        if args.values.size == 1 =>
+      for
+        q    <- renderTerm(qual, ctx)
+        body <- renderVecIterBody(args.values.head, q, ctx, method = "indexWhere", elemType = elementTypeOf(qual, ctx))
+      yield body
     // ── String indexing, in UTF-16 CODE UNITS ──────────────────────────────
     // These had no arm at all, so they fell through to the generic method-call rendering and came
     // out as `s.charAt(i)` — a Rust `String` method that does not exist (E0599, 32 of the 37 errors
@@ -8963,7 +9048,8 @@ object RustCodeWalk:
     ) if args.values.size == 1 && !isOptionExpr(qual, ctx) && !isRangeExpr(qual) =>
       for
         q <- renderTerm(qual, ctx)
-        body <- renderVecIterBody(args.values.head, q, ctx, method = meth, elemType = elementTypeOf(qual, ctx))
+        body <- renderVecIterBody(args.values.head, q, ctx, method = meth, elemType = elementTypeOf(qual, ctx),
+                  tupleFirstElemType = zipWithIndexFirstElemType(qual, ctx))
       yield body
 
     // `namedEntities.get(&body)` (`uniml/markdown`'s `MarkdownProjection.scala`'s
@@ -11752,13 +11838,22 @@ object RustCodeWalk:
       accumEither: Boolean = false,
       // `foldLeft`-only, the `Map`-typed twin of `accumEither` just above — see `isMapExpr`'s
       // own comment for the call it fixes.
-      accumMap: Boolean = false
+      accumMap: Boolean = false,
+      // The FIRST tuple component's type for a `.zipWithIndex`-shaped receiver, when the caller
+      // could place it (`zipWithIndexFirstElemType`'s own comment has the invariant that makes
+      // threading it to `p0` sound) — a SEPARATE channel from `elemType`, which for the same
+      // receiver correctly stays `None` (the chain's true element is the 2-tuple): `items.
+      // iterator.zipWithIndex.exists { (item, idx) => val itemEdges = item.edges … }`
+      // (`uniml/markdown`'s `MarkdownProjection.scala`'s `listLoose`) reached `item.edges` with
+      // `item` untyped, and `edges` — a `Branch`-variant-only field — fell to the generic field
+      // refusal: `error[E0609]: no field edges on type UniNode`.
+      tupleFirstElemType: Option[String] = None
   ): Either[List[Diagnostic], String] = fn match
     // `xs.map { x => … }` (brace-block syntax) parses as a Block wrapping the Function;
     // unwrap + re-dispatch so it takes the borrow-not-move Function path below, not the
     // generic fallback (which renders the inner closure with `move` and re-moves captures).
     case m.Term.Block(List(f: m.Term.Function)) =>
-      renderVecIterBody(f, q, ctx, method, zero, elemType, accumEither, accumMap)
+      renderVecIterBody(f, q, ctx, method, zero, elemType, accumEither, accumMap, tupleFirstElemType)
     // Single or two-param closure `(p: T) => body` or `(a, b) => body`.
     case fn2: m.Term.Function =>
       val params = fn2.paramClause.values.toList
@@ -11773,7 +11868,20 @@ object RustCodeWalk:
             paramTypes    = bodyCtx0.paramTypes + (p0 -> t),
             localStrings  = if t == "String" then bodyCtx0.localStrings + p0 else bodyCtx0.localStrings
           )
-        case _ => bodyCtx0
+        case _ =>
+          // A 2-param closure's FIRST param, over a `.zipWithIndex`-tupled receiver — the
+          // `tupleFirstElemType` parameter's own comment (above) has the invariant and the corpus
+          // site; the second param is always the `i64` index, whose every use infers on its own.
+          // Gated to the methods whose 2-param destructure cases exist at all (`map`/`exists`/
+          // `forall` below) — a `foldLeft` closure is ALSO 2-param but its `p0` is the
+          // ACCUMULATOR, which this must never touch.
+          tupleFirstElemType match
+            case Some(t) if params.sizeIs == 2 && (method == "map" || method == "exists" || method == "forall") =>
+              bodyCtx0.copy(
+                paramTypes    = bodyCtx0.paramTypes + (p0 -> t),
+                localStrings  = if t == "String" then bodyCtx0.localStrings + p0 else bodyCtx0.localStrings
+              )
+            case _ => bodyCtx0
       val bodyCtx =
         if method == "foldLeft" && accumEither then bodyCtx1.copy(eitherLocals = bodyCtx1.eitherLocals + p0)
         else if method == "foldLeft" && accumMap then bodyCtx1.copy(localMaps = bodyCtx1.localMaps + p0)
@@ -11825,6 +11933,11 @@ object RustCodeWalk:
           case "forall" if params.sizeIs == 2 => s"$q.iter().cloned().all(|($p0, $p1)| { $b })"
           case "exists"   => s"$q.iter().cloned().any(|$p0| { $b })"
           case "forall"   => s"$q.iter().cloned().all(|$p0| { $b })"
+          // `Iterator::position` takes the item BY VALUE from a `cloned()` iterator, same as
+          // `any`/`all` just above; the `.map(as i64).unwrap_or(-1)` tail restores Scala's own
+          // `indexWhere` not-found sentinel — see the Vec `indexWhere` dispatch case (`renderTerm`)
+          // for the corpus site.
+          case "indexWhere" => s"($q.iter().cloned().position(|$p0| { $b }).map(|__i| __i as i64).unwrap_or(-1))"
           // `filter` hands the predicate a REFERENCE too, exactly like `find` three lines above —
           // and the same rebinding was missing here, so a body written `e != ""` came out as
           // `&String == String` and did not compile (std/ui/form.ssc). A fix that lands on one of a
@@ -12047,6 +12160,13 @@ object RustCodeWalk:
         // `.forall` dispatch case in this file already applies for its own closure shape.
         case "exists"   => s"$q.iter().cloned().any($f)"
         case "forall"   => s"$q.iter().cloned().all($f)"
+        // The PartialFunction-argument spelling of the SAME Vec `indexWhere` the `Term.Function`
+        // branch's own dispatch above renders — `itemEdges.indexWhere { case UniEdge(…) => …;
+        // case _ => false }` (`uniml/markdown`'s `listLoose`) arrives HERE, where `$f` is already
+        // the complete `|__pf| match …` closure; `position` takes it by value the same way
+        // `any`/`all` just above do, and the `.map(as i64).unwrap_or(-1)` tail restores Scala's
+        // own not-found sentinel.
+        case "indexWhere" => s"($q.iter().cloned().position($f).map(|__i| __i as i64).unwrap_or(-1))"
         case other2     => s"$q.$other2($f)"
       )
 

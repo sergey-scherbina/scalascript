@@ -4193,6 +4193,58 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(expected.findFirstIn(g).isDefined,
       s"a `name @ Ctor(literal, _, …)` bind must render as a ref borrow pattern with a ref litpat guard:\n$g")
 
+  test("a 2-param `.zipWithIndex.exists` closure's FIRST param gets the collect-arm-pinned variant type, and Vec `.indexWhere` lowers to `Iterator::position`"):
+    // `items.iterator.zipWithIndex.exists { (item, idx) => val itemEdges = item.edges; … itemEdges.
+    // indexWhere { case … } … }` where `val items = edges.collect { case UniEdge(_, b @ UniNode.
+    // Branch(MdBranch.ListItem, _, _, _)) => b }` (`uniml/markdown`'s `MarkdownProjection.scala`'s
+    // `listLoose`) — THREE stacked gaps, each masking the next (a type error suppresses everything
+    // downstream of the receiver it poisons): (1) `items`'s element could at best resolve to the
+    // OWNING ENUM (`UniNode` — correctly, `mapType`'s deliberate collapse), but the collect arm's
+    // own pattern pins every element to `Branch`, which `item.edges` (a `Branch`-only field) needs
+    // — `collectArmBoundCtorElem` reads it off the arm; (2) `renderVecIterBody`'s elemType
+    // threading was gated `params.sizeIs <= 1`, so a 2-param zipWithIndex-tupled closure's first
+    // param never received ANY type — `tupleFirstElemType`, a separate channel from `elemType`
+    // (which for the chain correctly stays `None`: its true element is the 2-tuple); without both,
+    // `error[E0609]: no field edges on type UniNode`. (3) `Vec` has no `indexWhere` under any
+    // spelling and the fallback re-emitted the Scala name verbatim (`error[E0599]`, latent behind
+    // the E0609) — lowered to `Iterator::position` with Scala's own `-1` not-found sentinel, the
+    // Vec twin of the String `indexWhere` case.
+    val src =
+      """```scalascript
+        |object MdBranch:
+        |  val ListItem = "markdown.list-item"
+        |
+        |object MdKind:
+        |  val Blank = "markdown.blank"
+        |
+        |case class MdToken(kind: String, lexeme: String)
+        |
+        |enum UniNode:
+        |  case Branch(kind: String, edges: Vector[UniEdge], span: Int, origin: String)
+        |  case Token(value: MdToken)
+        |
+        |case class UniEdge(role: Option[String], child: UniNode)
+        |
+        |private def listLoose(edges: Vector[UniEdge]): Boolean =
+        |  val items = edges.collect { case UniEdge(_, b @ UniNode.Branch(MdBranch.ListItem, _, _, _)) => b }
+        |  items.iterator.zipWithIndex.exists { (item, idx) =>
+        |    val itemEdges = item.edges
+        |    val blankIdx = itemEdges.indexWhere {
+        |      case UniEdge(_, UniNode.Token(t)) => t.kind == MdKind.Blank
+        |      case _                            => false
+        |    }
+        |    if blankIdx < 0 then false
+        |    else if idx < items.size - 1 then true
+        |    else itemEdges.drop(blankIdx + 1).exists { case UniEdge(_, _: UniNode.Branch) => true; case _ => false }
+        |  }
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("let itemEdges = (match &item { UniNode::Branch { edges, .. } => edges.clone(), _ => unreachable!() });"),
+      s"the zipWithIndex closure's first param must carry the collect-arm-pinned Branch variant so item.edges resolves:\n$g")
+    assert(g.contains(".position(|__pf| match __pf {") && g.contains(".map(|__i| __i as i64).unwrap_or(-1))"),
+      s"Vec .indexWhere must lower to Iterator::position with the -1 sentinel:\n$g")
+
   test("a call to a LOCAL (nested) def declared `: Option[T]` is recognized as Option-typed, not just a top-level def"):
     // `localTextOf(nodes(i)).isDefined` / `localTextOf(nodes(i)).get` (`uniml/markdown`'s
     // `MarkdownInlines.scala`'s `emailLocalBackscan`; `def localTextOf(node: WNode): Option[

@@ -1079,10 +1079,20 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # `renderTerm` cases (`.get`/`.getOrElse`, both gated on the qualifier being a bare name that IS a
 # known zero-arg def whose OWN declared return type is a Map) — the growth. Re-verified
 # uniml/xml, uniml/json, and uniml/yaml all still build clean (0 errors).
+# renderTerm 41888 -> 41956 (+68), continuing the same backlog. `itemEdges.indexWhere { case
+# UniEdge(_, UniNode.Token(t)) => t.kind == MdKind.Blank; case _ => false }` (`uniml/markdown`'s
+# `MarkdownProjection.scala`'s `listLoose`) — Rust's `Vec` has no `indexWhere` under any spelling,
+# and the generic method-call fallback re-emitted the Scala name verbatim (`error[E0599]`, latent
+# behind the same closure's `item.edges` E0609 until the zipWithIndex-tuple param threading in the
+# same commit fixed that). One new `renderTerm` dispatch case (the Vec-receiver twin of the
+# String `indexWhere` case directly above it, `Iterator::position` + the `-1` sentinel tail) —
+# the growth; the rendering itself lives in `renderVecIterBody`'s own dispatch tables (separate
+# helper, no cost here). Re-verified uniml/xml, uniml/json, and uniml/yaml all still build clean
+# (0 errors).
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-41888 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+41956 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF
