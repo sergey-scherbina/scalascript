@@ -138,6 +138,16 @@ trait plus a top-level `def f` — the members are LIFTED out of the class rathe
 which is why an abstract `val` written inside one arrives at `UniFront`'s top-level sorter with no
 context left. Whatever v3's front does here should attach them.
 
+**RE-MEASURED 2026-08-31: `extern` IS NOT THE WHOLE OF IT.** Confirmed still live —
+`extern class UploadedFile:` refuses with `expected an expression, found class` on
+`SSC3_FRONT=v3` while the default front prints `ok`. But a PLAIN `class Box(n: Int):` refuses with
+the same words at the same position: v3's own front has no plain-`class` branch at all (the
+top-level dispatch covers `case class`, `case object`, `object`, `trait`, `enum` — not `class`).
+So this entry and `v3-front-cannot-parse-a-curried-member-method` are one defect, and the fix is a
+plain-`class` branch reusing `parseCaseClass` with an optional parameter clause, plus admitting
+`extern` before `class` as it already is before `def`. The fuller measurement, including the false
+discriminator in that other entry, is recorded there.
+
 ## abstract-val-in-an-extern-class-is-a-field-declaration — a declaration emits nothing
 
 <!-- status: fixed
@@ -2095,6 +2105,34 @@ arm beside it.
 The refusal points at LINE 1, the `class` itself, which is what makes it read as a class problem
 rather than a currying one; the file parses the moment the member takes a single clause. A top-level
 curried `def` is fine on both fronts — it is the member position that fails.
+
+**RE-MEASURED 2026-08-31: THE DISCRIMINATOR IN THE LINE ABOVE IS FALSE, AND THE TITLE NAMES THE
+WRONG CONSTRUCT.** "The file parses the moment the member takes a single clause" does not hold. Run
+on a current build, `SSC3_FRONT=v3`, the entry's own two-line file and the same file with a
+single-clause member fail IDENTICALLY:
+
+    class Box(n: Int):                          class Box(n: Int):
+      def plus(a: Int)(b: Int): Int = …           def plus(a: Int): Int = …
+    -> …:2:1: expected an expression,           -> …:2:1: expected an expression,
+       found class                                 found class
+
+Currying is not involved. **v3's own front has no plain-`class` declaration at all**: the top-level
+dispatch in `Parser.scala` has branches for `case class`, `case object`, `object`, `trait` and
+`enum`, and none for a bare `class`, so the keyword falls through to the expression parser — which
+is exactly the message. That one absence is ALSO the whole of
+`v3-own-front-has-no-extern-class` (`extern class UploadedFile:` refuses with the same words at the
+same position), so these two entries are one defect wearing two descriptions.
+
+**THE FIX IS SMALLER THAN EITHER ENTRY SUGGESTS, and mostly already written.** `parseCaseClass`
+already reads `val`/`var` field modifiers, parents, `derives` and an indented body; a plain `class`
+differs at Tier 0 only in the synthesised extras it does NOT get. The one gap is that it opens with
+`expectPunct(skipBrackets(t0), "(")` — a required parameter list — while `class Foo:` and
+`extern class UploadedFile:` have none. So: a plain-`class` branch reusing `parseCaseClass` with an
+optional parameter clause, plus admitting `extern` before `class` the way it is already admitted
+before `def`.
+
+Not attempted here — this claim's scope was `Lower.scala`, and `Parser.scala` belongs to whoever
+takes the class branch. Recorded so the next agent starts from the cause rather than from currying.
 
 **FOUND WHILE MEASURING SOMETHING ELSE, and the way it surfaced is worth keeping.** `6fbafea93`
 (2026-08-23, a curried-def fix) added `tests/conformance/curried-def-member-methods.ssc` and declared
