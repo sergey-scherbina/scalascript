@@ -3461,6 +3461,38 @@ class RustGenCodeWalkTest extends AnyFunSuite:
       && g.contains("if !lexeme.is_empty()"),
       s"a captured var's tuple-string positions must flow through a bare-name alias and a .foreach destructure:\n$g")
 
+  test("`s.indexOf(charExpr)` on a String receiver must NOT fall to the generic Vec-shaped `.indexOf`, and a genuine SscChar needle needs its own `.0` unwrap"):
+    // `lexeme.indexOf('\n')` (`uniml/markdown`'s `MarkdownInlines.scala`'s `spliceSwallowedBreaks`)
+    // — the existing one-arg `String.indexOf` case only fired when BOTH the receiver AND the
+    // needle were themselves Strings; a CHAR needle (`'\n'`, a `Lit.Char`, not a `String`) failed
+    // that guard and fell through to the GENERIC one-arg `.indexOf` case (built for a Vec receiver:
+    // `$q.iter().position(...)`) — `String` has no `.iter()`: `error[E0599]: no method named iter
+    // found for struct String`. Fixed by gating the String case on the RECEIVER alone and handling
+    // either needle shape inside it (mirroring the two-arg `indexOf(needle, from)` overload's own
+    // char-to-one-character-`&str` conversion).
+    // `content.indexOf(content.charAt(i))` — the needle here is a GENUINE `SscChar` newtype
+    // (`content.charAt(i)`, `yieldsSscChar`), not an already-plain-`i64` "conceptually char" value —
+    // self-caught only by a REAL cargo build of a SECOND isolated repro exercising this exact
+    // shape (`--print-only` has no diagnostic for a cast that resolved to the wrong Rust type):
+    // `(content.charAt(i)) as u32` on a struct is not valid Rust at all, `error[E0605]: non-
+    // primitive cast`. `renderStrPatternArg`'s own identical `isConceptuallyChar`/`yieldsSscChar`
+    // pairing (used for `String.contains`) already has the fix; applied here the same way.
+    val src =
+      """```scalascript
+        |def firstBreak(lexeme: String): Long =
+        |  lexeme.indexOf('\n')
+        |
+        |def firstOfSame(content: String, i: Int): Long =
+        |  content.indexOf(content.charAt(i))
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("__n: &str = &char::from_u32((10i64) as u32).unwrap_or('\\u{FFFD}').to_string()") &&
+             g.contains("__h.find(__n)"),
+      s"a char needle on a String receiver must lower through the Unicode-safe find()+UTF-16-count path, not .iter():\n$g")
+    assert(g.contains("&char::from_u32(((crate::runtime::_str_char_at(&content, i)).0) as u32)"),
+      s"a genuine SscChar needle must have its .0 unwrapped before the as u32 cast:\n$g")
+
   test("a bare `case None =>` must match Option's own None even when a sibling enum ALSO declares a nullary case named `None`"):
     // `preflight(...) match { case Some(diagnostic) => …; case None => … }`, where `preflight`
     // returns `Option[Diagnostic]` (`uniml/markdown`'s `MarkdownBlocks.scala`'s `parse`) — the SAME

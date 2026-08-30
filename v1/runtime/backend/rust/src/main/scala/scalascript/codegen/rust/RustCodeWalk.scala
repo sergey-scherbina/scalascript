@@ -8439,17 +8439,41 @@ object RustCodeWalk:
     // `&str` bindings rather than `let __h = $q`: taking the value would MOVE a String local and
     // the next read of it becomes E0382, which is a defect this backend has already shipped once.
     // A char argument and the two-argument form are left to the arm below, unchanged.
+    // `lexeme.indexOf('\n')` (`uniml/markdown`'s `MarkdownInlines.scala`'s `spliceSwallowedBreaks`)
+    // — a CHAR needle (`args.values.head` a `Lit.Char`/"conceptually char" expression, not itself a
+    // `String`) used to fail THIS case's own `strOp(args.values.head)` guard, so a String-receiver
+    // char-needle indexOf fell all the way through to the GENERIC one-arg `.indexOf` case a few
+    // lines down (built for a Vec receiver: `$q.iter().position(...)`) — `String` has no `.iter()`:
+    // `error[E0599]: no method named iter found for struct String`. The needle's own SHAPE no
+    // longer gates this case at all — only the RECEIVER does — and a char needle converts to a
+    // one-character `&str` first (the SAME conversion the two-arg `indexOf` overload a few lines
+    // above already applies for the identical reason), reusing the Unicode-safe `.find()` +
+    // UTF-16-count logic below unchanged either way.
     case m.Term.Apply.After_4_6_0(
         m.Term.Select(qual, m.Term.Name("indexOf")), args
     ) if args.values.size == 1 && !isRangeExpr(qual) && {
           def strOp(t: m.Term) = isStringExpr(t) || (t match
             case m.Term.Name(n) => ctx.localStrings.contains(n)
             case _              => false)
-          strOp(qual) && strOp(args.values.head)
+          strOp(qual)
         } =>
+      val needleArg = args.values.head
+      val needleIsChar = needleArg.isInstanceOf[m.Lit.Char] || isConceptuallyChar(needleArg, ctx)
+      // `content.indexOf(content.charAt(i))` shape — `renderStrPatternArg`'s own `isConceptuallyChar`
+      // case has the full E0605 story: `isConceptuallyChar` alone is too broad (also matches an
+      // already-plain-i64 "conceptually char" value), so a genuine SscChar NEWTYPE (`yieldsSscChar`,
+      // narrower) needs its `.0` unwrapped BEFORE the `as u32` cast, or `error[E0605]: non-primitive
+      // cast: SscChar as u32` — `as` only ever converts between primitives.
+      def renderNeedle: Either[List[Diagnostic], String] =
+        if needleIsChar then
+          renderTerm(needleArg, ctx).map { n0 =>
+            val n = if yieldsSscChar(needleArg, ctx) then s"($n0).0" else n0
+            s"char::from_u32(($n) as u32).unwrap_or('\\u{FFFD}').to_string()"
+          }
+        else renderTerm(needleArg, ctx)
       for
         q <- renderTerm(qual, ctx)
-        v <- renderTerm(args.values.head, ctx)
+        v <- renderNeedle
       yield s"{ let __h: &str = &$q; let __n: &str = &$v; " +
             "__h.find(__n).map(|__b| __h[..__b].encode_utf16().count() as i64).unwrap_or(-1) }"
 
