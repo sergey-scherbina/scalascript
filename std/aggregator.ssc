@@ -412,18 +412,21 @@ two overlapping partial sketches via `monoid.combine` before presenting gives th
 cardinality (verified: two ranges sharing 500 keys, presented after `combine`, estimate within 0.5%
 of the true 6000-element union) — the property that makes it usable across real partitions.
 
-Two v1-interpreter-specific defects found landing `HLLAgg`, both isolated to minimal repros
-unrelated to aggregators or hashing: a class-body `val` field (declared on its own line, not a
-constructor parameter) used to throw `Undefined: <name>` when read from a *different* method of the
-same class, even in a single file with no import at all — **fixed**
+A v1-interpreter-specific defect found landing `HLLAgg`, isolated to a minimal repro unrelated to
+aggregators or hashing: a class-body `val` field (declared on its own line, not a constructor
+parameter) used to throw `Undefined: <name>` when read from a *different* method of the same class,
+even in a single file with no import at all — **fixed**
 (`v1/runtime/backend/interpreter/BUGS.md` `class-body-val-field-undefined-in-a-sibling-method`);
-`hllMonoid`/`m` are ordinary `val`s again, as originally designed. And a top-level sibling `def`
-called from *inside* a lambda passed to `Array.tabulate` throws `Undefined: <name>`, but only when
-the calling class is imported from a different module (identical code in one file works) — still
-open (`array-tabulate-lambda-loses-a-sibling-top-level-def-cross-module`); `CMSMonoid.add` (below)
-works around it by building a plain copy via `Array.tabulate` (no sibling call inside that lambda,
-confirmed safe) and mutating the target cell in an ordinary `for` loop instead of computing the
-hash inside `Array.tabulate`'s own lambda.
+`hllMonoid`/`m` are ordinary `val`s again, as originally designed. A second defect was suspected
+while landing `CMSMonoid.add` (below) — a top-level sibling `def` called from inside a lambda
+passed to `Array.tabulate`, cross-module — and worked around at the time by building a plain copy
+via `Array.tabulate` with the hash computed outside its lambda instead. Re-tested afterward with a
+faithful reconstruction of the exact shape (a case-class field access feeding a nested
+`Array.tabulate`, cross-module, against both the current interpreter and the original pre-fix
+binary): it does not reproduce. Filed as **not reproducible**
+(`array-tabulate-lambda-loses-a-sibling-top-level-def-cross-module`) — most likely the class-body-val
+bug above, active in the same file at the same time, was the actual cause and got misattributed.
+`CMSMonoid.add` now uses the natural, un-worked-around form.
 
 ### Count-Min Sketch — approximate frequency / top-K
 
@@ -445,10 +448,9 @@ class CMSMonoid(depth: Int, width: Int) extends Monoid[CMSAcc]:
     CMSAcc(Array.tabulate(depth)(r => Array.tabulate(width)(c => ac(r)(c) + bc(r)(c))))
   def add(acc: CMSAcc, key: String): CMSAcc =
     val counts = acc.counts
-    val next = Array.tabulate(depth)(r => Array.tabulate(width)(c => counts(r)(c)))
-    for r <- 0 until depth do
-      val c = strHash(r * 7919 + 17, key) % width
-      next(r)(c) = next(r)(c) + 1
+    val next = Array.tabulate(depth)(r => Array.tabulate(width)(c =>
+      if c == strHash(r * 7919 + 17, key) % width then counts(r)(c) + 1 else counts(r)(c)
+    ))
     CMSAcc(next)
   def estimate(acc: CMSAcc, key: String): Int =
     val counts = acc.counts

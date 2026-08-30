@@ -73,17 +73,18 @@ them, not claimed fixed here.
 
 ## array-tabulate-lambda-loses-a-sibling-top-level-def-cross-module — `Array.tabulate`'s callback throws `Undefined: <name>` for a sibling top-level function, but only when the calling class is imported from a different module
 
-<!-- status: open
+<!-- status: wontfix
      lane: int
      kind: bug
      area: runtime
-     gate: tests/conformance/std-aggregator.ssc (known-red int)
+     gate: none
      reported-by: claude-code
      reported-at: 2026-08-30
-     confirmed: yes -->
+     confirmed: no -->
 
-Found landing `std/aggregator.ssc`'s `CMSMonoid.add` (§6.2), which computed a hash INSIDE the
-lambda passed to `Array.tabulate`. Minimal repro, `std/x.ssc`:
+Originally filed landing `std/aggregator.ssc`'s `CMSMonoid.add` (§6.2), suspecting that computing a
+hash INSIDE a lambda passed to `Array.tabulate` broke when the calling class was cross-module.
+Minimal repro as filed, `std/x.ssc`:
 
 ```scalascript
 def helper(x: Int): Int = x + 1
@@ -94,14 +95,25 @@ class Thing():
     Array.tabulate(3)(c => if c == hv then 99 else c)
 ```
 
-works correctly when `Thing`/`helper` live in the SAME file as the caller, but throws `Undefined:
-helper` under `--v1` the moment `Thing` is imported from a different file (`[Thing](std/x.ssc)`)
-and used from there — identical source, only the module boundary differs. A plain `List.map` in the
-same position (`(0 until 3).toList.map(c => helper(c))`) does NOT reproduce it, and neither does a
-locally-assigned lambda called directly (`val f = (y: Int) => helper(y); f(x)`) — the trigger is
-specifically a lambda passed as an argument TO `Array.tabulate`, cross-module. Worked around in
-`CMSMonoid.add` by building the copy via `Array.tabulate` with no sibling call inside its lambda
-(confirmed safe) and mutating the target cell in an ordinary `for` loop instead.
+was claimed to throw `Undefined: helper` under `--v1` once `Thing` was imported from a different
+file and used from there. Worked around in `CMSMonoid.add` at the time by building the copy via
+`Array.tabulate` with no sibling call inside its lambda and mutating the target cell in an ordinary
+`for` loop instead.
+
+**RE-INVESTIGATED 2026-08-30, could not reproduce**: neither the exact repro above (`[Thing]
+(std/x.ssc)`, cross-file, `--v1`) nor a faithful reconstruction of `CMSMonoid.add`'s actual failing
+shape (a case-class field access feeding a nested `Array.tabulate` calling a cross-module sibling
+`def`, matching `strHash`/`CMSAcc`/`CMSMonoid` exactly) reproduces any error — both give correct
+output. Re-tested against both the CURRENT interpreter and the exact pre-`class-body-val-field-
+undefined-in-a-sibling-method`-fix binary (checked out at commit `d1a710850`, the commit that
+originally introduced the `CMSMonoid.add` workaround) — neither reproduces on either binary. Most
+likely explanation: this session found and filed two interpreter bugs on the same day while landing
+the same file (`HLLAgg`/`CMSMonoid` in `std/aggregator.ssc`), and the `Undefined: helper` symptom
+actually came from `class-body-val-field-undefined-in-a-sibling-method` (also active in the same
+file at the same time) and got misattributed to `Array.tabulate`/cross-module during that
+investigation. Closed `wontfix` (not a real defect, nothing to fix) rather than `fixed` (no code
+changed here) or `open` (does not reproduce). `CMSMonoid.add` now uses the natural,
+un-worked-around form — no regression from doing so, verified against the full conformance suite.
 
 ## class-body-val-field-undefined-in-a-sibling-method — a class-level `val` (not a constructor parameter) throws `Undefined: <name>` when read from a different method of the same class
 

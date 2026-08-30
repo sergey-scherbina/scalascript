@@ -387,15 +387,19 @@ gave a 54% cardinality error on 10,000 known-distinct keys — measured, not ass
 `h = h*31 + c` doesn't mix bits enough for HLL's per-bit statistics (register index and rank both
 derive from individual bits of the hash). Running MurmurHash3's 64-bit finalizer (`fmix64`) over
 `strHash`'s output brought the same test down to 1.2% error. `HLLAgg` in `std/aggregator.ssc` also
-found two v1-interpreter-specific defects landing this — a class-body `val` field unreadable from a
-sibling method, and `Array.tabulate`'s lambda losing a sibling top-level `def` cross-module (worked
-around by hoisting the hash computation out of the lambda) — both filed in
-`v1/runtime/backend/interpreter/BUGS.md`, both reproduced with a minimal example unrelated to
-hashing or aggregators at all. **The class-body-val bug is now fixed**
+found a v1-interpreter-specific defect landing this — a class-body `val` field unreadable from a
+sibling method, filed in `v1/runtime/backend/interpreter/BUGS.md`, reproduced with a minimal example
+unrelated to hashing or aggregators at all. **Now fixed**
 (`class-body-val-field-undefined-in-a-sibling-method`): a class body's own statements were scanned
 for methods only, so a `Defn.Val` was silently dropped and its name never reached the per-instance
 field array or the type's field-order registry. `hllMonoid`/`m` are ordinary `val`s again, as
-originally designed, no `def` workaround needed. The `Array.tabulate` cross-module bug remains open.
+originally designed, no `def` workaround needed. A second defect was suspected while landing
+`CMSMonoid` — `Array.tabulate`'s lambda losing a sibling top-level `def` cross-module — and worked
+around at the time; re-tested afterward with a faithful reconstruction against both the current
+interpreter and the exact pre-fix binary, and it does not reproduce on either. Filed `wontfix`
+(`array-tabulate-lambda-loses-a-sibling-top-level-def-cross-module`) — most likely the class-body-val
+bug above, active in the same file at the same time, was the actual cause and got misattributed.
+`CMSMonoid.add` now uses the natural, un-worked-around form.
 
 ### 6.2 Count-Min Sketch — approximate frequency / top-K
 

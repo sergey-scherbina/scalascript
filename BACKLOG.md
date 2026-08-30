@@ -82,7 +82,13 @@ itself scopes out of the first slice — queued here rather than attempted in th
   needed. Verified: 1898/1898 `backendInterpreter` sbt tests pass, 118/118 smoke-ci checks green,
   `std-aggregator`/`std-aggregator-approx`/`std-order` conformance unchanged (still `int`-green).
   The other v1-interpreter bug found alongside it, `array-tabulate-lambda-loses-a-sibling-top-level-
-  def-cross-module`, remains open.
+  def-cross-module`, turned out **not to be a real defect** (claim
+  `interp-array-tabulate-cross-module`, 2026-08-30): re-tested with a faithful reconstruction of
+  `CMSMonoid.add`'s actual failing shape against both the current interpreter and the exact pre-
+  class-body-val-fix binary, and it did not reproduce on either. Most likely the class-body-val bug
+  above — active in the same file at the same time — was the real cause and got misattributed.
+  Closed `wontfix`; `CMSMonoid.add` now uses its natural, un-worked-around form (verified against
+  the full conformance suite, no regression).
 - **§7's `Group`-backed sliding window — DONE** (claim `aggregator-sliding-window`, 2026-08-29).
   `GroupAggregator`/`SlidingWindow`/`emptyWindow` ship in `std/aggregator.ssc`; `push` retracts the
   aging-out element via `inverse` in O(1) once the window is full. Found landing it, and this is the
