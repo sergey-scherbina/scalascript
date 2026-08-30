@@ -74,6 +74,12 @@ object RustCodeWalk:
         module.sections.flatMap(sectionAllTraits).filter(_.name.value == t.name)
           .flatMap(_.templ.body.stats).collect { case dd: m.Defn.Def if t.members.exists(_.name == dd.name.value) => dd.pos.start }
       }.toSet
+    // Computed here (not down at its previous spot, alongside `enums`/`standaloneCases`) for the
+    // same reason `dispatchTraitMemberPos` is: `collectTraitDispatchMethods`'s own excluded
+    // positions have to reach `defs`'s filter below, and `defs` is built long before the rest of
+    // this function's sealed-trait-ADT machinery runs.
+    val traitEnums = collectSealedTraitEnums(module)
+    val (traitDispatchMethods, traitDispatchMemberPos) = collectTraitDispatchMethods(traitEnums)
     val (externClasses, externMemberOwner, externMemberRet, externMemberPars) = collectExternClasses(module)
     _externClasses        = externClasses
     _externMemberOwner    = externMemberOwner
@@ -128,6 +134,7 @@ object RustCodeWalk:
                               .filterNot(d => isEffectOpMarker(d.body))
                               .filterNot(d => givenMemberPos.contains(d.pos.start))
                               .filterNot(d => dispatchTraitMemberPos.contains(d.pos.start))
+                              .filterNot(d => traitDispatchMemberPos.contains(d.pos.start))
     _defBodies            = defs.map(d => d.name.value -> d).toMap
     _zeroArgDefNames      = defs.filter { d =>
       d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).isEmpty &&
@@ -140,7 +147,13 @@ object RustCodeWalk:
       // their call sites parenthesized — `lexer.start` (`lexer: Rc<dyn Processor<…>>`) and `vm.
       // start` (`vm: TreeVm`, a CONCRETE implementor whose own inherent method has the same name)
       // hit the identical `error[E0615]` the rest of this set exists to fix.
-      dispatchTraits.flatMap(_.members).filter(_.params.isEmpty).map(_.name).toSet
+      dispatchTraits.flatMap(_.members).filter(_.params.isEmpty).map(_.name).toSet ++
+      // The exact same call-site fix, for `container.frame` (`uniml/markdown`'s
+      // `MarkdownBlocks.scala`) — `traitDispatchMemberPos` excludes the per-variant override defs
+      // from `defs` above so the synthesized dispatch method (`collectTraitDispatchMethods`) is the
+      // ONLY one emitted, but the call site still needs to know `frame` is a zero-arg method, not a
+      // field, or it renders `ctr.frame` verbatim (`error[E0609]: no field frame on type Container`).
+      traitDispatchMethods.map(_.methodName).toSet
     _varargDefs = defs.flatMap { d =>
       val ps = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
       ps.lastOption match
@@ -152,7 +165,8 @@ object RustCodeWalk:
       d.name.value -> d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.default)
     }.toMap
     val enums             = collectEnums(module)
-    val traitEnums        = collectSealedTraitEnums(module)
+    // `traitEnums` itself is computed further up (alongside `traitDispatchMemberPos`) — see that
+    // site's own comment for why.
     val standaloneCases   = collectStandaloneCaseClasses(module, traitEnums)
     val mutableClasses    = collectMutableClasses(module)
     val mutableClassNames = mutableClasses.map(_.name.value).toSet
@@ -465,6 +479,14 @@ object RustCodeWalk:
     val valueObjectRendered: List[Either[List[Diagnostic], String]] =
       valueObjects.map((n, dt) => renderValueObjectImpl(n, dt, userTypeNames))
     val (valueObjectErrs, valueObjectOk) = valueObjectRendered.partitionMap(identity)
+    // `traitDispatchMethods` (see `collectTraitDispatchMethods`'s own comment) rendered here, not
+    // up alongside `enumRendered` — the SAME reason `dispatchTraitRendered` waits this long: a
+    // variant's own override body can name ANOTHER user def/topval/ctor, so this needs the fully
+    // built `ctorMap`/`topVals`/`intrinsics`/`userDefs` a plain enum-variant field type never did.
+    val ctxTraitDispatch = Ctx(intrinsics, userDefs, ctorMap, topVals, "<traitDispatch>", effectfulDefs)
+    val traitDispatchRendered: List[Either[List[Diagnostic], String]] =
+      traitDispatchMethods.map(tdm => renderTraitDispatchMethod(tdm, ctxTraitDispatch, userTypeNames))
+    val (traitDispatchErrs, traitDispatchOk) = traitDispatchRendered.partitionMap(identity)
     // GLOBAL mutable object state (`MarkupCodec._default`) — AFTER `_valueObjectNames` is set,
     // since its own initializer (`PureMarkupCodec`) is exactly such a value-object reference.
     // Owner carried ALONGSIDE each result (not zipped back on afterward) — `partitionMap` can drop
@@ -622,7 +644,7 @@ object RustCodeWalk:
     // The `matches` refusal that used to live here is gone: the lane now depends on `regex` and
     // lowers `s.matches(p)` to `_str_matches` (see `applyNonListCtor`). The dependency is added only
     // for a program that uses it, the way `ureq` and `tokio` already are.
-    val allErrs = extensionErrs ++ overloadErrs ++ enumErrs.flatten ++ structErrs.flatten ++ mutableClassErrs.flatten ++ errors.flatten ++ methodErrors.flatten ++ externErrs ++ dispatchTraitErrs.flatten ++ dispatchImplErrs.flatten ++ valueObjectErrs.flatten ++ mutableObjectErrs.flatten
+    val allErrs = extensionErrs ++ overloadErrs ++ enumErrs.flatten ++ structErrs.flatten ++ mutableClassErrs.flatten ++ errors.flatten ++ methodErrors.flatten ++ externErrs ++ dispatchTraitErrs.flatten ++ dispatchImplErrs.flatten ++ valueObjectErrs.flatten ++ mutableObjectErrs.flatten ++ traitDispatchErrs.flatten
     if allErrs.nonEmpty then Left(allErrs)
     else
       // One `impl` per owner, members in source order. Emitted next to the struct rather than among
@@ -650,7 +672,7 @@ object RustCodeWalk:
           s"impl$implTpDecl $owner$useTpDecl {\n$fns}\n"
         }.mkString
       val enumBlock = structOk.map(_.render).mkString + mutableClassOk.map(_.render).mkString + enumOk.map(_.render).mkString + implBlock +
-        dispatchTraitOk.mkString + dispatchImplOk.mkString + valueObjectOk.mkString + mutableObjectOk.mkString
+        dispatchTraitOk.mkString + dispatchImplOk.mkString + valueObjectOk.mkString + mutableObjectOk.mkString + traitDispatchOk.mkString
       // Render given instances as Rust structs + impls, emitted before the defs.
       val ctx0 = Ctx(intrinsics, userDefs, ctorMap, topVals, "<given>", effectfulDefs)
       val givenBlock = givens.map(g => renderGiven(g, ctx0)).mkString
@@ -1780,6 +1802,17 @@ object RustCodeWalk:
       caseClasses: List[m.Defn.Class]
   )
 
+  /** A trait's abstract niladic member (`def frame: String`), synthesized into ONE dispatch
+   *  method on the enum's own `impl` block once EVERY variant overrides it — see
+   *  `collectTraitDispatchMethods`'s own comment for the full story. `variants` is (ctor name,
+   *  that variant's override body), in the SAME order as the enum's own declared variants. */
+  private case class TraitDispatchMethod(
+      enumName:   String,
+      methodName: String,
+      retType:    m.Type,
+      variants:   List[(String, m.Term)]
+  )
+
   /** Standalone `case class`es (not extending any sealed trait) render as Rust `pub struct`. */
   private def collectStandaloneCaseClasses(
       module: ast.Module,
@@ -2365,6 +2398,110 @@ object RustCodeWalk:
         )
       }
       .filter(_.caseClasses.nonEmpty)
+
+  /** `sealed trait Container: def frame: String` + three `case class`es each overriding `frame`
+   *  with their own constant (`Blockquote`'s `def frame = MdBranch.Blockquote`, `uniml/markdown`'s
+   *  `MarkdownBlocks.scala`) — an ordinary VIRTUAL DISPATCH the source relies on Scala's own vtable
+   *  for, which a Rust `enum` (`renderTraitEnum`'s own lowering for this exact shape) has no
+   *  equivalent of. Every one of the three `def frame` bodies is nonetheless collected by the
+   *  general `topLevelDefs`/`collectDefs` deep scan (a `Defn.Def` nested in a case class's Template
+   *  is still a `Defn.Def`) and rendered as an ordinary FREE function — three of them, same bare
+   *  name, no `self` — so the overload refusal fires: `def frame emits 3 times (overloading)`.
+   *
+   *  Synthesizes ONE dispatch method instead — `impl Container { fn frame(&self) -> String { match
+   *  self { Container::Blockquote {..} => .., … } } }` — the direct Rust equivalent of the vtable
+   *  call `container.frame` already compiles to on every OTHER receiver shape this lane emits.
+   *
+   *  Deliberately narrow, matching this corpus's only actual case rather than the general problem
+   *  (which would also need value-param overrides, `self`-field reads inside a variant's own body,
+   *  and multi-member traits with partial coverage):
+   *    - the trait member itself must be NILADIC (`def frame: String`, no value or type params —
+   *      the abstract `Decl.Def` shape a body-less trait member always parses as);
+   *    - EVERY case class extending the trait must override it, ALSO niladically — a trait with
+   *      even one variant left abstract has no total match to synthesize, and is left alone
+   *      (unhandled, exactly as before this method existed — the overload refusal still names it,
+   *      same message as always, no silent wrong output);
+   *    - the override body must not read any of ITS OWN case class's constructor fields (`readsName`
+   *      — the same helper `extensionErrs`'s own scoping already uses) — a body that touches `self`
+   *      state needs the match arm to destructure those fields, which this narrow form does not
+   *      attempt; left unhandled the same way, for the same "refuse loudly, not silently" reason.
+   *  Returns the positions of every qualifying override `Defn.Def`, alongside the synthesized
+   *  methods — `walk` excludes those positions from `defs` the same way `givenMemberPos`/
+   *  `dispatchTraitMemberPos` already exclude their own double-counted shapes, so the three no
+   *  longer reach the free-function path (or the overload count) at all. */
+  private def collectTraitDispatchMethods(
+      traitEnums: List[SealedTraitEnum]
+  ): (List[TraitDispatchMethod], Set[Int]) =
+    val methods   = scala.collection.mutable.ListBuffer.empty[TraitDispatchMethod]
+    val positions = scala.collection.mutable.Set.empty[Int]
+    traitEnums.foreach { case SealedTraitEnum(t, caseClasses) =>
+      val abstractMembers = t.templ.body.stats.collect {
+        case dd: m.Decl.Def
+            if dd.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).isEmpty &&
+               dd.paramClauseGroups.flatMap(_.tparamClause.values).isEmpty =>
+          dd.name.value -> dd.decltpe
+      }
+      abstractMembers.foreach { case (mname, retTpe) =>
+        val found: List[Option[(String, m.Defn.Def)]] = caseClasses.map { c =>
+          val fieldNames = c.ctor.paramClauses.flatMap(_.values).map(_.name.value).toSet
+          c.templ.body.stats.collectFirst {
+            case dd: m.Defn.Def
+                if dd.name.value == mname &&
+                   dd.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).isEmpty &&
+                   dd.paramClauseGroups.flatMap(_.tparamClause.values).isEmpty &&
+                   !fieldNames.exists(f => readsName(dd.body, f)) =>
+              c.name.value -> dd
+          }
+        }
+        if found.nonEmpty && found.forall(_.isDefined) then
+          val pairs = found.map(_.get)
+          methods += TraitDispatchMethod(t.name.value, mname, retTpe, pairs.map((cn, dd) => cn -> dd.body))
+          positions ++= pairs.map((_, dd) => dd.pos.start)
+      }
+    }
+    (methods.toList, positions.toSet)
+
+  /** Render one `TraitDispatchMethod` (see its own comment) as a standalone `impl EnumName { .. }`
+   *  block. A wildcard `{ .. }` field pattern on a variant WITH fields, valid Rust regardless of
+   *  how many (this method's own no-field-read scope means the match only needs to pick the right
+   *  arm, never a field out of one) — but a case class with NO fields (`Blockquote()`) is a genuine
+   *  Rust UNIT variant (`renderClassCtor`'s own empty-body branch: `Blockquote,` not `Blockquote
+   *  {},`), and `Container::Blockquote { .. }` on one is `error[E0769]: variant has no fields`; the
+   *  bare ctor name is the only legal pattern there. */
+  private def renderTraitDispatchMethod(
+      tdm: TraitDispatchMethod, ctx: Ctx, userTypeNames: Set[String]
+  ): Either[List[Diagnostic], String] =
+    for
+      retRs <- mapType(tdm.retType, s"${tdm.enumName}.${tdm.methodName}", userTypeNames)
+      arms  <- tdm.variants.foldLeft[Either[List[Diagnostic], List[String]]](Right(Nil)) {
+                 case (acc, (ctorName, body)) =>
+                   for
+                     xs <- acc
+                     b  <- renderTerm(body, ctx)
+                   yield
+                     val hasFields = ctx.ctorMap.get(ctorName).exists(_.fieldNames.nonEmpty)
+                     val pat = if hasFields then s"${tdm.enumName}::$ctorName { .. }" else s"${tdm.enumName}::$ctorName"
+                     xs :+ s"$pat => $b,"
+               }
+    yield
+      // Every variant body renders through `ctx` alone — no per-def preamble mechanism runs for a
+      // synthesized method the way `renderDef`'s own does — so a body naming a companion-object TOP
+      // VAL (`MdBranch.Blockquote`, `frame`'s actual real-corpus body) drops its qualifier the same
+      // way `selectOrNiladicCtor` always does and comes back UNBOUND: `error[E0425]: cannot find
+      // value Blockquote`. `topValsReferencedBy` (the same collector every ordinary def's own
+      // preamble already runs) is applied here to the UNION of all variant bodies — evaluating one
+      // arm's topval init even when a DIFFERENT arm runs is side-effect-free (an init expression, by
+      // this lane's own convention) and correct, the same way an ordinary def's preamble already
+      // binds every topval the WHOLE body might reach regardless of which branch executes.
+      val referencedTopVals = tdm.variants.flatMap((_, body) => topValsReferencedBy(body, ctx.topVals)).distinct
+      val preamble = referencedTopVals.map { case (n, init) => s"let $n = $init;\n" }.mkString
+      val matchBlock = s"${preamble}match self {\n${indent(arms.mkString("\n"))}\n}"
+      s"""impl ${tdm.enumName} {
+         |    pub fn ${tdm.methodName}(&self) -> $retRs {
+         |${indent(indent(matchBlock))}
+         |    }
+         |}
+         |""".stripMargin
 
   private def sectionTraits(s: ast.Section): List[m.Defn.Trait] =
     s.content.flatMap(contentTraits) ++ s.subsections.flatMap(sectionTraits)

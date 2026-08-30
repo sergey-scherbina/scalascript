@@ -3449,6 +3449,67 @@ class RustGenCodeWalkTest extends AnyFunSuite:
       && g.contains("if !lexeme.is_empty()"),
       s"a captured var's tuple-string positions must flow through a bare-name alias and a .foreach destructure:\n$g")
 
+  test("`sealed trait Container: def frame: String` + three case classes each overriding it — synthesized virtual dispatch, not the free-function overload refusal"):
+    // `sealed trait Container: def frame: String` + `case class Blockquote()`/`ListFrame(ordered)`/
+    // `ListItemFrame(ordered, contentIndent)`, each with its own `def frame = MdBranch.<Ctor>`
+    // (`uniml/markdown`'s `MarkdownBlocks.scala`) — an ordinary Scala vtable dispatch a Rust `enum`
+    // (`renderTraitEnum`'s own lowering for a sealed trait + case classes) has no equivalent of.
+    // Every one of the three `def frame` bodies is a genuine `Defn.Def`, nested inside a case
+    // class's Template but still swept in by the general `topLevelDefs`/`collectDefs` deep scan, so
+    // all three rendered as ordinary FREE functions sharing the bare name `frame` — no `self` at
+    // all — and the overload refusal fired: `def frame emits 3 times (overloading); Rust has no
+    // overloading and this lane does not mangle names`.
+    // `collectTraitDispatchMethods` recognizes the shape instead (every variant overrides the SAME
+    // niladic trait member, none of the three bodies reads any of its own case class's fields) and
+    // synthesizes ONE dispatch method — `impl Container { fn frame(&self) -> String { match self {
+    // .. } } }` — excluding the three original defs from `defs` (so neither the free-function path
+    // nor the overload count sees them) and adding `frame` to `_zeroArgDefNames` so `ctr.frame`
+    // still parenthesizes into a method call at the call site.
+    // `MdBranch.Blockquote` (a companion-object TOP VAL) inside a variant's own body needed its
+    // usual per-def preamble (`topValsReferencedBy`) reproduced here too — a synthesized method has
+    // no `renderDef` of its own to inject it — or the qualifier-dropped bare `Blockquote` reference
+    // came back unbound (`error[E0425]`). And `Blockquote()` (zero fields) is a genuine Rust UNIT
+    // variant (`renderClassCtor`'s own empty-body branch: `Blockquote,` not `Blockquote {},`), so
+    // its match arm needed the BARE ctor name — `Container::Blockquote { .. }` on a unit variant is
+    // `error[E0769]` — while the two field-carrying variants still take the wildcard `{ .. }` this
+    // method's own no-field-read scope allows uniformly.
+    val src =
+      """```scalascript
+        |object MdBranch:
+        |  val Blockquote = "markdown.blockquote"
+        |  val List = "markdown.list"
+        |  val ListItem = "markdown.list-item"
+        |
+        |sealed trait Container:
+        |  def frame: String
+        |final case class Blockquote() extends Container:
+        |  def frame = MdBranch.Blockquote
+        |final case class ListFrame(ordered: Boolean) extends Container:
+        |  def frame = MdBranch.List
+        |final case class ListItemFrame(ordered: Boolean, contentIndent: Int) extends Container:
+        |  def frame = MdBranch.ListItem
+        |
+        |def describe(ctr: Container): String =
+        |  ctr.frame
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(
+        "impl Container {\n" +
+        "    pub fn frame(&self) -> String {\n" +
+        "        let Blockquote = \"markdown.blockquote\".to_string();\n" +
+        "        let List = \"markdown.list\".to_string();\n" +
+        "        let ListItem = \"markdown.list-item\".to_string();\n" +
+        "        match self {\n" +
+        "            Container::Blockquote => Blockquote,\n" +
+        "            Container::ListFrame { .. } => List,\n" +
+        "            Container::ListItemFrame { .. } => ListItem,\n" +
+        "        }\n" +
+        "    }\n" +
+        "}\n")
+      && g.contains("pub fn describe(ctr: Container) -> String {\n    ctr.frame()\n}"),
+      s"three per-variant overrides of one abstract trait member must synthesize a single dispatch method, not three colliding free functions:\n$g")
+
   test("`firstMarker(edges).flatMap { m => … m.takeWhile(Obj.pred) … digits.toLongOption }` — Option-closure param string-seeding, an object-qualified predicate reference, and safe numeric parsing all compose"):
     // `firstMarker(edges).flatMap { m => val digits = m.takeWhile(MdChars.isAsciiDigit); if
     // digits.isEmpty then None else digits.toLongOption }` (`uniml/markdown`'s
