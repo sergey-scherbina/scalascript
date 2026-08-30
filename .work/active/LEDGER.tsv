@@ -1,3 +1,2 @@
-# generation: 3144
+# generation: 3145
 #slug	agent	started	items	paths
-js-classbody-val-field	claude-code	2026-08-30T10:59:41Z	js-codegen-never-computes-or-attaches-a-class-body-val-field	file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/ file:v1/runtime/backend/js/BUGS.md file:specs/aggregation-algebra.md file:BACKLOG.md file:std/aggregator.ssc file:tests/e2e/v1-jit-size.sh file:tests/conformance/std-aggregator-approx.ssc
