@@ -7600,9 +7600,19 @@ object RustCodeWalk:
     // trait — `val vm = TreeVm(limits); vm.start` (`UniML.scala`'s `parse`): "start" collides with
     // `SourceSpan.start`, so the name-only `_zeroArgDefNames` guard below refuses it everywhere, but
     // `vm`'s OWN type is known here (`collectLocalRustTypes`), so this asks `TreeVm` specifically
-    // rather than every struct in the module.
+    // rather than every struct in the module. `ctx.paramCtorNames` too, not just `ctx.paramTypes` —
+    // `scanRefDef(lines, i) match { case Some(defn) => … defn.label … }` (`uniml/markdown`'s
+    // `MarkdownBlocks.scala`) — `defn` is bound by a `Some(x)` MATCH PATTERN, not a def parameter;
+    // `renderMatch`'s own `Pat.Extract(Some, …)` bodyCtx case already resolves its specific struct
+    // type (`"RefDef"`) into `ctx.paramCtorNames`, a SEPARATE table from `ctx.paramTypes` (which
+    // this case alone used to read) — "label"/"destination"/"title" are common enough words to also
+    // be genuine FIELDS elsewhere in this large corpus, so the name-only `_zeroArgDefNames` guard
+    // below refuses them by name everywhere, and without this the precise per-receiver answer here
+    // was simply never asked for a `Some`-bound name: `error[E0615]: attempted to take value of
+    // method label on type RefDef` (rustc's own way of saying a genuine zero-arg METHOD was read as
+    // if it were a field).
     case m.Term.Select(qual @ m.Term.Name(n), m.Term.Name(field))
-        if ctx.paramTypes.get(n).flatMap(_structZeroArgMethods.get).exists(_.contains(field)) =>
+        if ctx.paramTypes.get(n).orElse(ctx.paramCtorNames.get(n)).flatMap(_structZeroArgMethods.get).exists(_.contains(field)) =>
       renderTerm(qual, ctx).map(q => s"$q.${rustIdent(field)}()")
 
     // A bare zero-arg DEF read without parens (`vm.start`, `TreeVm`/`Processor`'s own def with no

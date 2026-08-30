@@ -935,10 +935,21 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # own `asInstanceOfBindings -= n` clear (so a NESTED, actually-conflicting arm's OWN reads stay bare)
 # are separate functions/cases and cost nothing here. Re-verified uniml/xml, uniml/json, and
 # uniml/yaml all still build clean (0 errors).
+#
+# renderTerm 39512 -> 39524 (+12), continuing the same backlog, 58 -> 55. `scanRefDef(lines, i)
+# match { case Some(defn) => … defn.label … }` (`MarkdownBlocks.scala`) — `defn` is bound by a
+# `Some(x)` match pattern, so its specific struct type lives in `ctx.paramCtorNames`
+# (`renderMatch`'s own bodyCtx case), not `ctx.paramTypes` — the existing precise no-paren-method
+# case (`_structZeroArgMethods`) only ever read the latter: `error[E0615]: attempted to take value
+# of method label on type RefDef` (a genuine zero-arg METHOD read as a field, since the name-only
+# `_zeroArgDefNames` fallback refuses "label"/"destination"/"title" everywhere — common enough
+# words to also be genuine fields elsewhere in this corpus). Widened the existing guard's lookup to
+# `ctx.paramTypes.get(n).orElse(ctx.paramCtorNames.get(n))` — inline in this arm's own case, the
+# growth. Re-verified uniml/xml, uniml/json, and uniml/yaml all still build clean (0 errors).
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-39512 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+39524 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

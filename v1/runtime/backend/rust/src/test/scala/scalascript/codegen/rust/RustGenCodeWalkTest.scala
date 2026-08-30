@@ -3461,6 +3461,45 @@ class RustGenCodeWalkTest extends AnyFunSuite:
       && g.contains("if !lexeme.is_empty()"),
       s"a captured var's tuple-string positions must flow through a bare-name alias and a .foreach destructure:\n$g")
 
+  test("a no-paren zero-arg method call on a `Some(x)`-bound name resolves its specific struct via paramCtorNames, not just paramTypes"):
+    // `scanRefDef(lines, i) match { case Some(defn) => … defn.label … }` (`uniml/markdown`'s
+    // `MarkdownBlocks.scala`) — `defn` is bound by a `Some(x)` match pattern; `renderMatch`'s own
+    // `Pat.Extract(Some, …)` bodyCtx case resolves its SPECIFIC struct type (`"RefDef"`) into
+    // `ctx.paramCtorNames`, a table SEPARATE from `ctx.paramTypes` — the existing precise no-paren-
+    // method case (`_structZeroArgMethods`, which asks a SPECIFIC struct's own method list rather
+    // than refusing by bare name everywhere a same-named FIELD exists elsewhere in the module) only
+    // ever read `ctx.paramTypes`, so it never fired for a `Some`-bound name: `error[E0615]:
+    // attempted to take value of method label on type RefDef` (a genuine zero-arg METHOD read as if
+    // it were a field, since "label"/"destination"/"title" are common enough words to ALSO be
+    // genuine fields elsewhere in this corpus, so the name-only `_zeroArgDefNames` fallback refused
+    // them everywhere).
+    val src =
+      """```scalascript
+        |case class RefDef(labelLex: String, destLex: String, titleLex: Option[String]):
+        |  def label: String = labelLex.substring(1, labelLex.length - 1)
+        |  def destination: String = destLex
+        |  def title: Option[String] = titleLex
+        |
+        |case class LinkRef(destination: String, title: Option[String])
+        |
+        |def normalizeLabel(s: String): String = s
+        |
+        |def scanRefDef(x: Int): Option[RefDef] =
+        |  if x > 0 then Some(RefDef("[a]", "b", Some("c"))) else None
+        |
+        |def useIt(x: Int): (String, LinkRef) =
+        |  scanRefDef(x) match
+        |    case Some(defn) =>
+        |      val norm = normalizeLabel(defn.label)
+        |      (norm, LinkRef(defn.destination, defn.title))
+        |    case None => ("-", LinkRef("", None))
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("normalizeLabel(defn.label())") &&
+             g.contains("LinkRef { destination: defn.destination(), title: defn.title() }"),
+      s"a no-paren zero-arg method call on a Some(x)-bound name must parenthesize via paramCtorNames, not leave a bare field access:\n$g")
+
   test("`+` string concat over case-class fields bound via a self-clone preamble is recognized, not left as a raw Rust `+` chain"):
     // `indent + labelLex + colon + afterColon + destLex + betweenDestTitle + titleLex + trailing`
     // inside a case class's own method (`uniml/markdown`'s `MarkdownBlocks.scala`'s `RefDef`) — the
