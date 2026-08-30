@@ -4133,6 +4133,33 @@ object RustCodeWalk:
       // side being seq-shaped (by this SAME recursive check) makes the whole `++` a seq too.
       case m.Term.ApplyInfix.After_4_6_0(l, m.Term.Name("++"), _, r) if r.values.sizeIs == 1 =>
         if seqCtor(l).isDefined || seqCtor(r.values.head).isDefined then Some(false) else None
+      // `val withoutTrailingBreak = is match { case rest :+ MarkdownInline.SoftBreak => rest; …
+      // case _ => is }` (`uniml/markdown`'s `MarkdownProjection.scala`'s `trimBlockInlines`, `is:
+      // Vector[MarkdownInline]` the def's own param) — a MATCH EXPRESSION initializer, a shape
+      // `seqCtor` had no case for at all (every case above matches a call/select/infix chain, none
+      // a `Term.Match`). Deliberately NARROW rather than "trust every arm blindly" (which would be
+      // unsound for an arbitrary match, e.g. `case Some(x) => x` extracting an Option's element is
+      // NOT seq-rooted just because the subject was): the SUBJECT itself must be a bare NAME
+      // already known seq-rooted (a param, or a local recorded earlier in this same walk — `seed`/
+      // `seqs`, the identical two sources `rootedInSeq`'s own `Term.Name` case trusts; not reused
+      // directly since `rootedInSeq` is defined further down and a forward reference from here
+      // crosses an intervening `val`, which Scala rejects), and every arm's body must be either
+      // the SUBJECT'S name verbatim (the `case _ => is` fallback) or a name a LIST-SHAPED pattern
+      // (`isListPattern` — `::`/`:+`/`Cons`, all element-preserving sub-sequence destructures)
+      // itself bound. Without this, `withoutTrailingBreak` was never recorded as a seq, and
+      // `.iterator` chained onto it fell to the generic field-access refusal: `error[E0609]: no
+      // field iterator on type Vec<MarkdownInline>`.
+      case mt: m.Term.Match =>
+        mt.expr match
+          case m.Term.Name(subjName) if seqs.contains(subjName) || seed.contains(subjName) =>
+            val allArmsAgree = mt.casesBlock.cases.forall { c =>
+              c.body match
+                case m.Term.Name(bn) =>
+                  bn == subjName || (isListPattern(c.pat) && patBoundNames(c.pat).contains(bn))
+                case _ => false
+            }
+            if allArmsAgree then Some(false) else None
+          case _ => None
       case _ => None
     // A SEQ-PRESERVING CALL ON SOMETHING ALREADY KNOWN TO BE A SEQ.
     //
@@ -12873,9 +12900,37 @@ object RustCodeWalk:
     def isIdentityCatchAll(c: m.Case): Boolean = (c.pat, c.body, c.cond) match
       case (m.Pat.Var(m.Term.Name(a)), m.Term.Name(b), None) => a == b
       case _                                                 => false
-    val hasCtorArm = cases.exists(_.pat match
-      case m.Pat.Extract.After_4_6_0(_, _) => true
-      case _                               => false)
+    // `withoutTrailingBreak.iterator.zipWithIndex.map { (inline, idx) => inline match { case
+    // MarkdownInline.Text(v) => …; case other => other } }` (`uniml/markdown`'s
+    // `MarkdownProjection.scala`'s `trimBlockInlines`) — the comment just above ASSUMES "at least
+    // one ctor arm" already means the OTHER variants can never reach the catch-all, but
+    // `MarkdownInline` has eleven variants and this match names only ONE of them: the ten others
+    // (`SoftBreak`, `Emphasis`, `Strong`, …) fall straight through to the now-MISSING catch-all,
+    // and rustc correctly refuses the match as non-exhaustive: `error[E0004]: non-exhaustive
+    // patterns`. `hasCtorArm` is replaced with `armsCoverAllVariants` — the SAME drop is still
+    // correct (and still applied) whenever the explicit arms genuinely DO name every variant of
+    // the subject's own enum; otherwise the catch-all is load-bearing and must stay. Reads each
+    // arm's own ctor name(s) off its pattern (covering the shapes THIS corpus's match arms
+    // actually use — a qualified/bare niladic reference, an applied extractor, and `|`-joined
+    // alternatives — falling back to "unknown" for anything else, which counts as NOT covered:
+    // an uncertain arm must never let this drop a catch-all it cannot prove is dead).
+    def armCtorNames(p: m.Pat): Set[String] = p match
+      case m.Pat.Extract.After_4_6_0(m.Term.Select(_, m.Term.Name(n)), _) => Set(n)
+      case m.Pat.Extract.After_4_6_0(m.Term.Name(n), _)                   => Set(n)
+      case m.Term.Select(_, m.Term.Name(n))                               => Set(n)
+      case m.Term.Name(n)                                                 => Set(n)
+      case m.Pat.Bind(_, inner)                                           => armCtorNames(inner)
+      case m.Pat.Typed(_, m.Type.Select(_, m.Type.Name(n)))               => Set(n)
+      case m.Pat.Alternative(lhs, rhs)                                    => armCtorNames(lhs) ++ armCtorNames(rhs)
+      case _                                                              => Set.empty
+    val nonCatchAllCases = if cases.lastOption.exists(isIdentityCatchAll) then cases.init else cases
+    val coveredCtorNames = nonCatchAllCases.flatMap(c => armCtorNames(c.pat)).toSet
+    val armsCoverAllVariants =
+      coveredCtorNames.nonEmpty && nonCatchAllCases.forall(c => armCtorNames(c.pat).nonEmpty) && {
+        val enumNames = coveredCtorNames.flatMap(ctx.ctorMap.get).map(_.enumName)
+        enumNames.sizeIs == 1 &&
+          ctx.ctorMap.filter(_._2.enumName == enumNames.head).keySet.subsetOf(coveredCtorNames)
+      }
     // `case r @ VmInstruction.Reframe(...) =>` / `case r: VmInstruction.Reframe =>` — the SAME
     // pattern shape `renderPattern`'s own `Pat.Bind`/`Pat.Typed`-to-a-variant cases destructure
     // into `r @ Enum::Ctor { field, … }` (see their comments). Binding `r` to the WHOLE value
@@ -12926,7 +12981,7 @@ object RustCodeWalk:
         true
       case _ => false)
     val cases1 =
-      if hasCtorArm && cases.lastOption.exists(isIdentityCatchAll)
+      if armsCoverAllVariants && cases.lastOption.exists(isIdentityCatchAll)
       then cases.filterNot(isIdentityCatchAll)
       else cases
     // `case WFixed(Vector(Tok(MdKind.Text, lexeme, _, _))) => …` (`uniml/markdown`'s
@@ -13301,6 +13356,15 @@ object RustCodeWalk:
     case m.Pat.Tuple(args)                       => args.flatMap(patBoundNames).toSet
     case m.Pat.Extract.After_4_6_0(_, argClause) => argClause.values.flatMap(patBoundNames).toSet
     case m.Pat.Typed(inner, _)                   => patBoundNames(inner)
+    // `case rest :+ MarkdownInline.SoftBreak => rest` (`uniml/markdown`'s
+    // `MarkdownProjection.scala`'s `trimBlockInlines`) — a list cons/snoc pattern (`::`/`:+`), no
+    // case here at all despite `isListPattern` recognizing the SAME shape a few hundred lines up:
+    // `collectLocalSeqs`'s new `Term.Match` case (its own comment) needed to know `rest` is bound
+    // by THIS arm's pattern, and got an empty set back for a pattern that plainly binds one.
+    // Recurses both sides — the head/tail half of `::` and the init/last half of `:+` can each be
+    // a further nested pattern, not just a bare `Pat.Var`.
+    case m.Pat.ExtractInfix.After_4_6_0(lhs, _, argClause) =>
+      patBoundNames(lhs) ++ argClause.values.flatMap(patBoundNames).toSet
     case _                                       => Set.empty
 
   /** Names known to hold a Map in this def — parameters by their DECLARED type, locals by an RHS

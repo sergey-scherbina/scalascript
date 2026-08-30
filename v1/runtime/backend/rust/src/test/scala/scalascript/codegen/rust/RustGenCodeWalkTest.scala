@@ -4042,6 +4042,69 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(expected.findFirstIn(g).isDefined,
       s"a Vec-typed field destructured through a fixed-arity Vector sub-pattern must rewrite to an if-let + slice match, not refuse as an unknown ctor:\n$g")
 
+  test("a local val bound to a MATCH EXPRESSION over a known-seq subject is itself recorded as a seq"):
+    // `val withoutTrailingBreak = is match { case rest :+ MarkdownInline.SoftBreak => rest; …
+    // case _ => is }` (`uniml/markdown`'s `MarkdownProjection.scala`'s `trimBlockInlines`, `is` the
+    // def's own `Vector[MarkdownInline]` parameter) — `collectLocalSeqs` had no case for a MATCH
+    // EXPRESSION initializer at all. Every arm here is either the subject `is` verbatim or a name
+    // a list cons/snoc pattern (`:+`) binds, so the whole match is seq-rooted too — narrowly scoped
+    // to exactly that shape (subject already known seq-rooted, every arm either returns the
+    // subject's own name or a name a `::`/`:+`/`Cons` pattern binds), not "trust every arm
+    // blindly" (unsound for e.g. `case Some(x) => x`, which is NOT seq-rooted just because the
+    // subject was). Also needed: `patBoundNames` had no case for a `::`/`:+` pattern at all, so
+    // even a correctly-identified list pattern's own bound name (`rest`) went unrecognized.
+    // Without both, `withoutTrailingBreak` was never recorded as a seq, and `.iterator` chained
+    // onto it fell to the generic field-access refusal: `error[E0609]: no field iterator on type
+    // Vec<MarkdownInline>`.
+    val src =
+      """```scalascript
+        |enum MarkdownInline:
+        |  case SoftBreak
+        |  case HardBreak
+        |  case Text(v: String)
+        |
+        |def trimBlockInlines(is: Vector[MarkdownInline]): Vector[MarkdownInline] =
+        |  val withoutTrailingBreak = is match
+        |    case rest :+ MarkdownInline.SoftBreak => rest
+        |    case rest :+ MarkdownInline.HardBreak => rest
+        |    case _                                => is
+        |  withoutTrailingBreak.iterator.zipWithIndex.map { (inline, idx) => inline }.toVector
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(!g.contains(".iterator"),
+      s"withoutTrailingBreak must be recorded as a seq so .iterator lowers as a no-op:\n$g")
+
+  test("a `case other => other` catch-all trailing an enum match is kept when the explicit arms do NOT cover every variant"):
+    // `inline match { case MarkdownInline.Text(v) => …; case other => other }` (`uniml/markdown`'s
+    // `MarkdownProjection.scala`'s `trimBlockInlines`) — `renderMatch`'s existing "drop a trailing
+    // identity catch-all" optimization (for the toolkit's JVM-side idempotency passthrough, where
+    // the explicit arms already cover the WHOLE enum and the catch-all provably cannot fire) was
+    // gated on "at least one ctor arm exists" — far weaker than its own stated justification
+    // ("the variant arms are exhaustive"). `MarkdownInline` has more variants than just `Text`, so
+    // the catch-all is NOT dead here, but the old guard dropped it anyway: `error[E0004]: non-
+    // exhaustive patterns`. Widened to check the explicit arms' own ctor names actually cover
+    // EVERY variant of the subject's enum (`ctx.ctorMap`, keyed by ctor, carrying each one's
+    // `enumName`) before dropping — an arm this check cannot confidently attribute to a ctor name
+    // counts as NOT covered, keeping the catch-all rather than risking a live one.
+    val src =
+      """```scalascript
+        |enum MarkdownInline:
+        |  case SoftBreak
+        |  case HardBreak
+        |  case Text(v: String)
+        |  case Emphasis(v: String)
+        |
+        |def normalize(inline: MarkdownInline): MarkdownInline =
+        |  inline match
+        |    case MarkdownInline.Text(v) => MarkdownInline.Text(v + "!")
+        |    case other => other
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("other => other"),
+      s"a catch-all must survive when the explicit arms do not cover every enum variant:\n$g")
+
   test("a bare zero-arg-def reference used as a Map receiver (`.get`/`.getOrElse`) inserts the implicit `()` call"):
     // `namedEntities.getOrElse(body, lex)` (`uniml/markdown`'s `MarkdownProjection.scala`'s
     // `decodeEntity`; `private def namedEntities: Map[String, String] = ...`, a zero-arg def) —
