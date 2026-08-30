@@ -57,6 +57,27 @@ bad_item_tokens() {
 
 if [ "${1:-}" = "--self-test" ]; then
   fails=0
+
+  # A comma list must reach the ledger as a SPACE list, because both guards split `paths:` on
+  # whitespace. Before this normalisation a comma-joined claim stored one unsplittable token and
+  # refused every file it had itself declared. Asserted on the same transformation the flag applies.
+  _comma="file:a/b.scala,file:c/d.scala,dir:e/f"
+  _normalised="$(printf '%s' "$_comma" | tr ',' ' ')"
+  if [ "$_normalised" = "file:a/b.scala file:c/d.scala dir:e/f" ]; then
+    echo "  ok   --paths normalises a comma list to spaces (both guards split on whitespace)"
+  else
+    echo "  FAIL --paths comma normalisation gave [$_normalised]"; fails=$((fails + 1))
+  fi
+  # And each scope prefix the guards strip must survive that normalisation as its own token —
+  # `dir:` included, which neither guard stripped until 2026-08-30.
+  _count=0
+  for _p in $_normalised; do _count=$((_count + 1)); done
+  if [ "$_count" -eq 3 ]; then
+    echo "  ok   the normalised list splits into 3 scope tokens"
+  else
+    echo "  FAIL normalised list split into $_count tokens, expected 3"; fails=$((fails + 1))
+  fi
+
   _paths="mod:v3/tests/jit file:BUGS.md"
   _broad="a subtree because the fixtures are generated together"
 
@@ -124,7 +145,18 @@ slug=""; items=""; paths=""; broad=""; dryrun=0; agent="${SSC_AGENT_ID:-claude-c
 while [ $# -gt 0 ]; do
   case "$1" in
     --items) items="$2"; shift 2 ;;
-    --paths) paths="$2"; shift 2 ;;
+    # A COMMA-separated list is normalised to spaces rather than stored verbatim. Both guards split
+    # `paths:` with an unquoted `for p in $paths` — whitespace, by design and documented in
+    # pre-push's own header — so a comma list arrived as ONE token matching nothing, and every file
+    # in the claim was refused as "outside" while the refusal printed the very paths it would not
+    # match. Silent, and the message pointed away from the cause.
+    #
+    # Measured 2026-08-30: claim `v3-lexer-annotations` declared four comma-joined paths, could not
+    # commit any of them, and only got through by narrowing to a single `mod:v3` token. Normalising
+    # HERE rather than teaching both hooks a second separator keeps one vocabulary on both sides —
+    # the rule this file's own history keeps re-learning (see the `repo:`/`mod:`/`file:` notes in
+    # .githooks/pre-commit). scripts/BUGS.md `claim-path-comma-separator-and-dir-prefix`.
+    --paths) paths="$(printf '%s' "$2" | tr ',' ' ')"; shift 2 ;;
     --broad) broad="$2"; shift 2 ;;
     --agent) agent="$2"; shift 2 ;;
     --dry-run) dryrun=1; shift ;;

@@ -114,7 +114,11 @@ case "$branch" in
           # Same shape as the note further up about shared bookkeeping: that exemption lived in this
           # layer and not in layer 2, and four finished items sat un-ticked because of it. Duplicated
           # logic needs the same vocabulary on both sides, or it is not one guard but two.
-          p="${p#repo:}"; p="${p#mod:}"; p="${p#file:}"
+          # `dir:` added 2026-08-30 for the same reason `file:` was added on 2026-07-30, and found
+          # the same way — by the first claim to use it. A `dir:` scope could be claimed and could
+          # pass the overlap guard, but nothing under it could be committed, because this line
+          # compared the literal `dir:v3/tests/front` against the staged `v3/tests/front/x`.
+          p="${p#repo:}"; p="${p#mod:}"; p="${p#dir:}"; p="${p#file:}"
           # Declared paths are PREFIXES; tolerate a trailing glob people write out of habit
           # (`scljet/**` and `scljet/` must mean the same thing, or the guard fires on its own author).
           while [ "${p%\*}" != "$p" ]; do p="${p%\*}"; done

@@ -443,12 +443,15 @@ scope_level() {
   case "$1" in
     repo:*|repo) printf 'repo' ;;
     mod:*)       printf 'mod'  ;;
+    # `dir:` is a SUBTREE, so it ranks with `mod:` rather than with `file:` — a directory claim
+    # must overlap-check like the subtree it is, or the finer level would silently out-rank it.
+    dir:*)       printf 'mod'  ;;
     file:*)      printf 'file' ;;
     *)           printf 'mod'  ;;   # unprefixed = subtree, exactly the pre-2026-07-30 meaning
   esac
 }
 scope_path() {
-  local v="${1#repo:}"; v="${v#mod:}"; v="${v#file:}"
+  local v="${1#repo:}"; v="${v#mod:}"; v="${v#dir:}"; v="${v#file:}"
   while [ "${v%\*}" != "$v" ]; do v="${v%\*}"; done   # normalise trailing globs
   printf '%s' "${v%/}"
 }
