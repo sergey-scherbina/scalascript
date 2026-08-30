@@ -273,4 +273,53 @@ device, one seed, per-chain on-device apps; the Vault routes
       (FROST) signing as a `walletVaultMpcFrost` variant is now active work. (Other future MPC variants stay
       deferred until a concrete use case/partner.)
 
+## Finmon engine + storefront kit (2026-08-30, with Sergiy)
+
+Two products on one ingestion core, planned in **[`specs/finmon-engine.md`](../specs/finmon-engine.md)**
+(self-hosted real-time transaction monitoring: normalized `TransferEvent` stream over chain + ISO 20022
+sources, public-list sanctions screening, windowed typology rules as `.ssc` documents, live Base/USDC
+demo) and **[`specs/storefront-kit.md`](../specs/storefront-kit.md)** (non-custodial `store.ssc`
+storefront: BYO payment rails as `CheckoutRail` plugins, verification via `ChainEventSource.watch` /
+x402 / webhooks, Telegram notifications via the rozum bridge, conversational LLM builder behind a
+parse→schema→preview validation pipeline). Every slice follows reference → seam → gate → native; the
+gates are named per-slice in the specs (§10 / §7). Dependency-ordered queue:
+
+**Shared ingestion core (finmon spec §10):**
+- [ ] **finmon-event-model** — `TransferEvent`/`Counterparty`/`Finality`, dedupe + checkpoint contracts.
+- [ ] **chain-event-source-evm** — `ChainEventSource` seam beside `ChainAdapter` + `rpcSubscribe`
+      context capability + EVM ERC-20 transfer source (one impl covers Ethereum/Base/Arbitrum/
+      Optimism/Polygon/BNB). Gate: recorded-RPC replay of a known Base range; polling fallback
+      byte-identical. **Unblocks storefront crypto rails.**
+- [ ] **iso20022-ingest** — pacs.008/camt.053 → `TransferEvent` (reusing `bank-rails` types) +
+      labeled synthetic scenario generator (the demo and the rules gate corpus).
+- [ ] **sanctions-screening** — OFAC SDN (incl. digital-currency addresses)/EU/OFSI loaders,
+      `SanctionsIndex`, `ScreeningProvider` SPI with `compliance-*` as premium providers.
+
+**Finmon engine:**
+- [ ] **finmon-rules-core** — keyed windowed engine on the aggregation algebra + five v1 rules as
+      `.ssc` rule documents (velocity, structuring, fan-in/out, dormancy-break, pass-through).
+      Gate: labeled corpus fires every expected alert and nothing else; ≥10k events/s single-node
+      per the `performance` protocol.
+- [ ] **finmon-dashboard-demo** — two `examples/`: live Base/USDC watch → screening → rules →
+      web dashboard (single command, no API keys); ISO 20022 synthetic corpus through the same engine.
+
+**Storefront kit:**
+- [ ] **storefront-schema** — front-matter schema + validator + `Order` state machine/storage;
+      wizard form derives from the schema.
+- [ ] **storefront-build** — `store.ssc` → static site via the content toolkit; three example
+      templates (goods / services+booking / digital files).
+- [ ] **storefront-rail-x402** + **storefront-rail-address-qr** — crypto rails on
+      `ChainEventSource.watch` (needs chain-event-source-evm). Gate: replay drives `paid` at
+      threshold; reorg reverts visibly.
+- [ ] **storefront-rail-stripe-link** — link-out + signature-verified webhook receiver.
+- [ ] **storefront-verifier-daemon** — self-hosted verifier: rails' verify streams, order-status
+      endpoint, Telegram notify via rozum bridge (stubbed in tests; cross-repo per `REPOS.md`).
+- [ ] **storefront-builder-conversational** — chat interview → generate → parse → schema-validate →
+      preview → publish-on-approval; model-agnostic (rozum gateway or cloud). Gate: scripted
+      transcripts; injected bad generations caught; zero unvalidated publishes.
+
+**Later epics (both specs' final sections):** chain-event-source-{tron,bitcoin,solana,cardano,stellar},
+finmon-goaml-export, screening-fuzzy-names (own FPR gate), finmon-enforcement (spend-firewall),
+storefront-rail-paypal-webhooks, storefront-hosted, storefront-screening, storefront-analytics.
+
 ---
