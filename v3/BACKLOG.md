@@ -4,6 +4,61 @@ Work that can wait, and **alternatives that were considered and parked with thei
 (P-4.2). A parked alternative costs nothing and is there the day it becomes right; the same
 alternative held as "I should ask about this someday" is lost at the next reboot.
 
+## Owner decisions, 2026-08-30 — the FULL remaining queue, ordered, with three new end-stages
+
+The owner asked for the complete remaining-v3 inventory, set the order, and directed it into this
+backlog ("все это запланировать в беклог и делать аккуратно"). The queue, each stage its own
+claim(s), landed wave by wave; a stage does not start before the previous one's numbers are in:
+
+1. **(in flight)** the four cheap slices of 2026-08-30: abstract `val` in `extern class` (landed),
+   `finally`, lexer `@`, `extension` in `Lower`'s dispatch.
+2. **Rewrite-door R2–R4** — the markers (`Focus` 5, `direct` 3, `Prism` 1 = 9 cases), per
+   `specs/60-compile-time-extension.md`; R1 landed. Closes
+   `v3-a-marker-is-a-compile-time-rewrite-nothing-in-a-library-can-answer`.
+3. **Own-front parsing batch** — three open bugs, each a parser/`Lower` slice:
+   `v3-own-front-has-no-extern-class`, `v3-front-cannot-parse-a-curried-member-method`,
+   `infix-application-does-not-reach-a-declared-class-method`.
+4. **`v3-value-show-and-copy`** (owner decision 2026-08-22 already taken: field names in the IR,
+   `_show` in both lanes) — unblocks the written-and-held positional/mixed `copy` fix.
+5. **`v3-stringcontext-interpolators`** (owner decision 2026-08-23 already taken) — closes
+   `v3-an-interpolator-prefix-and-an-ordinary-function-share-one-namespace`; plus, alongside,
+   `v3-the-content-provider-has-no-root-document`.
+6. **The type checker** — `v3-given-syntax` G2 (MANDATORY per the 2026-08-09 decision: `given`
+   syntax now, inference next) and `given`/`using` stage-2 in `Lower` (unblocked by stage 1's
+   `extension` landing). ~24 typing-bucket corpus cases.
+7. **`v3-jvm-interop` J1–J5** (approved feature, plan written in SPRINT) — then the parked
+   `Dataset` host-surface decision gets re-put with post-interop numbers.
+8. **`multi effect X:` continuation capture** (SSC3-7b, design decided 2026-08-08). ORDERED BEFORE
+   perf by the owner, 2026-08-30 — effects complete the language first.
+9. **Performance, LAST and THOROUGH** ("перф на последнее место — но уже потом основательно"):
+   SSC3-3c-rest cells-frame (measured 1.27–1.74×), then the whole `specs/ssc3-jit.md` ladder
+   (executor ~900× off; `Exec$.invoke` 13 415 bytecodes, never JIT-compiled; J1a gate landed).
+   Deliberately after 2–8: optimise the complete language once, not the half-built one repeatedly.
+
+Then three NEW end-stages, in this order, each planned carefully before any code:
+
+10. **UniML refactor — remove mutable classes where possible** ("избавиться от мутабельных классов
+    там если возможно"). Scope: survey `uniml/` for mutable state (`var` fields, mutable
+    collections in tree nodes), measure what immutability costs where it is load-bearing
+    (parse-time builders may stay mutable INTERNALLY; the public tree should not be), and land as
+    a refactor with the full front-diff/parity/corpus gates green at every step. "If possible" is
+    the owner's own qualifier: where a measurement says immutability is too expensive, park that
+    piece here with the number.
+11. **v3 front audit + refactor on the FRESH UniML** — after 10, re-audit
+    `specs/40-front-on-uniml.md`/`specs/50-uniml-projection.md` against the refactored UniML and
+    refactor v3's front accordingly; the front-diff ceiling and the projection's refusal list are
+    the acceptance instruments.
+12. **v3's OWN backends, replacing the v2 bridge** — the end-state: `translate` targets owned by
+    v3 rather than delegated through `BridgeV2`/the v2 fleet. Sequenced LAST deliberately: it
+    inherits the audited front (11), the complete language (2–8), and the perf baseline (9).
+    First deliverable is a plan document (which target first, what the bridge is still needed
+    for, the parity gate that proves each backend against the bridge before the bridge retires)
+    put to the owner before code.
+
+Execution discipline for all twelve: the module's own rules — measured against N/exec/bridge and
+the front-diff/parity floors, every mechanism switchable off from its first commit, and honest
+refusals over silent wrong answers.
+
 ## Owner decisions, 2026-08-17 — four questions put and answered
 
 Put to the owner after a census showed v3 has no defect of its own left in the corpus: 259/369 on
