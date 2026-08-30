@@ -6779,7 +6779,20 @@ object RustCodeWalk:
     // ordinary call machinery below has no notion of an implicit receiver at all, so this renders
     // it explicitly before falling through to that.
     case m.Term.Apply.After_4_6_0(m.Term.Name(n), args) if ctx.selfMethods.contains(n) =>
-      val argTerms0  = args.values.toList
+      // `htmlBlockType(t, paragraphOpen = true)` (`uniml/markdown`'s `MarkdownBlocks.scala`'s
+      // `couldOpenParagraphInterrupt`, an implicit-receiver call to a sibling method with a NAMED
+      // trailing arg) — this arm renders EVERY arg with a bare `renderTerm`, never stripping a
+      // `Term.Assign(Term.Name(param), value)` named-argument shape down to just `value` the way
+      // the ordinary call path a few hundred lines down already does (its own comment: "Rust calls
+      // are positional, so emit just the value"). Left unstripped, `renderTerm` fell through to
+      // the general ASSIGNMENT-STATEMENT case and emitted `paragraphOpen = true` verbatim inside
+      // the argument list: `error[E0425]: cannot find value paragraphOpen in this scope` (rustc
+      // reads it as a read of an undeclared local, not as a call argument at all). Same strip,
+      // applied here too, before rendering.
+      val argTerms0  = args.values.toList.map {
+        case m.Term.Assign(_: m.Term.Name, v) => v
+        case other                            => other
+      }
       val rendered0  = argTerms0.map(renderTerm(_, ctx))
       val (errs, ok0raw) = rendered0.partitionMap(identity)
       if errs.nonEmpty then Left(errs.flatten)

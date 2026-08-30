@@ -985,10 +985,18 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # member, letting the ordinary object-member call machinery resolve it instead — the added `match`
 # guard inline in this arm's own case is the growth. Re-verified uniml/xml, uniml/json, and
 # uniml/yaml all still build clean (0 errors).
+# renderTerm 39848 -> 39856 (+8), continuing the same backlog, 47 -> 46. `htmlBlockType(t,
+# paragraphOpen = true)` (`uniml/markdown`'s `MarkdownBlocks.scala`'s `couldOpenParagraphInterrupt`)
+# — the implicit-receiver `self.method(...)` call arm (`ctx.selfMethods`) rendered every argument
+# with a bare `renderTerm`, never stripping a `Term.Assign(Term.Name(param), value)` named-argument
+# shape down to just `value` the way the ordinary call path already does a few hundred lines down:
+# `error[E0425]: cannot find value paragraphOpen in this scope`. Same strip, applied here too — one
+# `.map` over the arg list before rendering, the growth. Re-verified uniml/xml, uniml/json, and
+# uniml/yaml all still build clean (0 errors).
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-39848 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+39856 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

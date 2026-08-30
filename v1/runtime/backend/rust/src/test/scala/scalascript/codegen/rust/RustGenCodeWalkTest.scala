@@ -4042,6 +4042,27 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(expected.findFirstIn(g).isDefined,
       s"a Vec-typed field destructured through a fixed-arity Vector sub-pattern must rewrite to an if-let + slice match, not refuse as an unknown ctor:\n$g")
 
+  test("an implicit-receiver self-method call strips a NAMED trailing argument the same way the ordinary call path already does"):
+    // `htmlBlockType(t, paragraphOpen = true)` (`uniml/markdown`'s `MarkdownBlocks.scala`'s
+    // `couldOpenParagraphInterrupt`, an implicit-receiver call to a sibling method with a NAMED
+    // trailing arg) — the `ctx.selfMethods` arm rendered every arg with a bare `renderTerm`, never
+    // stripping a `Term.Assign(Term.Name(param), value)` named-argument shape down to just `value`:
+    // `error[E0425]: cannot find value paragraphOpen in this scope` (rustc read the unstripped
+    // `paragraphOpen = true` as a read of an undeclared local).
+    val src =
+      """```scalascript
+        |class Blocks(limits: Int):
+        |  private def htmlBlockType(trimmed: String, paragraphOpen: Boolean): Option[Int] =
+        |    if paragraphOpen then Some(1) else None
+        |
+        |  def couldOpen(t: String): Boolean =
+        |    htmlBlockType(t, paragraphOpen = true).isDefined
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("self.htmlBlockType(t, true).is_some()"),
+      s"a named trailing arg on a self-method call must strip to a positional value, not the literal `name = value`:\n$g")
+
   test("a companion-object static method sharing the bare name `split` with `String.split` resolves as an object-member call, not the String lowering"):
     // `MdLine.split(text)` (`uniml/markdown`'s `MarkdownBlocks.scala`'s `parse`, `object MdLine:
     // def split(text: String): Vector[MdLine] = ...`) — the one-arg `(s: String).split(sep)` case
