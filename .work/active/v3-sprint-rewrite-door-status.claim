@@ -1,0 +1,11 @@
+slug: v3-sprint-rewrite-door-status
+branch: feature/v3-sprint-rewrite-door-status
+agent: claude-code
+started: 2026-08-30T22:11:43Z
+heartbeat: 2026-08-30T22:11:43Z
+status: claimed-before-planning
+items: v3-rewrite-door-sprint-rows-are-stale
+paths: file:v3/SPRINT.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
