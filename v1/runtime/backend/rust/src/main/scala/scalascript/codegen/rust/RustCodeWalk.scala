@@ -13266,8 +13266,23 @@ object RustCodeWalk:
     case m.Term.Select(m.Term.Name(objName), m.Term.Name(valName))
         if _topValInits.get((objName, valName)).exists(_.endsWith(".to_string()")) =>
       Right(_topValInits((objName, valName)).stripSuffix(".to_string()"))
+    // `preflight(...) match { case Some(diagnostic) => …; case None => … }` where `preflight`
+    // returns `Option[Diagnostic]` (`uniml/markdown`'s `MarkdownBlocks.scala`'s `parse`) — the SAME
+    // file also declares `enum OpenLeaf: case None; case Paragraph; …` (a genuinely unrelated type,
+    // its own `open` tracking var), and `ctorMap` is a FLAT, bare-name-keyed, whole-MODULE map
+    // (`_qualifiedCtors`'s own comment already documents this exact collision class for the
+    // CONSTRUCTOR side). The case below — this file's general "bare name matches some known nullary
+    // enum ctor" pattern — matched "None" against `OpenLeaf`'s own case, UNCONDITIONALLY, for EVERY
+    // bare `case None` in the ENTIRE corpus regardless of what the match subject's real type is:
+    // `OpenLeaf::None => …` against an `Option<Diagnostic>` subject, `error[E0308]: expected
+    // Option<Diagnostic>, found OpenLeaf`. `None` (and `Nil`, the identical built-in-name-shadowed-
+    // by-a-user-enum-case risk one case below this) are Scala/this-lane built-ins that a same-named
+    // user enum case can never actually shadow in valid ScalaScript source — if it could, the
+    // SOURCE itself would already be ambiguous and this corpus would not type-check upstream — so
+    // excluding them here is not a heuristic, it is restoring the priority Scala's own name
+    // resolution already guarantees.
     case m.Term.Name(n)
-        if ctx.ctorMap.get(n).exists(c => c.fieldNames.isEmpty && !c.isStruct) =>
+        if n != "None" && n != "Nil" && ctx.ctorMap.get(n).exists(c => c.fieldNames.isEmpty && !c.isStruct) =>
       Right(s"${ctx.ctorMap(n).enumName}::$n")
     // ── List patterns ──────────────────────────────────────────────────────
     // A ScalaScript `List` is a Rust `Vec`, and a Vec has no constructor patterns — so these lower

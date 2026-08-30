@@ -3461,6 +3461,43 @@ class RustGenCodeWalkTest extends AnyFunSuite:
       && g.contains("if !lexeme.is_empty()"),
       s"a captured var's tuple-string positions must flow through a bare-name alias and a .foreach destructure:\n$g")
 
+  test("a bare `case None =>` must match Option's own None even when a sibling enum ALSO declares a nullary case named `None`"):
+    // `preflight(...) match { case Some(diagnostic) => …; case None => … }`, where `preflight`
+    // returns `Option[Diagnostic]` (`uniml/markdown`'s `MarkdownBlocks.scala`'s `parse`) — the SAME
+    // file also declares `enum OpenLeaf: case None; case Paragraph; …`, a genuinely unrelated type.
+    // `ctorMap` is a FLAT, bare-name-keyed, whole-MODULE map (the same collision class
+    // `_qualifiedCtors`'s own comment already documents for the constructor side), and
+    // `renderPattern`'s general "bare name matches some known nullary enum ctor" case sat BEFORE
+    // its own `Term.Name("None") => Right("None")` case — so it matched "None" against `OpenLeaf`'s
+    // own case UNCONDITIONALLY, for every bare `case None` in the entire corpus regardless of the
+    // match subject's real type: `OpenLeaf::None => …` against an `Option<Diagnostic>` subject,
+    // `error[E0308]: expected Option<Diagnostic>, found OpenLeaf`. Fixed by excluding "None" (and
+    // "Nil", the identical risk) from the generic case — restoring the priority Scala's own name
+    // resolution already guarantees a same-named user enum case can never actually override in
+    // valid source.
+    val src =
+      """```scalascript
+        |enum OpenLeaf:
+        |  case None
+        |  case Paragraph
+        |
+        |def preflight(x: Int): Option[String] =
+        |  if x > 0 then Some("ok") else None
+        |
+        |def check(x: Int): String =
+        |  preflight(x) match
+        |    case Some(v) => v
+        |    case None    => "nothing"
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(
+        "match preflight(x) {\n" +
+        "        Some(v) => v,\n" +
+        "        None => \"nothing\".to_string(),\n" +
+        "    }"),
+      s"a bare None pattern must match Option's own None, never a sibling enum's same-named nullary case:\n$g")
+
   test("a local def lifted out of a mutable class's own method, calling ANOTHER self-method, must capture `__self` and call through it"):
     // `fn isIndentedCode = ... self.startsListOrQuote(trimmed) ...` (`uniml/markdown`'s
     // `MarkdownBlocks.scala`'s `parse`) — the METHOD-call twin of the ctor-param FIELD-capture fix
