@@ -9,14 +9,15 @@ Newest first.
 
 ## sortby-on-a-non-int-key-sorts-lexicographically-not-numerically — `List.sortBy` on a `Double` key sorts as if the keys were strings
 
-<!-- status: open
+<!-- status: fixed
      lane: int
      kind: bug
      area: runtime
-     gate: tests/conformance/std-aggregator-approx.ssc (known-red int)
+     gate: tests/conformance/std-aggregator-approx.ssc
      reported-by: claude-code
      reported-at: 2026-08-30
-     confirmed: yes -->
+     confirmed: yes
+     fixed-in: 237e31756 -->
 
 Found landing `std/aggregator.ssc`'s `TDigestMonoid` (`specs/aggregation-algebra.md` §6.3), whose
 `combine`/`quantile` both `sortBy(c => c.mean)` (a `Double` field). Minimal repro:
@@ -27,37 +28,48 @@ val xs = List(P(1.0), P(10.0), P(2.0), P(100.0), P(20.0))
 println(xs.sortBy(p => p.x).map(p => p.x))
 ```
 
-gives `List(1, 10, 100, 2, 20)` under `--v1` — sorted as if the keys were the strings `"1"`,
-`"10"`, `"100"`, `"2"`, `"20"`; `int`/`native` and `run-jvm` all give the correct `List(1, 2, 10,
+gave `List(1, 10, 100, 2, 20)` under `--v1` — sorted as if the keys were the strings `"1"`,
+`"10"`, `"100"`, `"2"`, `"20"`; `int`/`native` and `run-jvm` all gave the correct `List(1, 2, 10,
 20, 100)`. Root cause found directly in the source, not inferred: `DispatchRuntime.scala`'s
-`sortBy` has a fast path that special-cases `Value.IntV` keys for a real numeric sort (`java.util
-.Arrays.sort` on `Long`), and falls back, for every OTHER key type, to converting each key to its
+`sortBy` had a fast path that special-cased `Value.IntV` keys for a real numeric sort (`java.util
+.Arrays.sort` on `Long`), and fell back, for every OTHER key type, to converting each key to its
 `Value.show` STRING and sorting those lexicographically (`Comparator.comparing[..., String]`) —
 correct for genuinely `String`-keyed sorts, silently wrong for `Double` (and any other non-`Int`
-numeric type, which all fall into the same slow path). `TDigestMonoid` is known-red on `int` for
-this reason; the same bug would affect ANY `sortBy` on a `Double`/`Float`/`Long`-if-distinct-from-
-`Int` key anywhere in this codebase, not just this one call site.
+numeric type, which all fell into the same slow path).
+
+**FIXED**: added a second fast path, checked before the string fallback, for the case where every
+key is `Value.IntV` or `Value.DoubleV` (i.e. numeric, just not exclusively `Int`) — sorts by the
+`Double` value via `Comparator.comparingDouble`. The original all-`Int` fast path is untouched
+(kept for exact `Long` precision, no unnecessary `Double` coercion); only genuinely non-numeric
+keys (`String`, `Boolean`, …) still take the string-comparison path, which is correct for them.
+`TDigestMonoid`'s conformance case now passes on `int` with no `known-red` needed.
 
 ## math-object-is-missing-log-and-other-transcendental-functions — `math.log` throws "No method 'log' on InstanceV(math(...))" under `--v1`
 
-<!-- status: open
+<!-- status: fixed
      lane: int
      kind: bug
      area: runtime
-     gate: tests/conformance/std-aggregator.ssc (known-red int)
+     gate: tests/conformance/std-aggregator-approx.ssc
      reported-by: claude-code
      reported-at: 2026-08-30
-     confirmed: yes -->
+     confirmed: yes
+     fixed-in: 237e31756 -->
 
 Found landing `std/aggregator.ssc`'s `HLLAgg` (`specs/aggregation-algebra.md` §6.1), whose
-linear-counting correction needs `math.log`. `BuiltinsRuntime.scala` wires the `math` object's field
+linear-counting correction needs `math.log`. `BuiltinsRuntime.scala` wired the `math` object's field
 map from a fixed list — `sqrt`/`abs`/`pow`/`max`/`min`/`floor`/`ceil`/`round`/`Pi`/`E` — with no
 `log` (or `exp`, `sin`, `cos`, and the rest of the transcendental functions) anywhere in the file, on
 either the field map or as an underlying `math.log` global to wire in. `int`/`native` both call
-`math.log` in other contexts already (e.g. the reference front) without issue — this is specific to
-the v1 interpreter's own `math` object being an incomplete, hand-maintained list rather than
-delegating to the host's full `scala.math`/`java.lang.Math`. Repro: `println(math.log(10.0))` under
-`bin/ssc-tools run --v1` fails; the same line under the default native lane or `--bytecode` works.
+`math.log` in other contexts already (e.g. the reference front) without issue — this was specific
+to the v1 interpreter's own `math` object being an incomplete, hand-maintained list rather than
+delegating to the host's full `scala.math`/`java.lang.Math`.
+
+**FIXED**: added `QualifiedName("math.log")`/`QualifiedName("math.exp")` native intrinsics
+(`Core.scala`, mirroring `math.sqrt`'s exact Double/Long-coercion shape) and wired both into the
+`math` object's field map (`BuiltinsRuntime.scala`). `sin`/`cos`/`log10` and the rest of
+`scala.math`/`java.lang.Math` remain unregistered — real, separate follow-up work if a caller needs
+them, not claimed fixed here.
 
 ## array-tabulate-lambda-loses-a-sibling-top-level-def-cross-module — `Array.tabulate`'s callback throws `Undefined: <name>` for a sibling top-level function, but only when the calling class is imported from a different module
 
