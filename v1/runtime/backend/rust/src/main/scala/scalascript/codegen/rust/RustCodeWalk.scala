@@ -11005,7 +11005,16 @@ object RustCodeWalk:
            // `.collect { case … }` — added alongside its siblings for `element.children.collect {
            // case child: Markup.Element => child }.reverseIterator` (`uniml/xml`'s `Doc.scala`'s
            // `validateNamespaces`), which chains `.reverseIterator` right after it.
-           "collect")), _) =>
+           "collect" |
+           // `nodes.slice(found + 1, closerIdx).flatMap(flatten)` (`uniml/markdown`'s
+           // `MarkdownInlines.scala`'s `processEmphasis`) — `.slice` is element-preserving the SAME
+           // way `.take`/`.drop` already are (this file's `inferCaptureType`/`collectLocalSeqs`
+           // both already trust it for a LOCAL's own declared type; `isKnownVecReceiver` alone
+           // never did for an INLINE chain), so `.flatMap` chained onto it never recognized its
+           // receiver as a known Vec: `error[E0599]: no method named flatMap found for struct
+           // Vec<WNode>` (`flatMap`'s own dedicated case, gated on `isKnownVecReceiver(qual, ctx)`,
+           // never fired).
+           "slice")), _) =>
       isKnownVecReceiver(q, ctx)
     // `tokens.iterator.map(_.lexeme).mkString` (`uniml/yaml`'s `YamlProjection.scala`'s
     // `project`) — `.iterator` is a no-op VIEW conversion on this lane (nothing downstream

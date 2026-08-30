@@ -4042,6 +4042,30 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(expected.findFirstIn(g).isDefined,
       s"a Vec-typed field destructured through a fixed-arity Vector sub-pattern must rewrite to an if-let + slice match, not refuse as an unknown ctor:\n$g")
 
+  test("`.slice(a, b)` is element-preserving for `isKnownVecReceiver`'s own inline-chain recognition, not just for a local's declared type"):
+    // `nodes.slice(found + 1, closerIdx).flatMap(flatten)` (`uniml/markdown`'s
+    // `MarkdownInlines.scala`'s `processEmphasis`) — `.slice` is element-preserving the SAME way
+    // `.take`/`.drop` already are for `isKnownVecReceiver`'s own inline-chain recursion (this
+    // file's `inferCaptureType`/`collectLocalSeqs` already trusted it for a LOCAL's OWN declared
+    // type, but `isKnownVecReceiver` never did for this INLINE-CHAIN shape), so `.flatMap`
+    // chained directly onto a `.slice(...)` call never recognized its receiver as a known Vec:
+    // `error[E0599]: no method named flatMap found for struct Vec<WNode>` (`.flatMap`'s own
+    // dedicated case, gated on `isKnownVecReceiver(qual, ctx)`, never fired).
+    val src =
+      """```scalascript
+        |case class WNode(id: Int)
+        |case class InlinePiece(text: String)
+        |
+        |private def flatten(node: WNode): Vector[InlinePiece] = Vector(InlinePiece(node.id.toString))
+        |
+        |def processEmphasis(nodes: Vector[WNode], found: Int, closerIdx: Int): Vector[InlinePiece] =
+        |  nodes.slice(found + 1, closerIdx).flatMap(flatten).toVector
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".to_vec().iter().cloned().flat_map(flatten).collect::<Vec<_>>()"),
+      s".flatMap chained onto .slice(...) must recognize the receiver as a known Vec:\n$g")
+
   test("a NESTED positional ctor field (one level deeper than the pattern's own top-level ctor) threads its own String/Vec/Map/Option type too, in both a standalone match and a `.collect`/`.collectFirst` PartialFunction arm"):
     // `case UniEdge(_, UniNode.Branch(MdBranch.ListItem, itemEdges, _, _)) =>
     // itemEdges.flatMap(…)` (`uniml/markdown`'s `MarkdownProjection.scala`'s `projectBlock`/
