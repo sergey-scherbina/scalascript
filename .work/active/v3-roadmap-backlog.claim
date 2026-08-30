@@ -1,0 +1,11 @@
+slug: v3-roadmap-backlog
+branch: feature/v3-roadmap-backlog
+agent: claude-code
+started: 2026-08-30T14:56:00Z
+heartbeat: 2026-08-30T14:56:00Z
+status: claimed-before-planning
+items: v3-roadmap-owner-decisions-0830
+paths: file:v3/BACKLOG.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
