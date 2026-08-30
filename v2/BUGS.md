@@ -172,14 +172,21 @@ of the shared lowering contract, not an F-specific checking gap:
 Status stays `open`: the entry's defect (run-path acceptance) is real and unfixed; the actionable
 fix is CLI gating on the existing typer plus the typer's cross-module gap, not front work.
 
-<!-- status: open
+## anonymous-given-instance-unresolvable-by-summon-or-using — a lone UNNAMED `given TC[T] with` is unresolvable by `summon` or a `using` parameter, on both self-hosted fronts
+
+<!-- status: fixed
      lane: native
      kind: bug
      area: front
      gate: none
      reported-by: claude-code
      reported-at: 2026-08-29
+     fixed-in: 2a7087ea6
      confirmed: yes -->
+
+(Header restored 2026-08-30 — this entry was filed without its `##` line, so its status block
+silently merged into the previous entry; the slug above is the one the backlog and session notes
+already used for it.)
 
 Found landing `std/aggregator.ssc`'s `min`/`max` (needs `std/order.ssc`'s `Order[A]` typeclass,
 which shipped with every instance unnamed — `given Order[Int] with`, no name before the `:`).
@@ -212,6 +219,32 @@ This entry is specifically: a lone, UNNAMED instance is unresolvable at all, on 
 either resolution mechanism. Worked around for now by naming every instance in `std/order.ssc`
 (not a full fix — any future module that ships an anonymous `given` and relies on `summon`/`using`
 will hit this again).
+
+**FIXED in F** (claim `v2-anonymous-given`): the anonymous form was never a resolution failure —
+it was never REGISTERED or EMITTED at all. All three given registrars in
+`specs/v2.2-p6.5-fsub.ssc` required `given <kind-1 lowercase name> :` and silently skipped
+anything else, and the anonymous form's head is the TYPE name (a kind-3 uppercase token):
+`givenItem` emitted nothing (`skipGivenDecl`), `collectGivenTable`/`collectGT` never added a table
+entry (so `summon`/`using` found nothing and F fell through to the bare `(global summon)`), and
+`collectGivenReg` never registered the objReg slot method dispatch needs. Fixed by synthesizing a
+deterministic name — `given_TC`/`given_TC_Inner`, inner sanitized char-by-char to `[A-Za-z0-9_]`
+(`anonG`/`sanTy`) — and routing the kind-3 head through the EXISTING named machinery in all three
+places (`givenAfterColon` already dispatches `with`→object and `=`→val; `collectGTAnon` guards
+registration to exactly those two emitted shapes so the table can never hold a name no declaration
+defines). Verified: the entry's repro prints `6` compiled by F directly (`front-report: F`), the
+`(using f: Foo[Int])` form prints `42`, and a bare-trait anonymous `given Greeter with` resolves
+too. Anonymous POLY givens (`given TC[..](using ..)`) and anonymous givens with EXTENSION members
+stay unsupported (collectPolyGivenTable/collectExtDisp unchanged — they skip exactly as before).
+The reference front is NOT changed: its `summon`-in-value-position is a designed loud-unbound
+(`ssc1-lower` :3214 `__summon_value_<TC>` — "a given is a set of globals, not a single value"), and
+since F now compiles these files directly, the chain no longer reaches it; a file that declines F
+for some OTHER reason and uses an anonymous given still fails there, same as before.
+
+Landing note, paid-for lesson: the first build of this fix broke F for EVERY input (`unbound
+global: _err` on `def f(a: Int) = a + 1`) because the new comment lines used the `.ssc0` dialect's
+`--` comment marker — this file is `.ssc`, comments are `//`, and the `--` lines parsed as code.
+Bisected by reverting wiring/helpers stepwise against a stashed-green baseline; only the comment
+style was at fault.
 
 ## f-parametric-given-derivation-missing — F could not derive a `given X[A](using ...): TC[...] with {...}` instance, and fell back
 
