@@ -1065,10 +1065,24 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # `collectLocalStrings`'s `StringPreserving` set (a separate helper, costs nothing here) — without
 # it `spaced` never joined `ctx.localStrings` and this fix's own guard never fired. Re-verified
 # uniml/xml, uniml/json, and uniml/yaml all still build clean (0 errors).
+# renderTerm 41352 -> 41888 (+536), continuing the same backlog. `namedEntities.getOrElse(body,
+# lex)` (`uniml/markdown`'s `MarkdownProjection.scala`'s `decodeEntity`; `namedEntities`, a
+# zero-arg def returning a Map) — Scala elides `()` on a NILADIC def, but nothing ever rendered
+# the implied call: the bare reference fell through to the ordinary bare-name fallback (the
+# FUNCTION ITEM, uncalled), `error[E0599]: no method named getOrElse found for fn item fn() ->
+# HashMap<...> {namedEntities}`. A GENERAL fix in `bareNameOrNiladicCtorTail` (call ANY bare name
+# matching a known zero-arg def) was tried first and reverted within the same round — a real
+# `cargo build` immediately turned 29 errors into 38, because that fallback is shared by every
+# unresolved bare name in the file, including local vals that merely SHARE a name with some
+# unrelated zero-arg def elsewhere in this large corpus (`let frame = stack[...].clone()` next to
+# `sealed trait Container: def frame: String`). Landed instead as two narrow, call-site-local
+# `renderTerm` cases (`.get`/`.getOrElse`, both gated on the qualifier being a bare name that IS a
+# known zero-arg def whose OWN declared return type is a Map) — the growth. Re-verified
+# uniml/xml, uniml/json, and uniml/yaml all still build clean (0 errors).
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-41352 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+41888 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

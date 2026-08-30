@@ -8137,6 +8137,25 @@ object RustCodeWalk:
         if isKnownVecReceiver(qual, ctx) then
           s"{\n    let mut m2 = $q.clone();\n    m2[($k) as usize] = $v;\n    m2\n  }"
         else s"{\n    let mut m2 = $q.clone();\n    m2.${insertOwning(k, v)};\n    m2\n  }"
+    // `namedEntities.getOrElse(body, lex)` (`uniml/markdown`'s `MarkdownProjection.scala`'s
+    // `decodeEntity`; `private def namedEntities: Map[String, String] = MarkdownEntitiesGenerated.
+    // table`, a zero-arg def) — SAME gap and SAME fix as the `.get` case a few hundred lines up
+    // (see its own comment for why the general "any zero-arg-def name gets `()`" widening this
+    // started as had to be reverted): the bare reference is the QUALIFIER of `.getOrElse(k, d)`,
+    // and nothing ever rendered the call, so `qual` fell through to the ordinary bare-name
+    // fallback (the FUNCTION ITEM, uncalled): `error[E0599]: no method named getOrElse found for
+    // fn item fn() -> HashMap<...> {namedEntities}`. Scoped identically — a bare-name qualifier
+    // known to be a zero-arg def whose OWN declared return type is a Map.
+    case m.Term.Apply.After_4_6_0(
+      m.Term.Select(m.Term.Name(zn), m.Term.Name("getOrElse")),
+      args
+    ) if args.values.size == 2 && _zeroArgDefNames.contains(zn) &&
+         _returnTypes.get(zn).exists(_.startsWith("std::collections::HashMap<")) =>
+      for
+        k <- renderTerm(args.values(0), ctx)
+        d <- renderTerm(args.values(1), ctx)
+      yield s"${rustIdent(zn)}().get(&$k).cloned().unwrap_or($d.into())"
+
     case m.Term.Apply.After_4_6_0(
       m.Term.Select(qual, m.Term.Name("getOrElse")),
       args
@@ -8804,6 +8823,29 @@ object RustCodeWalk:
         q <- renderTerm(qual, ctx)
         body <- renderVecIterBody(args.values.head, q, ctx, method = meth, elemType = elementTypeOf(qual, ctx))
       yield body
+
+    // `namedEntities.get(&body)` (`uniml/markdown`'s `MarkdownProjection.scala`'s
+    // `resolveEntity`; `private def namedEntities: Map[String, String] = MarkdownEntitiesGenerated.
+    // table`, a zero-arg def) — the bare reference is the QUALIFIER of `.get(...)`, and Scala
+    // elides `()` on a NILADIC def unconditionally (a bare zero-arg-def name always means "call
+    // it"), but nothing rendered that call — `qual` fell through to the ordinary bare-name
+    // fallback (which returns the FUNCTION ITEM unchanged, since a truly general "any zero-arg-def
+    // name gets ()" widening there turned out to ALSO fire on unrelated LOCAL VALS that merely
+    // share a name with some UNRELATED zero-arg def elsewhere in this large corpus — e.g. `let
+    // frame = stack[...].clone()` next to a same-named `sealed trait Container: def frame: String`
+    // — a real `cargo build` immediately turned 29 errors into 38, so that broader fix was
+    // reverted in favor of THIS narrow, call-site-local one instead): `error[E0599]: no method
+    // named get found for fn item fn() -> HashMap<...> {namedEntities}`. Scoped to exactly the
+    // shape that needs it — a BARE NAME qualifier, known to be a zero-arg def whose OWN declared
+    // return type is a Map — so a genuine local Map value (the general case just below) is
+    // untouched.
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(m.Term.Name(n), m.Term.Name("get")), args
+    ) if args.values.size == 1 && _zeroArgDefNames.contains(n) &&
+         _returnTypes.get(n).exists(_.startsWith("std::collections::HashMap<")) =>
+      for
+        k <- renderTerm(args.values.head, ctx)
+      yield s"${rustIdent(n)}().get(&$k).cloned()"
 
     // `m.get(k)` on a Map → `Option`, and OWNED: Rust's `HashMap::get` hands back `Option<&V>`
     // while Scala's `get` is `Option[V]`, so the borrow is cloned away. Excluded for a receiver

@@ -4042,6 +4042,32 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(expected.findFirstIn(g).isDefined,
       s"a Vec-typed field destructured through a fixed-arity Vector sub-pattern must rewrite to an if-let + slice match, not refuse as an unknown ctor:\n$g")
 
+  test("a bare zero-arg-def reference used as a Map receiver (`.get`/`.getOrElse`) inserts the implicit `()` call"):
+    // `namedEntities.getOrElse(body, lex)` (`uniml/markdown`'s `MarkdownProjection.scala`'s
+    // `decodeEntity`; `private def namedEntities: Map[String, String] = ...`, a zero-arg def) —
+    // Scala elides `()` on a NILADIC def unconditionally, but nothing rendered the implied call:
+    // the bare reference fell through to the ordinary bare-name fallback (the FUNCTION ITEM,
+    // uncalled): `error[E0599]: no method named getOrElse found for fn item fn() -> HashMap<...>
+    // {namedEntities}`. A general "any zero-arg-def name gets ()" fix in the shared bare-name
+    // fallback was tried and reverted in the SAME round: it also fired on unrelated local vals
+    // sharing a name with some OTHER zero-arg def elsewhere in the module. Landed instead as two
+    // narrow, call-site-local cases (`.get`/`.getOrElse`), gated on the qualifier being a bare
+    // name that IS a known zero-arg def whose OWN declared return type is a Map.
+    val src =
+      """```scalascript
+        |object Entities:
+        |  val table: Map[String, String] = Map("a" -> "A")
+        |
+        |private def namedEntities: Map[String, String] = Entities.table
+        |
+        |def decodeEntity(lex: String, body: String): String =
+        |  namedEntities.getOrElse(body, lex)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("namedEntities().get(&body).cloned().unwrap_or(lex.into())"),
+      s"a bare zero-arg-def reference used as a Map receiver must insert the implicit () call:\n$g")
+
   test("`xs.exists { case p => … }` / `xs.forall { case p => … }` — a PartialFunction argument — rename to `.any`/`.all` the same way a Function argument already does"):
     // `edges.exists { case UniEdge(_, UniNode.Token(t)) => … ; case _ => false }` (`uniml/markdown`'s
     // `MarkdownProjection.scala`'s `listLoose`/`firstMarker`, `MarkdownInlines.scala`'s
