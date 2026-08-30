@@ -342,6 +342,29 @@ object Lower:
       val (d, st4) = st3.fresh
       (li ++ ri :+ Instr.Invoke(d, k, rr, List(lr)), d, st4)
 
+    // `b add 2` WHERE A CLASS DECLARES `add` — the identity `a op b` == `a.op(b)` taken all the way
+    // rather than only as far as `Invoke`.
+    //
+    // Both infix arms below lower to `Instr.Invoke`, which resolves at run time against built-ins
+    // and host handles. A DECLARED class method is not reachable that way: `MethodCall` lowers it
+    // to a `Switch` over the declaring classes calling the LIFTED function, and nothing teaches
+    // `Invoke` about that table. So the two spellings of one call disagreed — `Box(40).add(2)` gave
+    // 42 while `Box(40) add 2` gave "method 'add' on #8(40)' is not implemented by v3's executor",
+    // and a user type could not define a working operator at all.
+    //
+    // Delegating to the `MethodCall` arm rather than rebuilding its switch here is deliberate: that
+    // arm already handles multiple declaring classes, the method-vs-field ambiguity, and the
+    // not-lifted refusal, and a second copy of it would drift. This arm only decides WHICH path,
+    // and only when the class table answers — so an operator no class declares still reaches
+    // `Invoke` exactly as before, and no call that works today changes route.
+    //
+    // Guarded on arity 1 because that is what an infix application passes; a declared `add` taking
+    // two parameters is not what `b add 2` means, and must keep falling through.
+    // (v3/BUGS.md infix-application-does-not-reach-a-declared-class-method.)
+    case Expr.Bin(op, l, r, p)
+        if op.nonEmpty && classes.exists(c => c.methods.exists(mm => mm.name == op && mm.params.length == 1)) =>
+      lower(Expr.MethodCall(l, op, List(r), p), fns, classes, zeroArity, st0)
+
     // An ALPHANUMERIC infix operator is a method call — `a to b` IS `a.to(b)` in Scala, and routing
     // it to `Invoke` is that identity rather than a new mechanism. It also means the receiver's
     // runtime type decides, so `to` on an Int and a `to` someone later defines on their own type

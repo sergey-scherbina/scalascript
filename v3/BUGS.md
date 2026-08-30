@@ -228,6 +228,29 @@ So the infix arm lowers to `Instr.Invoke(name)` while a selection lowers to some
 resolves against the class's own method table. One of those two paths knows about declared methods
 and the other does not.
 
+**THAT READING WAS RIGHT, AND THE FIX IS THE OTHER PATH RATHER THAN A NEW ONE.** `Lower`'s
+`MethodCall` arm already builds a `Switch` over the declaring classes calling the LIFTED method; the
+two `Bin` arms built a bare `Invoke`, which resolves only against built-ins and host handles. A new
+arm above both delegates to `MethodCall` when — and only when — the class table declares that name
+with ONE parameter, which is what an infix application passes. Delegating rather than rebuilding the
+switch is deliberate: that arm already handles several declaring classes, the method-vs-field
+ambiguity and the not-lifted refusal, and a second copy would drift. Every condition can only
+REDIRECT a call the old path could not serve, so nothing that worked before changes route.
+
+Verified on v3's own front: `Box(40) add 2` and `Box(40).add(2)` both give 42; a two-parameter
+`two` is untouched by `add`-style infix (the arity guard); and `1 to 3`, `::`, `->`, `++`, `&&` are
+unmoved, their arms sitting above the new one so core operators keep their meaning.
+
+**IT IS HALF THE BUG, AND THE OTHER HALF IS THE OTHER FRONT.** `SSC3_FRONT=v3` now answers 42;
+the DEFAULT (uniml) front still refuses with `unknown name 'add'`, and that is a FRONT gap, not a
+lowering one — `UniFront` projects `U.Infix` to the same `Expr.Bin` this fix serves, so the tree
+never reaches it. Measured: uniml parses `1 to 3` fine, so its parser handles infix generally and
+stops specifically at a name no built-in claims. No fixture is added to `v3/tests/front` for this:
+`exec-gate.sh` runs those through BOTH lanes, so a case only v3's front passes would need a declared
+uniml-only row and would raise the front-diff ceiling — the same trade
+`abstract-val-in-an-extern-class-is-a-field-declaration` records refusing, a weakened guard bought
+to place a test. The entry stays OPEN for the uniml half.
+
 ## v3-front-diff-ceiling-is-derived-by-word-counting-and-a-comment-changes-it — 23, 76 or 83 for one list
 
 <!-- status: fixed
