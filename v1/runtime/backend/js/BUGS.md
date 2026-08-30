@@ -62,13 +62,14 @@ same day) — filed separately, see
 
 ## js-codegen-never-computes-or-attaches-a-class-body-val-field — a class-body `val` (not a constructor parameter) is never evaluated, stored, or destructured; reading it throws `ReferenceError`, even from outside the class
 
-<!-- status: open
+<!-- status: fixed
      lane: js
      kind: bug
      area: codegen
      gate: tests/conformance/std-aggregator-approx.ssc (known-red js)
      reported-by: claude-code
      reported-at: 2026-08-30
+     fixed-in: 69e4bb444
      confirmed: yes -->
 
 Found re-verifying `js-codegen-does-not-resolve-a-sibling-zero-arg-def-from-another-method`'s fix
@@ -85,24 +86,85 @@ class Thing(n: Int):
 println(Thing(4).get)
 ```
 
-emits `_registerExt('get', (_self) => { const {n} = _self;  return doubled; }, 'Thing');` —
-`doubled` is left as a bare, unbound identifier, throwing `ReferenceError: doubled is not defined`.
-This is a DIFFERENT, more fundamental gap than the sibling-`def` bug above: the constructor function
-itself (`JsGen`'s `case d: Defn.Class =>`) builds the returned object literal from constructor
-PARAMETERS only (`fields = params.map(p => s"$p: $p")`) — a class-body `Defn.Val` is never scanned,
-never evaluated, and never attached to the instance object at all, so `doubled` doesn't exist on
-`_self` for the destructuring (`caseClassBodyMethodRegistrations`'s `fields` list) to pick up even
-if it were extended to look for it. Reading `doubled` from OUTSIDE the class (`Thing(4).doubled`)
-fails identically — it is not a missing-destructuring problem, the value is never computed anywhere.
-`int`/`native`/`run-jvm` all resolve the identical source correctly (the `int` lane had the exact
-mirror-image bug — evaluated per-instance but never added to any registry sibling methods or
-external access could see — fixed the same day in `StatRuntime.scala`'s `Defn.Class` case; a
-similar fix here would need the constructor function to evaluate each val's RHS, with the ctor's
-OWN parameters in scope, and include the results in the returned object literal). No workaround
-found short of reverting to a `def` (which recomputes on every access rather than caching, and is
-itself blocked here in one case by the sibling-`def` bug above, now fixed). `HLLAgg`'s `hllMonoid`/
-`m` stay `val`s (correct, matching the design) and `std-aggregator-approx.ssc` stays known-red on
-`js` pending this fix.
+gave `_registerExt('get', (_self) => { const {n} = _self;  return doubled; }, 'Thing');` —
+`doubled` was left as a bare, unbound identifier, throwing `ReferenceError: doubled is not defined`.
+This was a DIFFERENT, more fundamental gap than the sibling-`def` bug above: the constructor
+function itself (`JsGen`'s `case d: Defn.Class =>`) built the returned object literal from
+constructor PARAMETERS only (`fields = params.map(p => s"$p: $p")`) — a class-body `Defn.Val` was
+never scanned, never evaluated, and never attached to the instance object at all, so `doubled`
+didn't exist on `_self` for the destructuring (`caseClassBodyMethodRegistrations`'s `fields` list)
+to pick up even if it were extended to look for it. Reading `doubled` from OUTSIDE the class
+(`Thing(4).doubled`) failed identically — it was not a missing-destructuring problem, the value was
+never computed anywhere. `int`/`native`/`run-jvm` all resolved the identical source correctly.
+
+**FIXED**: a new `classBodyValFields` helper, shared by BOTH `Defn.Class` codegen sites (top level
+and the one nested inside an object body — the exact duplication trap
+`caseClassBodyMethodRegistrations`'s own doc comment already warns about), collects each class-body
+`val name = rhs` (single-variable pattern only, matching every other `Defn.Val` site in this file)
+and emits `const name = <genExpr of rhs>;` INSIDE the constructor function, after the int-param
+guards (so a val reading a declared-Int param sees the coerced value) and before the `return` — the
+mirror image of the `int`-lane's `StatRuntime.scala` fix, which evaluates per instance because a
+val's RHS can reference the constructor's own parameters, whose values differ per instance (unlike
+a method NAME, which is fixed for the whole class). The computed names are added alongside the
+constructor params both to the returned object literal and to `caseClassBodyMethodRegistrations`'s
+field list, so a sibling method or an external read sees the field exactly like a constructor
+param. Deliberately NOT added to `jsTypedJsonRegisterProduct`'s field list, mirroring the `int`
+lane's own narrower-scope call on `typeFieldTypes`/`typeFieldSchemas`.
+
+Verified beyond the filed repro: multiple vals in one class (including one val referencing an
+earlier one), a val read by two different sibling methods, a val correctly caching rather than
+recomputing, a zero-param class, and a class with a defaulted constructor param — all match the
+`int` lane's output exactly. Landing this let `std-aggregator-approx.ssc`'s `js` lane progress past
+the `ReferenceError` this bug caused, but it surfaced YET ANOTHER, unrelated pre-existing defect —
+see `js-codegen-array-fill-and-tabulate-reject-a-bigint-count` — so the conformance case stays
+known-red on `js`.
+
+## js-codegen-array-fill-and-tabulate-reject-a-bigint-count — `Array.fill`/`List.fill`/`*.tabulate` throw `TypeError: Cannot convert a BigInt value to a number` when the count comes from Int arithmetic the JS backend represents as a `BigInt`
+
+<!-- status: open
+     lane: js
+     kind: bug
+     area: codegen
+     gate: tests/conformance/std-aggregator-approx.ssc (known-red js)
+     reported-by: claude-code
+     reported-at: 2026-08-30
+     confirmed: yes -->
+
+Found landing `js-codegen-never-computes-or-attaches-a-class-body-val-field`: fixing that bug let
+`HLLAgg`'s execution progress far enough on `js` to reach this SEPARATE, pre-existing defect,
+previously unreachable behind the earlier `ReferenceError`. Minimal repro, no class involved at
+all:
+
+```scalascript
+val precision: Int = 12
+val m: Int = 1 << precision
+val arr = Array.fill(m)(0)
+println(arr.length)
+```
+
+throws:
+
+```
+TypeError: Cannot convert a BigInt value to a number
+    at Array.from (<anonymous>)
+```
+
+from the emitted `List.fill = (n) => (elem) => Array.from({length: n}, () => elem);` (and the
+identical shape in `*.tabulate`'s own `Array.from({length: n}, (_, i) => f(i))`). `m` is the result
+of a bit-shift on an `Int`, and the JS backend represents `Int` arithmetic results as `BigInt` to
+preserve width beyond JS's safe-integer range — but `Array.from`'s `length` option must be a plain
+`Number`, and neither `Array.fill`/`List.fill`/`*.tabulate`'s own runtime helper nor the codegen at
+the call site coerces the count before passing it through. `Array.fill(m.toInt)(0)` works around it
+at ONE call site, but `HLLAgg`'s other methods (`combine`'s `Array.tabulate(ar.length)(...)`,
+`errorBound`'s `math.sqrt(m.toDouble)`) hit the same shape independently, so a one-line workaround
+in `std/aggregator.ssc` does not clear the conformance case — likely the real fix belongs in the
+`List.fill`/`*.tabulate` runtime helper itself (coerce `n` with `Number(n)` once, there, rather than
+at every call site that might produce a `BigInt` count). `int`/`native`/`run-jvm` all resolve the
+identical source correctly. This is presumably a specific manifestation of the broader, already-
+acknowledged `int-width` non-conformance (`specs/numeric-widths.md`) rather than an isolated defect
+— filed here anyway, with its own repro and mechanism, because `int-width` itself carries no BUGS
+slug to track a fix against (`tests/e2e/freeze-consistency-gate.sh`'s own note: "known-red on
+int-width names no BUGS slug — it cannot be tracked back").
 
 ## js-val-tuple-destructuring-does-not-escape-a-reserved-word-component-name — `val (a, in) = pair` emits `in` literally, a JS reserved word, while the SAME name in a lambda parameter's destructuring is correctly escaped
 
