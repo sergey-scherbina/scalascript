@@ -3461,6 +3461,51 @@ class RustGenCodeWalkTest extends AnyFunSuite:
       && g.contains("if !lexeme.is_empty()"),
       s"a captured var's tuple-string positions must flow through a bare-name alias and a .foreach destructure:\n$g")
 
+  test("a local def lifted out of a mutable class's own method, capturing a ctor param, must NOT read that capture as `self.field`"):
+    // `def emit(kind, lexeme, ...) = ... SourceSpan(source, start, pos) ...` lifted out of
+    // `MarkdownBlocks`'s own `parse` (`uniml/markdown`'s `MarkdownBlocks.scala`) — `source` is a
+    // ctor param of the ENCLOSING mutable class, so `parse`'s own body reads it as `self.source`
+    // (`trueSelfFields`, a genuinely mutable class's method). `liftLocalDefs`'s capture detection
+    // (`pool`'s own `ctx.selfFields` branch) correctly threads `source` into `emit`'s OWN new
+    // signature as a plain parameter — but TWO SEPARATE sites still treated it as a self field
+    // after that:
+    // (1) `emit`'s own body — `childCtx` inherited `trueSelfFields` UNCHANGED, so a bare `source`
+    // read inside `emit` STILL rendered `self.source`, and a Rust nested `fn` item (unlike a
+    // closure) cannot capture ANY enclosing scope, `self` included: `error[E0434]: can't capture
+    // dynamic environment in a fn item`.
+    // (2) the CALL SITE inside `parse` itself (`emit(text, source)`) — the lift's own "extra
+    // captured args" builder constructs argument TEXT directly from the bare capture NAME, bypassing
+    // `renderTerm` (the only place `trueSelfFields` is normally consulted) entirely: `emit(text,
+    // source.clone())`, `error[E0425]: cannot find value source in this scope` (a self field is
+    // never in scope bare, only through `self.`).
+    // Fixed at both sites: `childCtx`'s own `trueSelfFields` now excludes every captured name (so
+    // the lifted def's OWN body sees `source` as the plain parameter it now is), and the two
+    // capture-text builders (a real call, and a bare eta-expansion reference to a lifted def) now
+    // prefix `self.` for any capture still in `ctx.trueSelfFields` at the point they render — i.e.
+    // at the CALL SITE, which is still inside the enclosing method's own `self`-aware scope.
+    val src =
+      """```scalascript
+        |case class SourceId(name: String)
+        |case class Tok(source: SourceId, lexeme: String)
+        |
+        |class Scanner(source: SourceId):
+        |  def scan(text: String): Vector[Tok] =
+        |    var out: Vector[Tok] = Vector.empty
+        |
+        |    def emit(lexeme: String): Unit =
+        |      out = out :+ Tok(source, lexeme)
+        |
+        |    emit(text)
+        |    out
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("fn emit(lexeme: String, out: &mut Vec<Tok>, source: SourceId) {") &&
+             g.contains("Tok { source: source, lexeme: lexeme }"),
+      s"a lifted def's OWN body must read a captured self-field as its new plain parameter, not self.field:\n$g")
+    assert(g.contains("emit(text, &mut out, self.source.clone());"),
+      s"the CALL SITE (still inside the enclosing self-aware method) must pass the self-field as self.field:\n$g")
+
   test("`case WFixed(Vector(Tok(MdKind.Text, lexeme, _, _))) => …` — a Vec-typed field destructured through a fixed-arity sequence sub-pattern"):
     // `emailLocalBackscan`'s own `localTextOf` (`uniml/markdown`'s `MarkdownInlines.scala`):
     //   def localTextOf(node: WNode): Option[String] = node match

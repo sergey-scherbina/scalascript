@@ -6145,6 +6145,21 @@ object RustCodeWalk:
             defParams = ctx.defParams ++ ownParamNames ++ myCaptures.toSet,
             byRefMut  = myByRefMut,
             byRefMutWrite = myByRefMut.filter(myWrites.contains),
+            // `def emit(...) = ... SourceSpan(source, start, pos) ...` lifted out of `MarkdownBlocks`'s
+            // own `parse` (`uniml/markdown`'s `MarkdownBlocks.scala`) — `source` is a ctor param of the
+            // ENCLOSING mutable class (`trueSelfFields`, since `parse` is a genuinely mutable class's
+            // own method — `renderDef`'s `trueSelf`), captured into `emit`'s own signature by `pool`'s
+            // `ctx.selfFields` branch a few hundred lines up — correctly, `emit` now has its OWN plain
+            // `source: SourceId` parameter. But `childCtx` here inherited `trueSelfFields` UNCHANGED
+            // from `baseCtx`/the outer `ctx`, so a bare `source` read inside `emit`'s OWN body still
+            // rendered as `self.source` — and a Rust nested `fn` item (unlike a closure) cannot
+            // capture ANY enclosing scope, `self` included: `error[E0434]: can't capture dynamic
+            // environment in a fn item`. Any captured name that shadows a self field like this needs
+            // to stop reading as `self.name` the moment it becomes a plain parameter of ITS OWN new
+            // `fn` — removed here rather than at `pool`'s own site, since `pool` answers "what CAN be
+            // captured," a different question from "what does THIS specific captured name mean inside
+            // the lifted def's own body, now that it is a parameter."
+            trueSelfFields = baseCtx.trueSelfFields -- myCaptures.toSet,
             // `def consumeKey(token: SourceToken, frame: ObjectFrame): Unit = … frame.copy(state =
             // …) …` (`uniml/json`'s `JsonStructure.scala`) — a LIFTED local def's OWN (non-captured)
             // parameters never populated `paramCtorNames` at all: the top-level `renderDef` builds
@@ -6639,10 +6654,19 @@ object RustCodeWalk:
             else s"{ ${reborrow.map(c => s"let $c = &mut *$c;").mkString(" ")} $r }"
           else r
         }
+        // `emit(text, source)` — the CALL SITE twin of `childCtx`'s own `trueSelfFields` fix a few
+        // hundred lines up: at the call site (unlike inside the lifted def's own body) `ctx` is
+        // STILL the enclosing mutable-class method's context, where `source` genuinely IS `self.
+        // source` — but this whole arm builds its own argument TEXT directly from the bare capture
+        // NAME `c`, bypassing `renderTerm` (the only place `ctx.trueSelfFields` normally gets
+        // consulted) entirely: `emit(text, source.clone())`, `error[E0425]: cannot find value
+        // source in this scope` (rustc's own hint names the fix: `self.source`). Prefixed here,
+        // the one place this arm ever turns a capture NAME into TEXT.
         val extra = ctx.liftedDefExtraArgs(n).map { c =>
-          if ctx.byRefMut.contains(c) then c
-          else if ctx.liftedMutableCaptures.contains(c) then s"&mut $c"
-          else s"$c.clone()"
+          val selfPrefix = if ctx.trueSelfFields.contains(c) then "self." else ""
+          if ctx.byRefMut.contains(c) then s"$selfPrefix$c"
+          else if ctx.liftedMutableCaptures.contains(c) then s"&mut $selfPrefix$c"
+          else s"$selfPrefix$c.clone()"
         }
         // `problem(code, msg, span)` — the caller omits the local def's OWN trailing default
         // (`severity: Severity = Severity.Error`); see `Ctx.liftedDefDefaults`'s own comment.
@@ -11099,10 +11123,13 @@ object RustCodeWalk:
     // promised. Wrapped in a closure here so the captures can be spliced in the same way a real
     // call to the same name already gets them.
     case m.Term.Name(n) if ctx.liftedDefExtraArgs.contains(n) =>
+      // The SAME `self.`-prefix fix the `Term.Apply` call site above needs, for the identical
+      // reason — a bare eta-expansion reference builds its OWN capture text from the bare NAME too.
       val extra = ctx.liftedDefExtraArgs(n).map { c =>
-        if ctx.byRefMut.contains(c) then c
-        else if ctx.liftedMutableCaptures.contains(c) then s"&mut $c"
-        else s"$c.clone()"
+        val selfPrefix = if ctx.trueSelfFields.contains(c) then "self." else ""
+        if ctx.byRefMut.contains(c) then s"$selfPrefix$c"
+        else if ctx.liftedMutableCaptures.contains(c) then s"&mut $selfPrefix$c"
+        else s"$selfPrefix$c.clone()"
       }
       // NOT `move` — the closure is consumed synchronously within this one statement (`.for_each`/
       // `.map().collect()`/…), never stored or returned, so it only needs to BORROW its captures.
