@@ -3461,6 +3461,42 @@ class RustGenCodeWalkTest extends AnyFunSuite:
       && g.contains("if !lexeme.is_empty()"),
       s"a captured var's tuple-string positions must flow through a bare-name alias and a .foreach destructure:\n$g")
 
+  test("a Vec closure param's element STRUCT type resolves through `.iterator` and through a captured var's own alias inside a lifted local def"):
+    // `segs.iterator.map(s => s.content + s.ending)` where `val segs = paragraphSegs` inside
+    // `finishParagraph`, a local def LIFTED out of `parse` (`uniml/markdown`'s
+    // `MarkdownBlocks.scala`) — TWO compounding gaps:
+    // (1) `elementTypeOf` had no case for `.iterator` at all (only `.filter`/`.sorted`/`.distinct`/
+    // `.reverse`, all element-preserving the same way) — a pure view conversion this backend
+    // already renders as a no-op, so `elementTypeOf(segs.iterator, ctx)` fell to the generic
+    // "receiver.field" case (treating "iterator" as a genuine STRUCT FIELD name, which it is not)
+    // and answered `None`.
+    // (2) Even with (1) fixed, `segs`'s own bare-name initializer (`paragraphSegs`, a CAPTURED
+    // `var` from the enclosing method, not a def parameter of `finishParagraph` itself) only ever
+    // checked `ctx.paramTypes`, never `ctx.enclosingLocalTypes` — the table `liftLocalDefs`'s own
+    // propagation already seeds with exactly this kind of outer-captured-local's inferred type.
+    // Without both: the closure param `s` reached its body with no type, `s.content`/`s.ending`
+    // had nothing to resolve their String-ness from, and the `+`-concat rewrite's guard missed
+    // both: `error[E0308]: expected &str, found String` (Rust's native `+`, reached once the guard
+    // failed).
+    val src =
+      """```scalascript
+        |case class ParaSeg(prefix: String, content: String, ending: String)
+        |
+        |def parse(text: String): String =
+        |  var paragraphSegs: Vector[ParaSeg] = Vector.empty
+        |  paragraphSegs = paragraphSegs :+ ParaSeg("", "a", "\n") :+ ParaSeg("", "b", "\n")
+        |
+        |  def finishParagraph(): String =
+        |    val segs = paragraphSegs
+        |    segs.iterator.map(s => s.content + s.ending).mkString
+        |
+        |  finishParagraph()
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("format!(\"{}{}\", s.content, s.ending)"),
+      s"a Vec closure param's element struct type must resolve through .iterator and a lifted def's captured-var alias, not fall to a raw + chain:\n$g")
+
   test("`s.regionMatches(ignoreCase, toffset, other, ooffset, len)` routes to a new Unicode-safe runtime helper"):
     // `content.regionMatches(true, i, "www.", 0, 4)` (`uniml/markdown`'s `MarkdownInlines.scala`'s
     // `autolinkAtWWW`/`autolinkScheme`) — `String.regionMatches` (the 5-arg overload) had NO

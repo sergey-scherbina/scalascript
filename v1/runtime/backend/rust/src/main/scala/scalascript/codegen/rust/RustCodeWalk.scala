@@ -5953,7 +5953,17 @@ object RustCodeWalk:
       // resolved as a Vec, and `nodes(i) match { case closer if closer.lexeme.nonEmpty => … }`'s
       // bind-all `closer` had no element type to seed from either (`variantBodyCtxExtra`'s own
       // indexing case recurses into `elementTypeOf` on `nodes` specifically for this reason).
-      case m.Term.Name(other) => ctx.paramTypes.get(other)
+      // `ctx.enclosingLocalTypes` TOO, not just `ctx.paramTypes` — `val segs = paragraphSegs`
+      // inside `finishParagraph`, a local def LIFTED out of `parse` (`uniml/markdown`'s
+      // `MarkdownBlocks.scala`) — `paragraphSegs: Vector[ParaSeg]` is a CAPTURED `var` from the
+      // enclosing method, not a def PARAMETER of `finishParagraph` itself, so `ctx.paramTypes`
+      // never carries it; `liftLocalDefs`'s own propagation already seeds exactly this kind of
+      // outer-captured-local's inferred type into `ctx.enclosingLocalTypes` for a lifted def to
+      // read. Without this, `segs`'s own element type never resolved, and `segs.iterator.map(s =>
+      // s.content + s.ending)`'s closure param `s` reached its body with no type of its own — the
+      // `+`-concat rewrite's guard (`isKnownStringField`) had nothing to check: `error[E0308]:
+      // expected &str, found String` (Rust's native `+`, reached once the guard failed).
+      case m.Term.Name(other) => ctx.paramTypes.get(other).orElse(ctx.enclosingLocalTypes.get(other))
       case _                                         => None
     val fromLocalDecl: Option[String] = stats.collectFirst {
       case v: m.Defn.Var if matches(v.pats) =>
@@ -5980,7 +5990,17 @@ object RustCodeWalk:
     // the element type, so this recurses straight through them to the base receiver.
     case m.Term.Apply.After_4_6_0(m.Term.Select(inner, m.Term.Name("filter")), args) if args.values.size == 1 =>
       elementTypeOf(inner, ctx)
-    case m.Term.Select(inner, m.Term.Name("sorted" | "distinct" | "reverse")) =>
+    // `segs.iterator.map(s => s.content + s.ending)` (`uniml/markdown`'s `MarkdownBlocks.scala`'s
+    // `finishParagraph`) — `.iterator` is a pure VIEW conversion this backend already renders as a
+    // no-op (a Rust `Vec`/slice iterator IS "an iterator"), so it is element-preserving the SAME way
+    // `.filter`/`.sorted`/`.distinct`/`.reverse` already are — without it, `elementTypeOf(segs.
+    // iterator, ctx)` fell to this function's own generic "receiver.field" case (below), which
+    // treated "iterator" as if it were a genuine STRUCT FIELD name (it is not one `segs` has), found
+    // nothing, and answered `None` — the closure param `s` then reached its body with no type,
+    // `s.content`/`s.ending` had nothing to resolve their OWN String-ness from, and the `+`-concat
+    // rewrite's guard (`isKnownStringField`) missed both: `error[E0308]: expected &str, found
+    // String` (Rust's own native `+` operator, reached once the string-concat guard failed).
+    case m.Term.Select(inner, m.Term.Name("sorted" | "distinct" | "reverse" | "iterator")) =>
       elementTypeOf(inner, ctx)
     // `segments.take(segments.length - 1).exists(_.isEmpty)` (`uniml/markdown`'s
     // `MarkdownInlines.scala`'s `domainAndPath`) — `.take`/`.drop` are element-preserving the SAME
