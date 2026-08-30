@@ -4042,6 +4042,31 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(expected.findFirstIn(g).isDefined,
       s"a Vec-typed field destructured through a fixed-arity Vector sub-pattern must rewrite to an if-let + slice match, not refuse as an unknown ctor:\n$g")
 
+  test("a `.contains`/`.contains_key` method reference (eta-expansion) borrows its argument, except when `find` already hands it one"):
+    // `markers.exists(lc.contains)` (`uniml/markdown`'s `MarkdownBlocks.scala`'s
+    // `finishParagraph`; `markers: Vector[String]`) — the method-reference-to-closure arm always
+    // bound `__x` (from `.iter().cloned()`, an OWNED value) by value: `String::contains` and
+    // `HashMap::contains_key` both want a REFERENCE (`Pattern`/`Borrow<Q>` are implemented for
+    // `&str`/`&K`, never the owned type itself): `error[E0277]: the trait bound String: Pattern
+    // is not satisfied`. A first fix borrowed unconditionally and immediately regressed
+    // uniml/xml/json/yaml's own `names.find(byName.contains_key)` (`Dialect.scala`'s `register`)
+    // — `find`'s OWN dispatch already hands this closure a REFERENCE directly when `elemType` is
+    // known (see `findParam`/`findArg`'s own comment: `contains_key` wants `&Q`, so the typed
+    // `__f` is passed AS-IS, unborrowed, specifically so this closure can use it bare), and
+    // double-wrapping it made `&&String`: `error[E0277]: the trait bound String: Borrow<&String>
+    // is not satisfied`, caught by a real `cargo build` on `uniml/xml` (not `markdown`) before it
+    // reached a commit. Scoped to skip the borrow only for that one `method == "find" &&
+    // elemType.isDefined` combination.
+    val src =
+      """```scalascript
+        |def hasAny(markers: Vector[String], lc: String): Boolean =
+        |  markers.exists(lc.contains)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("markers.iter().cloned().any(|__x| lc.contains(&__x))"),
+      s"a .contains method reference must borrow its owned closure argument:\n$g")
+
   test("a local val bound to an if/else of char-conceptual arms — even NESTED inside an if-block, not just at the def's own top level — and `.toInt` on a name (not just a literal), are both recognized as char-conceptual indexOf needles"):
     // `if … then val open2 = content.charAt(i); val close2 = if open2 == '(' then ')' else open2;
     // content.indexOf(close2, i + 1)` (`uniml/markdown`'s `MarkdownInlines.scala`'s

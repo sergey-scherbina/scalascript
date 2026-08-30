@@ -11734,8 +11734,29 @@ object RustCodeWalk:
         // move what the first already took. `$rustMeth` is always a METHOD CALL on `$q2`, which
         // only ever needs to BORROW it, so dropping `move` costs nothing and fixes every repeated
         // call at once, not just `find`'s.
+        // `markers.exists(lc.contains)` (`uniml/markdown`'s `MarkdownBlocks.scala`'s
+        // `finishParagraph`) — `markers: Vector[String]`, so `__x` (from `.iter().cloned()`) is an
+        // OWNED `String`; both `String::contains` and `HashMap::contains_key` want a REFERENCE
+        // (`Pattern`/`Borrow<Q>` are implemented for `&str`/`&K`, never the owned type itself):
+        // `error[E0277]: the trait bound String: Pattern is not satisfied`. `contains`/
+        // `contains_key` are the only two-argument-shaped methods this eta-expansion path targets
+        // that borrow their argument rather than taking it by value, so the borrow is scoped to
+        // `rustMeth`'s own name rather than every method reference this arm can build.
+        //
+        // EXCEPT `method == "find"` with a KNOWN `elemType` (`names.find(byName.contains_key)`,
+        // `Dialect.scala`'s `register`) — `find`'s own dispatch a few lines down ALREADY passes
+        // `__x` this closure receives as a REFERENCE directly (`findArg = "__f"`, itself `&$t`,
+        // the comment on `findParam`/`findArg` above has the full reasoning: `contains_key` wants
+        // `&Q`, so the typed `__f` is handed over AS-IS, unborrowed, specifically so this closure
+        // can use it bare) — double-wrapping it here made it `&&String`, which `Borrow` is not
+        // implemented for: `error[E0277]: the trait bound String: Borrow<&String> is not
+        // satisfied`, a real `cargo build` on `uniml/xml`/`json`/`yaml` (not `markdown`) catching
+        // this before it could reach a commit.
+        val alreadyBorrowed = method == "find" && elemType.isDefined
         val closure = method match
           case "foldLeft" | "fold" => s"|__a, __b| $q2.$rustMeth(__a, __b)"
+          case _ if (rustMeth == "contains" || rustMeth == "contains_key") && !alreadyBorrowed =>
+            s"|__x| $q2.$rustMeth(&__x)"
           case _                   => s"|__x| $q2.$rustMeth(__x)"
         // `find`'s own outer closure param, ANNOTATED when the element type is known — the doubly-
         // nested-closure shape just below (`|__f| (move |__x| …)(__f.clone())`) is past what
