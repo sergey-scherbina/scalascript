@@ -1,3 +1,2 @@
-# generation: 3151
+# generation: 3152
 #slug	agent	started	items	paths
-js-map-dot-empty	claude-code	2026-08-30T13:18:47Z	js-codegen-map-dot-empty-has-no-companion-handling	file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/ file:v1/runtime/backend/js/BUGS.md file:BACKLOG.md file:tests/conformance/std-aggregator.ssc file:tests/conformance/corpus-baseline.tsv file:tests/conformance/contract-roster.tsv file:tests/e2e/v1-jit-size.sh
