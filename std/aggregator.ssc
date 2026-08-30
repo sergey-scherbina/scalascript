@@ -227,7 +227,7 @@ a single new value, generalized by Chan, Golub & LeVeque (1979) to merge two alr
 partitions:
 
 ```scalascript
-class VarianceAcc(val n: Int, val mean: Double, val m2: Double)
+case class VarianceAcc(n: Int, mean: Double, m2: Double)
 
 given varianceMonoid: Monoid[VarianceAcc] with
   def empty: VarianceAcc = VarianceAcc(0, 0.0, 0.0)

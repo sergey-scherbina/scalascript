@@ -147,6 +147,27 @@ higher-kinded class is only the most visible victim, because the reference front
 an `F[_]`-typed constructor field is separately broken. Those are arguably two bugs; this entry
 now documents both halves.
 
+**BLAST RADIUS MEASURED 2026-08-30, and it is one file — but a load-bearing one.** Exactly one
+`.ssc` across `std/`, `examples/` and `tests/conformance/` writes a `val` constructor parameter:
+`std/aggregator.ssc`, whose `VarianceAcc` carried three. That module is the aggregation algebra, so
+every measurement anyone took of it this session was the REFERENCE front's, not F's — confirmed by
+`ssc info --front-report std/aggregator.ssc` reporting `[expected Str, got 7]`, this entry's own
+signature error.
+
+`VarianceAcc` is now a `case class` (its three siblings in the same file — `HLLAcc`, `CMSAcc`,
+`TDigestAcc` — always were; it was the odd one out, and a case class's parameters are already the
+public vals the code reads). That is a workaround in one file, NOT a fix to this entry: any other
+module writing `class C(val x: T)` still loses F silently, so the status stays `open`.
+
+**And clearing it exposed the NEXT F gap in the same file**, which is the useful half of the
+measurement: F now gets past the parameter list and refuses with `unbound global: (global
+hllMonoid) is neither a top-level def nor an @-cell` — a class-BODY `val` (`HLLAgg`'s `hllMonoid`),
+a different construct from a constructor `val`. So `std/aggregator.ssc` needs both gaps closed
+before F can lower it, and this entry only covers the first. The int lane's own class-body-val
+defect was fixed earlier the same day
+(`v1/runtime/backend/interpreter/BUGS.md class-body-val-field-undefined-in-a-sibling-method`); F's
+is separate and unfiled until someone reduces it away from this file.
+
 ## trait-typed-parameter-accepts-a-non-conforming-argument — a function whose parameter requires trait `T` accepts a value whose static type only extends `T`'s SUPERTRAIT, and the mismatch surfaces at first method dispatch, not at the call site
 
 <!-- status: open
