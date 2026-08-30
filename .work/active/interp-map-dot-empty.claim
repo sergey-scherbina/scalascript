@@ -5,7 +5,7 @@ started: 2026-08-30T08:44:18Z
 heartbeat: 2026-08-30T08:44:18Z
 status: claimed-before-planning
 items: map-dot-empty-reads-empty-as-a-literal-key-not-the-companion-accessor
-paths: file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/DispatchRuntime.scala file:v1/runtime/backend/interpreter/BUGS.md file:specs/aggregation-algebra.md file:BACKLOG.md file:std/aggregator.ssc
+paths: file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/DispatchRuntime.scala file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/BuiltinsRuntime.scala file:v1/runtime/backend/interpreter/BUGS.md file:specs/aggregation-algebra.md file:BACKLOG.md file:std/aggregator.ssc
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+next: commit the BuiltinsRuntime.scala fix (root cause moved here from DispatchRuntime.scala during investigation), then land
