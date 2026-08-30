@@ -3461,6 +3461,78 @@ class RustGenCodeWalkTest extends AnyFunSuite:
       && g.contains("if !lexeme.is_empty()"),
       s"a captured var's tuple-string positions must flow through a bare-name alias and a .foreach destructure:\n$g")
 
+  test("`val opener = nodes(found).asInstanceOf[WDelim]` destructures instead of leaving a bare field access on the whole enum"):
+    // `val opener = nodes(found).asInstanceOf[WDelim]` (`uniml/markdown`'s `MarkdownInlines.scala`'s
+    // `processEmphasis`) — `.asInstanceOf[T]`'s existing case is a no-op identity, right for a value
+    // consumed where it's written but wrong for one BOUND to a `val`: `opener.lexeme` a moment later
+    // has no such field on the whole `WNode` enum — `error[E0609]: no field lexeme on type WNode`.
+    // Fixed by rendering a genuine destructuring `let-else` and registering the bound name so every
+    // LATER `opener.field` resolves through it, uniquely prefixed with the binding's own name
+    // (`opener_lexeme`) — see `Ctx.asInstanceOfBindings`'s own comment for why a plain bare-field
+    // rewrite is not safe in general (a SIBLING scope can reuse the same bare name for an unrelated
+    // match-arm-bound value of the SAME variant, covered by the next test).
+    val src =
+      """```scalascript
+        |private sealed trait WNode
+        |private final case class WFixed(pieces: Vector[Int]) extends WNode
+        |private final case class WDelim(lexeme: String, ch: Char, canOpen: Boolean, canClose: Boolean) extends WNode
+        |
+        |def combine(nodes: Vector[WNode], found: Int): String =
+        |  val opener = nodes(found).asInstanceOf[WDelim]
+        |  val use = if opener.lexeme.length >= 2 then 2 else 1
+        |  opener.lexeme.substring(opener.lexeme.length - use) + opener.ch.toString + (if opener.canOpen then "Y" else "N") + (if opener.canClose then "Y" else "N")
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(
+        "let WNode::WDelim { lexeme: opener_lexeme, ch: opener_ch, canOpen: opener_canOpen, canClose: opener_canClose } = (nodes[(found) as usize].clone()) else { unreachable!() };"),
+      s"an .asInstanceOf[SpecificVariant]-bound val must destructure through a uniquely name-prefixed let-else:\n$g")
+
+  test("a SIBLING scope reusing the same bare name (`case opener: WDelim if …`) for the SAME variant is left alone, not rewritten to the .asInstanceOf binding's prefixed fields"):
+    // `processEmphasis`'s real shape (`uniml/markdown`'s `MarkdownInlines.scala`): an INNER `while`
+    // loop's own `case opener: WDelim if opener.ch == closer.ch && … =>` match arm (a totally
+    // unrelated, already-out-of-scope-by-the-time-the-val-exists binding) shares the bare name
+    // `opener` with the OUTER `val opener = nodes(found).asInstanceOf[WDelim]` this feature targets.
+    // Both are `ctx.asInstanceOfBindings`-relevant by NAME alone, but Scala's own scoping means they
+    // can never be simultaneously live — `collectAsInstanceOfCtorNames` is POSITION-aware (only
+    // excludes a name when the `.asInstanceOf`-bound val is ACTUALLY nested inside the conflicting
+    // arm) and the match-arm's own bodyCtx clears `asInstanceOfBindings` for its OWN bound name, so
+    // the match arm's `opener.ch`/`.canOpen`/`.lexeme` stay BARE (matching its own `ref`-bound
+    // fields) while the val's `opener.lexeme` a few statements later still gets the prefixed
+    // destructure. Getting this wrong the first time round produced `error[E0425]: cannot find
+    // value opener_lexeme in this scope` inside the match arm's own guard — found only by a REAL
+    // cargo build of this exact shape, never by --print-only alone.
+    val src =
+      """```scalascript
+        |private sealed trait WNode
+        |private final case class WDelim(lexeme: String, ch: Char, canOpen: Boolean, canClose: Boolean) extends WNode
+        |
+        |private def compatible(opener: WDelim, closer: WDelim): Boolean =
+        |  opener.lexeme.length + closer.lexeme.length > 0
+        |
+        |def scan(nodes: Vector[WNode], closerIdx: Int): String =
+        |  nodes(closerIdx) match
+        |    case closer: WDelim =>
+        |      var openerIdx = closerIdx - 1
+        |      var found = -1
+        |      while openerIdx >= 0 && found < 0 do
+        |        nodes(openerIdx) match
+        |          case opener: WDelim if opener.ch == closer.ch && opener.canOpen && opener.lexeme.nonEmpty =>
+        |            if compatible(opener, closer) then found = openerIdx else openerIdx -= 1
+        |          case _ => openerIdx -= 1
+        |      if found >= 0 then
+        |        val opener = nodes(found).asInstanceOf[WDelim]
+        |        opener.lexeme
+        |      else "-"
+        |    case _ => "-"
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("ref opener @ WNode::WDelim { ref lexeme, ref ch, ref canOpen, ref canClose } if"),
+      s"the match arm's OWN opener must keep its ordinary ref-bound bare fields, not the sibling val's prefixed scheme:\n$g")
+    assert(g.contains("let WNode::WDelim { lexeme: opener_lexeme,"),
+      s"the val's OWN opener must still destructure with the prefixed scheme despite the sibling collision:\n$g")
+
   test("a mutable class's own qualified enum-case field initializer resolves `Enum.Case` correctly, and a ctor-param read by a LATER field init is not moved out from under it"):
     // `private val gfm = profile == MarkdownProfile.Gfm` inside `class MarkdownBlocks(profile:
     // MarkdownProfile, …)` (`uniml/markdown`'s `MarkdownBlocks.scala`) — TWO compounding bugs:

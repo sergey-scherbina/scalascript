@@ -918,10 +918,27 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # in this arm's own case, the growth (the SAME fix shape `titleLex.isEmpty`'s own earlier entry
 # already used for `.nonEmpty`/`.isEmpty`). Re-verified uniml/xml, uniml/json, and uniml/yaml all
 # still build clean (0 errors).
+#
+# renderTerm 39400 -> 39512 (+112), continuing the same backlog, 74 -> 66. `val opener = nodes(
+# found).asInstanceOf[WDelim]` (`MarkdownInlines.scala`'s `processEmphasis`) — `.asInstanceOf[T]`'s
+# existing case is a no-op identity, right for a value consumed where it's written but wrong for one
+# BOUND to a `val`: a later `opener.lexeme` has no such field on the whole `WNode` enum (`error
+# [E0609]`). Two NEW inline cases are the growth: (1) `renderLetBinding`'s own new case renders a
+# genuine destructuring `let-else` instead of a plain `let`, and (2) the field-read site
+# (`renderTerm`'s own `Term.Select` case) reads the destructured field back through a uniquely
+# name-prefixed scheme (`opener_lexeme`) rather than the ordinary bare-name one, needed because
+# `opener`/`closer` narrow the SAME `WDelim` variant in one function via TWO different mechanisms
+# (this `val`, and an ordinary `ref`-borrowing match arm) and the flat, field-name-only `byRefMut`
+# table has no way to tell their same-named fields apart otherwise. `collectAsInstanceOfCtorNames`/
+# `asInstanceOfNarrowedCtor` (new helpers, POSITION-aware so a match-arm binder in a genuinely
+# SIBLING scope is left alone rather than over-conservatively excluded) and the match-arm bodyCtx's
+# own `asInstanceOfBindings -= n` clear (so a NESTED, actually-conflicting arm's OWN reads stay bare)
+# are separate functions/cases and cost nothing here. Re-verified uniml/xml, uniml/json, and
+# uniml/yaml all still build clean (0 errors).
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-39400 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+39512 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

@@ -2598,6 +2598,78 @@ object RustCodeWalk:
     case m.Type.Select(_, m.Type.Name(n)) => Some(n)
     case _                                => None
 
+  /** `nodes(found).asInstanceOf[WDelim]` (`uniml/markdown`'s `MarkdownInlines.scala`'s
+   *  `processEmphasis`) — the author added this NARROWING cast because Scala's own flow typing does
+   *  not narrow `nodes(found): WNode` to the specific `WDelim` case a few statements later reads
+   *  `.lexeme`/`.ch`/`.canOpen`/`.canClose` off of. `renderTerm`'s own `.asInstanceOf[T]` case (a
+   *  genuine no-op on this backend for a value ALREADY consumed where it is written — every variant
+   *  of a sealed hierarchy collapses to the SAME Rust enum, so the cast erases cleanly THERE) is the
+   *  wrong answer for a val BOUND to the result: the bound name still has the whole-enum Rust type,
+   *  and a later `opener.lexeme` has no field by that name on `WNode` itself — `error[E0609]: no
+   *  field lexeme on type WNode`. Returns `(the narrowed EXPR, the specific ctor name)` only when
+   *  the target type is a genuine with-fields enum variant (never a standalone struct, which needs
+   *  no destructure — `renderLetBinding`'s own new case and this function's only two call sites both
+   *  gate on this the same way `paramVariantDestructures`'s identical PARAMETER-typed case already
+   *  does, one syntax position over). */
+  private def asInstanceOfNarrowedCtor(rhs: m.Term, ctorMap: Map[String, EnumCtor]): Option[(m.Term, String)] =
+    rhs match
+      case m.Term.ApplyType.After_4_6_0(m.Term.Select(qual, m.Term.Name("asInstanceOf")), argClause)
+          if argClause.values.sizeIs == 1 =>
+        for
+          ctorName <- ctorNameOfType(argClause.values.head)
+          ec       <- ctorMap.get(ctorName)
+          if !ec.isStruct && ec.fieldNames.nonEmpty
+        yield (qual, ctorName)
+      case _ => None
+
+  /** Every `val name = expr.asInstanceOf[SpecificVariant]` in a def's body, name -> the narrowed
+   *  ctor — the val-binding twin of `paramVariantDestructures`'s own PARAMETER-typed case, feeding
+   *  the SAME `Ctx.destructuredCtorNames` table so a LATER `name.field` read in the same body
+   *  resolves through the existing bare-field-rewrite machinery (`renderTerm`'s own
+   *  `destructuredCtorNames` case) exactly as a match-arm-bound or parameter-typed name already
+   *  does. Scans the WHOLE def body up front — this file's own established pre-pass convention
+   *  (`collectLocalOptions`/`collectLocalStrings`, etc.) — rather than threading an updated `Ctx`
+   *  statement by statement, which nothing in this rendering pipeline does. */
+  private def collectAsInstanceOfCtorNames(body: m.Tree, ctorMap: Map[String, EnumCtor]): Map[String, String] =
+    // `case opener: WDelim if opener.ch == closer.ch && … =>` (`uniml/markdown`'s
+    // `MarkdownInlines.scala`'s `processEmphasis`, a DIFFERENT, SIBLING match arm nested inside an
+    // EARLIER `while` loop, than the `val opener = …asInstanceOf[WDelim]` this function targets a
+    // few statements later in the SAME def body) — this scan is a FLAT, whole-body pre-pass with no
+    // built-in notion of lexical NESTING (this file's own established convention, shared with
+    // `collectLocalOptions`/`collectLocalStrings`), so a NAIVE version cannot tell "the val-bound
+    // `opener`" apart from "a totally unrelated match-arm-bound `opener`, already out of scope by
+    // the time the val is even declared" — both are just the bare name `opener` to it. Registering
+    // the val-bound one regardless made EVERY `opener.field` read in the WHOLE body — including the
+    // (already out of scope, but still textually present) match arm's own bare-field reads —
+    // rewrite to the uniquely-prefixed `opener_field` scheme (`Ctx.asInstanceOfBindings`'s own
+    // comment): `error[E0425]: cannot find value opener_lexeme in this scope`.
+    //
+    // Scala's OWN scoping rule is the fix: a match arm's bound name is visible ONLY within that
+    // ONE case's own pattern/guard/body — it can never be simultaneously in scope with a `val`
+    // declared OUTSIDE that arm, REGARDLESS of whether the arm sits textually before or after (case
+    // scopes never leak into sibling code). So a same-named match-arm binder is a genuine conflict
+    // ONLY when the `.asInstanceOf`-bound `val` is ITSELF nested inside that same arm's own body —
+    // checked here by POSITION containment (`m.Case`'s own `.pos`), not by name alone. Two SIBLING
+    // scopes reusing a bare name (this corpus's actual shape) are correctly left alone; a
+    // genuinely-nested collision (the val declared inside the very arm that also binds the name)
+    // still safely excludes, same as before.
+    val conflictingRanges: Map[String, List[(Int, Int)]] =
+      body.collect { case c: m.Case => c }.flatMap { c =>
+        val nameOpt = c.pat match
+          case m.Pat.Typed(m.Pat.Var(m.Term.Name(n)), _)               => Some(n)
+          case m.Pat.Bind(m.Pat.Var(m.Term.Name(n)), _: m.Pat.Extract) => Some(n)
+          case _                                                        => None
+        nameOpt.map(n => n -> (c.pos.start, c.pos.end))
+      }.groupMap(_._1)(_._2)
+    body.collect {
+      case v: m.Defn.Val if v.pats.sizeIs == 1 =>
+        v.pats.head match
+          case m.Pat.Var(m.Term.Name(n))
+              if !conflictingRanges.getOrElse(n, Nil).exists((s, e) => v.pos.start >= s && v.pos.start <= e) =>
+            asInstanceOfNarrowedCtor(v.rhs, ctorMap).map((_, ctorName) => n -> ctorName)
+          case _ => None
+    }.flatten.toMap
+
   /** The ctor/struct name of an EXPRESSION's static type, walking a field-projection chain —
    *  `element.name.copy(...)` (`uniml/xml`'s `Doc.scala`'s `resolveElement`) needs `element.name`'s
    *  type (`QName`), not just `element`'s own (`Element`), and `ctx.paramCtorNames` alone only
@@ -3210,6 +3282,24 @@ object RustCodeWalk:
       // `paramCtorNames` for that reason: one drives TYPE inference (safe on a param), the other
       // drives an actual NAME rewrite (safe only where a destructure really happened).
       destructuredCtorNames: Map[String, String] = Map.empty,
+      // The subset of `destructuredCtorNames`'s own KEYS that came from an `.asInstanceOf[Specific
+      // Variant]`-narrowed `val`, not a match-arm bind or a destructured PARAMETER — `opener`/
+      // `closer` (`uniml/markdown`'s `MarkdownInlines.scala`'s `processEmphasis`) both narrow the
+      // SAME `WDelim` variant in ONE function, one via `val opener = …asInstanceOf[WDelim]`, the
+      // other via `case closer: WDelim if …`, and `WDelim`'s own field names (`lexeme`/`ch`/…) are
+      // consequently IDENTICAL for both — `ctx.byRefMut`/`ctx.destructuredFieldRenames` are both
+      // FLAT, field-name-keyed sets with no notion of "which binding," so `closer`'s own `ref`-bound
+      // fields (genuinely `byRefMut`, from the match arm) and `opener`'s (genuinely OWNED, from the
+      // plain let-else this feature adds) collided under the SAME bare names: `(*ch)` on `opener`'s
+      // owned `ch: i64` is `error[E0614]: type i64 cannot be dereferenced`. Sidestepped rather than
+      // solved in general (a real per-binding-scoped rename table would be the general fix): every
+      // `.asInstanceOf`-sourced binding's OWN fields are UNIQUELY prefixed with the binding's own
+      // name (`opener_lexeme`, never bare `lexeme`) — Scala already guarantees the binding name
+      // itself is unique in its own scope, so the prefixed field names can never collide with
+      // anything else this lane emits, and this set is what tells `renderLetBinding`'s own new case
+      // and the bare-field-rewrite site (`renderTerm`'s `destructuredCtorNames` case) to use that
+      // scheme instead of the ordinary bare-name one.
+      asInstanceOfBindings: Set[String] = Set.empty,
       // A destructured variant-param FIELD name (`paramDestructurePreamble`'s own bare-field
       // binder), when that bare name would COLLIDE with a `var`/`val` declared ELSEWHERE in the
       // SAME def. `stream: YamlValue.Stream` destructures its single field `documents` as a bare
@@ -3788,8 +3878,16 @@ object RustCodeWalk:
                         // its own comment), one syntax position over: Rust's parameter type is
                         // still just the whole enum, `VmInstruction`, so `instruction.closeBefore`
                         // needs the SAME real destructure, here via a PREAMBLE statement (built
-                        // below, from this same map) rather than a match pattern.
-                        destructuredCtorNames = paramVariantDestructures,
+                        // below, from this same map) rather than a match pattern. `collectAsInstanceOfCtorNames`
+                        // (`val opener = nodes(found).asInstanceOf[WDelim]`, `asInstanceOfNarrowedCtor`'s
+                        // own comment has the full story) merges in here TOO, but deliberately NOT
+                        // into `paramVariantDestructures` itself below — that map ALSO drives the
+                        // preamble-building code a few lines down, and an `.asInstanceOf`-bound val
+                        // destructures itself directly at its OWN statement (`renderLetBinding`'s new
+                        // case), never via a preamble; only the FIELD-READ resolution this table
+                        // drives needs to see it.
+                        destructuredCtorNames = paramVariantDestructures ++ collectAsInstanceOfCtorNames(d.body, ctorMap),
+                        asInstanceOfBindings = collectAsInstanceOfCtorNames(d.body, ctorMap).keySet,
                         destructuredFieldRenames = fieldRenames,
                         bodyStats = d.body match { case b: m.Term.Block => b.stats; case _ => Nil })
       val effName = defEffectName(d)
@@ -6612,6 +6710,18 @@ object RustCodeWalk:
     // paramCtorNames` (threaded into the arm body's Ctx by `renderMatch`, from that SAME pattern)
     // is what lets this side know which ctor `r` narrowed to, so it can tell a genuine field of
     // THAT ctor from an ordinary (unrelated) field access spelled the same way.
+    // `opener.lexeme` where `opener` was bound by `val opener = nodes(found).asInstanceOf[WDelim]`
+    // (`uniml/markdown`'s `MarkdownInlines.scala`'s `processEmphasis`) — see `Ctx.
+    // asInstanceOfBindings`'s own comment for why this reads a UNIQUELY-prefixed name
+    // (`opener_lexeme`) rather than the ordinary bare-field/`destructuredFieldRenames` path just
+    // below: `opener`'s own destructure (`renderLetBinding`'s new case) is a plain OWNED let-else,
+    // never a `ref` borrow, so this never derefs either — checked and handled BEFORE the general
+    // case, which would otherwise also match this exact `Term.Select` shape.
+    case m.Term.Select(m.Term.Name(n), m.Term.Name(field))
+        if ctx.asInstanceOfBindings.contains(n) &&
+           ctx.destructuredCtorNames.get(n).flatMap(ctx.ctorMap.get).exists(_.fieldNames.contains(field)) =>
+      Right(s"${n}_$field")
+
     case m.Term.Select(m.Term.Name(n), m.Term.Name(field))
         if ctx.destructuredCtorNames.get(n).flatMap(ctx.ctorMap.get).exists(_.fieldNames.contains(field)) =>
       // `ctx.destructuredFieldRenames` FIRST — see its own comment (`Ctx`'s field doc) for why a
@@ -12545,7 +12655,21 @@ object RustCodeWalk:
             // independent of the Vector-in-field-position rewrite that first reached this arm.
             byRefMut                = ctx.byRefMut + n ++ ec.fieldNames.toSet,
             seqFields               = if vecFields.isEmpty then ctx.seqFields else ctx.seqFields + (n -> vecFields),
-            mapFields               = if hmapFields.isEmpty then ctx.mapFields else ctx.mapFields + (n -> hmapFields)
+            mapFields               = if hmapFields.isEmpty then ctx.mapFields else ctx.mapFields + (n -> hmapFields),
+            // `case opener: WDelim if opener.ch == closer.ch && … =>` sharing its bare name with an
+            // UNRELATED, SIBLING-scoped `val opener = …asInstanceOf[WDelim]` elsewhere in the SAME
+            // def (`Ctx.asInstanceOfBindings`'s own comment has the full story) — `ctx.
+            // asInstanceOfBindings` is set ONCE, at the top-level `renderDef` Ctx, over the WHOLE
+            // function; THIS arm's own childCtx otherwise INHERITS it unchanged (a plain `.copy`
+            // only overrides what it names), so `opener.ch` inside THIS arm's guard/body — genuinely
+            // `ref`-bound right here, by the `destructuredCtorNames`/`byRefMut` entries just above —
+            // ALSO matched the OTHER binding's uniquely-prefixed rewrite rule, which has no bare
+            // `ch`/`lexeme`/… to read here at all: `error[E0425]: cannot find value opener_lexeme`.
+            // Cleared for exactly this ONE bound name — a genuine `.asInstanceOf` binding sharing
+            // some OTHER name is unaffected, and if the two scopes truly DO nest (the val declared
+            // inside this very arm), `collectAsInstanceOfCtorNames`'s own position check already
+            // excluded it at the SOURCE, so there is nothing here to clear in that case anyway.
+            asInstanceOfBindings   = ctx.asInstanceOfBindings - n
           )
         // `case Some(problem) => … problem.copy(…) …` (`TreeVm.scala`'s `step`) — `problem`'s type
         // is nowhere in this pattern's own syntax (unlike the `Typed` case above), only in the
@@ -13705,6 +13829,43 @@ object RustCodeWalk:
       ctx:     Ctx
   ): Either[List[Diagnostic], String] =
     pats match
+      // `val opener = nodes(found).asInstanceOf[WDelim]` (`uniml/markdown`'s
+      // `MarkdownInlines.scala`'s `processEmphasis`) — see `asInstanceOfNarrowedCtor`'s own comment
+      // for the full E0609 story. Renders a genuine DESTRUCTURING `let-else`, mirroring
+      // `paramDestructurePreamble`'s own boxed-field/collision handling exactly (a directly-
+      // recursive field boxed, `Box<T>`, needs the SAME rename-and-deref-restore this corpus's
+      // `WDelim` happens not to need, but a future one might) — `opener` itself is never bound as a
+      // whole value (nothing in this corpus reads it that way; `collectAsInstanceOfCtorNames`'s own
+      // registration is what lets every LATER `opener.field` resolve to the bare destructured name).
+      //
+      // Gated on `ctx.asInstanceOfBindings.contains(name)` — the PRE-PASS's own decision — rather
+      // than re-deriving the shape from `rhs` directly: `collectAsInstanceOfCtorNames` EXCLUDES a
+      // name also bound by a match-arm pattern elsewhere in the same body (its own comment has the
+      // ambiguous-`opener` story), and re-deriving here independently would destructure the `val`
+      // regardless, leaving `opener` bound as its `_lexeme`/`_ch`/… PREFIXED fields, DIFFERENT NAME,
+      // while the field-read site (correctly excluded, per the SAME pre-pass) still expected a bare
+      // `opener` to exist: `error[E0425]: cannot find value opener in this scope`. Reading the SAME
+      // source of truth both ends already share keeps the two in lock-step by construction.
+      case List(m.Pat.Var(m.Term.Name(name))) if decltpe.isEmpty && ctx.asInstanceOfBindings.contains(name) =>
+        val ctorName = ctx.destructuredCtorNames(name)
+        // `.get` — `ctx.asInstanceOfBindings.contains(name)` is true only when this SAME shape was
+        // already matched once, at `collectAsInstanceOfCtorNames`'s own pre-pass over this same
+        // `rhs`; a `None` here would mean the two disagree, which the guard above rules out.
+        val (qual, _) = asInstanceOfNarrowedCtor(rhs, ctx.ctorMap).get
+        val ec = ctx.ctorMap(ctorName)
+        // `${name}_$f`, UNIQUELY prefixed with the binding's OWN name (`opener_lexeme`, never bare
+        // `lexeme`) — see `Ctx.asInstanceOfBindings`'s own comment for why: `opener`/`closer` both
+        // narrow the SAME `WDelim` variant in one function, one via this mechanism and one via an
+        // ordinary `ref`-borrowing match arm, and the flat, field-name-only `byRefMut`/
+        // `destructuredFieldRenames` tables have no way to tell their same-named fields apart.
+        def renamed(f: String) = s"${name}_$f"
+        val patFields = ec.fieldNames.map(f =>
+          if ec.boxedFields.contains(f) then s"$f: __boxed_${renamed(f)}" else s"$f: ${renamed(f)}")
+        val derefs = ec.fieldNames.filter(ec.boxedFields.contains)
+          .map(f => s"let ${renamed(f)} = *__boxed_${renamed(f)};").mkString(" ")
+        for q <- renderTerm(qual, ctx)
+        yield s"let ${ec.enumName}::$ctorName { ${patFields.mkString(", ")} } = ($q) else { unreachable!() };" +
+          (if derefs.isEmpty then "" else s" $derefs")
       case List(m.Pat.Var(m.Term.Name(name))) =>
         // collection-rust-array: a `val a = Array(...)` local must bind `let mut` so `a(i)=x` stores.
         // Same reason for `val sb = StringBuilder(...)`: `.append(...)` needs `&mut self`. And for
