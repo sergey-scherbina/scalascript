@@ -12614,10 +12614,20 @@ object RustCodeWalk:
           val strNames = binds.collect { case (bn, "String") => bn }.toSet
           val vecNames = binds.collect { case (bn, t) if t.startsWith("Vec<") => bn }.toSet
           val mapNames = binds.collect { case (bn, t) if t.startsWith("std::collections::HashMap<") => bn }.toSet
+          // `case InlinePiece.Tok(kind, lex, r, ch) => r.orElse(fallback)` (`uniml/markdown`'s
+          // `MarkdownInlines.scala`) — `r`, a POSITIONALLY-destructured `Option[String]` field, was
+          // never registered anywhere `isOptionExpr`'s own bare-name case reads (`ctx.localOptions`/
+          // `ctx.paramTypes`, the SAME two tables `strNames`/`vecNames`/`mapNames` just above already
+          // populate for their own field types) — `isOptionExpr(r, ctx)` answered `false`, so the
+          // existing `.orElse` case's own guard never fired and `r.orElse(fallback)` reached rustc
+          // as a literal camelCase method name: `error[E0599]: no method named orElse found for
+          // enum Option<T>`.
+          val optionNames = binds.collect { case (bn, t) if t.startsWith("Option<") => bn }.toSet
           ctx.copy(
             localStrings = ctx.localStrings ++ strNames,
             localSeqs    = ctx.localSeqs ++ vecNames,
-            localMaps    = ctx.localMaps ++ mapNames
+            localMaps    = ctx.localMaps ++ mapNames,
+            localOptions = ctx.localOptions ++ optionNames
           )
         case _ => ctx
       _pendingPatternGuards = Nil

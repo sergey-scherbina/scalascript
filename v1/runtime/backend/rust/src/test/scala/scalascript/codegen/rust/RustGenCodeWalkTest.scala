@@ -3461,6 +3461,28 @@ class RustGenCodeWalkTest extends AnyFunSuite:
       && g.contains("if !lexeme.is_empty()"),
       s"a captured var's tuple-string positions must flow through a bare-name alias and a .foreach destructure:\n$g")
 
+  test("a positionally-destructured Option field is recognized by isOptionExpr, so `.orElse` on it lowers correctly"):
+    // `case InlinePiece.Tok(kind, lex, r, ch) => r.orElse(fallback)` (`uniml/markdown`'s
+    // `MarkdownInlines.scala`) — `r`, a POSITIONALLY-destructured `Option[String]` field, was never
+    // registered in `ctx.localOptions`/`ctx.paramTypes` (the SAME two tables the sibling String/Vec/
+    // Map field-destructure case already populates for ITS OWN field types), so `isOptionExpr(r,
+    // ctx)` answered `false` — the existing `.orElse`-on-Option case's own guard never fired and
+    // `r.orElse(fallback)` reached rustc as a literal camelCase method name: `error[E0599]: no
+    // method named orElse found for enum Option<T>`.
+    val src =
+      """```scalascript
+        |enum InlinePiece:
+        |  case Tok(kind: String, lexeme: String, role: Option[String], channel: Int)
+        |
+        |def resolveRole(p: InlinePiece, fallback: Option[String]): Option[String] =
+        |  p match
+        |    case InlinePiece.Tok(kind, lex, r, ch) => r.orElse(fallback)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("r.or_else(|| fallback)"),
+      s"a positionally-destructured Option field must be recognized by isOptionExpr so .orElse lowers to .or_else(|| …):\n$g")
+
   test("`.forall`/`.exists` on a case-class field bound via a method's own self-clone preamble is recognized as a known String"):
     // `content.forall(c => …)` inside `case class MdLine(content: String, …): def isBlank =
     // content.forall(…)` (`uniml/markdown`'s `MarkdownBlocks.scala`) — `content` is a case-class
