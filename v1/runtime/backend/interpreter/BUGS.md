@@ -105,13 +105,14 @@ specifically a lambda passed as an argument TO `Array.tabulate`, cross-module. W
 
 ## class-body-val-field-undefined-in-a-sibling-method — a class-level `val` (not a constructor parameter) throws `Undefined: <name>` when read from a different method of the same class
 
-<!-- status: open
+<!-- status: fixed
      lane: int
      kind: bug
      area: runtime
      gate: tests/conformance/std-aggregator.ssc (known-red int)
      reported-by: claude-code
      reported-at: 2026-08-30
+     fixed-in: 716ef77bd
      confirmed: yes -->
 
 Found landing `std/aggregator.ssc`'s `HLLAgg` (§6.1), whose `hllMonoid`/`m` were originally declared
@@ -125,15 +126,35 @@ class Thing(precision: Int):
 println(Thing(4).get)
 ```
 
-throws `Undefined: doubled` under `--v1` — the field, declared on its own line in the class body
-(not a constructor parameter, not a local `val` inside the one method that uses it), is invisible
-from `get`, a different method of the SAME instance. Replacing `val doubled = precision * 2` with
-`def doubled: Int = precision * 2` (a zero-arg method instead of a field) fixes it completely and
-runs correctly (`8`). Every other class in `std/aggregator.ssc` already threads its per-instance
-state through constructor parameters (referenced directly, e.g. `MinAgg`'s `ord`) rather than a
-class-body `val`, which is presumably why this had not surfaced before landing `HLLAgg` — the first
-place this module needed to derive and CACHE a value from a constructor parameter rather than use
-the parameter directly. `HLLAgg` now uses `def` in place of the two original `val`s.
+gave `Undefined: doubled` under `--v1` — the field, declared on its own line in the class body (not
+a constructor parameter, not a local `val` inside the one method that uses it), was invisible from
+`get`, a different method of the SAME instance. Replacing `val doubled = precision * 2` with
+`def doubled: Int = precision * 2` (a zero-arg method instead of a field) fixed it completely as a
+workaround, and ran correctly (`8`). Every other class in `std/aggregator.ssc` already threaded its
+per-instance state through constructor parameters (referenced directly, e.g. `MinAgg`'s `ord`)
+rather than a class-body `val`, which is presumably why this had not surfaced before landing
+`HLLAgg` — the first place this module needed to derive and CACHE a value from a constructor
+parameter rather than use the parameter directly.
+
+**FIXED**: `StatRuntime.scala`'s `Defn.Class` case scanned the class body for `Defn.Def` members
+only (methods); a `Defn.Val` statement simply didn't match and was silently dropped — never
+evaluated, never added to `typeFieldOrder` (the type-level field-name registry `resolveField`,
+pattern matching, and `derives` all key off) or to any instance's field array. Fixed by collecting
+`Defn.Val` statements separately (`valFieldStats`/`valFieldNames`), appending their names to
+`typeFieldOrder` alongside the constructor's own param names, and evaluating each val's RHS *per
+instance* (unlike the name list, a val's RHS can reference the constructor's own parameters, whose
+values differ per instance) in a new `withValFields` helper invoked from every constructor path
+(the no-defaults fast path and the defaults-fallback path alike), appending the results to both the
+instance's `fieldsArr`/`fieldNames` and — since `typeFieldOrder` is now extended too — making the
+field visible to external access (`obj.field`) as well as sibling methods. `typeFieldTypes`/
+`typeFieldSchemas` (JSON-schema/OpenAPI/derives type metadata) are deliberately NOT extended for
+body vals — inferring a val's type with no explicit annotation is separate work; their consumers
+degrade safely (via `.getOrElse`/`.map` fallbacks) rather than crashing on the length mismatch.
+`HLLAgg` now uses ordinary `val`s again, as originally designed, no `def` workaround needed.
+Verified: 1898/1898 `backendInterpreter` sbt tests pass (no regressions from the `typeFieldOrder`
+extension, which is consumed pervasively — pattern-matching destructuring, `derives`-synthesized
+typeclasses, OpenAPI schemas, optics, named-arg construction), 118/118 smoke-ci checks green,
+`std-aggregator`/`std-aggregator-approx`/`std-order` conformance unchanged (still `int`-green).
 
 ## map-dot-empty-reads-empty-as-a-literal-key-not-the-companion-accessor — `Map.empty` throws "No key 'empty' in map" under `--v1`
 
