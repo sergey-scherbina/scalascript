@@ -10,30 +10,84 @@ The owner asked for the complete remaining-v3 inventory, set the order, and dire
 backlog ("все это запланировать в беклог и делать аккуратно"). The queue, each stage its own
 claim(s), landed wave by wave; a stage does not start before the previous one's numbers are in:
 
-1. **(in flight)** the four cheap slices of 2026-08-30: abstract `val` in `extern class` (landed),
-   `finally` (landed, SSC3-16), lexer `@` (landed, SSC3-17), `extension` in `Lower`'s dispatch.
-2. **Rewrite-door R2–R4** — the markers (`Focus` 5, `direct` 3, `Prism` 1 = 9 cases), per
-   `specs/60-compile-time-extension.md`; R1 landed. Closes
-   `v3-a-marker-is-a-compile-time-rewrite-nothing-in-a-library-can-answer`.
-3. **Own-front parsing batch** — three open bugs, each a parser/`Lower` slice:
+> **⚠ AUDITED 2026-08-31 — SIX OF THESE TWELVE WERE ALREADY BUILT WHEN THE QUEUE WAS WRITTEN.**
+> The queue was drafted from the boards, and the boards lagged the code by up to three weeks, so it
+> read as twelve stages of pending work when four were finished and two were substantially done.
+> That cost three agents their start-up time before anyone checked — one was handed stage 4 and found
+> it landed, another was handed the R2–R4 series and found it complete with only checkboxes missing.
+> Each stage below now carries its verdict and the evidence. **The owner's ORDERING and INTENT are
+> preserved unchanged**; only "pending" is replaced with what is actually left. Where a stage is
+> partly done, the remainder is named rather than the whole stage being re-listed.
+>
+> The rule this keeps re-teaching, now three incidents deep: **a board that outlives its work sends
+> the next agent to reimplement something that already runs.** Probe the code before taking a queued
+> v3 task — every agent who did found the answer in minutes.
+
+1. **✓ DONE** — the four cheap slices of 2026-08-30: abstract `val` in `extern class` (landed),
+   `finally` (landed `0b2a48749`, SSC3-16), lexer `@` (landed `b5872f835`, SSC3-17), `extension` in
+   `Lower`'s dispatch — the last needing NO code: it had landed 2026-08-10 under
+   `v3-extension-dispatch` (`10024d732`+`9040b520f`, N 171 → 194), and the section prescribing it is
+   marked superseded in `5f0a09122`.
+2. **✓ DONE — all nine marker cases pass.** `direct` `ea2f7b57e`, `Focus` `7c6873a95`, `Prism`
+   `a679ef8e9`, the three optic KINDS as shared ScalaScript `cd58fa4f5` (exec 273 → 276), and
+   `optic-polish` last at `8580f7480` (exec 277 → 278). The door itself — `Plugins.scala`, the pass
+   at `Lower.programOf`'s first line, `rewrite-gate.sh` asserting all seven rules — was already
+   complete when the queue was written; only SPRINT checkboxes were missing (`c17fe7460`).
+   `v3-a-marker-is-a-compile-time-rewrite-nothing-in-a-library-can-answer` is closed, verified by
+   probe rather than by reading the release notes.
+3. **→ IN FLIGHT** — own-front parsing batch, three open bugs, each a parser/`Lower` slice:
    `v3-own-front-has-no-extern-class`, `v3-front-cannot-parse-a-curried-member-method`,
-   `infix-application-does-not-reach-a-declared-class-method`.
-4. **`v3-value-show-and-copy`** (owner decision 2026-08-22 already taken: field names in the IR,
-   `_show` in both lanes) — unblocks the written-and-held positional/mixed `copy` fix.
-5. **`v3-stringcontext-interpolators`** (owner decision 2026-08-23 already taken) — closes
-   `v3-an-interpolator-prefix-and-an-ordinary-function-share-one-namespace`; plus, alongside,
-   `v3-the-content-provider-has-no-root-document`.
-6. **The type checker** — `v3-given-syntax` G2 (MANDATORY per the 2026-08-09 decision: `given`
-   syntax now, inference next) and `given`/`using` stage-2 in `Lower` (unblocked by stage 1's
-   `extension` landing). ~24 typing-bucket corpus cases.
-7. **`v3-jvm-interop` J1–J5** (approved feature, plan written in SPRINT) — then the parked
-   `Dataset` host-surface decision gets re-put with post-interop numbers.
-8. **`multi effect X:` continuation capture** (SSC3-7b, design decided 2026-08-08). ORDERED BEFORE
-   perf by the owner, 2026-08-30 — effects complete the language first.
-9. **Performance, LAST and THOROUGH** ("перф на последнее место — но уже потом основательно"):
-   SSC3-3c-rest cells-frame (measured 1.27–1.74×), then the whole `specs/ssc3-jit.md` ladder
-   (executor ~900× off; `Exec$.invoke` 13 415 bytecodes, never JIT-compiled; J1a gate landed).
-   Deliberately after 2–8: optimise the complete language once, not the half-built one repeatedly.
+   `infix-application-does-not-reach-a-declared-class-method`. Held under claim
+   `v3-infix-class-method` at the time of this audit; all three confirmed still `status: open`.
+   Note `object-nested-class` is NOT one of them and is not an `@` problem — it refuses on a nested
+   `case class` in an `object` and is now the only fixture holding the front-diff ceiling at 1.
+4. **✓ DONE** — `v3-value-show-and-copy` landed `8580f7480`: `copy` fixed on BOTH sides and the
+   rendering rule that was holding it landed with it. Holding the `copy` fix had been correct —
+   landing it alone moved DIFF 0 → 1, turning an honest refusal into a wrong answer — so the pair
+   had to arrive together. exec 277 → 278, bridge 274 → 275, 13 gates green, smoke 121/121.
+5. **PARTLY DONE — and the remainder is NOT v3's.** The v3 half is finished: an interpolator prefix
+   stopped being hardcoded (`f92e3c644`), `std/html.ssc` defines `html(parts, args)` alongside a
+   one-argument `raw(value)`, and `std-ui-native-html-lambda` PASSES on both v3 lanes. What stays
+   open in `v3-an-interpolator-prefix-and-an-ordinary-function-share-one-namespace` is the collision
+   in the OTHER direction, on v2: there `raw` is a front built-in answering `_Raw(v)`, so a library
+   `def raw` is shadowed — and it cannot be worked around portably, because honouring the wrapper
+   needs a `case _Raw(x)` pattern and v2 cannot match a constructor named with a leading underscore
+   (filed separately). Genuinely still open here: `v3-the-content-provider-has-no-root-document`,
+   confirmed live by probe — `content-binding` refuses with `the host function 'contentData' is not
+   implemented on this lane`. That one is an INTEGRATION (run the self-hosted structural pass,
+   decode `NativeContentModule` values, pass them through the door `V2Fleet` currently calls without
+   arguments), not a hand-over; the entry sizes it end to end.
+6. **← THE REAL NEXT STAGE. The type checker.** `v3-given-syntax` G1 is `[x]` (`given name: T with`
+   parses as a named value); **G2 is genuinely `[ ]`** — the checker itself, MANDATORY per the
+   2026-08-09 decision, plus `given`/`using` stage-2 in `Lower`. ~24 typing-bucket corpus cases.
+   This is the largest piece of real work left in the queue.
+7. **✓ DONE** — `v3-jvm-interop` released `a0e9dd99e`: a JVM package is importable from OUTSIDE the
+   kernel (landed `df8992fa5..8d3067169`, entry closed `24fe007a2`). Invariant I-1 holds — the
+   kernel gains no dependency, it gains the ability to ASK, through two new SPI doors
+   (`registerPackages`/`hostPackage`); `v3/plugins/JvmInterop.scala` and `JvmBridge.scala` answer
+   them on the executor lane (`c579bbbe2`). **Still owed:** the parked `Dataset` host-surface
+   decision, which was to be re-put to the owner with post-interop numbers.
+8. **SUBSTANTIALLY DONE — verify the remainder before planning it.** `multi effect X:` continuation
+   capture (SSC3-7b, design decided 2026-08-08, spec `f6dcbc391`: a continuation is a CLOSURE the
+   lowering builds). Landed: the transitively-performing set and a command that shows it (step 1,
+   `e36d6e5df`), splitting a function at a `Perform` so the rest of it is a function (step 2,
+   `eb509d81c`), multi-shot continuations running (steps 4–5, `addd2d89c`), `multi effect` accepted
+   with a resume inside a nested lambda capturing its continuation (`74d28869b`), and the UniML
+   front projecting `effect` declarations on the DEFAULT path (`85b8253a7`). This audit did not
+   establish whether step 3 and the acceptance criteria are complete — that is a SPRINT read plus a
+   probe, half an hour, and it should happen before anyone sizes this as remaining work. The owner's
+   ordering stands: effects complete the language before perf is touched.
+9. **Performance, LAST and THOROUGH — but the ladder is PART-CLIMBED, so re-baseline before
+   planning.** ("перф на последнее место — но уже потом основательно".) Still owed: SSC3-3c-rest
+   cells-frame (measured 1.27–1.74× on hand-written IR, not yet built). Already landed on the
+   `specs/ssc3-jit.md` ladder, which the queue's "~900× off" figure predates: SSC3-J1, the
+   specializer writing the kind field the IR was designed around (`6feef7689`); SSC3-J4's
+   compare-and-branch peephole (`fc7149566`) and its follow-up finding that the fix belonged WHERE
+   THE DECISION IS TAKEN (`5ef9c49af`, arith-loop 20 of 20 at 0.770). So the first measurement of
+   this stage is not a new benchmark run but a re-baseline: the ~900× and the 13 415-bytecode
+   `Exec$.invoke` are both pre-J1/J4 numbers and should be re-taken before anything is sized against
+   them. The owner's placement is unchanged — this stays after 2–8, optimising the complete language
+   once rather than the half-built one repeatedly.
 
 Then three NEW end-stages, in this order, each planned carefully before any code:
 
@@ -62,6 +116,14 @@ Then three NEW end-stages, in this order, each planned carefully before any code
     only when every target it serves has a native successor. First deliverable is still a plan
     document per target (starting with JVM: bytecode directly à la v2's `backend-jvm-bytecode`,
     or source-level à la `run-jvm` — put to the owner with measured trade-offs before code).
+
+**WHAT IS ACTUALLY LEFT, after the 2026-08-31 audit, in the owner's own order:** stage 3 (three
+front-parser bugs, in flight) → **stage 6, the type checker G2, which is the largest real piece** →
+stage 5's remainder (the content-provider integration; the interpolator half that is left is a v2
+defect, not v3's) → stage 8's verification-then-remainder → stage 7's parked `Dataset` decision →
+stage 9 re-baselined → stages 10–12, the owner's new end-stages, which are genuinely untouched.
+Stages 1, 2, 4 and 7 are DONE. That is four fewer stages than the queue listed and one stage —
+6 — carrying more of the remaining weight than its position suggests.
 
 Execution discipline for all twelve: the module's own rules — measured against N/exec/bridge and
 the front-diff/parity floors, every mechanism switchable off from its first commit, and honest

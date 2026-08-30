@@ -461,13 +461,14 @@ good path 8 modules / 112 entries / 0 missing.
 
 ## v3-a-marker-is-a-compile-time-rewrite-nothing-in-a-library-can-answer — Focus, direct, prism
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      kind: feature
      area: front
      gate: v3/corpus-report.sh (lenses, optic-polish, tagless-direct-syntax and six more)
      found-by: claude-code
-     found-at: 2026-08-17 -->
+     found-at: 2026-08-17
+     fixed-in: 8580f7480 -->
 
 **Nine corpus cases are refused with `the marker '…' is outside SSC3 core Tier 0`, and the name in
 that message is not a construct — it is a placeholder the front leaves where a REWRITE should have
@@ -487,6 +488,31 @@ library function once the front stopped hardcoding prefixes.
 **THE REFUSAL IS CORRECT AS IT STANDS**, which is why this is a feature entry and not a bug: v3 says,
 with a position, that it will not pretend. Nine cases is the largest single group behind the Tier 0
 boundary, and closing it means designing front rewrites rather than widening a list.
+
+**✓ CLOSED 2026-08-31 — the rewrite door was designed and all nine cases pass.** This entry stayed
+`open` for two weeks after its own work finished, which is why it is being closed by an AUDIT rather
+than by the claim that fixed it. The series, each step measured on its own tree:
+
+| step | commit | what it answered |
+| --- | --- | --- |
+| R1–R2 | door in `Plugins.scala`, pass wired at `Lower.programOf`'s first line, `v3/rewrite-gate.sh` asserting all seven rules | the mechanism |
+| R3 | `ea2f7b57e` | `direct[M] { … }`, 3 cases |
+| R4a | `7c6873a95` | `Focus[S](_.a.b)` reads a path a call can only see as a function |
+| R4c | `a679ef8e9` | `Prism[S, C]`, 1 case |
+| R6 | `f8e8ed6c5` | series measurement: exec 266 → 273, bridge 263 → 270, DIFF 0, CRASH never rose |
+| kinds | `cd58fa4f5` | `Optional`/`Traversal`/index-at as a SHARED `std/optics.ssc`: exec 273 → 276, bridge 270 → 273 |
+| last | `8580f7480` | `optic-polish`, the sixth of six optics cases: exec 277 → 278, bridge 274 → 275 |
+
+R6 recorded "five of the nine landed" and named the blocker for the other four: each needed an optic
+KIND that did not exist. `cd58fa4f5` built those kinds as ordinary ScalaScript rather than host
+surface — the split it records is worth keeping: THE SYNTAX IS A FRONT'S BUSINESS, THE SEMANTICS ARE
+ONE SHARED FILE'S, and only the field step crosses between them.
+
+VERIFIED BY PROBE, not by reading the release notes: `v3/ssc3 run` on all three named cases at
+`fc656e2af` — `tagless-direct-syntax` prints its five lines, `lenses` prints `Main St / Broadway /
+Boston`, and `optic-polish` prints `Optional(_.point.some.y)`, `Traversal(_.points.each.z)`,
+`Prism[?, Circle]` — the three kinds R6 said did not exist. No case emits `the marker '…' is outside
+SSC3 core Tier 0`.
 
 ## v3-an-interpolator-prefix-is-hardcoded-in-both-fronts — it is a call now, definable in a library
 
