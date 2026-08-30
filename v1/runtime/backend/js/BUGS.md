@@ -352,7 +352,7 @@ known-red on `js` against the newer bug.
      gate: tests/conformance/std-aggregator.ssc (known-red js)
      reported-by: claude-code
      reported-at: 2026-08-30
-     fixed-in: PENDING_SHA
+     fixed-in: 25941ebb5
      confirmed: yes -->
 
 Found landing the `Map.empty` fix (above): with it in place, `std-aggregator.ssc`'s `js` lane
