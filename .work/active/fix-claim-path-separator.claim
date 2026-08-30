@@ -1,0 +1,11 @@
+slug: fix-claim-path-separator
+branch: feature/fix-claim-path-separator
+agent: claude-code
+started: 2026-08-30T22:00:28Z
+heartbeat: 2026-08-30T22:00:28Z
+status: claimed-before-planning
+items: claim-path-comma-separator-and-dir-prefix
+paths: file:.githooks/pre-commit file:.githooks/pre-push file:scripts/coord-claim file:scripts/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
