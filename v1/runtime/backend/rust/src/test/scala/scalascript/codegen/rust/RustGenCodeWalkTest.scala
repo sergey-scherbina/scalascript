@@ -99,6 +99,23 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(g.contains(".first().cloned()"), s"headOption did not lower:\n$g")
     assert(!g.contains(".headOption"), s"headOption survived as a field access:\n$g")
 
+  test("a declared-Vector local initialized via `.empty` is still a known seq"):
+    // `var elements: Vector[String] = Vector.empty` (uniml's `XmlScanner.scan`) has an rhs neither
+    // `seqCtor` nor `rootedInSeq` recognise — `.empty` is not a `SeqMethods` conversion or a
+    // `List(...)`/`Vector(...)` literal call — so the local was never recorded as a seq and
+    // `elements.nonEmpty` fell to the no-paren-member refusal. The DECLARED type settles it.
+    val src =
+      """```scalascript
+        |def main(): Unit =
+        |  var elements: Vector[String] = Vector.empty
+        |  elements = elements :+ "a"
+        |  println(elements.nonEmpty)
+        |main()
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("!elements.is_empty()"), s"nonEmpty did not lower:\n$g")
+
   test("Failed: an unlowered no-paren member on a List is refused, not emitted as a field"):
     // The half that matters more than `headOption` itself: the by-name refusal already existed
     // for method CALLS and could not reach a select, so the NEXT unlowered member would have
@@ -118,16 +135,20 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     }, s"expected a named refusal, got: $ds")
 
   test("Failed: param with a non-primitive type yields a structured diagnostic"):
-    // R.2 accepts primitives, enums, function types, and List/Vec (with
+    // R.2 accepts primitives, enums, function types, and List/Vec/Set/Map (with
     // type args).  A truly-out-of-scope type still surfaces a diagnostic.
+    // `Set[Long]` USED to be that example; it stopped being out-of-scope once `mapType`
+    // learned to lower `Set` alongside `List`/`Vec` (see that case's own comment) — this
+    // test kept asserting a premise the code had already moved past. `java.time.Instant`
+    // has no case anywhere in `mapType` and is not expected to grow one.
     val src =
       """```scalascript
-        |def greet(items: Set[Long]): Unit = println("len")
+        |def greet(items: java.time.Instant): Unit = println("len")
         |```
         |""".stripMargin
     val ds = diagnostics(src)
     assert(ds.exists {
-      case Diagnostic.Generic(m, _) => m.contains("greet") && m.contains("Set")
+      case Diagnostic.Generic(m, _) => m.contains("greet") && m.contains("Instant")
       case _                        => false
     }, s"diags: $ds")
 
@@ -217,3 +238,5180 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(g.contains("""format!("""") && !g.contains(" + "),
       s"declared-String return left the concat path in:\n$g")
+
+  // ── uniml/xml diagnostic-reduction batch ──────────────────────────────
+
+  test("a qualified pattern under an OBJECT NAMESPACE (not the trait's own name) still lowers"):
+    // `uniml/xml`'s `Doc.scala` nests every variant inside `object Markup:` and writes
+    // `case Markup.Text(chars) => …`, where `Markup` is the wrapping object, not `Node` (the
+    // sealed trait `Text` extends). The existing qualified-pattern support only ever recognised
+    // the qualifier being the TRAIT's own name (`Shape.Circle`); this is the object-namespaced
+    // spelling, which needs the `ctx.ctorMap` fallback.
+    val src =
+      """```scalascript
+        |object Wrap:
+        |  sealed trait Shape
+        |  case class Circle(r: Double) extends Shape
+        |  case class Square(s: Double) extends Shape
+        |
+        |def area(s: Wrap.Shape): Double = s match
+        |  case Wrap.Circle(r) => 3.14 * r * r
+        |  case Wrap.Square(s) => s * s
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("Shape::Circle { r }"), s"qualified pattern did not lower:\n$g")
+
+  test("f-interpolation with a printf-style conversion lowers to Rust's format spec"):
+    val src =
+      """```scalascript
+        |def hex(codePoint: Long): String = f"U+$codePoint%04X"
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("""format!("U+{:04X}", codePoint)"""), s"f-interpolation did not lower:\n$g")
+
+  test("throw of a standard-library exception built without `new` still lowers to a panic"):
+    // `throw UnsupportedOperationException(msg)` (`uniml/xml`'s `Doc.scala`, `MarkupCodec.validate`'s
+    // default body) — `throwPayload` only ever recognised `new X(msg)` or a known user-defined
+    // ctor; a standard exception named by convention (`*Exception`, built WITHOUT `new`, which
+    // Scala 3 allows) reached the ordinary call path instead and refused as an unknown callee.
+    val src =
+      """```scalascript
+        |def bad(): Long = throw UnsupportedOperationException("nope")
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("""panic!("{}", "nope".to_string())"""), s"exception-by-name throw did not lower:\n$g")
+
+  test("two defs sharing a bare name with DIFFERENT return types don't cross-contaminate"):
+    // `_returnTypes` is keyed by bare def name, module-wide. `uniml/xml`'s `Doc.scala` has both
+    // a `trait`'s `validate(...): List[X]` default method and a plain object's `validate(...):
+    // Result` — sharing the name `validate`. Before this fix, whichever won the flat map (or the
+    // dispatch-trait table, which was `++`-ed on UNCONDITIONALLY and could silently re-clobber a
+    // collision the def-side check had already caught) answered for BOTH: a struct-returning
+    // `validate`'s result got treated as a `Vec`, and reading a genuine field on it
+    // (`r.complete`) refused as an unlowered List member.
+    val src =
+      """```scalascript
+        |trait Codec:
+        |  def validate(x: Long): List[Long] = List(x)
+        |
+        |case class Result(complete: Boolean)
+        |
+        |object Foo:
+        |  def validate(x: Long): Result = Result(x > 0)
+        |  def check(x: Long): Boolean =
+        |    val r = validate(x)
+        |    r.complete
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("r.complete"), s"struct field read after a name-colliding call did not lower:\n$g")
+
+  test("a dispatch trait's default method reads a SIBLING abstract member bare, as `self.member()`"):
+    // `trait MarkupCodec: def id: String; def validate(...) = throw …(s"…codec '$id'")`
+    // (`uniml/xml`'s `Doc.scala`) — Scala's implicit `this.id` inside a trait DEFAULT method,
+    // referencing another (abstract) member of the SAME trait with no `this.`/`self.` prefix. The
+    // default body's own `Ctx` carried no `selfMethods` at all, so `id` fell to the bare-name
+    // fallback and rustc said `cannot find value id in this scope` — a name one member declares,
+    // unreachable from the very next member's own default body.
+    val src =
+      """```scalascript
+        |trait Codec:
+        |  def id: String
+        |  def describe(): String = "codec: " + id
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("self.id()"), s"sibling abstract member read bare should become self.id():\n$g")
+
+  test("a STRING-preserving chain rooted in a String param is still known to be a String"):
+    // `value.drop(2).takeWhile(pred)` (`uniml/xml`'s `Doc.scala`'s `validatePi`, `value: String`)
+    // is a String at every step, but `collectLocalStrings` only recognised `.toString`/`.trim`/
+    // `.mkString`/`.substring` directly, and its qualifier chain bottoms out in a bare PARAM name
+    // it had never seen (that set is seeded by the CALLER, after this function used to run) — so
+    // `target.isEmpty` fell to the by-name-only "collection member" refusal, unable to tell this
+    // was a String rather than a List.
+    val src =
+      """```scalascript
+        |def firstWord(value: String): String =
+        |  val target = value.drop(2).takeWhile(c => c != ' ')
+        |  if target.isEmpty then "-" else target
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("target.is_empty()"), s"chained-String isEmpty did not lower:\n$g")
+
+  test("`.nonEmpty` on an UNQUALIFIED call to a Vec-returning def lowers"):
+    // `unresolvedReferences(result).nonEmpty` (`uniml/xml`'s `Doc.scala`'s `projectMarkup`) calls
+    // a bare top-level def WITH an argument and immediately chains `.nonEmpty` — `isKnownVecReceiver`
+    // only recognised a QUALIFIED zero-arg call (`recv.method()`) or a bare NAME already bound to a
+    // known seq, neither of which this shape is.
+    val src =
+      """```scalascript
+        |def evens(n: Long): List[Long] = List(n, n + 2)
+        |def hasEvens(n: Long): Boolean = evens(n).nonEmpty
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("!evens(n).is_empty()") || g.contains(".is_empty()"),
+      s"nonEmpty on an unqualified Vec-returning call did not lower:\n$g")
+    assert(!g.contains(".nonEmpty"), s"nonEmpty survived unlowered:\n$g")
+
+  test("`<<` and a `|` pattern alternative both lower"):
+    val src =
+      """```scalascript
+        |def widen(n: Long): Long = n << 10
+        |def isQuote(c: Char): Boolean = c match
+        |  case '\'' | '"' => true
+        |  case _          => false
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("(n) << (10i64)") || g.contains("n << 10i64") || g.contains("<<"),
+      s"`<<` did not lower:\n$g")
+    assert(g.contains("|"), s"pattern alternative did not lower:\n$g")
+
+  test("a typed match-arm bind (`case e: Element =>`, BARE spelling) knows its own List fields"):
+    // `case e: Element =>` (unqualified — the QUALIFIED spelling, `case e: Wrap.Element =>`,
+    // already worked via a separate field-DESTRUCTURING mechanism that binds `children` directly
+    // and never reads `e.children` at all) never populated `ctx.seqFields` for the bound name `e`
+    // before this fix, so `e.children.isEmpty` (`Element.children: List[Node]`) fell to the
+    // by-name-only "collection member" refusal — the typed bind's OWN ctor is known (`ctorMap`),
+    // it just never got threaded through.
+    val src =
+      """```scalascript
+        |sealed trait Node
+        |case class Element(children: List[Node]) extends Node
+        |case class Text(chars: String) extends Node
+        |
+        |def render(n: Node): String =
+        |  n match
+        |    case e: Element => if e.children.isEmpty then "<empty/>" else "<full/>"
+        |    case Text(chars) => chars
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    // `(*children)` — a `Pat.Typed`-to-variant bind's OWN fields are now ALSO `byRefMut` (the
+    // `emailLocalBackscan` field-deref fix, `renderMatch`'s `bodyCtx` case), so a bare field read
+    // derefs the same way the outer bind name always has; `.is_empty()` autoderefs either way
+    // (verified via a real `cargo build`, /tmp/t95.scala this session).
+    assert(g.contains("e.children.is_empty()") || g.contains("children.is_empty()") || g.contains("(*children).is_empty()"),
+      s"typed-bind field isEmpty did not lower:\n$g")
+
+  test("`.isInstanceOf[T]` lowers to Rust's `matches!` against a known enum variant"):
+    val src =
+      """```scalascript
+        |sealed trait Node
+        |case class Element(children: List[Node]) extends Node
+        |case class Text(chars: String) extends Node
+        |
+        |def hasElementChild(children: List[Node]): Boolean =
+        |  children.exists(_.isInstanceOf[Element])
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("matches!(") && g.contains("Node::Element"), s"isInstanceOf did not lower:\n$g")
+
+  test("`.mkString` without parens on a Vec chain lowers"):
+    val src =
+      """```scalascript
+        |def joined(xs: List[String]): String = xs.map(s => s).mkString
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".join(\"\")"), s"no-paren mkString did not lower:\n$g")
+
+  test("`.collect { case p if g => body }` lowers to `filter_map`"):
+    val src =
+      """```scalascript
+        |case class Item(name: String, ok: Boolean)
+        |def bad(items: List[Item]): List[String] =
+        |  items.collect { case i if !i.ok => i.name }
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("filter_map") && g.contains("Some(") && g.contains("_ => None"),
+      s"collect(pf) did not lower:\n$g")
+
+  test("`.takeWhile { case ... }` (partial function) lowers to `take_while`"):
+    val src =
+      """```scalascript
+        |def prefix(xs: List[Long]): List[Long] =
+        |  xs.takeWhile {
+        |    case n if n > 0 => true
+        |    case _          => false
+        |  }
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("take_while"), s"takeWhile(pf) did not lower:\n$g")
+
+  test("`.sortBy(_.field)` lowers to `sort_by_key`"):
+    val src =
+      """```scalascript
+        |case class Item(id: Long)
+        |def ordered(xs: List[Item]): List[Item] = xs.sortBy(_.id)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("sort_by_key"), s"sortBy did not lower:\n$g")
+
+  test("`.flatMap(Obj.member)` — an object-qualified function reference — lowers"):
+    val src =
+      """```scalascript
+        |object Helper:
+        |  def dup(n: Long): List[Long] = List(n, n)
+        |
+        |def widen(xs: List[Long]): List[Long] = xs.flatMap(Helper.dup)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("flat_map"), s"flatMap(Obj.member) did not lower:\n$g")
+    assert(g.contains("dup("), s"the eta-expanded reference did not resolve to a call:\n$g")
+
+  test("ListBuffer.empty + += + .toList lowers to a mutable Vec"):
+    val src =
+      """```scalascript
+        |def build(n: Long): List[Long] =
+        |  val buf = scala.collection.mutable.ListBuffer.empty[Long]
+        |  buf += n
+        |  buf += n + 1
+        |  buf.toList
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("let mut buf") && g.contains("Vec::new()"), s"ListBuffer ctor did not lower:\n$g")
+    assert(g.contains("buf.push("), s"+= did not lower to .push:\n$g")
+
+  test("LinkedHashMap.empty + subscript-assign + .toMap lowers to a mutable HashMap"):
+    val src =
+      """```scalascript
+        |def build(k: String, v: String): Map[String, String] =
+        |  val m = scala.collection.mutable.LinkedHashMap.empty[String, String]
+        |  m(k) = v
+        |  m.toMap
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("let mut m") && g.contains("HashMap::new()"), s"LinkedHashMap ctor did not lower:\n$g")
+    assert(g.contains("m.insert("), s"subscript-assign did not lower to .insert:\n$g")
+
+  test("Vector.newBuilder + += + .result() lowers to a mutable Vec"):
+    val src =
+      """```scalascript
+        |def build(n: Long): Vector[Long] =
+        |  val b = Vector.newBuilder[Long]
+        |  b += n
+        |  b.result()
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("let mut b") && g.contains("Vec::new()"), s"Vector.newBuilder did not lower:\n$g")
+    assert(g.contains("b.push("), s"+= did not lower to .push:\n$g")
+
+  test("bare ArrayBuffer(...) constructor lowers to a mutable Vec literal"):
+    val src =
+      """```scalascript
+        |import scala.collection.mutable.ArrayBuffer
+        |def build(n: Long): List[Long] =
+        |  val stack = ArrayBuffer(n, n + 1)
+        |  stack.toList
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("vec!["), s"ArrayBuffer ctor did not lower:\n$g")
+
+  test("HashSet.empty + .add lowers to a mutable HashSet + .insert"):
+    val src =
+      """```scalascript
+        |def firstDup(xs: List[String]): Option[String] =
+        |  val seen = scala.collection.mutable.HashSet.empty[String]
+        |  xs.find(x => !seen.add(x))
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("let mut seen") && g.contains("HashSet::new()"), s"HashSet ctor did not lower:\n$g")
+    assert(g.contains(".insert("), s".add did not lower to .insert:\n$g")
+
+  test("ArrayBuffer.remove(i) lowers to Vec::remove"):
+    val src =
+      """```scalascript
+        |import scala.collection.mutable.ArrayBuffer
+        |def pop(n: Long): Long =
+        |  val stack = ArrayBuffer(n, n + 1)
+        |  stack.remove(stack.size - 1)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".remove(("), s".remove did not lower:\n$g")
+
+  test("a genuinely mutable class (`class`, not `case class`) renders as struct + &mut self impl"):
+    // `private final class Counter(label: String): private var count = 0; ...` (a MINIMAL stand-in
+    // for `uniml/xml`'s `Doc.scala`'s hand-written recursive-descent `Parser` — a real stateful OOP
+    // class, ~18 methods, none of it constructor-param data). Verified end-to-end via a real `cargo
+    // build` on this exact shape before landing (see the commit message); this test pins the
+    // generated TEXT shape so a regression here is caught without needing rustc.
+    val src =
+      """```scalascript
+        |private final class Counter(label: String):
+        |  private var count = 0
+        |
+        |  private def bump(): Unit =
+        |    count += 1
+        |
+        |  def run(n: Long): Long =
+        |    var i = 0L
+        |    while i < n do
+        |      bump()
+        |      i += 1
+        |    count
+        |
+        |def useIt(n: Long): Long =
+        |  Counter("x").run(n)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("pub struct Counter") && g.contains("pub count: i64"),
+      s"mutable-class struct did not render:\n$g")
+    assert(g.contains("fn new(label: String) -> Counter"), s"::new ctor did not render:\n$g")
+    assert(g.contains("pub fn bump(&mut self)") && g.contains("self.count += 1"),
+      s"self-field write did not render:\n$g")
+    assert(g.contains("pub fn run(&mut self, n: i64)") && g.contains("self.bump()"),
+      s"self-method call did not render:\n$g")
+    assert(g.contains("Counter::new(\"x\".to_string()).run(n)"),
+      s"construct-then-call chain did not render:\n$g")
+
+  test("a mutable class's non-writing methods render `&self`, not `&mut self`"):
+    // E0499 regression: `selfMethodMut` originally marked EVERY mutable-class method `&mut self`
+    // uniformly. `self.isNameStart(self.cur())` then failed to borrow-check (`cannot borrow
+    // *self as mutable more than once at a time`) because BOTH the outer call and the argument
+    // evaluation needed their own `&mut self` reservation — two-phase borrows only admit a
+    // NESTED read, not a nested write, during the outer call's argument evaluation. `cur` and
+    // `isNameStart` never write a field, so they must render `&self`; only `advance` (which
+    // does write `pos`) may render `&mut self`. Mirrors `uniml/xml`'s real
+    // `Parser.readName()`/`isNameStart(cur())` shape.
+    val src =
+      """```scalascript
+        |private final class Scanner(src: String):
+        |  private var pos = 0
+        |
+        |  private def cur(): Long = pos
+        |
+        |  private def isNameStart(c: Long): Boolean = c > 0
+        |
+        |  private def advance(): Unit =
+        |    pos += 1
+        |
+        |  def readName(): Boolean =
+        |    val ok = isNameStart(cur())
+        |    advance()
+        |    ok
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("pub fn cur(&self)"), s"non-writing method should render &self:\n$g")
+    assert(g.contains("pub fn is_name_start(&self,") || g.contains("pub fn isNameStart(&self,"),
+      s"non-writing method should render &self:\n$g")
+    assert(g.contains("pub fn advance(&mut self)"), s"field-writing method should render &mut self:\n$g")
+    assert(g.contains("pub fn read_name(&mut self)") || g.contains("pub fn readName(&mut self)"),
+      s"a method calling a &mut self method should itself render &mut self:\n$g")
+
+  test("`Option[(String, X)]` built via an if/else chain is still recognised as an Option"):
+    // `isOptionExpr` had no case for `Term.If` at all — `val digits = if ... then Some(...) else
+    // if ... then Some(...) else None` (`uniml/xml`'s `Doc.scala`'s `numericReferenceValue`) never
+    // registered as an Option anywhere downstream, so `digits.flatMap { case (value, radix) => … }`
+    // took no Option-aware path and the tuple-bound `value`'s String-ness (from the ORIGINAL `->`
+    // construction) never reached the closure body at all.
+    val src =
+      """```scalascript
+        |def parseIt(reference: String): Option[Long] =
+        |  val digits =
+        |    if reference.startsWith("&#x") then Some(reference.substring(3, reference.length - 1) -> 16L)
+        |    else None
+        |  digits.flatMap { case (value, radix) =>
+        |    if value.nonEmpty then Some(radix) else None
+        |  }
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("value.is_empty()") || g.contains("!value.is_empty()"),
+      s"tuple-bound String param's nonEmpty did not lower:\n$g")
+    assert(g.contains(".and_then("), s"Option.flatMap over an if/else-built local did not lower:\n$g")
+
+  test("`startsWith(prefix, toffset)` (two-arg) lowers to a Unicode-safe runtime helper"):
+    val src =
+      """```scalascript
+        |def isXmlDecl(src: String, pos: Long): Boolean = src.startsWith("<?xml", pos)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("crate::runtime::_str_starts_with_at("), s"two-arg startsWith did not lower:\n$g")
+
+  test("a chained `sb.append(a).append(b)` flattens into one statement sequence"):
+    val src =
+      """```scalascript
+        |def build(): String =
+        |  val sb = StringBuilder()
+        |  sb.append('<').append("tag").append('>')
+        |  sb.toString
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("sb.push(") && g.contains("sb.push_str("), s"chained append did not flatten:\n$g")
+    assert(!g.contains(").append("), s"a raw .append survived unlowered:\n$g")
+
+  test("a field read on a value typed as a SPECIFIC enum variant lowers via a single-arm match"):
+    // `document.root` where `document: Wrap.Doc` (object-namespaced, `uniml/xml`'s own spelling —
+    // a case class extending a shared sealed trait, reached via `case Right(document) => …`, never
+    // a `match` arm that itself DESTRUCTURES `Doc`'s own fields) — Rust has no unchecked `.field`
+    // access on an enum; this needs a match to extract the one field.
+    val src =
+      """```scalascript
+        |object Wrap:
+        |  sealed trait Node
+        |  case class Doc(root: Long, docType: Option[Long]) extends Node
+        |  case class Other(x: Long) extends Node
+        |
+        |def tryParse(x: Long): Either[Long, Wrap.Doc] = if x > 0 then Right(Wrap.Doc(x, None)) else Left(x)
+        |
+        |def readRoot(x: Long): Long = tryParse(x) match
+        |  case Left(e) => e
+        |  case Right(document) => document.root
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("match &") && g.contains("Node::Doc"), s"enum-variant field read did not lower:\n$g")
+
+  test("`.copy(field = value)` on a value typed as a SPECIFIC enum variant rebuilds via match"):
+    val src =
+      """```scalascript
+        |object Wrap:
+        |  sealed trait Node
+        |  case class Doc(root: Long, docType: Option[Long]) extends Node
+        |  case class Other(x: Long) extends Node
+        |
+        |def tryParse(x: Long): Either[Long, Wrap.Doc] = if x > 0 then Right(Wrap.Doc(x, None)) else Left(x)
+        |
+        |def withRoot(x: Long, n: Long): Long = tryParse(x) match
+        |  case Left(e) => e
+        |  case Right(document) => document.copy(root = n).root
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("match &") && g.contains("Node::Doc"), s"enum-variant .copy did not lower:\n$g")
+    assert(!g.contains("__copy_"), s"a dangling __copy_ binder leaked into the output:\n$g")
+
+  test("`either.left.map(f)` lowers, transforming Left and passing Right through"):
+    val src =
+      """```scalascript
+        |def tryParse(x: Long): Either[Long, String] = if x > 0 then Right(x.toString) else Left(x)
+        |def widen(x: Long): Either[String, String] = tryParse(x).left.map(n => n.toString)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("Either::Left(") && g.contains("Either::Right(v) => Either::Right(v)"),
+      s".left.map did not lower:\n$g")
+
+  test("`s.forall(p)` / `s.exists(p)` on a String lower via `.chars()`"):
+    val src =
+      """```scalascript
+        |def isHexDigit(c: Long): Boolean = c >= 48
+        |def allHex(s: String): Boolean = s.forall(isHexDigit)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".chars().all("), s"String.forall did not lower:\n$g")
+
+  test("`opt.forall(p)` lowers to `.map_or(true, p)`"):
+    val src =
+      """```scalascript
+        |def isLegal(n: Long): Boolean = n >= 0
+        |def parseIt(s: String): Option[Long] = if s.nonEmpty then Some(s.length) else None
+        |def check(s: String): Boolean = parseIt(s).forall(isLegal)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".map_or(true, "), s"Option.forall did not lower:\n$g")
+
+  test("`s.indexOf(needle, fromIndex)` (two-arg, String or Char needle) lowers"):
+    val src =
+      """```scalascript
+        |def findTag(s: String, from: Long): Long = s.indexOf("?>", from)
+        |def findChar(s: String, from: Long): Long = s.indexOf(';', from)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("crate::runtime::_str_index_of_from("), s"two-arg indexOf did not lower:\n$g")
+
+  test("a Map-typed `var` (not just `val`) is tracked, so `.get`/`.contains` lower correctly"):
+    // `var bindings = inherited` (`uniml/xml`'s `Doc.scala`'s `validateNamespaces`/
+    // `resolveElement`) — `collectLocalMaps`'s walk had a `Defn.Val` case but no `Defn.Var` one.
+    val src =
+      """```scalascript
+        |def useIt(inherited: Map[String, String], key: String): Option[String] =
+        |  var bindings = inherited
+        |  Some(key).flatMap(bindings.get)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("bindings.get(&__k)"), s"Map var's .get-as-value did not lower:\n$g")
+
+  test("`Integer.parseInt(s, radix)` and `math.max(a, b)` lower"):
+    val src =
+      """```scalascript
+        |def parseHex(s: String): Long = Integer.parseInt(s, 16)
+        |def clampLow(n: Long): Long = math.max(1, n)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("i64::from_str_radix("), s"Integer.parseInt did not lower:\n$g")
+    assert(g.contains(").max("), s"math.max did not lower:\n$g")
+
+  test("`Nothing` maps to Rust's `!`, so a diverging call unifies with either if/else branch"):
+    // `def err(msg: String): Nothing = throw ...; if cond then err(msg) else ()` (`uniml/xml`'s
+    // `Doc.scala`'s `Parser`) — `Nothing` had no case in `mapType` at all and fell to the
+    // unknown-type-name `i64` default, so `err(...)`'s call-site type was a CONCRETE `i64` instead
+    // of coercing to whatever the branch needed — `error[E0308]: if and else have incompatible
+    // types` against the `()` sibling branch.
+    val src =
+      """```scalascript
+        |def err(msg: String): Nothing = throw new RuntimeException(msg)
+        |def maybeErr(cond: Boolean): Unit = if cond then err("bad") else ()
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("-> !"), s"Nothing did not map to !:\n$g")
+
+  test("a positional ctor destructure (`case Ctor(a, b) =>`) types each field from the ctor"):
+    // `case PI(target, data) => data.nonEmpty` (`uniml/xml`'s `Doc.scala`'s `serializeNode`,
+    // shape simplified here) — `data`'s type comes from `PI`'s OWN declared field type
+    // (`data: String`), never threaded to `ctx.localStrings` before this fix for a BARE
+    // (non-`@`-bound) positional destructure.
+    val src =
+      """```scalascript
+        |sealed trait Node
+        |case class PI(target: String, data: String) extends Node
+        |case class Text(chars: String) extends Node
+        |
+        |def render(n: Node): String = n match
+        |  case PI(target, data) => if data.nonEmpty then data else target
+        |  case Text(chars) => chars
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("data.is_empty()") || g.contains("!data.is_empty()"),
+      s"positional-destructure field isEmpty/nonEmpty did not lower:\n$g")
+
+  test("two companion objects each declaring their own `val default` don't shadow each other"):
+    // `object Limits: val default = Limits()` / `object XmlLimits: val default = XmlLimits()`
+    // (`uniml/xml`'s `Doc.scala`) — a SINGLE-owner `_topValOwners` map remembered only the LAST
+    // "default" registered, so `Limits.default` (referenced from XmlLimits's own ctor-default fill
+    // for its `core` field) matched neither the topval case NOR the def case and fell to the
+    // zero-arg-def-call fallback, which appended `()` to a VAL: `Limits.default()`,
+    // `error[E0423]: expected value, found struct Limits`. Two fixes needed at once: the topval's
+    // own PREAMBLE BINDING is qualified (`XmlLimits_default`) when the bare name is contested, and
+    // a topval's init referencing an EARLIER topval (rendered with no preamble mechanism live at
+    // all) gets that earlier topval's init text INLINED rather than a name reference.
+    val src =
+      """```scalascript
+        |final case class Limits(maxDepth: Long = 10L)
+        |
+        |object Limits:
+        |  val default: Limits = Limits()
+        |
+        |final case class XmlLimits(core: Limits = Limits.default, maxSize: Long = 100L)
+        |
+        |object XmlLimits:
+        |  val default: XmlLimits = XmlLimits()
+        |
+        |def useIt(): XmlLimits = XmlLimits.default
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(!g.contains("Limits.default") && !g.contains("XmlLimits.default"),
+      s"a companion topval reference should never keep the Scala dot-qualified spelling:\n$g")
+    assert(g.contains("Limits { maxDepth: 10i64 }"),
+      s"XmlLimits's own default-fill for `core` should inline Limits's already-known init:\n$g")
+    assert(g.contains("XmlLimits_default"),
+      s"the contested topval name should get an owner-qualified preamble binding:\n$g")
+
+  test("a local variable bare-shadowing a GLOBAL runtime intrinsic name stays a local reference"):
+    // Regression on the `isHexDigit` fix just above: that fix routed a bare `Term.Name` through
+    // `ctx.intrinsics` so a SIBLING def (flattened with an owner prefix) resolves when referenced
+    // as a value with no call. But `ctx.intrinsics` is SITE-3's per-def sibling map `++`-merged
+    // with `intrinsics0`, the GLOBAL runtime registry (`println`, `element`, …), unconditionally
+    // for every def — so `case element @ Shape.Box(w) => element.area` (a pattern-bind named
+    // "element", colliding with `std/ui`'s builtin `element(...)` builder) rewrote the LOCAL
+    // variable into `crate::runtime::ui::_ui_element`, the function itself:
+    // `error[E0609]: no field area on type fn(...) -> View {_ui_element}`. Fixed by gating the
+    // fallback on `ctx.userDefs.contains(target)` — true only for a def THIS MODULE generates
+    // (a genuine sibling call), never for a `crate::runtime::…` runtime intrinsic's own target.
+    val src =
+      """```scalascript
+        |case class Box(w: Long)
+        |
+        |def describe(b: Box): Long =
+        |  b match
+        |    case element @ Box(w) => element.w
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(!g.contains("_ui_element"), s"a local `element` bind must not resolve to the runtime intrinsic:\n$g")
+    assert(g.contains("element).w"), s"the local bind should still read its own field:\n$g")
+
+  test("an `object X extends Trait` used bare as a value gets a unit struct + forwarding impl"):
+    // `object PureMarkupCodec extends MarkupCodec: ...` (`uniml/xml`'s `Doc.scala`) referenced bare
+    // AS A VALUE (`case "pure" => PureMarkupCodec`, expected type `MarkupCodec` = `Rc<dyn
+    // MarkupCodec>`) — this backend flattens EVERY object's own members to free functions with no
+    // struct at all, so there was nothing to construct: `error[E0425]: cannot find value
+    // PureMarkupCodec in this scope`. `renderValueObjectImpl` gives such an object a zero-field
+    // unit struct + a THIN FORWARDING `impl Trait for X` (calling the already-flattened free
+    // functions, since an object's own methods never touch instance state).
+    //
+    // The wrap SITE moved when `dialectFor` (`uniml/markdown`'s `MarkdownDialect.scala`) landed:
+    // a dyn-trait-returning def whose body is a match over THREE different implementors cannot
+    // take `renderDef`'s whole-body `Rc::new(match …)` (the arms are distinct concrete types and
+    // must unify FIRST — `error[E0308]: match arms have incompatible types`), so the wrap is now
+    // pushed INTO each arm (`renderMatch`'s `wrapArm`), where every `Rc::new(ConcreteN)`
+    // unsize-coerces to the expected return type independently. The bare reference itself still
+    // renders unwrapped and receives exactly ONE `Rc::new` — per arm now, not whole-body — and a
+    // DIVERGING arm (the `throw`) stays unwrapped entirely: `Rc::new(panic!(…))` hands the never
+    // type to inference with nothing to pin it, rustc's fallback types it `()`, and the coercion
+    // to `Rc<dyn Codec>` fails (`error[E0277]` — this golden caught it the same round). Both
+    // shapes re-verified by a REAL `cargo build` of this exact source (/tmp/t156.scala) before
+    // the assertions below were rewritten.
+    val src =
+      """```scalascript
+        |trait Codec:
+        |  def id: String
+        |  def encode(x: Long): String
+        |
+        |object PureCodec extends Codec:
+        |  def id: String = "pure"
+        |  def encode(x: Long): String = x.toString
+        |
+        |object Codec:
+        |  def named(name: String): Codec = name match
+        |    case "pure" => PureCodec
+        |    case other  => throw new NoSuchElementException(s"no codec: $other")
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("pub struct PureCodec;"), s"value object should get a unit struct:\n$g")
+    assert(g.contains("impl Codec for PureCodec"), s"value object should get a forwarding impl:\n$g")
+    assert(g.contains("\"pure\" => std::rc::Rc::new(PureCodec),"),
+      s"the arm must carry exactly one per-arm Rc::new (the whole-body wrap cannot unify mixed-implementor arms):\n$g")
+    assert(!g.contains("Rc::new(std::rc::Rc::new"), s"the per-arm wrap must not stack on a whole-body wrap:\n$g")
+    assert(!g.contains("Rc::new(panic!"), s"a diverging throw arm must stay unwrapped (Rc::new(panic!) types as Rc<()>):\n$g")
+
+  test("a value object's trait member satisfied by a `val`, or by neither, is not force-forwarded"):
+    // Regression on the FIRST cut of `renderValueObjectImpl`, which blindly forwarded EVERY trait
+    // member to `${owner}_${member}()` — correct only when the object overrides the member as a
+    // genuine `def` (SITE 1 flattens that to a free function). `uniml/xml`'s real
+    // `PureMarkupCodec extends MarkupCodec` breaks that assumption two ways at once: `val id =
+    // "pure"` satisfies an ABSTRACT member with a VAL, not a def (no `PureMarkupCodec_id` free
+    // function was ever generated — `error[E0425]: cannot find function id`), and `Literal`/
+    // `XmlDialect extends DialectAdapter` (a SEPARATE trait) don't override `aliases` at all,
+    // relying on the trait's own DEFAULT body (same error, for a member the object never declared).
+    // Fixed with three-way per-member dispatch: forward a real `def` override; INLINE a `val`
+    // override's already-known init text (a topval, immutable, so re-evaluating it per call is
+    // exactly Scala's own single evaluation); OMIT a member the object does not override at all
+    // when the trait supplies its own default (Rust auto-inherits it — no override needed).
+    val src =
+      """```scalascript
+        |trait Codec:
+        |  def id: String
+        |  def describe(): String = "codec " + id
+        |
+        |object PureCodec extends Codec:
+        |  val id = "pure"
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("impl Codec for PureCodec"), s"value object should still get a forwarding impl:\n$g")
+    assert(g.contains("fn id(&self) -> String { \"pure\".to_string() }"),
+      s"a val-satisfied abstract member should inline its init, not forward to a nonexistent function:\n$g")
+    val implBlock = g.substring(g.indexOf("impl Codec for PureCodec"))
+    assert(!implBlock.contains("fn describe"),
+      s"a member the object never overrides, with a trait default, must be OMITTED from the impl (Rust inherits it from the trait declaration):\n$g")
+
+  test("global mutable companion-object state (`private var` in an `object`) uses a thread_local"):
+    // `object MarkupCodec: private var _default: MarkupCodec = PureMarkupCodec; def default =
+    // _default; def setDefault(codec) = _default = codec` (`uniml/xml`'s `Doc.scala`) — GLOBAL
+    // mutable state with no owning instance at all, unlike `Parser`'s per-instance `private var`s
+    // (`renderMutableClass`). No `self` exists to hang a field off, so this needs Rust's own answer
+    // for shared mutable state with no owner: `thread_local!` + `RefCell` (`Rc<dyn Trait>` is not
+    // `Sync`, so a plain `static` + `Mutex` could not hold it at all). A bare READ inside the SAME
+    // object (`_default`) becomes `.with(|c| c.borrow().clone())`; a bare WRITE (`_default = codec`)
+    // becomes `.with(|c| *c.borrow_mut() = …)`. The read is ALSO the regression case for a SEPARATE
+    // bug this feature exposed: `default`'s OWN return type is the dyn trait, so `renderDef`'s
+    // existing whole-body "wrap in Rc::new if returning a dyn trait" fired a SECOND Rc::new on top
+    // of the thread_local's own already-`Rc<dyn Trait>`-typed read.
+    val src =
+      """```scalascript
+        |trait Codec:
+        |  def id: String
+        |
+        |object PureCodec extends Codec:
+        |  def id: String = "pure"
+        |
+        |object Codec:
+        |  private var _default: Codec = PureCodec
+        |  def default: Codec = _default
+        |  def setDefault(codec: Codec): Unit = _default = codec
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("thread_local!"), s"a companion mutable var should render as a thread_local:\n$g")
+    assert(g.contains("RefCell<std::rc::Rc<dyn Codec>>"),
+      s"the thread_local should hold the field's own dyn-trait type:\n$g")
+    assert(g.contains(".with(|c| c.borrow().clone())"), s"a bare read should borrow+clone:\n$g")
+    assert(g.contains(".with(|c| *c.borrow_mut() = "), s"a bare write should borrow_mut+assign:\n$g")
+    assert(!g.contains("Rc::new(CODEC"),
+      s"the read must NOT be double-wrapped by the def's own dyn-trait return-wrap:\n$g")
+
+  test("a topval referenced inside a LIFTED LOCAL fn item is inlined, not captured"):
+    // `object XmlDialect: val id = "xml.1.0"` referenced (bare AND qualified) from inside a local
+    // `def` that `liftLocalDefs` lifts to a real Rust `fn` item (`eofDiagnostic`, `uniml/xml`'s
+    // `Doc.scala`'s `scan`) — a Rust `fn` item, unlike a closure, cannot capture ANYTHING from its
+    // enclosing scope, including the `let id = "xml.1.0".to_string();` preamble line the OUTER
+    // function gets. `liftLocalDefs`'s own capture-analysis `pool` never tracked topvals at all (only
+    // locals/params/self-fields), so this reached rustc as `error[E0434]: can't capture dynamic
+    // environment in a fn item`. Fixed by INLINING the topval's own init text wherever `Ctx.
+    // inLiftedFn` is set, instead of naming the (here, nonexistent) outer binding.
+    val src =
+      """```scalascript
+        |object Dialect:
+        |  val id: String = "xml"
+        |
+        |def useIt(x: Long): String =
+        |  def helper(n: Long): String =
+        |    Dialect.id + n.toString
+        |  helper(x)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("fn helper("), s"the local def should still be lifted to a Rust fn item:\n$g")
+    val fnBlock = g.substring(g.indexOf("fn helper("))
+    assert(fnBlock.contains("\"xml\".to_string()"),
+      s"the lifted fn's body should INLINE the topval's init text:\n$g")
+    assert(!fnBlock.take(fnBlock.indexOf('}')).contains(" id"),
+      s"the lifted fn's body must not reference an outer `id` binding it cannot capture:\n$g")
+
+  test("`String.valueOf(c)` on a Char lowers to `.to_string()`"):
+    // `String.valueOf(code.toChar)` (`uniml/xml`'s `Doc.scala`'s `numericReferenceValue`) — Java's
+    // static factory reached through Scala's implicit companion. `String` is a Rust TYPE name, not
+    // a value, so the generic Apply path rendered it as a field access on a type:
+    // `error[E0423]: expected value, found struct String`. `.toChar` itself renders as `i64` (this
+    // lane's SscChar convention, see its own test), so THIS call site is where the code point widens
+    // back to a real displayable `char` via `char::from_u32`.
+    val src =
+      """```scalascript
+        |def toStr(code: Long): String = String.valueOf(code.toChar)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("char::from_u32") && g.contains(".to_string()"),
+      s"String.valueOf(c.toChar) should widen the code point back to a char, then to_string():\n$g")
+    assert(!g.contains("String.valueOf"), s"the Scala spelling must not survive verbatim:\n$g")
+
+  test("`.toChar` renders as `i64` (this lane's Char convention), not a real Rust `char`"):
+    // `private def cur: Char = if pos < src.length then src.charAt(pos) else 0.toChar`
+    // (`uniml/xml`'s `Doc.scala`'s `Parser`) — `.charAt` yields a genuine `SscChar` newtype (`i64`);
+    // `.toChar` used to render `char::from_u32(…).unwrap_or(…)`, a REAL Rust `char` — two different
+    // types as sibling `if`/`else` branches of a function declared to return `i64` (`Char` maps to
+    // `i64` uniformly on this lane). Both errors this test pins: `.toChar` now matches `i64`
+    // directly, and the `.charAt` branch gets its OWN `.0` unwrap to match it (the general
+    // "exactly one branch is a bare `.charAt` call" rule in the plain `Term.If` renderer).
+    val src =
+      """```scalascript
+        |class Scanner(src: String):
+        |  private var pos = 0
+        |  def cur: Long = if pos < src.length then src.charAt(pos) else 0.toChar
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("-> i64"), s"cur should return i64:\n$g")
+    assert(!g.contains("char::from_u32"), s".toChar should no longer produce a real char:\n$g")
+    assert(g.contains(").0"), s"the .charAt branch should get its own .0 unwrap to unify with .toChar's i64:\n$g")
+
+  test("a self-method call coerces an SscChar argument to i64, same as an ordinary call"):
+    // `self.isXmlSpace(self.cur())` (`uniml/xml`'s `Doc.scala`'s `Parser`) — `cur`'s OWN declared
+    // Scala return type is `Char` (this lane's SscChar/`i64` convention), and `isXmlSpace(c: Long)`
+    // declares a plain `i64` parameter — Scala's own `Char` unifies with nothing extra, but the
+    // self-method-call dispatch (added only to inject the `self.` receiver) bypassed the ordinary
+    // call path's `_paramTypes`-driven SscChar coercion entirely, so no `.0` unwrap ever reached
+    // this call: `error[E0308]: expected i64, found SscChar`.
+    val src =
+      """```scalascript
+        |class Scanner(src: String):
+        |  private var pos = 0
+        |  def cur: Long = if pos < src.length then src.charAt(pos) else 0L
+        |  def isSpace(c: Long): Boolean = c == 32L
+        |  def atSpace(): Boolean = isSpace(cur)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("self.isSpace(") && g.contains(").0"),
+      s"a self-method call with an SscChar-yielding argument should unwrap it with .0:\n$g")
+
+  test("`throw CustomError(msg, extra)` on a multi-field exception panics with just its `message` field"):
+    // `throw ParseError(msg, line, col)` (`uniml/xml`'s `Doc.scala`'s `Parser.err`) — a user-declared
+    // MULTI-FIELD exception (`case class ParseError(message: String, line: Int, column: Int)
+    // extends RuntimeException(...)`); the single-arg ctor case never matched it and it fell to a
+    // verbatim `panic!("{}", ParseError { ... })`, `error[E0277]: ParseError doesn't implement
+    // Display` (no generated struct derives one). The `message` field is exactly what `.getMessage`
+    // already reads elsewhere for the identical reason.
+    val src =
+      """```scalascript
+        |case class CustomError(message: String, code: Long) extends RuntimeException(message)
+        |
+        |def fail(msg: String, code: Long): Unit = throw CustomError(msg, code)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("""panic!("{}", msg)"""), s"the throw should panic with just the message field:\n$g")
+
+  test("catching into a multi-field exception TYPE reconstructs the struct, not a bare String"):
+    // `try ... catch case e: ParseError => Left(e)` (`uniml/xml`'s `Doc.scala`'s `parse`) — this
+    // target's catch mechanism only ever recovers a `String` message from a caught panic; a TYPED
+    // bind (`case e: ParseError`) used to discard the type entirely and bind `e` as that bare
+    // String, so `Left(e)` (needing a `ParseError`) got `error[E0308]: expected ParseError, found
+    // String`. Reconstructs the struct instead: `message` from the caught string, every OTHER field
+    // (no way to recover it from a caught panic) from a type-appropriate zero literal.
+    val src =
+      """```scalascript
+        |case class MyError(message: String, line: Long, column: Long) extends RuntimeException(message)
+        |
+        |def safeRun(f: () => Long): Either[MyError, Long] =
+        |  try Right(f())
+        |  catch case e: MyError => Left(e)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("MyError { message: __msg, line: 0i64, column: 0i64 }") ||
+           g.contains("MyError { message: __msg, column: 0i64, line: 0i64 }"),
+      s"the catch should reconstruct the full struct with a zero placeholder for non-message fields:\n$g")
+
+  test("`opt.fold(ifEmpty)(f)` lowers to `.map_or`, cloning a multi-use default"):
+    // `prefix.fold(localName)(p => s"$p:$localName")` (`uniml/xml`'s `Doc.scala`'s `QName.toXml`)
+    // — Scala's CURRIED `Option.fold`, which Rust's `Option` has no equivalent method for at all
+    // (`error[E0599]`). `.map_or(ifEmpty, f)` is the direct equivalent; `localName` appearing as
+    // BOTH the default value and again inside `f`'s own closure needed a `.clone()` on the first
+    // use — a genuine `error[E0382]: use of moved value` without it.
+    val src =
+      """```scalascript
+        |def describe(prefix: Option[String], localName: String): String =
+        |  prefix.fold(localName)(p => s"$p:$localName")
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".map_or("), s"Option.fold should lower to .map_or:\n$g")
+    assert(g.contains("localName.clone()"), s"the multi-use default should be cloned:\n$g")
+
+  test("a struct-typed (non-variant) parameter needs no let-else destructure"):
+    // `parentName: Markup.QName` (`uniml/xml`'s `Doc.scala`'s `readContent`) — `QName` is a plain
+    // STRUCT, not an enum variant, so `parentName.localName` already works as ordinary Rust field
+    // access. The destructure-preamble mechanism (built for a TRUE variant parameter, `instruction:
+    // VmInstruction.Reframe`, where an unchecked `.field` read on the whole enum is illegal) matched
+    // ANY qualified type with non-empty fields, missing the `!isStruct` check — `let QName::QName {
+    // ... } = ...`, `error[E0223]: ambiguous associated type` (not even valid Rust for a struct).
+    val src =
+      """```scalascript
+        |object Markup:
+        |  case class QName(prefix: Option[String], localName: String)
+        |
+        |def describe(parentName: Markup.QName): String = parentName.localName
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(!g.contains("QName::QName"), s"a struct parameter must not get an enum-variant destructure:\n$g")
+    assert(g.contains("parentName.localName") || g.contains("parentName.local_name"),
+      s"the struct field should be read via ordinary field access:\n$g")
+
+  test("`.copy` on a `.map` closure param resolves the element type through a `.filter` chain"):
+    // `element.attrs.filter(pred).map { attribute => attribute.copy(...) }` (`uniml/xml`'s
+    // `Doc.scala`'s `resolveElement`) — the receiver is a CHAIN (a struct field access piped
+    // through `.filter`), not a bare name, so the closure param `attribute` reached its body with
+    // no known type at all: `error[E0599]: no method named copy found for struct Attr` (blaming the
+    // struct for a gap in element-type propagation, not the struct itself).
+    val src =
+      """```scalascript
+        |case class Attr(name: String, value: String)
+        |case class Elem(attrs: List[Attr])
+        |
+        |def clean(e: Elem): List[Attr] =
+        |  e.attrs.filter(a => a.name != "").map { attribute => attribute.copy(value = attribute.value.trim) }
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(!g.contains("attribute.copy("), s"a resolved .copy() call should lower to a struct-update literal, not stay verbatim:\n$g")
+    assert(g.contains("Attr {"), s".copy should lower to a struct-update literal for the resolved Attr type:\n$g")
+
+  test("`.getMessage` on a closure param typed via a QUALIFIED `Either`-returning call resolves"):
+    // `PureMarkupCodec.parse(source).left.map(error => error.getMessage)` (`uniml/xml`'s
+    // `Doc.scala`'s `parseMarkup`) — `eitherSideCtorName`'s ORIGINAL case only matched a BARE call
+    // (`Term.Name(fn)`); `PureMarkupCodec.parse(...)` is QUALIFIED (`Term.Select(_, Term.Name(fn))`)
+    // and never matched at all, so `error`'s type was never recovered and `.getMessage` on it fell
+    // through unresolved: `error[E0609]: no field getMessage on type ParseError`. Reads the
+    // COLLISION-SAFE `_ownedDefBodies` (keyed by `(owner, member)`), not the bare-name `_defBodies`
+    // — this corpus has FOUR distinct `def parse(...)`, and the bare-name table only ever holds one.
+    val src =
+      """```scalascript
+        |case class MyError(message: String)
+        |
+        |object Codec:
+        |  def parse(s: String): Either[MyError, Long] = Right(s.length)
+        |
+        |def useIt(s: String): Either[String, Long] =
+        |  Codec.parse(s).left.map(error => error.getMessage)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".message"), s"error.getMessage should resolve to .message via the qualified call's Either type:\n$g")
+    assert(!g.contains(".getMessage"), s"the Scala spelling must not survive verbatim:\n$g")
+
+  test("`sb.append(cur)` still pushes a char while `self.isNameStart(self.cur())` needs no `.0`"):
+    // Regression check on splitting `yieldsSscChar` in two: `sb.append(cur)` (append a bare
+    // self-method's Char-typed result) still needs `char::from_u32` (the BROADER
+    // `isConceptuallyChar`), while `self.isNameStart(self.cur())` (an ordinary i64 argument, since
+    // `cur`'s own if/else already unifies to plain i64) must NOT get a bogus `.0` unwrap — the
+    // FIRST fix (widening `yieldsSscChar` itself) briefly added that bogus `.0`:
+    // `error[E0610]: i64 is a primitive type and therefore doesn't have fields`.
+    val src =
+      """```scalascript
+        |class Scanner(src: String):
+        |  private var pos = 0
+        |  def cur: Char = if pos < src.length then src.charAt(pos) else 0.toChar
+        |  def isNameStart(c: Long): Boolean = c > 0
+        |  def readName(): Boolean =
+        |    val sb = StringBuilder()
+        |    sb.append(cur)
+        |    isNameStart(cur)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("char::from_u32"), s"sb.append(cur) should still push a char:\n$g")
+    assert(!g.contains("self.isNameStart(") || !g.contains(").0)"),
+      s"an ordinary i64 argument must not get a bogus .0 unwrap:\n$g")
+
+  test("a boxed recursive enum-variant field derefs to the plain type it was declared as"):
+    // `doc.root: Elem` (`uniml/xml`'s `Doc.scala`'s `Doc`) — `Elem` is a SIBLING variant of the same
+    // enum `Doc` belongs to, so the struct boxes the field for enum sizing (`ec.boxedFields`).
+    // Reading it via the enum-variant field-read match cloned the `Box`, not the value inside it:
+    // `error[E0308]: expected Node, found Box<Node>`.
+    val src =
+      """```scalascript
+        |sealed trait Node
+        |case class Doc(root: Elem) extends Node
+        |case class Elem(name: String, children: List[Node] = Nil) extends Node
+        |
+        |def describe(node: Node): String = node match
+        |  case d: Doc => d.root.name
+        |  case e: Elem => e.name
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("*root"), s"a boxed recursive field read should deref the box:\n$g")
+
+  test("`s * n` (String repeat) lowers to `.repeat(n as usize)`"):
+    // `opts.indent * depth` (`uniml/xml`'s `Doc.scala`'s `serializeNode`) — Scala's `StringOps.*`
+    // repeats the string; reached rustc as literal multiplication, `error[E0369]: cannot multiply
+    // String by i64` (`String` has no `Mul` at all).
+    val src =
+      """```scalascript
+        |case class Opts(indent: String)
+        |def pad(opts: Opts, depth: Long): String = opts.indent * depth
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".repeat("), s"String * Int should lower to .repeat(n as usize):\n$g")
+
+  test("a StringBuilder PARAMETER (not just a local) is emitted `mut`"):
+    // `def serializeNode(node: Node, sb: StringBuilder, ...)`, mutated via recursive calls
+    // (`uniml/xml`'s `Doc.scala`) — `renderLetBinding`'s own `let mut` only ever covered a LOCAL
+    // StringBuilder; a PARAMETER never got `mut` at all: `error[E0596]: cannot borrow sb as
+    // mutable, as it is not declared as mutable`.
+    val src =
+      """```scalascript
+        |def write(sb: StringBuilder, s: String): Unit = sb.append(s)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("mut sb: String"), s"a StringBuilder parameter should be emitted mut:\n$g")
+
+  test("a local bound via tuple-destructure from a collection-of-tuples method call knows its ctor"):
+    // `val (element, inherited) = stack.remove(stack.size - 1)` where `stack: ArrayBuffer[(Elem,
+    // Map[...])]` was built from `ArrayBuffer((root, Map(...)))` (`uniml/xml`'s `Doc.scala`'s
+    // `validateNamespaces`) — `element`'s own ctor name (`Elem`, threaded from the parameter `root`
+    // through the tuple literal) was invisible everywhere: no def parameter, no field, just a local
+    // bound from a collection method call. `element.name` (an enum-variant field, needing the
+    // enum-field-read match) fell through to plain field access: `error[E0609]: no field name on
+    // type Node`.
+    val src =
+      """```scalascript
+        |sealed trait Node
+        |case class Elem(name: String, children: List[Node] = Nil) extends Node
+        |
+        |import scala.collection.mutable.ArrayBuffer
+        |
+        |def walk(root: Elem): String =
+        |  val stack = ArrayBuffer((root, 0))
+        |  val (element, depth) = stack.remove(stack.size - 1)
+        |  element.name
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("Node::Elem"), s"element.name should resolve via an enum-variant field-read match:\n$g")
+
+  test("`xs.reverseIterator.foreach(f)` is not shadowed by the ungated generic `.foreach` arm"):
+    // `element.children.reverseIterator.foreach(child => …)` (`uniml/xml`'s `Doc.scala`'s
+    // `validateNamespaces`) — the generic `xs.foreach(f)` arm has NO receiver-type guard at all (by
+    // design, so the method name stays visible before the receiver's type is known) and is
+    // positioned textually BEFORE the dedicated `.reverseIterator.foreach` case, so it ALWAYS won
+    // first: `qual` rendered as a bare `Select(inner, "reverseIterator")`, which nothing else knows
+    // how to render — a LATENT bug, invisible until `isKnownVecReceiver` learned to recognize the
+    // receiver at all (before that, the guard on the REFUSAL check for an unhandled no-paren member
+    // was ALSO false, so the wrong rendering passed silently instead of being caught).
+    val src =
+      """```scalascript
+        |def walk(xs: List[Long]): Long =
+        |  var total = 0L
+        |  xs.reverseIterator.foreach(x => total = total + x)
+        |  total
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".rev()"), s"xs.reverseIterator.foreach should lower via the dedicated .rev() case:\n$g")
+
+  test("a boxed field OVERRIDE in an enum-variant `.copy` gets the same `Box::new` wrap"):
+    // `document.copy(root = resolveElement(document.root, …))` (`uniml/xml`'s `Doc.scala`'s
+    // `parse`) — `root` is a boxed recursive field (`ec.boxedFields`); the non-overridden branch
+    // already re-clones the ORIGINAL `Box<Node>` bare, but an override value is a plain `Node`
+    // (whatever the caller's own expression produced) and needs the SAME `Box::new(…)` wrap the
+    // ordinary constructor path already applies: `error[E0308]: expected Box<Node>, found Node`
+    // without it.
+    val src =
+      """```scalascript
+        |object Markup:
+        |  sealed trait Node
+        |  case class Doc(root: Elem) extends Node
+        |  case class Elem(name: String, children: List[Node] = Nil) extends Node
+        |
+        |def resolve(e: Markup.Elem): Markup.Elem = e
+        |
+        |def fix(doc: Markup.Doc): Markup.Doc = doc.copy(root = resolve(doc.root))
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("root: Box::new("), s"an overridden boxed field should get Box::new(...):\n$g")
+
+  test("a default arg is filled for a QUALIFIED call too, not just a bare one"):
+    // `PureMarkupCodec.parse(source)` (`uniml/xml`'s `Doc.scala`'s `parseMarkup`) — `parse`'s own
+    // `dialect: Dialect = Dialect.Xml1_0` default was never filled for a QUALIFIED call at all (the
+    // existing fill logic only ever matched a bare `Term.Name`): `error[E0061]: this function takes
+    // 2 arguments but 1 argument was supplied`. Reads the collision-safe `_ownedDefBodies` (this
+    // corpus has four `def parse`), not a bare-name table.
+    val src =
+      """```scalascript
+        |case class Dialect(name: String)
+        |object Dialect:
+        |  val Default: Dialect = Dialect("default")
+        |
+        |object Codec:
+        |  def parse(src: String, dialect: Dialect = Dialect.Default): String = src
+        |
+        |def useIt(src: String): String = Codec.parse(src)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("parse(src, ") || g.contains("parse(src,"),
+      s"the qualified call should get its default argument filled:\n$g")
+
+  test("`opt.orElse(other)` renames to `.or_else(|| other)`"):
+    // `name.prefix.flatMap(…).orElse(bindings.get(""))` (`uniml/xml`'s `Doc.scala`'s
+    // `resolveElement`) — `Option::orElse` is not Rust's spelling at all: `error[E0599]: no method
+    // named orElse found`.
+    val src =
+      """```scalascript
+        |def pick(a: Option[String], b: Option[String]): Option[String] = a.orElse(b)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".or_else(|| "), s"Option.orElse should rename to .or_else(|| ...):\n$g")
+
+  test("`s.count(p)` on a String lowers via `.chars().filter(p).count()`"):
+    // `lexeme.count(|__p0| ...)` (`uniml/xml`'s `Doc.scala`) — Rust's `Iterator` has no
+    // `.count(predicate)`, only `.count()`; `Iterator::filter`'s OWN signature takes `&Item`
+    // (unlike `.all`/`.any`), so the predicate's own `__ch` needs an EXTRA deref its
+    // `.forall`/`.exists` siblings do not.
+    val src =
+      """```scalascript
+        |def countColons(s: String): Long = s.count(c => c == ':')
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".filter(") && g.contains(".count()"), s"String.count(p) should lower via .chars().filter(p).count():\n$g")
+    assert(g.contains("(*__ch)") || g.contains("*__ch"), s"the filter closure's own &char param needs a deref:\n$g")
+
+  test("a struct-field STRING LITERAL pattern bubbles an equality guard into the arm"):
+    // `case QName(None, "xmlns", _) =>` (`uniml/xml`'s `Doc.scala`'s `namespaceDeclaration`) — a
+    // string LITERAL matched against a struct field whose Rust type is an OWNED `String`; only
+    // `&str`/`str` support a literal pattern at all: `error[E0308]: expected String, found &str`.
+    val src =
+      """```scalascript
+        |object Markup:
+        |  case class QName(prefix: Option[String], localName: String, namespace: Option[String])
+        |
+        |def isXmlnsDecl(q: Markup.QName): Boolean = q match
+        |  case Markup.QName(None, "xmlns", _) => true
+        |  case _ => false
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(!g.contains("localName: \"xmlns\""), s"the literal must not stay a struct-field literal pattern:\n$g")
+    assert(g.contains("== \"xmlns\""), s"the literal should become an equality guard on the arm:\n$g")
+
+  test("bare no-paren `Option.get` lowers to `.unwrap()`"):
+    // `lexed.issue.get` (`uniml/json`'s `JsonLexer.scala`) — Scala's no-paren `Option.get` had no
+    // lowering, falling to the field-select path: `error[E0609]: no field get on type Option<T>`.
+    val src =
+      """```scalascript
+        |def unwrapIt(x: Option[String]): String = x.get
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".unwrap()"), s"bare Option.get must lower to .unwrap():\n$g")
+
+  test("a LIFTED local def's own parameter of a bare-typed variant supports `.copy`"):
+    // `def consumeKey(frame: ObjectFrame): Unit = … frame.copy(state = …) …` (`uniml/json`'s
+    // `JsonStructure.scala`) — a lifted local def's OWN (non-captured) parameters never
+    // populated `paramCtorNames` at all (only the top-level `renderDef` does, before
+    // `liftLocalDefs` splits a nested def out): `error[E0599]: no method named copy found for
+    // enum Frame` (frame's Rust type collapses to its owning enum; `.copy` needs the original
+    // specific variant to rebuild via match).
+    val src =
+      """```scalascript
+        |sealed trait Frame
+        |final case class ObjectFrame(state: Boolean) extends Frame
+        |
+        |def scan(): Frame =
+        |  def consumeKey(frame: ObjectFrame): Frame =
+        |    frame.copy(state = true)
+        |
+        |  consumeKey(ObjectFrame(false))
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("Frame::ObjectFrame { state: true }"), s"a lifted def's own param must support .copy via match-rebuild:\n$g")
+
+  test("a match used as a statement unifies arms whose natural Rust types disagree"):
+    // `frame.state match { case A => closeObject(); case B => if cond then closeArray(…) else
+    // consumeValue(…) }` (`uniml/json`'s `JsonStructure.scala`) — `closeObject`/`closeArray`
+    // return `()`, `consumeValue` returns `bool`; Scala freely discards the mismatch in
+    // statement position, but Rust's `match`/`if` require every arm/branch to unify to ONE type
+    // FIRST, before a trailing `;` can discard the whole thing: `error[E0308]: if and else have
+    // incompatible types`.
+    val src =
+      """```scalascript
+        |def closeIt(): Unit = ()
+        |def consumeValue(x: Int): Boolean = x > 0
+        |
+        |def step(x: Int, flag: Boolean): Unit =
+        |  x match
+        |    case 0 => closeIt()
+        |    case _ => if flag then closeIt() else consumeValue(x)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("consumeValue(x);"), s"a non-unit branch used as a statement must get a trailing `;`:\n$g")
+
+  test("`xs.filterNot(p)` lowers via a negated predicate"):
+    // `result.roots.filterNot(isTriviaNode)` (`uniml/json`'s `JsonProjection.scala`) — this
+    // backend had no lowering for `filterNot` at all; it would have been emitted verbatim as a
+    // Rust method that does not exist.
+    val src =
+      """```scalascript
+        |def isEven(x: Int): Boolean = x % 2 == 0
+        |def odds(xs: List[Int]): List[Int] = xs.filterNot(isEven)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".filter(|__x| !(isEven)(__x.clone()))"), s"filterNot must lower via a negated filter:\n$g")
+
+  test("`Map.empty[K, V]` (explicit type args) lowers the same as bare `Map.empty`"):
+    // `Map.empty[String, JsonValue]` (`uniml/json`'s `JsonProjection.scala`'s `objectMap`) parses
+    // as `Term.ApplyType` wrapping the same `Term.Select` the bare `Map.empty` case matches — a
+    // shape neither case matched at all: "contains an unsupported expression: Term.ApplyType".
+    val src =
+      """```scalascript
+        |def empty(): Map[String, Int] = Map.empty[String, Int]
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("std::collections::HashMap::new()"), s"Map.empty[K, V] must lower like bare Map.empty:\n$g")
+
+  test("a match-arm typed bind to a BARE (unqualified) with-fields variant destructures, not just a qualified one"):
+    // `case frame: ObjectFrame => frame.state match { … }` (`uniml/json`'s `JsonStructure.scala`)
+    // — `ObjectFrame` is a TOP-LEVEL case class (never nested in an object), so its pattern is a
+    // bare `Type.Name`, not `Type.Select`. `renderPattern`'s own with-fields-variant case required
+    // `Type.Select` specifically, so the pattern fell through to the generic "drop the type, keep
+    // the binder" case — an untyped catch-all with no destructure — while `bodyCtx` (a SEPARATE,
+    // already-general case) still believed `frame` was destructured: `error[E0425]: cannot find
+    // value state`, since the inner `frame.state match { … }` rendered as bare `match state`.
+    val src =
+      """```scalascript
+        |sealed trait Frame
+        |final case class ObjectFrame(state: Boolean) extends Frame
+        |
+        |def consumeKey(frame: ObjectFrame): Unit = ()
+        |
+        |def step(f: Frame): Unit =
+        |  f match
+        |    case frame: ObjectFrame =>
+        |      frame.state match
+        |        case true => consumeKey(frame)
+        |        case false => ()
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("ref frame @ Frame::ObjectFrame { ref state }"), s"a bare-typed with-fields bind must destructure:\n$g")
+    // `(*state)` — `state` is now ALSO `byRefMut` (the `emailLocalBackscan` field-deref fix), so the
+    // inner match's subject derefs the same way an outer bind's own reads always have; matching
+    // `true`/`false` against a `bool` works identically either way (verified via a real `cargo
+    // build`, /tmp/t96.scala this session).
+    assert(g.contains("match state {") || g.contains("match (*state) {"),
+      s"the inner match must see the destructured field, not a dangling name:\n$g")
+
+  test("`.map { case x: Variant => x }` (a PartialFunction dispatcher) applies the SAME byRefMut enrichment `renderMatch` gives a standalone match"):
+    // `element.children.collect { case child: Markup.Element => child }` (`uniml/xml`'s
+    // `Doc.scala`'s `validateNamespaces`) — this shape reaches a SEPARATE, simpler renderer (for a
+    // PartialFunction passed directly to `.map`/`.filter`/`.collect`) that never applied
+    // `renderMatch`'s own per-arm enrichment (byRefMut, paramTypes, …) at all — a REF-BOUND typed
+    // match-arm binder used at a by-value position (returned bare here) needs it the same way a
+    // standalone `match` statement's arm does.
+    val src =
+      """```scalascript
+        |object Markup:
+        |  sealed trait Node
+        |  case class Elem(name: String, children: List[Node] = Nil) extends Node
+        |  case class Text(chars: String) extends Node
+        |
+        |def onlyElems(xs: List[Markup.Node]): List[Markup.Elem] =
+        |  xs.collect { case e: Markup.Elem => e }
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("ref e @"), s"the typed bind should still render as a ref-bound pattern:\n$g")
+
+  test("a sibling lifted local def's OWN `val quote = s.charAt(i)` does not pollute another sibling's unrelated `var quote: Char`"):
+    // `uniml/xml`'s `Doc.scala`: `scanDoctype`'s own `var quote: Char = ' '` (a plain i64, never
+    // `.charAt`) collided with a SIBLING scanner's `val quote = input.charAt(index)` — both were
+    // walked from their shared enclosing def's body by the same flat, non-scoped
+    // `collectLocalSscChars` `Set[String]`, so `quote` landed in `localSscChars` for BOTH,
+    // suppressing the `.0` coercion `quote = char` needs (`lhsIsSscChar` read true for the WRONG
+    // reason): `error[E0308]: expected i64, found SscChar`. Fixed by not descending into a nested
+    // local def's OWN body when collecting ITS sibling's SscChar-bound names.
+    val src =
+      """```scalascript
+        |def scan(input: String): Char =
+        |  def readAttrQuote(): Char =
+        |    val quote = input.charAt(0)
+        |    quote
+        |
+        |  def scanDoctype(): Char =
+        |    var quote: Char = ' '
+        |    val char = input.charAt(1)
+        |    quote = char
+        |    quote
+        |
+        |  readAttrQuote()
+        |  scanDoctype()
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("quote = (char).0"), s"scanDoctype's own `quote` must still get the `.0` unwrap:\n$g")
+
+  test("`.collect { case p if guard(outer) => … }` does not `move` a name the def reads again afterward"):
+    // `Xml.validate` (`uniml/xml`'s `Doc.scala`): `document.docType.toVector.collect { case
+    // docType if docType.name != document.root.name.toXml => … }` then `validateNamespaces(
+    // document.root)` right after — a `move |__c| …` closure takes OWNERSHIP of `document` even
+    // though the guard only ever borrows it, so the later read found it already moved:
+    // `error[E0382]: borrow of moved value: document`. Dropping `move` (this closure is consumed
+    // synchronously by `.filter_map`, never stored) lets it borrow instead.
+    val src =
+      """```scalascript
+        |case class Item(name: String)
+        |case class Doc(tag: String, items: List[Item])
+        |
+        |def validate(doc: Doc): List[Item] = doc.items
+        |
+        |def flagged(doc: Doc): List[Item] =
+        |  val bad = doc.items.collect { case it if it.name != doc.tag => it }
+        |  bad ++ validate(doc)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(!g.contains("move |__c|"), s"a synchronously-consumed filter_map closure must not `move`:\n$g")
+
+  test("`.map { case p if guard(outer) => … }` (bare PartialFunction) does not `move` either"):
+    // The general PartialFunction-in-`.map`/`.filter`/… renderer (a few hundred lines above the
+    // `.collect`-specific one) has the identical `move |__pf| …` shape and the identical
+    // capture-then-reuse-after-move exposure.
+    val src =
+      """```scalascript
+        |case class Item(name: String)
+        |case class Doc(tag: String, items: List[Item])
+        |
+        |def validate(doc: Doc): List[Item] = doc.items
+        |
+        |def relabelled(doc: Doc): List[Item] =
+        |  val out = doc.items.map {
+        |    case it if it.name == doc.tag => it
+        |    case it => it
+        |  }
+        |  out ++ validate(doc)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(!g.contains("move |__pf|"), s"a synchronously-consumed map closure must not `move`:\n$g")
+
+  test("`set.add(x)` clones a multi-use argument"):
+    // `declaredPrefixes.add(prefix)` then `prefix` read again later in the same match arm
+    // (`uniml/xml`'s `Doc.scala`'s `validateNamespaces`) — `HashSet::insert` takes its argument
+    // by value; this rename never called `cloneIfMoved` on it: `error[E0382]: borrow of moved
+    // value: prefix`.
+    val src =
+      """```scalascript
+        |def check(prefix: String): Boolean =
+        |  val seen = scala.collection.mutable.HashSet.empty[String]
+        |  seen.add(prefix)
+        |  prefix.nonEmpty
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".insert(prefix.clone())"), s"the Set.add argument must be cloned:\n$g")
+
+  test("a `Map(k -> v)` literal clones a multi-use key AND value"):
+    // `Map(XmlNamespace -> XmlNamespaceUri)` then `XmlNamespaceUri` read again later in the same
+    // function (`uniml/xml`'s `Doc.scala`'s `validateNamespaces`) — neither the key nor the value
+    // in a map literal had ever been routed through `cloneIfMoved` (only the key-mentioned-in-
+    // value special case did): `error[E0382]: borrow of moved value: XmlNamespaceUri`.
+    val src =
+      """```scalascript
+        |def build(k: String, v: String): Map[String, String] =
+        |  val m = Map(k -> v)
+        |  println(v)
+        |  m
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("v.clone()"), s"the map literal's multi-use value must be cloned:\n$g")
+
+  test("`.collect{}`'s implicit `Some(...)` wrap clones a `byRefMut` arm body"):
+    // `element.children.collect { case child: Markup.Element => child }` (`uniml/xml`'s
+    // `Doc.scala`'s `validateNamespaces`) — `child` is a `byRefMut` typed-variant bind
+    // (deref-on-read to `(*child)`), and THIS arm's implicit `Some(...)` wrap (the backend's own
+    // `.collect` lowering, not a user-written `Some(x)` call) never routed it through
+    // `cloneIfMoved`: `error[E0507]: cannot move out of *child, which is behind a shared
+    // reference`.
+    val src =
+      """```scalascript
+        |object Markup:
+        |  sealed trait Node
+        |  case class Elem(name: String, children: List[Node] = Nil) extends Node
+        |  case class Text(chars: String) extends Node
+        |
+        |def onlyElems(xs: List[Markup.Node]): List[Markup.Elem] =
+        |  xs.collect { case e: Markup.Elem => e }
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("Some((*e).clone())"), s"the implicit Some(...) wrap must clone the byRefMut body:\n$g")
+
+  test("a tuple literal clones a multi-use element"):
+    // `child => stack += ((child, bindings))` inside a loop run once per element (`uniml/xml`'s
+    // `Doc.scala`'s `validateNamespaces`) — `bindings` is a captured `var`, moved into the tuple
+    // on the FIRST iteration with nothing left for the rest: `error[E0382]: use of moved value:
+    // bindings, in previous iteration of loop`. `renderTupleElems` now runs every tuple element
+    // through `cloneIfMoved`.
+    val src =
+      """```scalascript
+        |def build(xs: List[Int]): List[(Int, String)] =
+        |  var bindings = "b"
+        |  xs.map(x => (x, bindings))
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("bindings.clone()"), s"the tuple's multi-use element must be cloned:\n$g")
+
+  test("a lifted def that only READS a captured var takes `&T`, not `&mut T`"):
+    // `scanOpaque(validate, elements, …)` (`uniml/xml`'s `Doc.scala`'s `scanCData`) — `scanOpaque`
+    // only ever reads `elements.nonEmpty`, but every lifted def took `&mut T` for ANY var-capture
+    // unconditionally, so its OWN closure argument (which also captures `elements`) needed a
+    // reborrow that collided with the trailing plain `elements` forward in the SAME call —
+    // `error[E0499]: cannot borrow *elements as mutable more than once at a time`. A def whose
+    // transitive call subtree never WRITES a var-capture now takes `&T` (shared, `Copy`) instead,
+    // so both uses in the same call become harmless copies.
+    val src =
+      """```scalascript
+        |def scan(input: String): Boolean =
+        |  var elements: List[String] = Nil
+        |
+        |  def helper(check: Int => Boolean): Boolean =
+        |    check(0) && elements.nonEmpty
+        |
+        |  def scanThing(): Boolean =
+        |    helper(_ => elements.isEmpty)
+        |
+        |  elements = elements :+ "x"
+        |  scanThing()
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("fn helper(check: impl Fn(i64) -> bool, elements: &Vec<String>)"),
+      s"a read-only capture should take &T, not &mut T:\n$g")
+    assert(g.contains("fn scanThing(elements: &Vec<String>)"),
+      s"a read-only capture should take &T, not &mut T:\n$g")
+
+  test("`x.field.flatMap(f)` clones its receiver when the owning struct is read again"):
+    // `QName { namespace: name.prefix.flatMap(bindings.get), ..name }` (`uniml/xml`'s `Doc.scala`'s
+    // `resolveElement`) — `Option::and_then` takes its receiver BY VALUE, so `name.prefix` (a
+    // FIELD projection, not a bare name) partially moves `name`, and the struct-update's own
+    // `..name` spread — reading `name` as a whole right after — can no longer borrow it:
+    // `error[E0382]: borrow of partially moved value: name`.
+    val src =
+      """```scalascript
+        |case class QName(localName: String, prefix: Option[String])
+        |
+        |def resolve(name: QName, bindings: Map[String, String]): QName =
+        |  QName(localName = name.localName, prefix = name.prefix.flatMap(bindings.get))
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("name.prefix.clone().and_then"), s"the field-select receiver must be cloned:\n$g")
+
+  test("a call to a lifted local def clones a multi-use argument"):
+    // `emitKnownRange(start, lexeme, …)` then `lexeme` read again at the tail of the SAME function
+    // (`uniml/xml`'s `Doc.scala`'s `scanName`) — the call-to-a-lifted-local-def rendering arm
+    // builds its OWN argument list (to append the lift's captured names) rather than reaching the
+    // ordinary call machinery, and never called `cloneIfMoved` on the caller-written args either:
+    // `error[E0382]: use of moved value: lexeme`.
+    val src =
+      """```scalascript
+        |def scan(input: String): String =
+        |  var total = 0
+        |
+        |  def emit(lexeme: String): Unit =
+        |    total += lexeme.length
+        |
+        |  def scanName(): String =
+        |    val lexeme = input
+        |    emit(lexeme)
+        |    lexeme
+        |
+        |  scanName()
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("emit(lexeme.clone()"), s"the lifted-def call must clone a multi-use argument:\n$g")
+
+  test("`xs :+ x` clones a multi-use appended element"):
+    // `attributes = attributes :+ attribute` then `attribute` read again afterward (`uniml/xml`'s
+    // `Doc.scala`'s `scan`: `format!("… '{}'", attribute)`) — the one-element array literal
+    // `[$r]` in the `:+` lowering OWNS its element, moving it out from under a later read:
+    // `error[E0382]: borrow of moved value: attribute`.
+    val src =
+      """```scalascript
+        |def collect(attribute: String): List[String] =
+        |  var attributes: List[String] = Nil
+        |  attributes = attributes :+ attribute
+        |  attributes :+ (attribute + "!")
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("&[attribute.clone()][..]"), s"the appended element must be cloned:\n$g")
+
+  test("an implicit-receiver self-method call clones a multi-use argument"):
+    // `readContent(name)` inside another method of the SAME mutable class (`uniml/xml`'s
+    // `Doc.scala`'s `Parser`: `readQName()` then `readContent(name)` then `Node::Element { name:
+    // name.clone(), … }`) renders as `self.readContent(name)` via a WHOLE SEPARATE rendering path
+    // (it exists only to prepend `self.` and fill defaults) that never called `cloneIfMoved` on
+    // its own arguments: `error[E0382]: borrow of moved value: name`, `name` read again
+    // afterward. This lane needs a genuinely mutable `class` (not `case class`) so the call
+    // renders through the self-method path at all.
+    val src =
+      """```scalascript
+        |class Reader(source: String):
+        |  private var pos: Int = 0
+        |  private def helper(id: String): String = id
+        |  def process(id: String): String =
+        |    val h = helper(id)
+        |    id + h
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("self.helper(id.clone())"), s"the implicit self-method call must clone a multi-use argument:\n$g")
+
+  test("`s.takeWhile(char => …)` on a String does not call a closure literal as an IIFE"):
+    // `value.drop(2).takeWhile(char => !isXmlWhitespace(char) && char != '?')` (`uniml/xml`'s
+    // `Doc.scala`'s `validatePi`) — the explicit-param lambda argument was rendered generically
+    // via `renderTerm` (a `move |char| { … }` closure), then CALLED as an IIFE:
+    // `(move |char| { … })(argExpr)` — rustc cannot infer `char`'s type through a closure-literal
+    // CALL the way it can through an ordinary function call: `error[E0282]: type annotations
+    // needed`. Fixed by rendering the param as a plain `let` binding instead of a closure at all.
+    val src =
+      """```scalascript
+        |def isSpace(c: Long): Boolean = c == 32L
+        |
+        |def firstWord(value: String): String =
+        |  value.takeWhile(char => !isSpace(char))
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(!g.contains("(move |char|"), s"the lambda must not be rendered as a closure literal called via IIFE:\n$g")
+    assert(g.contains("let char ="), s"the param should instead be bound via a plain `let`:\n$g")
+
+  test("`Some(child)` clones a `byRefMut`-bound match-arm name used at a by-value position"):
+    // `validateNamespaces`-style shape (`uniml/xml`'s `Doc.scala`): a typed with-fields-variant
+    // binder (`case child: Markup.Elem => …`) is `byRefMut` (renders bare reads as `(*child)`),
+    // but passing it to `Some(...)` is a BY-VALUE position — `(*child)` alone still tries to MOVE
+    // out of the borrow: `error[E0507]: cannot move out of *child, which is behind a shared
+    // reference`. `cloneIfMoved` must clone at that same rendered text: `(*child).clone()`.
+    val src =
+      """```scalascript
+        |object Markup:
+        |  sealed trait Node
+        |  case class Elem(name: String, children: List[Node] = Nil) extends Node
+        |  case class Text(chars: String) extends Node
+        |
+        |def firstElem(n: Markup.Node): Option[Markup.Node] = n match
+        |  case child: Markup.Elem => Some(child)
+        |  case _ => None
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("(*child).clone()"), s"the byRefMut name must be cloned at the by-value position:\n$g")
+
+  test("`s.replace(from, to)` keeps `to` a `&str` even when it's a char literal"):
+    // `kind.replace('.', '-')` (`uniml/xml`'s `Doc.scala`) — Rust's `str::replace` requires its
+    // SECOND argument to be `&str` specifically (unlike `from`, a genuine `Pattern` where a `char`
+    // is fine) — `error[E0308]: expected &str, found char` without the wrap.
+    val src =
+      """```scalascript
+        |def dashIt(kind: String): String = kind.replace('.', '-')
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".replace("), s".replace should still lower:\n$g")
+    assert(!g.contains("'-')") && !g.contains(", '-'"),
+      s"the `to` argument must not stay a bare char literal (needs &str):\n$g")
+
+  test("`.drop(n)`/`.take(n)`/`.takeWhile(p)` on a String use UTF-16-indexed substrings, not `.iter()`"):
+    // `value.drop(2).takeWhile(char => …)` (`uniml/xml`'s `Doc.scala`'s `validatePi`) — the
+    // Vec-shaped `.drop`/`.take`/`.takeWhile` cases have no receiver-type guard, so a String
+    // reached `.into_iter()`/`.iter()`, which it does not have.
+    val src =
+      """```scalascript
+        |def target(value: String): String = value.drop(2).takeWhile(c => c != '?')
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("_str_substring_from"), s".drop on a String should use the UTF-16-indexed substring helper:\n$g")
+    assert(g.contains(".chars().take_while("), s".takeWhile on a String should use .chars().take_while(...):\n$g")
+
+  test("`.substring(i)` makes its receiver known as a String for a chained `.forall`"):
+    // `inner.substring(1).forall(isEntityNameChar)` (`uniml/xml`'s `Doc.scala`) — `isStringExpr`
+    // had no case for `.substring` at all, so `.forall`'s own String-receiver guard never
+    // recognized its OWN qualifier: `error[E0599]: no method named forall found for struct String`.
+    val src =
+      """```scalascript
+        |def isAllLetters(inner: String): Boolean = inner.substring(1).forall(c => c != 63L)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".chars().all("), s".forall on a .substring(...) receiver should use .chars().all(...):\n$g")
+
+  test("`s.equalsIgnoreCase(other)` renames to `.eq_ignore_ascii_case`"):
+    // `target.equalsIgnoreCase("xml")` (`uniml/xml`'s `Doc.scala`'s `validatePi`) — Rust has no
+    // direct equivalent at all: `error[E0599]: no method named equalsIgnoreCase found for String`.
+    val src =
+      """```scalascript
+        |def isXml(target: String): Boolean = target.equalsIgnoreCase("xml")
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".eq_ignore_ascii_case("), s".equalsIgnoreCase should rename to .eq_ignore_ascii_case:\n$g")
+
+  test("`.takeWhile`/`.dropWhile` on a String deref the `&char` predicate argument"):
+    // Regression check on `.count`'s own fix, applied to the SAME `Iterator::take_while`/
+    // `skip_while` shape (`&Item`, not `.forall`/`.exists`'s by-value `Item`) — a bare `(__ch as
+    // u32)` on the `&char` these two get would be `error[E0606]: casting &char as u32 is invalid`.
+    val src =
+      """```scalascript
+        |def target(value: String): String = value.takeWhile(c => c != '?')
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("(*__ch)"), s"the &char predicate argument needs a deref before casting:\n$g")
+
+  test("a string-literal-pattern match GUARD reading the bound name coerces it to owned String"):
+    // `case value if (startsNumber(value) && validNumber(value)) => …` (`uniml/json`'s
+    // `JsonLexer.scala`) — the subject is coerced `.as_str()` for the string-literal arms
+    // elsewhere in the SAME match, so the bind-all arm's `value` is `&str`; `startsNumber`/
+    // `validNumber` are declared to take an owned `String`. `strRebind`'s own `.to_string()` fix
+    // only reaches the arm BODY (a `let` prefix), never the GUARD (Rust guards can't hold a
+    // preceding `let`) — without `guardRawStrVars`, `error[E0308]: expected String, found &str`.
+    val src =
+      """```scalascript
+        |def startsNumber(value: String): Boolean = value.nonEmpty
+        |def classify(kind: String): String = kind match
+        |  case "atom" => "A"
+        |  case value if startsNumber(value) => "N"
+        |  case other => "?"
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("startsNumber(value.to_string())") || g.contains("startsNumber(value.to_string().clone())"),
+      s"a string-pattern guard reading the bind-all name should coerce it to an owned String:\n$g")
+
+  test("a `foldLeft` into `Map.empty[K, V]` knows its accumulator is a Map, not a Vec"):
+    // `members.foldLeft(Map.empty[String, JsonValue]) { (result, member) => if result.contains
+    // (member.name) then result else result.updated(member.name, member.value) }` (`uniml/json`'s
+    // `JsonProjection.scala`'s `objectMap`) — the closure's accumulator param `result` had no way
+    // to learn its zero value was Map-shaped, so `.contains` fell to the String/list lowering
+    // instead of `contains_key`: `error[E0599]: no method named contains found for struct HashMap`.
+    val src =
+      """```scalascript
+        |case class Member(name: String, value: Int)
+        |def toMap(members: List[Member]): Map[String, Int] =
+        |  members.foldLeft(Map.empty[String, Int]) { (result, member) =>
+        |    if result.contains(member.name) then result else result.updated(member.name, member.value)
+        |  }
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("result.contains_key("), s"the fold accumulator should be known as a Map:\n$g")
+
+  test("a `var` DECLARED `Set[T]` supports `+` (single-element add), not just a Vec/List one"):
+    // `var seen: Set[String] = Set.empty; … seen = seen + member.name` (`uniml/json`'s
+    // `JsonProjection.scala`'s `duplicateDiagnostics`) — `Set[T]` maps to `Vec<T>` throughout this
+    // backend, and the `xs + x` Set-add rewrite is gated on `isKnownVecReceiver`, which only ever
+    // recognised an EXPLICIT `Vector[T]`/`List[T]` declared type, never `Set[T]` — `seen` was
+    // never recorded as a seq at all: `error[E0369]: cannot add String to Vec<String>`.
+    val src =
+      """```scalascript
+        |def dedupe(names: List[String]): List[String] =
+        |  var seen: Set[String] = Set.empty
+        |  var out: List[String] = List.empty
+        |  for name <- names do
+        |    if !seen.contains(name) then
+        |      seen = seen + name
+        |      out = out :+ name
+        |  out
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(!g.contains("seen + name"), s"a Set-typed var's `+` should lower via the Set-add rewrite, not string/numeric `+`:\n$g")
+    assert(g.contains("seen.contains_key(") || g.contains(".concat()"), s"seen should be known as a seq/map receiver:\n$g")
+
+  test("a QUALIFIED enum constructor resolves through the disambiguated ctor, not a same-named collision"):
+    // `JsonValue.StringValue(value, lexeme)` where a SECOND enum in the same module (`JsonMode`)
+    // also declares a bare, zero-field `StringValue` case — the qualified-ctor delegation used to
+    // rewrite to the BARE spelling and re-resolve through `ctx.ctorMap` (keyed by bare name alone,
+    // last-writer-wins), landing on the WRONG enum's zero-field variant and silently dropping both
+    // constructor arguments: `error[E0308]: expected JsonValue, found JsonMode`.
+    val src =
+      """```scalascript
+        |enum JsonValue:
+        |  case StringValue(value: String, lexeme: String)
+        |  case NullValue
+        |enum JsonMode:
+        |  case StringValue
+        |  case Other
+        |def wrap(value: String, lexeme: String): JsonValue = JsonValue.StringValue(value, lexeme)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("JsonValue::StringValue { value:") || g.contains("JsonValue::StringValue{value:"),
+      s"the qualified constructor should build the JsonValue variant with both fields, not JsonMode's:\n$g")
+
+  test("a qualified AMBIGUOUS-topval reference clones itself across loop iterations"):
+    // `Some(JsonDialect.id)` inside a `while` loop, where `id` is a topval name CONTESTED by two
+    // different owning objects (`_ambiguousTopValNames`) — the reference rewrites to a flat local,
+    // `JsonDialect_id`, not a field projection off `JsonDialect`; `cloneIfMoved`'s `Term.Select`
+    // case only ever asked `needs` about the ORIGINAL qualifier (`JsonDialect`, never itself a
+    // topval), so the rewritten name was never protected: `error[E0382]: use of moved value` on
+    // the loop's second iteration.
+    val src =
+      """```scalascript
+        |object A:
+        |  val id: String = "a"
+        |object B:
+        |  val id: String = "b"
+        |def tag(n: Int): Option[String] =
+        |  var out: Option[String] = None
+        |  var i = 0
+        |  while i < n do
+        |    out = Some(A.id)
+        |    i += 1
+        |  out
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("Some(A_id.clone())"), s"a qualified ambiguous-topval reference reused across loop iterations should clone:\n$g")
+
+  test("bare no-paren `.head`/`.last` on a String read its first/last char"):
+    // `lexeme.head != '"' || lexeme.last != '"'` (`uniml/json`'s `JsonProjection.scala`'s
+    // `unquote`) — the no-paren-Vec-member case explicitly excludes String receivers, so `.head`/
+    // `.last` on one fell through to a bare Rust field access: `error[E0609]: no field head on
+    // type String`.
+    val src =
+      """```scalascript
+        |def isQuoted(lexeme: String): Boolean = lexeme.head == '"' && lexeme.last == '"'
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("_str_char_at(&lexeme, 0i64)"), s".head on a String should read its first char:\n$g")
+    assert(g.contains("_str_length(&lexeme) - 1i64"), s".last on a String should read its last char:\n$g")
+
+  test("`xs :+ (a, b)` appends a TUPLE literal element, not two positional infix args"):
+    // `stack = stack :+ (token.charAt(0), token)` (`uniml/yaml`'s `YamlStructure.scala`'s
+    // `flowRanges`) — an infix operator followed by a parenthesized comma-group parses as TWO
+    // separate positional args, never one `Term.Tuple`, so `:+`'s `rargs.size == 1` guard missed
+    // it entirely: `error: unsupported infix operator ':+'`.
+    val src =
+      """```scalascript
+        |def push(stack: List[(Char, String)], c: Char, token: String): List[(Char, String)] =
+        |  stack :+ (c, token)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("[&(stack)[..], &[(c, token)][..]].concat()"), s":+ should append the tuple as one element:\n$g")
+
+  test("`x +: xs` prepends a single element, the mirror of `:+`"):
+    // `0 +: documentStarts` (`uniml/yaml`'s `YamlStructure.scala`'s `streamAndDocuments`) — had no
+    // lowering at all before.
+    val src =
+      """```scalascript
+        |def prepend(xs: List[Int]): List[Int] = 0 +: xs
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("[&[0i64][..], &(xs)[..]].concat()"), s"+: should prepend the element:\n$g")
+
+  test("`xs.indices` lowers to a Range, and `.map`/`.foreach` on it don't call `.iter()`"):
+    // `tokens.indices.map { index => … }` / `tokens.indices.foreach { index => … }` (`uniml/yaml`'s
+    // `YamlStructure.scala`) — `Range<i64>` has no `.iter()` method; the general `.map`/`.foreach`
+    // cases assume a Vec-shaped receiver and call `.iter().cloned()` unconditionally.
+    val src =
+      """```scalascript
+        |def mapped(tokens: List[String]): List[Int] = tokens.indices.map { i => i + 1L }.toVector
+        |def visited(tokens: List[String]): Int =
+        |  var total = 0L
+        |  tokens.indices.foreach { i => total = total + i }
+        |  total
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("(0i64..(tokens).len() as i64)"), s".indices should lower to a Range:\n$g")
+    assert(!g.contains(".indices).iter()"), s".indices chain must not call .iter() on a Range:\n$g")
+    assert(g.contains("for i in (0i64..(tokens).len() as i64)"), s".foreach on a Range should be a plain for-loop:\n$g")
+
+  test("`x ||= y` / `x &&= y` desugar to plain reassignment (Rust has neither operator)"):
+    val src =
+      """```scalascript
+        |def f(input: String, index: Long): Boolean =
+        |  var hasTab = false
+        |  hasTab ||= input.charAt(index) == 9L
+        |  hasTab
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("hasTab = hasTab ||"), s"||= should desugar to a plain reassignment:\n$g")
+    assert(!g.contains("||="), s"Rust has no ||= operator, must not appear verbatim:\n$g")
+
+  test("a case class's own method calling bare `copy(...)` on the implicit `this`"):
+    // `Right(copy(handles = ..., declared = ...))` (`uniml/yaml`'s `YamlTagEnvironment.scala`'s
+    // `register`) — both existing `.copy` cases require an explicit `Term.Select` receiver; a
+    // BARE `copy(...)` (implicit self) is a different AST shape and fell to the generic "calls
+    // copy, which this crate does not define" refusal.
+    val src =
+      """```scalascript
+        |case class Config(handles: Long, declared: Long):
+        |  def bump(): Config = copy(handles = handles + 1L)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("Self {"), s"bare self copy(...) should build via Self { .. }:\n$g")
+    assert(g.contains("declared: declared.clone()"), s"an un-overridden field should fall back to its own aliased local:\n$g")
+
+  test("a QUALIFIED enum-constructor PATTERN resolves through the disambiguated ctor, not a same-named collision"):
+    // `case YamlValue.Alias(name) => …` where a SECOND enum (`YamlPropertyKind`) also declares a
+    // bare, zero-field `Alias` case — the pattern-side twin of the construction-side collision
+    // fixed for `uniml/json`'s `JsonValue.StringValue`/`JsonMode.StringValue`. Delegating to the
+    // bare spelling re-resolved through the ambiguous bare-keyed `ctorMap` and refused the real
+    // 1-arg pattern: `error: extracts 'Alias' with 1 args, expected 0`.
+    val src =
+      """```scalascript
+        |enum YamlValue:
+        |  case Alias(name: String)
+        |  case NullValue
+        |enum YamlPropertyKind:
+        |  case Tag, Anchor, Alias
+        |def describe(v: YamlValue): String = v match
+        |  case YamlValue.Alias(name) => name
+        |  case YamlValue.NullValue => "null"
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("YamlValue::Alias { name }") || g.contains("YamlValue::Alias{name}") || g.contains("YamlValue::Alias { name: name }"),
+      s"the qualified pattern should destructure YamlValue's own Alias, not YamlPropertyKind's:\n$g")
+
+  test("a `String` no-paren `.reverse`/`.dropWhile` chain (not rooted in a bare name) is still known as a String"):
+    // `withBreak.reverse.dropWhile(_ == '\\n').reverse` (`uniml/yaml`'s `YamlSemanticParser.scala`'s
+    // `parseBlockScalar`) — the OUTER `.reverse`'s own qualifier is a `.dropWhile(...)` chain
+    // rooted at ANOTHER `.reverse`, never a bare name; `isStringReceiverChain` only chained
+    // through `.drop`/`.take` before.
+    val src =
+      """```scalascript
+        |def chomp(withBreak: String): String = withBreak.reverse.dropWhile(c => c == 10L).reverse
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".chars().rev().collect::<String>()"), s"a chained .reverse should still lower as a String reverse:\n$g")
+    assert(!g.contains(".iter()"), s"a String .reverse/.dropWhile chain must not take the Vec .iter() path:\n$g")
+
+  test("a local def nested TWO block levels below a captured var still sees it"):
+    // `def visit(...) = … errors = errors :+ … ; visit(...)` (`uniml/yaml`'s `YamlProjection.scala`'s
+    // `validate`) — `visit` sits inside a `foreach` closure's own block, one level FURTHER OUT than
+    // `errors`'s own `var` declaration (`validate`'s top-level body). `liftLocalDefs`'s capture pool
+    // only ever looked at the IMMEDIATE block's own locals plus the enclosing DEF's params, so
+    // `errors` never reached it: `visit` rendered as a nested Rust `fn` referencing a free name from
+    // an enclosing scope, which a nested `fn` item cannot do regardless of nesting depth —
+    // `error[E0434]: can't capture dynamic environment in a fn item`.
+    val src =
+      """```scalascript
+        |def validate(items: List[String]): List[String] =
+        |  var errors: List[String] = Nil
+        |  items.foreach { item =>
+        |    def visit(x: String): Unit =
+        |      errors = errors :+ x
+        |    visit(item)
+        |  }
+        |  errors
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("fn visit(x: String, errors: &mut Vec<String>)"),
+      s"a local def two block levels below its captured var must still receive it as &mut:\n$g")
+    assert(g.contains("visit(item, &mut errors)") || g.contains("visit(item.clone(), &mut errors)"),
+      s"the call site must forward the captured var:\n$g")
+
+  test("a def nested inside ANOTHER lifted def calls a sibling of the OUTER def, and its own default"):
+    // `parseNode` (lifted out of `flowParse`'s OWN body, `uniml/yaml`'s `YamlSemanticParser.scala`)
+    // calls `problem`/`quotedSingle` — lifted one level UP, siblings of `flowParse` itself, each
+    // needing `diagnostics: &mut Vec<Diagnostic>`. `liftLocalDefs`'s `baseCtx` OVERWROTE
+    // `liftedDefExtraArgs`/`liftedMutableCaptures` with just the INNER level's own captures instead
+    // of merging, so a call two levels down to an outer-level lifted def stopped being recognized as
+    // a lifted-def call at all and emitted with no capture argument:
+    // `error[E0061]: this function takes N arguments but N-1 were supplied`. Same fixture also
+    // covers the SEPARATE gap this uncovered: `problem`'s own trailing DEFAULT parameter
+    // (`severity: String = "warn"`) is invisible to the module-wide `_defaultsMap` (which never
+    // descends into a def's own body to find LOCAL defs) and to the lifted-call rendering arm
+    // (which builds its own argument list rather than reaching the `_defaultsMap`-aware ordinary
+    // call machinery) — an omitted-default call site under-supplied by exactly the trailing default.
+    val src =
+      """```scalascript
+        |def parse(input: String): List[String] =
+        |  var diagnostics: List[String] = Nil
+        |
+        |  def problem(message: String, severity: String = "warn"): Unit =
+        |    diagnostics = diagnostics :+ (severity + ":" + message)
+        |
+        |  def outer(text: String): Unit =
+        |    def inner(x: String): Unit =
+        |      problem(x)
+        |    inner(text)
+        |
+        |  outer(input)
+        |  diagnostics
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("fn inner(x: String, diagnostics: &mut Vec<String>)"),
+      s"inner must relay the OUTER def's own capture through as its own &mut parameter:\n$g")
+    assert(g.contains("""problem(x, "warn".to_string(), diagnostics)"""),
+      s"the omitted trailing default must be filled AND the capture forwarded:\n$g")
+
+  test("`opt.exists(p)` / `opt.contains(v)` lower to Rust `Option` methods, not the Vec ones"):
+    // `tag.contains("tag:yaml.org,2002:str") || tag.exists(value => …)` (`uniml/yaml`'s
+    // `YamlSemanticParser.scala`'s `plainScalar`) — Rust's `Option` has no `.exists` at all and
+    // `.contains` only behind a nightly feature; both fell to the generic Vec-shaped dispatch (once
+    // `tag` was recognized as an Option at all — see the next test) and reached rustc unmapped:
+    // `error[E0599]: no method named exists/contains found for enum Option<T>`.
+    val src =
+      """```scalascript
+        |def classify(tag: Option[String]): Boolean =
+        |  tag.contains("str") || tag.exists(v => v == "x")
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".is_some_and("), s"exists must lower to Option::is_some_and:\n$g")
+    assert(!g.contains(".exists(") && !g.contains(".contains("), s"neither Scala method name should survive:\n$g")
+
+  test("a LIFTED local def's OWN parameter feeds `localOptions` for a `.map`-chain local inside it"):
+    // `def plainScalar(lexeme: String, explicitTag: Option[String]) = val tag =
+    // explicitTag.map(normalizeTag); … tag.contains(…) …` (`uniml/yaml`'s
+    // `YamlSemanticParser.scala`) — `collectLocalOptions` is a pre-pass run ONCE at the TOP-LEVEL
+    // `renderDef`, with a bare Ctx that knows none of ANY def's own parameters (not even the
+    // top-level one's) — so a LIFTED local def's OWN param, used to build a local Option via
+    // `.map(...)`, was invisible to it and `tag` never registered as an Option at all.
+    val src =
+      """```scalascript
+        |def parse(input: String): Boolean =
+        |  var seen = false
+        |  def plainScalar(explicitTag: Option[String]): Boolean =
+        |    val tag = explicitTag.map(_.length)
+        |    tag.contains(0)
+        |  seen = plainScalar(None)
+        |  seen
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("tag.is_some_and") || g.contains("tag).as_ref().is_some_and"),
+      s"tag must be recognized as an Option and lowered accordingly, not as a Vec:\n$g")
+
+  test("`xs.sortBy(key)` with a plain function-literal key on a Vec"):
+    // `ranges.filter(_.start == index).sortBy(range => (range.rank, -range.end))` (`uniml/yaml`'s
+    // `YamlSemanticParser.scala`'s `blockRanges`) — `renderVecIterBody`'s `Term.Function` branch
+    // (a NAMED-param key, as opposed to the placeholder-`_` shape) had every OTHER dispatch method
+    // (`map`/`filter`/`foldLeft`/…) but no `"sortBy"` case, so it fell to the generic `case other`
+    // fallback and re-emitted the Scala method name verbatim: `error[E0599]: no method named sortBy
+    // found for struct Vec<T>`.
+    val src =
+      """```scalascript
+        |case class Range(start: Int, rank: Int)
+        |
+        |def sortedRanges(ranges: List[Range]): List[Range] =
+        |  ranges.sortBy(range => range.rank)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("sort_by_key"), s"a Function-literal sortBy key must lower to sort_by_key:\n$g")
+    assert(!g.contains(".sortBy("), s"the Scala method name must not survive:\n$g")
+
+  test("`xs.count(p)` on a Vec (not just a String) receiver"):
+    // `lexed.tokens.count(_.kind == "yaml.anchor")` (`uniml/yaml`'s `YamlSemanticParser.scala`) —
+    // the existing `.count(p)` case only ever fired for a String receiver; Rust's `Iterator` has no
+    // `.count(predicate)` at all regardless of element type, so a Vec receiver reached rustc
+    // unmapped: `error[E0599]: no method named count found for struct Vec<T>`.
+    val src =
+      """```scalascript
+        |case class Tok(kind: String)
+        |
+        |def anchorCount(tokens: List[Tok]): Int =
+        |  tokens.count(_.kind == "anchor")
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".filter(") && g.contains(".len() as i64"), s"Vec .count(p) must lower via .filter(p).len():\n$g")
+
+  test("`s.stripPrefix(p)` and `s.indexWhere(p)` on a String"):
+    // `kind.stripPrefix("yaml.")` / `body.indexWhere(c => isWs(c))` (`uniml/yaml`'s
+    // `YamlLexer.scala`) — neither has a Rust `String` method under that name at all:
+    // `stripPrefix` returns the ORIGINAL string unchanged on no match (Rust's `strip_prefix`
+    // answers `Option<&str>` instead), and `indexWhere` is a Scala-only `StringOps` extension.
+    val src =
+      """```scalascript
+        |def strip(kind: String): String = kind.stripPrefix("yaml.")
+        |def firstWs(body: String): Int = body.indexWhere(c => c == ' ')
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("strip_prefix"), s"stripPrefix must lower to Rust's strip_prefix:\n$g")
+    assert(g.contains(".chars().position("), s"indexWhere must lower via chars().position():\n$g")
+
+  test("`xs.map(_.copy(field = v))` — a PLACEHOLDER receiver's ctor resolves for `.copy`"):
+    // `frames.map(_.copy(last = lineEnd))` (`uniml/yaml`'s `YamlSemanticParser.scala`'s
+    // `blockRanges`) — the placeholder `_` is still a raw `Term.Placeholder` node (not yet the
+    // literal name `__p0`) when `.copy`'s own ctor-lookup guard runs, and `ctorNameOfExpr` had no
+    // case for it at all — only a bare `Term.Name`. `.copy` on the closure's own element fell
+    // through unmapped: `error[E0599]: no method named copy found for struct BlockFrame`.
+    val src =
+      """```scalascript
+        |case class Frame(indent: Int, last: Int)
+        |
+        |def touch(frames: List[Frame], lineEnd: Int): List[Frame] =
+        |  frames.map(_.copy(last = lineEnd))
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("Frame {") && g.contains("..("), s".copy on a placeholder receiver must resolve its struct:\n$g")
+    assert(!g.contains(".copy("), s"the unresolved .copy(...) call must not survive verbatim:\n$g")
+
+  test("`recv.field.drop(n)` / `.take(n)` on a known-String FIELD (not just a bare name)"):
+    // `line.raw.drop(math.min(detectedIndent, line.raw.length))` (`uniml/yaml`'s
+    // `YamlSemanticParser.scala`'s `parseBlockScalar`) — `.drop`/`.take` on a String only ever
+    // checked `isStringExpr`/a bare-name `localStrings` lookup, never `isKnownStringField` (a
+    // field READ off a known ctor, resolved through `ctx.paramCtorNames`/`paramTypes`), so a
+    // String field access fell to the Vec-shaped `.drop`/`.take` case: `error[E0599]: the method
+    // into_iter exists for struct String, but its trait bounds were not satisfied`.
+    val src =
+      """```scalascript
+        |case class Line(raw: String)
+        |
+        |def firstTwo(line: Line): String = line.raw.take(2)
+        |def restFrom(line: Line, n: Int): String = line.raw.drop(n)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("_str_substring"), s"a String field's .drop/.take must route through the _str_* helpers:\n$g")
+    assert(!g.contains(".into_iter()"), s"a String field must never take the Vec .into_iter() path:\n$g")
+
+  test("`Either[L, Unit]` — a `Unit` type argument does not produce an empty generic slot"):
+    // `def validateTagSpelling(value: String): Either[YamlPropertyFailure, Unit] = … Right(())`
+    // (`uniml/yaml`'s `YamlPropertySyntax.scala`, ~10 defs) — `mapType`'s `Unit` case answers `""`
+    // for a bare RETURN-TYPE position (`renderReturnType`'s own convention: empty means "no `-> T`
+    // clause"), which is correct THERE but wrong as a GENERIC TYPE ARGUMENT: `Either<Failure, >`
+    // is not valid Rust syntax. `"Either"` is registered as a fallback built-in enum, so this hits
+    // the GENERIC "known enum with type args" case in `mapType`, not an Either-specific one.
+    val src =
+      """```scalascript
+        |case class Failure(msg: String)
+        |
+        |def validate(value: String): Either[Failure, Unit] =
+        |  if value.isEmpty then Left(Failure("empty")) else Right(())
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("Either<Failure, ()>"), s"a Unit type argument must render as (), not an empty slot:\n$g")
+
+  test("`var continue` — a Scala identifier that spells a Rust reserved keyword"):
+    // `var continue = true; while continue do { … ; if cond then continue = false }`
+    // (`uniml/yaml`'s `YamlSemanticParser.scala`, a `while`-loop sentinel, ~10 defs) — a
+    // perfectly ordinary Scala identifier that happens to collide with Rust's `continue`
+    // keyword. `rustReserved`/`rustIdent` already existed and are used at every OTHER
+    // identifier-emitting site, but the `var` DECLARATION and the bare-name READ/reassignment
+    // fallback both emitted the raw word unescaped: `error[E0070]: invalid left-hand side of
+    // assignment` at every `continue = false` (rustc parsed the keyword, not a name), plus
+    // `error[E0590]: break or continue with no label in the condition of a while loop` at
+    // `while continue do`.
+    val src =
+      """```scalascript
+        |def loop(n: Int): Int =
+        |  var continue = true
+        |  var i = 0
+        |  while continue do
+        |    i += 1
+        |    if i >= n then continue = false
+        |  i
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("r#continue"), s"the reserved-keyword identifier must be escaped as a raw identifier:\n$g")
+    assert(!g.contains("let mut continue") && !g.contains("while continue") && !g.contains(" continue ="),
+      s"the raw keyword must never appear unescaped as an identifier:\n$g")
+
+  test("calling a lifted local def with an SscChar argument into a declared-Int parameter"):
+    // `scanBlockHeader(char, ...)` where `char` is a known `SscChar` local (`val char =
+    // input.charAt(...)`) and `scanBlockHeader`'s OWN first parameter is declared `Int`, not
+    // `Char` (`uniml/yaml`'s `YamlLexer.scala`) — a lifted-local-def CALL builds its own argument
+    // list rather than reaching the ordinary call machinery, which already applies the `.0` unwrap
+    // this newtype needs; this arm never did: `error[E0308]: expected i64, found SscChar`.
+    val src =
+      """```scalascript
+        |def scan(input: String): Int =
+        |  var total = 0
+        |
+        |  def consume(code: Int): Unit =
+        |    total += code
+        |
+        |  val char = input.charAt(0)
+        |  consume(char)
+        |  total
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("consume((char).0,") || g.contains("consume((char.clone()).0,"),
+      s"an SscChar argument into a declared-Int lifted-def parameter must get the .0 unwrap:\n$g")
+
+  test("`match x.field { \"a\" | \"b\" => … }` — a string-literal ALTERNATIVE pattern"):
+    // `match token.lexeme { "[" | "{" => …, "]" | "}" => …, … }` (`uniml/yaml`'s
+    // `YamlLexer.scala`) — `hasStringPat` only checked a case's pattern being DIRECTLY a
+    // `Lit.String`, never recursing through a `|`-combined `Pat.Alternative` — the match subject
+    // never got its `.as_str()` coercion, so string-literal arms (valid `&str` patterns) were
+    // matched against an owned `String` subject: `error[E0308]: expected String, found &str`.
+    val src =
+      """```scalascript
+        |case class Tok(lexeme: String)
+        |
+        |def classify(token: Tok): Int =
+        |  token.lexeme match
+        |    case "[" | "{" => 1
+        |    case "]" | "}" => 2
+        |    case _         => 0
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".as_str()"), s"a string-literal alternative pattern must coerce the subject to &str:\n$g")
+
+  test("a sibling lifted def's `+`-reassigned String var must not un-clone an UNRELATED same-named param"):
+    // `def otherHelper(headerText: String, suffix: String) = var lexeme = headerText + suffix; …`
+    // nested inside `parse`, a SIBLING of `resolveImplicit(lexeme: String) = …` (`uniml/yaml`'s
+    // `YamlSemanticParser.scala`) — `collectCopyNames` only ever seeded its own String-detection
+    // set from `parse`'s OWN top-level params, never a NESTED sibling def's own (`headerText`/
+    // `suffix`), so `isCopyRhs`'s `+`-is-arithmetic guard misjudged `headerText + suffix` as
+    // numeric and marked "lexeme" Copy-safe — which then subtracted "lexeme" from `multiUse` for
+    // `parse`'s ENTIRE render, silently un-cloning `resolveImplicit`'s COMPLETELY UNRELATED
+    // "lexeme" PARAMETER everywhere it reads more than once: `error[E0382]: use of moved value:
+    // lexeme`, on a name sharing nothing with the var that actually caused it.
+    val src =
+      """```scalascript
+        |enum Schema:
+        |  case A, B
+        |
+        |case class Scalar(value: String, lexeme: String)
+        |
+        |def parse(input: String, schema: Schema): Scalar =
+        |  def otherHelper(headerText: String, suffix: String): String =
+        |    var lexeme = headerText + suffix
+        |    lexeme = lexeme + "!"
+        |    lexeme
+        |
+        |  def resolveImplicit(lexeme: String): Scalar = schema match
+        |    case Schema.A => Scalar(lexeme, lexeme)
+        |    case Schema.B => Scalar("", lexeme)
+        |
+        |  otherHelper(input, "x")
+        |  resolveImplicit(input)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("value: lexeme.clone(), lexeme: lexeme.clone()"),
+      s"resolveImplicit's own unrelated `lexeme` param must still be cloned on repeated use:\n$g")
+
+  test("a parameter named the same as a SIBLING top-level def must resolve as the parameter"):
+    // `def boundaryFailure(scan: YamlPropertyScan, ...) = scan.failure.orElse { ... scan.end ...
+    // }` (`uniml/yaml`'s `YamlPropertySyntax.scala`) — `scan` is an ordinary parameter here, but
+    // ALSO the name of a SIBLING top-level def in the same object (`YamlPropertySyntax.scan`,
+    // flattened to `YamlPropertySyntax_scan`). The bare-name fallback never checked whether a name
+    // is ALSO a known local/param before asking whether it names a sibling def, so the PARAMETER
+    // lost to the FUNCTION: `scan.failure` rendered as `YamlPropertySyntax_scan.failure`, a field
+    // read on a function item, not the struct the parameter actually holds.
+    val src =
+      """```scalascript
+        |case class Scan(failure: Int, end: Int)
+        |
+        |def scan(x: Int): Scan = Scan(x, x)
+        |
+        |def boundaryFailure(scan: Scan): Int = scan.failure + scan.end
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("scan.failure") && g.contains("scan.end"),
+      s"the parameter must win over the sibling def with the same name:\n$g")
+    assert(!g.contains("_scan.failure"),
+      s"the parameter must not be rewritten to the sibling def's flattened name:\n$g")
+
+  test("`val starts = if cond then 0 +: xs else 0 +: xs.tail` — an if/else of `:+`/`+:` prepends is a seq"):
+    // `val starts = if meaningfulBeforeFirst then 0 +: documentStarts else 0 +: documentStarts.
+    // tail` then `starts.indices.foreach { ... }` (`uniml/yaml`'s `YamlStructure.scala`'s
+    // `streamAndDocuments`) — `:+`/`+:` had no case in `rootedInSeq` at all, and neither did an
+    // if/else whose every branch is seq-rooted; without both, `starts` never registered as a
+    // known Vec, so `.indices` reached rustc as a plain field access:
+    // `error[E0609]: no field indices on type Vec<i64>`.
+    val src =
+      """```scalascript
+        |def starts(cond: Boolean, xs: List[Int]): List[Int] =
+        |  val starts = if cond then 0 +: xs else 0 +: xs.tail
+        |  starts.indices.foreach { position => () }
+        |  starts
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("0i64.."), s"starts must be recognized as a known Vec so .indices lowers to a Range:\n$g")
+    assert(!g.contains(".indices {") , s"a bare .indices field access must not survive unlowered:\n$g")
+
+  test("`either.left.toOption` — Scala's Either LEFT projection then toOption"):
+    // `validateTagSpelling(spelling).left.toOption` (`uniml/yaml`'s `YamlPropertySyntax.scala`) —
+    // Scala's `Either.left` projection then `.toOption`: `Some(l)` for `Left(l)`, `None` for
+    // `Right(_)`. This lane's own fallback `Either<L, R>` has no `.left` field at all — needed
+    // placing BEFORE a fully-generic, unconditional bare-Select fallback that otherwise silently
+    // swallowed it as an ordinary (wrong) field read.
+    val src =
+      """```scalascript
+        |case class Failure(msg: String)
+        |
+        |def validate(value: String): Either[Failure, Unit] =
+        |  if value.isEmpty then Left(Failure("empty")) else Right(())
+        |
+        |def check(value: String): Option[Failure] =
+        |  validate(value).left.toOption
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("Either::Left(__l) => Some(__l)"), s"left.toOption must lower to a match on Either:\n$g")
+
+  test("`Option.when(cond, value)` — Scala's static Option factory"):
+    // `Option.when(valid, result)` (`uniml/yaml`'s `YamlSemanticParser.scala`, several call
+    // sites) — no case existed for it at all, so it reached rustc as a literal call on the
+    // `Option` TYPE itself: `error[E0423]: expected value, found enum Option`.
+    val src =
+      """```scalascript
+        |def f(cond: Boolean, x: Int): Option[Int] = Option.when(cond, x)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("if cond { Some(x) } else { None }"), s"Option.when must lower to an if/else:\n$g")
+
+  test("a `Char`-declared PARAMETER used as a String Pattern argument (.contains/.startsWith)"):
+    // `private def isSubDelimiter(value: Char): Boolean = "!$&'()*+,;=".contains(value)`
+    // (`uniml/yaml`'s `YamlLexer.scala`/`YamlPropertySyntax.scala`, several defs) —
+    // `isConceptuallyChar`'s bare-name case only ever checked `_defBodies` for a NILADIC-DEF
+    // reference (a Scala parameterless method read bare), never whether the name is the CURRENT
+    // def's OWN parameter declared `Char` — so a `Char` param kept its raw `i64` form where
+    // Rust's `Pattern` trait needs an actual `char`: `error[E0277]: the trait bound &i64: Pattern
+    // is not satisfied`.
+    val src =
+      """```scalascript
+        |def isSubDelimiter(value: Char): Boolean =
+        |  "!$&'()*+,;=".contains(value)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("char::from_u32"), s"a Char-declared parameter must convert to a real char for .contains:\n$g")
+
+  test("an SscChar value unwraps `.0` in Some(...), a tuple literal, and a ctor field declared Char"):
+    // `chomping: Option[Char]; chomping = Some(char)` / `(s.charAt(i), other)` / a case class
+    // `case class Boundary(value: Char)` constructed from a `.charAt` local (`uniml/yaml`'s
+    // `YamlLexer.scala`) — `Char` has no `SscChar` case in `mapType` at all (that newtype exists
+    // only for an intermediate expression value), so EVERY declared-Char position is really
+    // `i64` and needs the SAME `.0` unwrap: `error[E0308]: expected i64, found SscChar`. Three
+    // separate construction sites (`Some(...)`, a raw tuple literal, a positional ctor field)
+    // each needed their OWN fix.
+    val src =
+      """```scalascript
+        |case class Boundary(value: Char)
+        |
+        |def scan(s: String, i: Int): (Boundary, Option[Char], (Char, Int)) =
+        |  val c = s.charAt(i)
+        |  (Boundary(c), Some(c), (c, i))
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("Boundary { value: (c.clone()).0 }"),
+      s"a ctor field declared Char must unwrap .0:\n$g")
+    assert(g.contains("Some((c.clone()).0)"),
+      s"Some(...) around an SscChar value must unwrap .0:\n$g")
+    assert(g.contains("((c.clone()).0, i)"),
+      s"a tuple-literal element yielding SscChar must unwrap .0:\n$g")
+
+  test("`opt.exists(p)` clones a multi-use Option before the consuming is_some_and"):
+    // `tag.exists(...)`, read again LATER in the same `if/else` chain (`plainScalar`,
+    // `uniml/yaml`'s `YamlSemanticParser.scala`) — `Option::is_some_and` CONSUMES `self` (unlike
+    // `.contains`'s own `.as_ref()`, which only borrows), so a multi-use Option needed the same
+    // clone every other by-value position already gets: `error[E0382]: use of moved value: tag`.
+    val src =
+      """```scalascript
+        |def classify(tag: Option[String]): Int =
+        |  if tag.exists(v => v == "a") then 1
+        |  else if tag.exists(v => v == "b") then 2
+        |  else 0
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("tag.clone()).is_some_and"), s"a multi-use Option must be cloned before is_some_and:\n$g")
+
+  test("a def param read once syntactically but inside a while-loop body is cloned per call"):
+    // `while cursor < end && failure.isEmpty do consumeComponentUnit(value, cursor, end,
+    // component) match { ... }` (`uniml/yaml`'s `YamlPropertySyntax.scala`'s `validateComponent`)
+    // — `value`/`component` (non-Copy DEF PARAMS) are read only ONCE *syntactically* (one call
+    // site, textually), so `multiUse` (a pure occurrence count over the body's text) never caught
+    // them — but the loop BODY runs once per iteration, and each run needs its own owned copy for
+    // a by-value callee parameter: the first iteration moves the value, and the second
+    // iteration's read is `error[E0382]: use of moved value`.
+    val src =
+      """```scalascript
+        |def consume(value: String, cursor: Int): Int = cursor + value.length
+        |
+        |def loop(value: String, end: Int): Int =
+        |  var cursor = 0
+        |  while cursor < end do
+        |    cursor = consume(value, cursor)
+        |  cursor
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("consume(value.clone(), cursor)"),
+      s"a def param called inside a while-loop body must be cloned even with one syntactic use:\n$g")
+
+  test("a plain reassignment's RHS is cloned like every other by-value position"):
+    // `env = EnvDefaults.defaults` inside `while index < limit do …` (`uniml/yaml`'s
+    // `YamlSemanticParser.scala`'s `parse`: `tagEnvironment = YamlTagEnvironment.defaults`) — a
+    // PLAIN reassignment's RHS never went through `cloneIfMoved` at all (every OTHER by-value
+    // position — a call argument, a struct field, a tuple element — already did). `defaults` here
+    // is a qualified `Term.Select` on a topval (`EnvDefaults`), read again on the loop's second
+    // iteration: `error[E0382]: use of moved value: defaults`. `cloneIfMoved` already has a
+    // `Term.Select` case for exactly this shape; it just never had a chance to fire from an
+    // assignment RHS before now.
+    val src =
+      """```scalascript
+        |case class Env(name: String)
+        |
+        |object EnvDefaults:
+        |  val defaults: Env = Env("base")
+        |
+        |def reassignQualifiedTopval(limit: Int): Env =
+        |  var env = EnvDefaults.defaults
+        |  var index = 0
+        |  while index < limit do
+        |    env = EnvDefaults.defaults
+        |    index = index + 1
+        |  env
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("env = defaults.clone();"),
+      s"a plain assignment's RHS reusing a topval inside a while-loop must be cloned:\n$g")
+
+  test("a String field reached through an indexed Vec element is recognized as a String"):
+    // `tokens(index).lexeme.takeWhile(_ == ' ')` (`uniml/yaml`'s `YamlSemanticParser.scala`'s
+    // `parse`) — `isKnownStringField`'s existing cases only recognized `receiver.field` where
+    // `receiver` is a bare name or a `.last`/`.head` projection; `tokens(index).lexeme` bases the
+    // field-select on an INDEXING call instead, so `lexeme` (a genuine `String` field) went
+    // unrecognized and `.takeWhile` dispatched through the Vec-iterator path instead of the
+    // String path: `error[E0599]: no method named iter found for struct String`.
+    val src =
+      """```scalascript
+        |case class Token(lexeme: String)
+        |
+        |def leadingSpaces(tokens: List[Token], index: Int): Int =
+        |  tokens(index).lexeme.takeWhile(_ == ' ').length
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".lexeme.chars().take_while("),
+      s"a String field read off an indexed Vec element must use the String take_while path, not Vec's:\n$g")
+
+  test("an Option element of a destructured tuple is recognized as an Option"):
+    // `val (styleChar, chomping, explicitIndent) = headerValue` where `headerValue =
+    // blockHeader(header).getOrElse{…}` (`uniml/yaml`'s `YamlSemanticParser.scala`'s `parse`) —
+    // `explicitIndent`'s Option-ness lives only in `blockHeader`'s OWN declared return type,
+    // `Option[(Char, Option[Char], Option[Int])]`; `collectLocalOptions`'s single-name case never
+    // read a `Pat.Tuple` at all, and even once it did, the tuple-pattern destructure's own RHS is
+    // a bare name (`headerValue`) one `val` away from the actual call — not the call itself.
+    // Without both the `Pat.Tuple` positional lookup AND seeing through that one-`val` indirection,
+    // `explicitIndent.map(f).getOrElse(d)` dispatched through the Vec-iterator path instead of
+    // Option's own: `error[E0599]: no method named unwrap_or found for struct Vec<i64>`.
+    val src =
+      """```scalascript
+        |def blockHeader(text: String): Option[(Char, Option[Char], Option[Int])] =
+        |  if text.isEmpty then None else Some(('|', None, Some(2)))
+        |
+        |def detectIndent(header: String, parentIndent: Int): Int =
+        |  val headerValue = blockHeader(header).getOrElse {
+        |    ('|', None, None)
+        |  }
+        |  val (styleChar, chomping, explicitIndent) = headerValue
+        |  explicitIndent.map(parentIndent + _).getOrElse(-1)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("explicitIndent.map(") && g.contains(").unwrap_or(-1i64)"),
+      s"an Option element of a destructured tuple must dispatch through Option's own map/unwrap_or, not Vec's:\n$g")
+
+  test("`.map` after `.filter` on an Option chain stays on the Option path"):
+    // `indices.headOption.filter(index => tokens(index).kind == "…").map(index => …)`
+    // (`uniml/yaml`'s `YamlStructure.scala`'s `assign`) — `isOptionExpr`'s chain-preserving case
+    // only covered `map`/`flatMap`, not `filter`/`filterNot`; `.filter(...)` on an Option receiver
+    // renders correctly on its own (the method name is a coincidental pass-through), but the OUTER
+    // `.map(...)` then asked `isOptionExpr` about the `.filter(...)` term and got `false`, so it
+    // dispatched through the Vec-iterator path instead of Option's own:
+    // `error[E0599]: no method named unwrap_or found for struct Vec<i64>` (from the eventual
+    // `.getOrElse` at the end of the chain, once `.collect::<Vec<_>>()` had already run).
+    val src =
+      """```scalascript
+        |case class Token(kind: String, lexeme: String)
+        |
+        |def leadingIndent(indices: List[Int], tokens: List[Token]): Int =
+        |  indices.headOption.filter(index => tokens(index).kind == "yaml.indentation")
+        |    .map(index => tokens(index).lexeme.takeWhile(_ == ' ').length).getOrElse(0)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".filter(") && g.contains(").map(") && g.contains(").unwrap_or(0i64)"),
+      s".map chained after .filter on an Option must stay on the Option path, not fall to Vec's:\n$g")
+
+  test("a String field reached off a local bound to an indexed CAPTURE is recognized as a String"):
+    // `val line = lines(index)` inside `parseBlockScalar`, itself LIFTED out of `parse` and
+    // CAPTURING `lines` (`uniml/yaml`'s `YamlSemanticParser.scala`) — `lines` is not one of
+    // `parseBlockScalar`'s own declared parameters, so its type was invisible to
+    // `collectLocalRustTypes`'s (and `ownParamTypes`'s) own pre-pass, which only ever read a
+    // lifted def's OWN `paramClauseGroups`. `line`'s type (`Line`, so `.raw`, a genuine `String`
+    // field, is recognized) consequently never resolved, and `line.raw.drop(n)` fell to the
+    // generic Vec-shaped `.drop`, which reaches `.into_iter()` on a `String`: `error[E0599]`.
+    val src =
+      """```scalascript
+        |case class Line(raw: String)
+        |
+        |def splitLines(input: String): Vector[Line] = Vector(Line(input))
+        |
+        |def parse(input: String): String =
+        |  val lines = splitLines(input)
+        |  var index = 0
+        |
+        |  def parseBlockScalar(indent: Int): String =
+        |    val line = lines(index)
+        |    line.raw.drop(math.min(indent, line.raw.length))
+        |
+        |  parseBlockScalar(1)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("crate::runtime::_str_substring_from(&line.raw,"),
+      s"a String field read off a local bound to an indexed capture must use the String substring path, not Vec's:\n$g")
+
+  test("a chain of `+` over struct fields flattens into one `format!`, not a nested one"):
+    // `lexeme + line.raw + line.lineBreak` (`uniml/yaml`'s `YamlSemanticParser.scala`'s
+    // `parseBlockScalar`, left-associative: `(lexeme + line.raw) + line.lineBreak`) — the INNER
+    // `+` correctly becomes a `format!`, but neither `strOp` closure in the OUTER `+`'s own case
+    // recognized `line.raw`/`line.lineBreak` (`receiver.field` selects, `isKnownStringField`'s own
+    // shape) as string-shaped: `isStringExpr` is ctx-free and cannot see a struct field, and
+    // `localStrings` only covers a bare name. The OUTER guard failed entirely and fell through to
+    // a generic `+`, which is `Add<&str> for String` only: `error[E0308]: expected &str, found
+    // String`.
+    val src =
+      """```scalascript
+        |case class Line(raw: String, lineBreak: String)
+        |
+        |def buildLexeme(lexeme: String, line: Line): String =
+        |  lexeme + line.raw + line.lineBreak
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("""format!("{}{}{}", lexeme, line.raw, line.lineBreak)"""),
+      s"a chain of + over struct fields must flatten into ONE format!, not a nested or bare + :\n$g")
+
+  test("a call to a function-typed PARAMETER unwraps an SscChar argument"):
+    // `pred(s.charAt(i))` where `pred: Char => Boolean` (`uniml/yaml`'s `YamlSemanticParser.scala`'s
+    // `allFrom`) — a call to a FUNCTION-TYPED PARAMETER never went through the SscChar
+    // `.0`-unwrap coercion at all, since that coercion is keyed off `_paramTypes` (module-level
+    // def names only), and `pred` is a parameter, not a def: `error[E0308]: expected i64, found
+    // SscChar`. `closureCalleeParamTypes` reads the parameter's OWN declared `impl Fn(...)`
+    // signature string back into the same shape `_paramTypes` holds for an ordinary def.
+    val src =
+      """```scalascript
+        |def allFrom(s: String, from: Int, pred: Char => Boolean): Boolean =
+        |  var i = from
+        |  var ok = true
+        |  while i < s.length && ok do
+        |    if !pred(s.charAt(i)) then ok = false
+        |    i += 1
+        |  ok
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("pred((crate::runtime::_str_char_at(&s, i)).0)"),
+      s"a call to a function-typed parameter must unwrap an SscChar argument via .0:\n$g")
+
+  test("`.head`/`.last` on a String yields SscChar, unwrapped in a tuple literal"):
+    // `Option.when(valid)((rest.head, chomping, indentation))` (`uniml/yaml`'s
+    // `YamlSemanticParser.scala`'s `blockHeader`) — `.head`/`.last` on a STRING render through the
+    // exact same `crate::runtime::_str_char_at(...)` runtime call `.charAt` does (both return the
+    // same `SscChar` newtype), but `yieldsSscChar` only recognized `.charAt`; a tuple-literal
+    // `.head` element consequently never got its `.0` unwrap: `error[E0308]: expected i64, found
+    // SscChar`.
+    val src =
+      """```scalascript
+        |def maybe(valid: Boolean, rest: String, chomping: Option[Char], indentation: Option[Int]): Option[(Char, Option[Char], Option[Int])] =
+        |  Option.when(valid)((rest.head, chomping, indentation))
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("(crate::runtime::_str_char_at(&rest, 0i64)).0"),
+      s"a String's .head in a tuple literal must unwrap via .0, same as .charAt:\n$g")
+
+  test("an Option-pipeline `.getOrElse(strLit)` is recognized as string-shaped in a + chain"):
+    // `withBreak.reverse.dropWhile(...).reverse + Option.when(withBreak.nonEmpty)("\n").getOrElse("")`
+    // (`uniml/yaml`'s `YamlSemanticParser.scala`'s `parseBlockScalar`) — an Option PIPELINE's
+    // `.getOrElse(default)` is itself a String whenever its DEFAULT argument is, but `isStringExpr`
+    // had no case for this shape at all. The RHS of the outer `+` was consequently unrecognized as
+    // string-shaped, the String-concat guard failed entirely, and it fell through to a generic +,
+    // which is `Add<&str> for String` only: `error[E0308]: expected &str, found String`.
+    val src =
+      """```scalascript
+        |def cook(withBreak: String): String =
+        |  withBreak.reverse.dropWhile(_ == '\n').reverse + Option.when(withBreak.nonEmpty)("\n").getOrElse("")
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("format!(\"{}{}\", withBreak") && g.contains(".unwrap_or(\"\".to_string()))"),
+      s"an Option-pipeline .getOrElse(strLit) chained with + must flatten into one format!, not a bare +:\n$g")
+
+  test("a type-pattern match arm's bare-name body clones a ref-bound value"):
+    // `case stream: YamlValue.Stream => stream` (`uniml/yaml`'s `YamlSemanticParser.scala`'s
+    // `validate`) — the pattern renders as `ref stream @ YamlValue::Stream { ref documents }` (a
+    // BORROW), so the arm's own body — the bare bound name, read back whole — needed the same
+    // `.clone()` every other by-value position already gets via `cloneIfMoved`; this was the one
+    // arm-body position that never routed through it at all: `error[E0507]: cannot move out of
+    // *stream, which is behind a shared reference`.
+    val src =
+      """```scalascript
+        |enum YamlValue:
+        |  case Stream(documents: List[Int])
+        |  case Scalar(text: String)
+        |
+        |def asStream(v: YamlValue): YamlValue =
+        |  v match
+        |    case stream: YamlValue.Stream => stream
+        |    case _ => v
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("=> (*stream).clone(),"),
+      s"a type-pattern match arm returning its own ref-bound name must clone it:\n$g")
+
+  test("a closure calling a lifted def reborrows &mut extras and pre-clones the rest"):
+    // `docsIn.foreach { document => def cloneValue(...) = ...; document.value.flatMap(v =>
+    // cloneValue(v, Set.empty)) }` (`uniml/yaml`'s `YamlSemanticParser.scala`'s `resolve`) —
+    // `cloneValue` is a LIFTED local def capturing `diagnostics`/`nodes` BY MUTABLE REFERENCE and
+    // `options` by clone; the closure passed to `.flatMap` never syntactically names any of them
+    // (they are spliced in only at render time), and being unconditionally `move`, rebuilding it
+    // every loop iteration re-moved the ALREADY-moved originals on the second iteration:
+    // `error[E0382]: use of moved value ... in previous iteration of loop`, for BOTH the `&mut`
+    // captures (needing a fresh reborrow each iteration) and the cloned ones (needing a fresh
+    // pre-clone each iteration).
+    val src =
+      """```scalascript
+        |case class Opts(maxNodes: Int)
+        |case class Doc(value: Option[Int])
+        |
+        |def resolveAll(docsIn: Vector[Doc], options: Opts): Either[Vector[String], Vector[Doc]] =
+        |  var diagnostics: Vector[String] = Vector.empty
+        |  var documents: Vector[Doc] = Vector.empty
+        |  var nodes = 0
+        |
+        |  docsIn.foreach { document =>
+        |    def cloneValue(value: Int, visiting: Set[Int]): Option[Int] =
+        |      nodes += 1
+        |      if nodes > options.maxNodes then
+        |        diagnostics = diagnostics :+ "too many nodes"
+        |        None
+        |      else if visiting.contains(value) then None
+        |      else Some(value)
+        |
+        |    val resolved = document.value.flatMap(v => cloneValue(v, Set.empty))
+        |    documents = documents :+ document.copy(value = resolved)
+        |  }
+        |  if diagnostics.nonEmpty then Left(diagnostics) else Right(documents)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("let diagnostics = &mut diagnostics;") && g.contains("let nodes = &mut nodes;")
+      && g.contains("let options = options.clone();"),
+      s"a closure calling a lifted def must reborrow &mut extras and pre-clone by-value extras:\n$g")
+
+  test("a destructured variant field renames itself away from a colliding local"):
+    // `stream: YamlValue.Stream`'s destructured field `documents`, colliding with `resolve`'s OWN
+    // unrelated `var documents` (`uniml/yaml`'s `YamlSemanticParser.scala`) — both compile to a
+    // plain `let`/`let mut documents` in sequence, and Rust's own shadowing rules mean EVERY read
+    // of bare `documents` from that point on resolves to whichever binding is lexically closest —
+    // the accumulator, not the destructured field. `stream.documents.foreach{…}`'s iteration
+    // source silently started iterating the WRONG (empty) collection: not a borrow-check false
+    // positive but a genuine SEMANTIC bug the borrow checker only happened to also catch
+    // (`documents = […]` while the for loop's own iterator still borrows the very same
+    // accumulator it is about to reassign, since both are one binding by the time the loop runs):
+    // `error[E0506]: cannot assign to documents because it is borrowed`.
+    val src =
+      """```scalascript
+        |case class YamlDocument(value: Int)
+        |
+        |enum YamlValue:
+        |  case Stream(documents: List[YamlDocument])
+        |  case Scalar(text: String)
+        |
+        |def resolve(stream: YamlValue.Stream): List[YamlDocument] =
+        |  var documents: List[YamlDocument] = List.empty
+        |  stream.documents.foreach { document =>
+        |    documents = documents :+ document
+        |  }
+        |  documents
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("documents: __dstruct_documents } = stream.clone()")
+      && g.contains("for document in __dstruct_documents.iter().cloned()"),
+      s"a destructured field colliding with an unrelated local must rename itself, not shadow it:\n$g")
+
+  test("a stable-identifier pattern referencing a String-valued topval matches by value"):
+    // `kind match { case MdBranch.Heading => …; case MdBranch.Paragraph => …; … }` (`uniml/
+    // markdown`'s `MarkdownProjection.scala`) — `MdBranch` is NOT an enum; it is a plain `object`
+    // of `String`-valued `val`s, used as readable names for tag strings. A bare qualified
+    // reference to one, in PATTERN position, is a stable-identifier pattern matching by VALUE
+    // EQUALITY against the string — a different shape from a niladic enum case, but Scalameta
+    // represents both the same way syntactically (a `Term.Select` where a `Pat` is expected), so
+    // this was refused outright: `unsupported pattern: Term.Select (MdBranch.Heading)`.
+    val src =
+      """```scalascript
+        |object MdBranch:
+        |  val Heading = "markdown.heading"
+        |  val Paragraph = "markdown.paragraph"
+        |
+        |def describe(kind: String): String =
+        |  kind match
+        |    case MdBranch.Heading => "a heading"
+        |    case MdBranch.Paragraph => "a paragraph"
+        |    case _ => "something else"
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("match (kind).as_str() {")
+      && g.contains("\"markdown.heading\" => \"a heading\".to_string(),")
+      && g.contains("\"markdown.paragraph\" => \"a paragraph\".to_string(),"),
+      s"a stable-identifier pattern over a String-valued topval must match by its literal value:\n$g")
+
+  test("a val bound to `.split(...).toVector` is known to hold Strings"):
+    // `val segments = domain.split("\\.", -1).toVector` (`uniml/markdown`'s `MarkdownInlines.
+    // scala`'s `validEmailDomain`) — `.split` is unambiguously a `String` method, always
+    // returning `Array[String]`; `.toVector`/`.toList`/`.toArray` on top changes only the outer
+    // collection shape, never the element type. Without this, `segments`'s element type never
+    // resolved, and `segments.forall(_.nonEmpty)`'s placeholder `_` reached `isKnownStringField`/
+    // `isStringExpr` with no type of its own to check: "reads nonEmpty without parentheses ... it
+    // is a collection member, not a field".
+    val src =
+      """```scalascript
+        |def validEmailDomain(domain: String): Boolean =
+        |  val segments = domain.split("\\.", -1).toVector
+        |  segments.length >= 2 && segments.forall(_.nonEmpty)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("all(|__p0| { !__p0.is_empty() })"),
+      s"a val bound to .split(...).toVector must be known String-elemented, for a no-paren .nonEmpty on its placeholder:\n$g")
+
+  test("`xs.collectFirst { case p if g => v }` lowers to find_map, no .collect() needed"):
+    // `edges.collectFirst { case t if t.kind == "atx" => t.lexeme.length }` (`uniml/markdown`'s
+    // `MarkdownProjection.scala`, many call sites) — the FIRST-match twin of `.collect`: same
+    // case-based partial-function arm rendering (each arm wrapped in `Some(...)`), but
+    // `Iterator::find_map` already IS "first Some(...) wins, short-circuiting" — no trailing
+    // `.collect()` needed, since `find_map` itself returns the `Option<T>` `collectFirst` means.
+    // Had NO lowering at all before this: "calls collectFirst on a List and the rust backend has
+    // no lowering for it".
+    val src =
+      """```scalascript
+        |case class Tok(kind: String, lexeme: String)
+        |
+        |def headingLevel(edges: List[Tok]): Int =
+        |  edges.collectFirst { case t if t.kind == "atx" => t.lexeme.length }.getOrElse(1)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".find_map(|__c| match __c {")
+      && g.contains("Some((t.lexeme.len() as i64)),")
+      && g.contains("}).unwrap_or(1i64)"),
+      s"xs.collectFirst { case p if g => v } must lower to find_map with no trailing .collect():\n$g")
+
+  test("`opt.exists(namedParam => ...)` seeds the param's type from the Option's declared element"):
+    // `firstMarker(edges).exists(m => m.nonEmpty && ...)` (`uniml/markdown`'s
+    // `MarkdownProjection.scala`'s `listOrdered`) — a bare `Term.Function` argument to Option's
+    // `.exists` renders through PLAIN `renderTerm` (no `renderVecIterBody`-style dispatch exists
+    // for Option methods), so `m`'s own type never got seeded from `firstMarker`'s declared
+    // `Option[String]` return type — `m.nonEmpty` (no-paren) reached `isKnownStringField`/
+    // `isStringExpr` with nothing to check: "reads nonEmpty without parentheses ... it is a
+    // collection member, not a field".
+    val src =
+      """```scalascript
+        |def firstMarker(x: Int): Option[String] = if x > 0 then Some("m") else None
+        |
+        |def listOrdered(x: Int): Boolean =
+        |  firstMarker(x).exists(m => m.nonEmpty && m.charAt(0) == '5')
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("|m| { (!m.is_empty() && "),
+      s"opt.exists(namedParam => ...) must seed the param's type from the Option's declared element, for a no-paren .nonEmpty:\n$g")
+
+  test("a lifted local def's captured type resolves through .mkString / .length / a bool ApplyInfix"):
+    // `val joined = window.iterator.map(_.trim).mkString`, `val n = joined.length`, `val
+    // buffering = open || indented` (`uniml/markdown`'s `MarkdownBlocks.scala`'s `scanRefDef`/
+    // `parse`, each captured by a LIFTED local def) — `.mkString` (no args) and `.length` are
+    // each unambiguous about their OWN result type regardless of receiver (every collection's
+    // `.mkString` yields `String`; `.length` yields `Int`), and a comparison/logical `ApplyInfix`
+    // is unambiguously `Boolean` — none of these needed `inferCaptureType` to already know the
+    // RECEIVER's type first, but no case existed for any of the three: "captures `joined, n`"/
+    // "captures `buffering`" "and this lane cannot infer its type".
+    val src =
+      """```scalascript
+        |def scanRefDef(window: Vector[String]): Int =
+        |  val joined = window.iterator.map(_.trim).mkString
+        |  val n = joined.length
+        |
+        |  def skipWs(from: Int, maxBreaks: Int): Int =
+        |    if from < n then from + 1 else n
+        |
+        |  skipWs(0, 1)
+        |
+        |def parseParagraph(open: Boolean, indented: Boolean): Int =
+        |  val buffering = open || indented
+        |  def consume(): Int = if buffering then 1 else 0
+        |  consume()
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("fn skipWs(from: i64, maxBreaks: i64, n: i64) -> i64")
+      && g.contains("fn consume(buffering: bool) -> i64"),
+      s"a lifted def's captured type must resolve through .mkString/.length/a bool ApplyInfix:\n$g")
+
+  test("a bare no-paren .isEmpty on a case class's OWN String field resolves via paramTypes"):
+    // `titleLex.isEmpty` inside `def title: Option[String] = …` (`uniml/markdown`'s
+    // `MarkdownBlocks.scala`'s `RefDef`) — `titleLex` is the case class's OWN constructor param,
+    // read bare (implicit `this.`) from one of its own methods; it is never added to
+    // `ctx.localStrings` (that set only ever collects LOCAL `val`s a method's own body declares),
+    // but `ctx.paramTypes` already carries it as `"String"` (`renderDef`'s own `ownFieldTypes`,
+    // folded into `paramTypes` at `Ctx`-construction time) — the same table `isKnownStringField`'s
+    // `check` function already reads for the identical reason. Without this: "reads isEmpty
+    // without parentheses ... it is a collection member, not a field".
+    val src =
+      """```scalascript
+        |case class RefDef(titleLex: String):
+        |  def title: Option[String] =
+        |    if titleLex.isEmpty then None else Some(titleLex.substring(1, titleLex.length - 1))
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("if titleLex.is_empty() { None }"),
+      s"a bare no-paren .isEmpty on a case class's own String field must resolve via paramTypes:\n$g")
+
+  test("`edges.collectFirst { … }.flatten` lowers Option's own .flatten"):
+    // `edges.collectFirst { … }.flatten` (`uniml/markdown`'s `MarkdownProjection.scala`'s
+    // `firstMarker`) — Scala's `Option[Option[T]].flatten` collapses one level of nesting; Rust's
+    // `Option<Option<T>>` has the IDENTICAL `.flatten()` method, so this is a direct name-for-name
+    // lowering — the gap was that nothing recognized the RECEIVER as an Option at all (`collectFirst`
+    // was missing from `isOptionExpr`'s own "returns an Option" list), so it fell to the generic
+    // no-paren "collection member" refusal.
+    val src =
+      """```scalascript
+        |case class Tok(kind: String, lexeme: String)
+        |
+        |def firstMarker(edges: List[Tok]): Option[String] =
+        |  edges.collectFirst {
+        |    case t if t.kind == "item" =>
+        |      edges.collectFirst { case u if u.kind == "marker" => u.lexeme }
+        |  }.flatten
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(")).flatten()"),
+      s"edges.collectFirst { ... }.flatten must lower to Option's own .flatten():\n$g")
+
+  test("`val rows = xs.collect { case p => v }` is a known Vec, for a no-paren .headOption"):
+    // `val rows = edges.collect { case … => … }` then `rows.headOption` (`uniml/markdown`'s
+    // `MarkdownProjection.scala`'s `projectTable`) — `.collect { case … }` always returns a `Vec`
+    // on this lane, matching every other method already in `collectLocalSeqs`'s own `SeqMethods`
+    // set, but `.collect` itself was missing from it — `rows` was never recorded as a seq, and
+    // `rows.headOption` fell to the field path: "reads headOption without parentheses ... it is a
+    // collection member, not a field".
+    val src =
+      """```scalascript
+        |case class Tok(kind: String, lexeme: String)
+        |
+        |def projectTable(edges: List[Tok]): Vector[String] =
+        |  val rows = edges.collect { case t if t.kind == "row" => t.lexeme }
+        |  rows.headOption.map(x => x).getOrElse("")
+        |  rows
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("rows.first().cloned()"),
+      s"a val bound to xs.collect { case ... } must be a known Vec, for a no-paren .headOption:\n$g")
+
+  test("`Set(...)` constructs a Vec, this lane's own Set-as-Vec convention"):
+    // `Set("literal", "text", "unknown")` (`uniml/markdown`'s `MarkdownDialect.scala`'s
+    // `Literal.aliases`) — this lane already represents a Scala `Set` as a plain `Vec` throughout
+    // (`collectSeqParams`'s `isSeqType`, for a Set-typed PARAMETER), but the CONSTRUCTOR side had
+    // never followed: `Set(...)` reached rustc as a call to a function literally named `Set`,
+    // which this crate does not define.
+    val src =
+      """```scalascript
+        |def aliasesFor(x: Int): Set[String] =
+        |  Set("literal", "text", "unknown")
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("""vec!["literal".to_string(), "text".to_string(), "unknown".to_string()]"""),
+      s"Set(...) must construct a vec![...], this lane's own Set-as-Vec convention:\n$g")
+
+  test("`.take`/`.drop` are element-preserving in elementTypeOf, like .filter/.sorted/.distinct/.reverse"):
+    // `segments.take(segments.length - 1).exists(_.isEmpty)` (`uniml/markdown`'s
+    // `MarkdownInlines.scala`'s `domainAndPath`) — `.take`/`.drop` never change the element type,
+    // the SAME fact `elementTypeOf` already trusts for `.filter`/`.sorted`/`.distinct`/`.reverse`;
+    // without it, the placeholder `_` in `.exists(_.isEmpty)` reached its body with no type of its
+    // own, and `.isEmpty` (no-paren) fell to the generic "collection member" refusal.
+    val src =
+      """```scalascript
+        |def domainAndPath(domain: String): Boolean =
+        |  val segments = domain.split("\\.", -1).toVector
+        |  segments.length < 2 || segments.take(segments.length - 1).exists(_.isEmpty)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".any(|__p0| { __p0.is_empty() })"),
+      s".take must be element-preserving in elementTypeOf, for a no-paren .isEmpty on its placeholder:\n$g")
+
+  test("a class field with no type annotation infers Boolean from a comparison, Vec<String> from string-literal args"):
+    // `private val gfm = profile == gfmProfile` / `private val htmlType1Tags = Vector("script",
+    // "pre", "style", "textarea")` (`uniml/markdown`'s `MarkdownBlocks.scala`) — the class-field
+    // `literalType` helper only recognized a genuine LITERAL initializer; a computed comparison/
+    // logical expression is unambiguously `Boolean` (the SAME fact `inferCaptureType`'s own twin
+    // case, for a captured LOCAL rather than a class field, already trusts), and a sequence
+    // CONSTRUCTOR whose every argument is a string literal is unambiguously `Vec<String>`. Without
+    // these: "class `MarkdownBlocks` field `gfm`/`htmlType1Tags` has no type annotation and its
+    // initializer is not a plain literal — this lane cannot infer its type".
+    val src =
+      """```scalascript
+        |class MarkdownBlocks(profile: Int, gfmProfile: Int):
+        |  private val gfm = profile == gfmProfile
+        |  private val htmlType1Tags = Vector("script", "pre", "style", "textarea")
+        |  def isGfm: Boolean = if gfm then true else false
+        |  def isType1(name: String): Boolean = htmlType1Tags.contains(name)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("gfm: bool") && g.contains("htmlType1Tags: Vec<String>"),
+      s"a class field with no type annotation must infer Boolean from a comparison and Vec<String> from string-literal args:\n$g")
+
+  test("a plain signed `>>` infix operator is spelled identically in Rust"):
+    // `hi = 0xD800 + (c >> 10)` (`uniml/markdown`'s `MarkdownDialect.scala`'s
+    // `codePointToString`, surrogate-pair assembly) — `<<`/`&`/`>>>` were already handled, but
+    // plain `>>` (signed right shift) was not: "uses unsupported infix operator `>>`". Spelled
+    // identically in Rust.
+    val src =
+      """```scalascript
+        |def codePointToString(cp: Int): String =
+        |  if cp <= 0xFFFF then cp.toChar.toString
+        |  else
+        |    val c = cp - 0x10000
+        |    val hi = 0xD800 + (c >> 10)
+        |    val lo = 0xDC00 + (c & 0x3FF)
+        |    hi.toChar.toString + lo.toChar.toString
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("(c >> 10i64)"),
+      s"a plain signed >> infix operator must be spelled identically in Rust:\n$g")
+
+  test("a no-paren String-field call resolves through a Pat.Typed-to-variant binder's SPECIFIC ctor"):
+    // `delim.lexeme.isEmpty` where `delim` was bound by `case delim: WDelim => …`
+    // (`uniml/markdown`'s `MarkdownInlines.scala`'s `flatten`) — `variantBodyCtxExtra` sets
+    // `delim`'s `paramTypes` entry to the ENUM's own name (`"WNode"`, since `delim` is really
+    // bound as a `&WNode` reference), not the specific ctor `"WDelim"`; the specific ctor lives in
+    // `destructuredCtorNames` instead. `isKnownStringField`'s own lookup only ever read
+    // `paramCtorNames`/`paramTypes`, so `ctx.ctorMap.get("WNode")` (not itself a ctorMap key)
+    // always missed: "reads isEmpty without parentheses ... it is a collection member, not a
+    // field".
+    val src =
+      """```scalascript
+        |case class Tok(kind: String, lexeme: String, tag: Option[String], channel: Int)
+        |
+        |private sealed trait WNode
+        |private final case class WFixed(pieces: Vector[Tok]) extends WNode
+        |private final case class WDelim(ch: Char, lexeme: String) extends WNode
+        |
+        |def flatten(node: WNode): Vector[Tok] = node match
+        |  case WFixed(pieces) => pieces
+        |  case delim: WDelim  => if delim.lexeme.isEmpty then Vector.empty else Vector(Tok("x", delim.lexeme, None, 0))
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    // `(*lexeme)` — `lexeme` is now ALSO `byRefMut` (the `emailLocalBackscan` field-deref fix), so
+    // a bare field read derefs the same way the outer bind name always has; `.is_empty()` autoderefs
+    // either way (verified via a real `cargo build`, /tmp/t97.scala this session).
+    assert(g.contains("if lexeme.is_empty()") || g.contains("if (*lexeme).is_empty()"),
+      s"a no-paren String-field call on a Pat.Typed-to-variant binder must resolve through destructuredCtorNames:\n$g")
+
+  test("a val bound to a QUALIFIED call resolves its seq-ness through the SPECIFIC def, not by bare name"):
+    // `val pieces = MarkdownInlines.parse(content, refs, profile)` (`uniml/markdown`'s
+    // `MarkdownBlocks.scala`'s `parse`) — this corpus alone has FOUR distinct `def parse(...)`,
+    // each in a different object; the generic seq-ctor case (keyed by bare method NAME through
+    // `_returnTypes`, a module-wide map with no notion of "which object") resolved `nm = "parse"`
+    // to whichever `parse` happened to be written LAST — not necessarily `MarkdownInlines.parse`'s
+    // own `Vector[InlinePiece]`. Without this, `pieces` was not recorded as a seq, and
+    // `pieces.nonEmpty` fell to the field path: "reads nonEmpty without parentheses ... it is a
+    // collection member, not a field".
+    val src =
+      """```scalascript
+        |object MarkdownInlines:
+        |  def parse(content: String): Vector[String] = Vector(content)
+        |
+        |object Other:
+        |  def parse(x: Int): Int = x + 1
+        |
+        |def parseBlock(content: String): Boolean =
+        |  val pieces = MarkdownInlines.parse(content)
+        |  pieces.nonEmpty
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("!pieces.is_empty()"),
+      s"a val bound to a qualified call must resolve seq-ness through the specific def, not by bare name collision:\n$g")
+
+  test("`opt.map`/`opt.flatMap(namedParam => ...)` seed the param's type from the declared element"):
+    // `firstMarker(x).flatMap(m => if m.nonEmpty then Some(m) else None)` /
+    // `firstMarker(x).map(m => m.nonEmpty)` — the `.map`/`.flatMap` twins of the `.exists` fix
+    // (`seedOptionElemParam`, factored out of `.exists`'s own original inline code once `.map`/
+    // `.flatMap` needed the identical seeding): a bare `Term.Function` argument to an Option
+    // method renders through plain `renderTerm` (no `renderVecIterBody`-style dispatch exists for
+    // Option methods), so the closure param's own type never got seeded from the Option's
+    // declared element — `m.nonEmpty` (no-paren) reached `isKnownStringField`/`isStringExpr` with
+    // nothing to check.
+    val src =
+      """```scalascript
+        |def firstMarker(x: Int): Option[String] = if x > 0 then Some("m") else None
+        |
+        |def usesFlatMap(x: Int): Option[String] =
+        |  firstMarker(x).flatMap(m => if m.nonEmpty then Some(m) else None)
+        |
+        |def usesMap(x: Int): Boolean =
+        |  firstMarker(x).map(m => m.nonEmpty).getOrElse(false)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("if !m.is_empty()") && g.contains(".map(move |m| { !m.is_empty() })"),
+      s"opt.map/opt.flatMap(namedParam => ...) must seed the param's type from the Option's declared element:\n$g")
+
+  test("`.asInstanceOf[T]` erases as identity, and clones a subject a match arm partially moved"):
+    // `node.asInstanceOf[UniNode.Branch]` inside `node match { case UniNode.Branch(kind, edges,
+    // _, _) => … definitionOf(node.asInstanceOf[UniNode.Branch]) … }` (`uniml/markdown`'s
+    // `MarkdownProjection.scala`'s `projectBlock`) — the author added this narrowing cast because
+    // Scala's own flow typing does not automatically narrow `node: UniNode` to the already-matched
+    // `Branch` case one level of nesting down. On this backend every variant of a sealed hierarchy
+    // collapses to the SAME Rust enum type, so `.asInstanceOf[T]` is a genuine no-op here —
+    // erasing it surfaced a SEPARATE, real bug: a BARE (no `@`-bind) multi-field ctor pattern
+    // destructures `edges` out of `node` by value, partially moving it, so the later bare `node`
+    // (through the now-erased cast) could not even be `.clone()`d — `error[E0382]: value used
+    // here after partial move`. Fixed by widening the match-subject-cloning trigger
+    // (`hasFieldDestructurePat`) to cover a bare multi-field ctor pattern too, scoped to when the
+    // subject is provably read again in some arm's body.
+    val src =
+      """```scalascript
+        |case class UniEdge(id: Int)
+        |
+        |enum UniNode:
+        |  case Token(text: String)
+        |  case Branch(kind: String, edges: Vector[UniEdge])
+        |
+        |def definitionOf(node: UniNode.Branch): Int = node.edges.length
+        |
+        |def projectBlock(node: UniNode): Option[Int] =
+        |  node match
+        |    case UniNode.Token(_) => None
+        |    case UniNode.Branch(kind, edges) => kind match
+        |      case "definition" => Some(definitionOf(node.asInstanceOf[UniNode.Branch]))
+        |      case _ => None
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("match (node).clone() {") && g.contains("Some(definitionOf(node.clone()))"),
+      s".asInstanceOf[T] must erase as identity, and the match subject must clone when partially moved and read again:\n$g")
+
+  test("`case rest :+ X => rest` lowers to a suffix slice pattern, the mirror of `::`"):
+    // `case rest :+ MarkdownInline.SoftBreak => rest` (`uniml/markdown`'s
+    // `MarkdownProjection.scala`'s `trimBlockInlines`) — the SUFFIX twin of `::`'s prefix cons:
+    // matches a sequence whose LAST element matches a pattern, binding everything BEFORE it as
+    // `rest`. `::` was already lowered; `:+` had no case at all: "has unsupported pattern:
+    // Pat.ExtractInfix (rest :+ MarkdownInline.SoftBreak)".
+    val src =
+      """```scalascript
+        |enum MarkdownInline:
+        |  case Text(v: String)
+        |  case SoftBreak
+        |  case HardBreak
+        |
+        |def trimBlockInlines(is: Vector[MarkdownInline]): Vector[MarkdownInline] =
+        |  is match
+        |    case rest :+ MarkdownInline.SoftBreak => rest
+        |    case rest :+ MarkdownInline.HardBreak => rest
+        |    case _ => is
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("[rest @ .., MarkdownInline::SoftBreak] => { let rest = rest.to_vec(); rest.clone() }")
+      && g.contains("[rest @ .., MarkdownInline::HardBreak] => { let rest = rest.to_vec(); rest.clone() }"),
+      s"case rest :+ X => rest must lower to a suffix slice pattern, the mirror of ::: \n$g")
+
+  test("`xs.slice(from, until)` lowers to index-range + to_vec, and is a known seq"):
+    // `val window = lines.slice(index, last)` then `window.iterator.map(_.raw).mkString`
+    // (`uniml/markdown`'s `MarkdownBlocks.scala`'s `scanRefDef`) — `.slice` had NO lowering at
+    // all ("calls slice on a List and the rust backend has no lowering for it"), and even once
+    // lowered, `window` was not recorded as a seq (`collectLocalSeqs`' own `SeqMethods` set), so
+    // the `.mkString` chained after `.iterator.map(...)` fell to the no-paren "collection member"
+    // refusal.
+    val src =
+      """```scalascript
+        |case class MdLine(raw: String)
+        |
+        |def scanRefDef(lines: Vector[MdLine], index: Int, last: Int): Int =
+        |  val window = lines.slice(index, last)
+        |  val joined = window.iterator.map(_.raw).mkString
+        |  joined.length
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("lines[(index as usize)..(last as usize)].to_vec()"),
+      s"xs.slice(from, until) must lower to index-range + to_vec, and be a known seq for the .mkString chained after it:\n$g")
+
+  test("a tuple-destructured val whose rhs is an if/else with a call in one branch resolves Strings"):
+    // `val (dropNodes, keepText, localPart) = if content.charAt(i) == '@' then
+    // emailLocalBackscan(nodes, pending) else (0, "", "")` (`uniml/markdown`'s
+    // `MarkdownInlines.scala`'s `tokenize`) — a tuple-pattern destructure whose rhs is an IF/ELSE
+    // with a FUNCTION CALL in one branch (a literal tuple in the other, which Scala's own
+    // typechecking already guarantees agrees component-wise) — `collectLocalStrings`'s existing
+    // call-return case only ever matched a BARE call as the whole rhs, never one nested inside an
+    // if/else. Without this, `keepText` never registered as a String: "reads isEmpty without
+    // parentheses ... it is a collection member, not a field".
+    val src =
+      """```scalascript
+        |def emailLocalBackscan(nodes: Vector[Int], pending: Vector[String]): (Int, String, String) =
+        |  (0, "x", "y")
+        |
+        |def tokenize(content: String): Boolean =
+        |  val nodes: Vector[Int] = Vector.empty
+        |  val pending: Vector[String] = Vector.empty
+        |  val i = 0
+        |  val (dropNodes, keepText, localPart) =
+        |    if content.charAt(i) == '@' then emailLocalBackscan(nodes, pending)
+        |    else (0, "", "")
+        |  keepText.isEmpty
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("keepText.is_empty()"),
+      s"a tuple-destructured val whose rhs is an if/else with a call in one branch must resolve String positions:\n$g")
+
+  test("`opt.map(fnRef).filter(_.pred)` implements Option's own .filter, seeded from the map's return type"):
+    // `refLabel.map(extractRefLabel).filter(_.nonEmpty)` (`uniml/markdown`'s
+    // `MarkdownProjection.scala`'s `projectLink`) — Rust's `Option::filter` is a direct
+    // name-for-name match, but the Vec `.filter` case explicitly EXCLUDES an Option receiver and
+    // nothing filled in the Option side at all. Also needed `optionElementTypeOf` to see THROUGH
+    // a `.map(bareFnRef)` chain (the mapping function's own return type, not the original
+    // receiver's element type) and `seedOptionElemParam` to handle the PLACEHOLDER shorthand
+    // (`_.nonEmpty`), not just a named closure param.
+    val src =
+      """```scalascript
+        |def extractRefLabel(s: String): String = s.trim
+        |
+        |def rawLabel(x: Int): String = "fallback"
+        |
+        |def projectLink(refLabel: Option[String]): String =
+        |  refLabel.map(extractRefLabel).filter(_.nonEmpty).getOrElse(rawLabel(0))
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".filter(|__p0| { !__p0.is_empty() })"),
+      s"opt.map(fnRef).filter(_.pred) must implement Option's own .filter, seeded from the map's return type:\n$g")
+
+  test("`xs.collectFirst { case p => body }.filter(_.pred)` seeds from the arms' own body type"):
+    // `edges.collectFirst { case UniEdge(_, UniNode.Token(t)) if t.kind == MdKind.Info =>
+    // decodeText(unescape(t.lexeme.trim)) }.filter(_.nonEmpty)` (`uniml/markdown`'s
+    // `MarkdownProjection.scala`'s `codeInfo`) — `.collectFirst`'s own element type is whatever
+    // every arm's BODY yields; `isStringExpr` (ctx-free) already answers that for a call to a def
+    // declared to return `String` — every arm must agree (Scala's own typechecking already
+    // guarantees it), so checking that ALL of them pass is enough to trust the result.
+    val src =
+      """```scalascript
+        |def decodeText(s: String): String = s.trim
+        |def unescape(s: String): String = s
+        |
+        |case class Tok(kind: String, lexeme: String)
+        |
+        |def codeInfo(edges: List[Tok]): Option[String] =
+        |  edges.collectFirst { case t if t.kind == "info" => decodeText(unescape(t.lexeme.trim)) }
+        |    .filter(_.nonEmpty)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("}).filter(|__p0| { !__p0.is_empty() })"),
+      s"xs.collectFirst { case p => body }.filter(_.pred) must seed from the arms' own body type:\n$g")
+
+  test("a match arm's own GUARD sees the same pattern-derived ctx enrichment as its body"):
+    // `nodes(i) match { case closer if closer.lexeme.nonEmpty => … }` (`uniml/markdown`'s
+    // `MarkdownInlines.scala`'s `processEmphasis`) — a bare bind-all pattern whose element type
+    // comes from the SUBJECT being an indexing call on a known Vec (a new `renderMatch` ctx-
+    // enrichment case, generalizing the existing `charAt`-and-`SscChar` one for any known ctor).
+    // But the enrichment landed in `bodyCtx`, and `guardCtx` (used to render `c.cond`, the GUARD
+    // — a SEPARATE position from the arm's own body) was built from bare `ctx` instead: EVERY
+    // guarded arm in the corpus that needed pattern-derived type info in its OWN guard (not just
+    // this one shape) silently never got it. `closer.lexeme.nonEmpty` (no-paren, inside the
+    // guard) reached `isKnownStringField` with nothing to check: "reads nonEmpty without
+    // parentheses ... it is a collection member, not a field".
+    val src =
+      """```scalascript
+        |case class WDelim(ch: Char, lexeme: String)
+        |
+        |def processEmphasis(input: Vector[WDelim]): Int =
+        |  var nodes = input
+        |  nodes(0) match
+        |    case closer if closer.lexeme.nonEmpty => 1
+        |    case _ => 0
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("closer if !closer.lexeme.is_empty() => 1i64,"),
+      s"a match arm's own guard must see the same pattern-derived ctx enrichment as its body:\n$g")
+
+  test("`segs.iterator.zipWithIndex.map { (s, idx) => … }.mkString` on a captured `var` seq"):
+    // `emitSetextUnderline`, a local def lifted out of `parse` (`uniml/markdown`'s
+    // `MarkdownBlocks.scala`) — `val segs = paragraphSegs` (`paragraphSegs` a CAPTURED
+    // `var paragraphSegs: Vector[ParaSeg] = Vector.empty`, declared at `parse`'s own top
+    // level) then `segs.iterator.zipWithIndex.map { (s, idx) => … }.mkString`. TWO separate
+    // gaps, both needed together for this one shape to compile:
+    //
+    // 1. `isKnownVecReceiver`'s recursive combinator case only matched `.zipWithIndex` when
+    //    written as a `Term.Apply` (parens/args) — but `.zipWithIndex`, like `.iterator` right
+    //    next to it in that same match, is ALWAYS a bare no-arg `Term.Select` and so never hit
+    //    that case at all: `segs.iterator.zipWithIndex` was judged NOT a known Vec, and the
+    //    trailing bare `.mkString` fell to the no-paren "collection member" refusal this test
+    //    guards against directly.
+    // 2. `liftLocalDefs`'s per-lifted-def `localSeqs` recompute seeded `collectLocalSeqs`'s walk
+    //    with only `ownSeqParams` (this def's OWN declared Scala params — none here), never
+    //    `baseCtx.localSeqs` (which DOES already know `paragraphSegs` is a seq, from the
+    //    enclosing `parse`'s own top-level pass) — so `val segs = paragraphSegs` could not see
+    //    that its OWN right-hand side was already a known seq, and `segs` itself never
+    //    registered as one either.
+    //
+    // Getting past the refusal (1+2) still left a THIRD, separate compile bug once the
+    // `Vec<(ParaSeg, i64)>` `.map` was actually reached: `renderVecIterBody`'s `"map"` case
+    // ignored the closure's second param entirely and always emitted the single-param
+    // `|$p0|` — so `idx` read as `error[E0425]: cannot find value idx in this scope` and every
+    // `s.field` read the WHOLE `(ParaSeg, i64)` tuple instead of its first element
+    // (`error[E0609]`). Fixed by destructuring `|($p0, $p1)|` whenever the closure genuinely
+    // has two declared params (the only way Scala 3 accepts a 2-param function literal here in
+    // the first place is auto-tupling over a 2-tuple element).
+    val src =
+      """```scalascript
+        |case class ParaSeg(content: String, ending: String, prefix: String)
+        |
+        |def parse(text: String): Int =
+        |  var out = 0
+        |  var paragraphSegs: Vector[ParaSeg] = Vector.empty
+        |
+        |  def emitSetextUnderline(): Unit =
+        |    val segs = paragraphSegs
+        |    val content = segs.iterator.zipWithIndex.map { (s, idx) =>
+        |      val pfx = if idx == 0 then "" else s.prefix
+        |      val end = if idx == segs.size - 1 then "" else s.ending
+        |      pfx + s.content + end
+        |    }.mkString
+        |    if content.nonEmpty then out += 1
+        |
+        |  emitSetextUnderline()
+        |  out
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".map(|(s, idx)| {"),
+      s"a genuine 2-param closure over a `.zipWithIndex` Vec must destructure the tuple, not bind the whole pair to one name:\n$g")
+    assert(!g.contains(".mkString"),
+      s"`.mkString` must be lowered to a real Rust call, never left as an un-rewritten Scala method name:\n$g")
+
+  test("a captured var's own tuple-string positions flow through a bare-name alias and a .foreach destructure"):
+    // `var indentedCodeBlanks: Vector[(String, String)] = Vector.empty` then, inside TWO
+    // different lifted local defs, `val held = indentedCodeBlanks; held.foreach { case
+    // (blankContent, ending) => … }` (`uniml/markdown`'s `MarkdownBlocks.scala`'s
+    // `releaseInteriorBlanks`/`finishIndentedCode`) — two compounding gaps:
+    // (1) `collectLocalTupleStringPositions`'s own `positions` helper never recorded ANY
+    // positions for `indentedCodeBlanks` at all — it is a `var` (only `Defn.Val` was walked)
+    // whose rhs (`Vector.empty`) matches neither the `Some(pair)`/`pair1 -> pair2`/if-else
+    // cases; and `held = indentedCodeBlanks` is a bare-name ALIAS, not a literal, which none of
+    // those cases recognize either. Fixed via a NEW `declPositions` (the declared-type twin of
+    // `collectLocalSeqs`'s own `declIsSeq`) plus a bare-`Term.Name` case reading positions
+    // recorded earlier in the SAME walk.
+    // (2) Even with `held`'s own positions known, `blankContent`/`ending` are TUPLE-
+    // DESTRUCTURING CLOSURE PARAMS inside `held.foreach { case (a, b) => … }` — never a
+    // `Defn.Val`/`Defn.Var` — so `collectLocalStrings`'s OWN `strs` accumulator (a SEPARATE,
+    // STATIC pre-pass with no closure scoping) never learned about them, and `val lexeme =
+    // blankContent + ending` never registered as a String either. Fixed with a new `.foreach`
+    // walk case seeding `strs` from `collectLocalTupleStringPositions`'s own output.
+    // Without both: "reads nonEmpty without parentheses ... it is a collection member, not a
+    // field".
+    val src =
+      """```scalascript
+        |def leaf(kind: String, lexeme: String): Unit = ()
+        |def flushPending(kind: String, lexeme: String): Unit = ()
+        |
+        |def parse(text: String): Unit =
+        |  var indentedCodeBlanks: Vector[(String, String)] = Vector.empty
+        |  indentedCodeBlanks = indentedCodeBlanks :+ (("a", "b"))
+        |
+        |  def releaseInteriorBlanks(): Unit =
+        |    val held = indentedCodeBlanks
+        |    indentedCodeBlanks = Vector.empty
+        |    held.foreach { case (blankContent, ending) =>
+        |      if blankContent.nonEmpty then leaf("indent", blankContent)
+        |      if ending.nonEmpty then leaf("code", ending)
+        |    }
+        |
+        |  def finishIndentedCode(): Unit =
+        |    val held = indentedCodeBlanks
+        |    indentedCodeBlanks = Vector.empty
+        |    held.foreach { case (blankContent, ending) =>
+        |      val lexeme = blankContent + ending
+        |      if lexeme.nonEmpty then flushPending("blank", lexeme)
+        |    }
+        |
+        |  releaseInteriorBlanks()
+        |  finishIndentedCode()
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("let lexeme = format!(\"{}{}\", blankContent, ending);")
+      && g.contains("if !lexeme.is_empty()"),
+      s"a captured var's tuple-string positions must flow through a bare-name alias and a .foreach destructure:\n$g")
+
+  test("`vec.updated(index, elem)` replaces the element at that INDEX, not a Map-style insert-by-key"):
+    // `out.updated(out.size - 1, last.copy(instruction = rewritten))` (`uniml/markdown`'s
+    // `MarkdownBlocks.scala`'s `spliceSwallowedBreaks`) — the existing `.updated(index, elem)` case
+    // had no receiver-type guard at all and always rendered through `insertOwning` (`m2.insert(k,
+    // v)`) — correct for a Map's own insert-or-replace-by-KEY semantics (the shape this case was
+    // written for, still covered by the sibling test using `result.updated(member.name, member.
+    // value)`), but WRONG for a Vec: `Vec::insert` SHIFTS every later element over by one rather
+    // than replacing, a silent correctness bug whenever the index type happened to already be
+    // `usize`, and a compile error here since it never is (`error[E0308]: expected usize, found
+    // i64`). Fixed by checking `isKnownVecReceiver` and rendering an INDEX ASSIGNMENT
+    // (`m2[k as usize] = v`) instead — the correct Rust equivalent of "replace at this position".
+    val src =
+      """```scalascript
+        |case class VmToken(kind: String, instruction: Int)
+        |
+        |def replaceLast(out: Vector[VmToken], rewritten: Int): Vector[VmToken] =
+        |  val last = out(out.size - 1)
+        |  out.updated(out.size - 1, last.copy(instruction = rewritten))
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("m2[(((out.len() as i64) - 1i64)) as usize] = VmToken { instruction: rewritten, ..(last).clone() };"),
+      s"Vec.updated must replace at the given index, not fall to a Map-style .insert (which shifts elements):\n$g")
+
+  test("a Vec closure param's element STRUCT type resolves through `.iterator` and through a captured var's own alias inside a lifted local def"):
+    // `segs.iterator.map(s => s.content + s.ending)` where `val segs = paragraphSegs` inside
+    // `finishParagraph`, a local def LIFTED out of `parse` (`uniml/markdown`'s
+    // `MarkdownBlocks.scala`) — TWO compounding gaps:
+    // (1) `elementTypeOf` had no case for `.iterator` at all (only `.filter`/`.sorted`/`.distinct`/
+    // `.reverse`, all element-preserving the same way) — a pure view conversion this backend
+    // already renders as a no-op, so `elementTypeOf(segs.iterator, ctx)` fell to the generic
+    // "receiver.field" case (treating "iterator" as a genuine STRUCT FIELD name, which it is not)
+    // and answered `None`.
+    // (2) Even with (1) fixed, `segs`'s own bare-name initializer (`paragraphSegs`, a CAPTURED
+    // `var` from the enclosing method, not a def parameter of `finishParagraph` itself) only ever
+    // checked `ctx.paramTypes`, never `ctx.enclosingLocalTypes` — the table `liftLocalDefs`'s own
+    // propagation already seeds with exactly this kind of outer-captured-local's inferred type.
+    // Without both: the closure param `s` reached its body with no type, `s.content`/`s.ending`
+    // had nothing to resolve their String-ness from, and the `+`-concat rewrite's guard missed
+    // both: `error[E0308]: expected &str, found String` (Rust's native `+`, reached once the guard
+    // failed).
+    val src =
+      """```scalascript
+        |case class ParaSeg(prefix: String, content: String, ending: String)
+        |
+        |def parse(text: String): String =
+        |  var paragraphSegs: Vector[ParaSeg] = Vector.empty
+        |  paragraphSegs = paragraphSegs :+ ParaSeg("", "a", "\n") :+ ParaSeg("", "b", "\n")
+        |
+        |  def finishParagraph(): String =
+        |    val segs = paragraphSegs
+        |    segs.iterator.map(s => s.content + s.ending).mkString
+        |
+        |  finishParagraph()
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("format!(\"{}{}\", s.content, s.ending)"),
+      s"a Vec closure param's element struct type must resolve through .iterator and a lifted def's captured-var alias, not fall to a raw + chain:\n$g")
+
+  test("`s.regionMatches(ignoreCase, toffset, other, ooffset, len)` routes to a new Unicode-safe runtime helper"):
+    // `content.regionMatches(true, i, "www.", 0, 4)` (`uniml/markdown`'s `MarkdownInlines.scala`'s
+    // `autolinkAtWWW`/`autolinkScheme`) — `String.regionMatches` (the 5-arg overload) had NO
+    // lowering at all: `error[E0599]: no method named regionMatches found for struct String`.
+    // Fixed with a NEW runtime helper (`_str_region_matches`), the SAME UTF-16-code-unit basis and
+    // out-of-range-answers-false contract every other indexed String helper in this file already
+    // uses.
+    val src =
+      """```scalascript
+        |def matchesWww(content: String, i: Int): Boolean =
+        |  content.regionMatches(true, i, "www.", 0, 4)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("crate::runtime::_str_region_matches(&content, true, i, &(\"www.\".to_string()), 0i64, 4i64)"),
+      s"String.regionMatches must route to the new _str_region_matches runtime helper:\n$g")
+
+  test("`s.lastIndexOf(charExpr)` on a String lowers the same way `.indexOf` already does, via `str::rfind`"):
+    // `lex.lastIndexOf(']')` (`uniml/markdown`'s `MarkdownInlines.scala`'s `linkOrImage`) —
+    // `String.lastIndexOf` had NO lowering at all anywhere in this backend, even though its forward
+    // twin `indexOf` already did: `error[E0599]: no method named lastIndexOf found for struct
+    // String`. Fixed by mirroring `indexOf`'s own Unicode-safe find-then-UTF-16-count shape, using
+    // `str::rfind` in place of `str::find` — the prefix up to wherever the match starts is still a
+    // correct UTF-16 count regardless of which direction found it.
+    val src =
+      """```scalascript
+        |def lastBracket(lex: String): Long =
+        |  lex.lastIndexOf(']')
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("__h.rfind(__n).map(|__b| __h[..__b].encode_utf16().count() as i64).unwrap_or(-1)"),
+      s"String.lastIndexOf must lower via the Unicode-safe rfind()+UTF-16-count path:\n$g")
+
+  test("a no-paren zero-arg method call on a `Some(x)`-bound name resolves its specific struct via paramCtorNames, not just paramTypes"):
+    // `scanRefDef(lines, i) match { case Some(defn) => … defn.label … }` (`uniml/markdown`'s
+    // `MarkdownBlocks.scala`) — `defn` is bound by a `Some(x)` match pattern; `renderMatch`'s own
+    // `Pat.Extract(Some, …)` bodyCtx case resolves its SPECIFIC struct type (`"RefDef"`) into
+    // `ctx.paramCtorNames`, a table SEPARATE from `ctx.paramTypes` — the existing precise no-paren-
+    // method case (`_structZeroArgMethods`, which asks a SPECIFIC struct's own method list rather
+    // than refusing by bare name everywhere a same-named FIELD exists elsewhere in the module) only
+    // ever read `ctx.paramTypes`, so it never fired for a `Some`-bound name: `error[E0615]:
+    // attempted to take value of method label on type RefDef` (a genuine zero-arg METHOD read as if
+    // it were a field, since "label"/"destination"/"title" are common enough words to ALSO be
+    // genuine fields elsewhere in this corpus, so the name-only `_zeroArgDefNames` fallback refused
+    // them everywhere).
+    val src =
+      """```scalascript
+        |case class RefDef(labelLex: String, destLex: String, titleLex: Option[String]):
+        |  def label: String = labelLex.substring(1, labelLex.length - 1)
+        |  def destination: String = destLex
+        |  def title: Option[String] = titleLex
+        |
+        |case class LinkRef(destination: String, title: Option[String])
+        |
+        |def normalizeLabel(s: String): String = s
+        |
+        |def scanRefDef(x: Int): Option[RefDef] =
+        |  if x > 0 then Some(RefDef("[a]", "b", Some("c"))) else None
+        |
+        |def useIt(x: Int): (String, LinkRef) =
+        |  scanRefDef(x) match
+        |    case Some(defn) =>
+        |      val norm = normalizeLabel(defn.label)
+        |      (norm, LinkRef(defn.destination, defn.title))
+        |    case None => ("-", LinkRef("", None))
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("normalizeLabel(defn.label())") &&
+             g.contains("LinkRef { destination: defn.destination(), title: defn.title() }"),
+      s"a no-paren zero-arg method call on a Some(x)-bound name must parenthesize via paramCtorNames, not leave a bare field access:\n$g")
+
+  test("`+` string concat over case-class fields bound via a self-clone preamble is recognized, not left as a raw Rust `+` chain"):
+    // `indent + labelLex + colon + afterColon + destLex + betweenDestTitle + titleLex + trailing`
+    // inside a case class's own method (`uniml/markdown`'s `MarkdownBlocks.scala`'s `RefDef`) — the
+    // `+`-is-string-concat rewrite (which flattens a whole chain into ONE `format!` call) has its
+    // OWN copy of the "is this operand a known String" guard, checking `isStringExpr`/
+    // `isKnownStringField`/`ctx.localStrings` — but `labelLex`/`colon`/… are ALL the case class's
+    // OWN constructor params, bound to locals by the method's own self-clone preamble (`let
+    // labelLex = self.labelLex.clone();`), never in `ctx.localStrings` (LOCAL `val`s only) — the
+    // SAME gap the `.forall`/`.exists`-on-String fix's own history entry already closed for THAT
+    // one call site. The guard failed for the WHOLE 8-operand chain and fell to Rust's native `+`
+    // (`Add<&str> for String` only): `error[E0308]: expected &str, found String`, at every operand
+    // after the first.
+    val src =
+      """```scalascript
+        |case class RefDef(indent: String, labelLex: String, colon: String, afterColon: String,
+        |                   destLex: String, betweenDestTitle: String, titleLex: String, trailing: String):
+        |  def raw: String =
+        |    indent + labelLex + colon + afterColon + destLex + betweenDestTitle + titleLex + trailing
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("format!(\"{}{}{}{}{}{}{}{}\", indent, labelLex, colon, afterColon, destLex, betweenDestTitle, titleLex, trailing)"),
+      s"an 8-way + chain over case-class fields must flatten into one format! call, not a raw Rust + chain:\n$g")
+
+  test("`val opener = nodes(found).asInstanceOf[WDelim]` destructures instead of leaving a bare field access on the whole enum"):
+    // `val opener = nodes(found).asInstanceOf[WDelim]` (`uniml/markdown`'s `MarkdownInlines.scala`'s
+    // `processEmphasis`) — `.asInstanceOf[T]`'s existing case is a no-op identity, right for a value
+    // consumed where it's written but wrong for one BOUND to a `val`: `opener.lexeme` a moment later
+    // has no such field on the whole `WNode` enum — `error[E0609]: no field lexeme on type WNode`.
+    // Fixed by rendering a genuine destructuring `let-else` and registering the bound name so every
+    // LATER `opener.field` resolves through it, uniquely prefixed with the binding's own name
+    // (`opener_lexeme`) — see `Ctx.asInstanceOfBindings`'s own comment for why a plain bare-field
+    // rewrite is not safe in general (a SIBLING scope can reuse the same bare name for an unrelated
+    // match-arm-bound value of the SAME variant, covered by the next test).
+    val src =
+      """```scalascript
+        |private sealed trait WNode
+        |private final case class WFixed(pieces: Vector[Int]) extends WNode
+        |private final case class WDelim(lexeme: String, ch: Char, canOpen: Boolean, canClose: Boolean) extends WNode
+        |
+        |def combine(nodes: Vector[WNode], found: Int): String =
+        |  val opener = nodes(found).asInstanceOf[WDelim]
+        |  val use = if opener.lexeme.length >= 2 then 2 else 1
+        |  opener.lexeme.substring(opener.lexeme.length - use) + opener.ch.toString + (if opener.canOpen then "Y" else "N") + (if opener.canClose then "Y" else "N")
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(
+        "let WNode::WDelim { lexeme: opener_lexeme, ch: opener_ch, canOpen: opener_canOpen, canClose: opener_canClose } = (nodes[(found) as usize].clone()) else { unreachable!() };"),
+      s"an .asInstanceOf[SpecificVariant]-bound val must destructure through a uniquely name-prefixed let-else:\n$g")
+
+  test("a SIBLING scope reusing the same bare name (`case opener: WDelim if …`) for the SAME variant is left alone, not rewritten to the .asInstanceOf binding's prefixed fields"):
+    // `processEmphasis`'s real shape (`uniml/markdown`'s `MarkdownInlines.scala`): an INNER `while`
+    // loop's own `case opener: WDelim if opener.ch == closer.ch && … =>` match arm (a totally
+    // unrelated, already-out-of-scope-by-the-time-the-val-exists binding) shares the bare name
+    // `opener` with the OUTER `val opener = nodes(found).asInstanceOf[WDelim]` this feature targets.
+    // Both are `ctx.asInstanceOfBindings`-relevant by NAME alone, but Scala's own scoping means they
+    // can never be simultaneously live — `collectAsInstanceOfCtorNames` is POSITION-aware (only
+    // excludes a name when the `.asInstanceOf`-bound val is ACTUALLY nested inside the conflicting
+    // arm) and the match-arm's own bodyCtx clears `asInstanceOfBindings` for its OWN bound name, so
+    // the match arm's `opener.ch`/`.canOpen`/`.lexeme` stay BARE (matching its own `ref`-bound
+    // fields) while the val's `opener.lexeme` a few statements later still gets the prefixed
+    // destructure. Getting this wrong the first time round produced `error[E0425]: cannot find
+    // value opener_lexeme in this scope` inside the match arm's own guard — found only by a REAL
+    // cargo build of this exact shape, never by --print-only alone.
+    val src =
+      """```scalascript
+        |private sealed trait WNode
+        |private final case class WDelim(lexeme: String, ch: Char, canOpen: Boolean, canClose: Boolean) extends WNode
+        |
+        |private def compatible(opener: WDelim, closer: WDelim): Boolean =
+        |  opener.lexeme.length + closer.lexeme.length > 0
+        |
+        |def scan(nodes: Vector[WNode], closerIdx: Int): String =
+        |  nodes(closerIdx) match
+        |    case closer: WDelim =>
+        |      var openerIdx = closerIdx - 1
+        |      var found = -1
+        |      while openerIdx >= 0 && found < 0 do
+        |        nodes(openerIdx) match
+        |          case opener: WDelim if opener.ch == closer.ch && opener.canOpen && opener.lexeme.nonEmpty =>
+        |            if compatible(opener, closer) then found = openerIdx else openerIdx -= 1
+        |          case _ => openerIdx -= 1
+        |      if found >= 0 then
+        |        val opener = nodes(found).asInstanceOf[WDelim]
+        |        opener.lexeme
+        |      else "-"
+        |    case _ => "-"
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("ref opener @ WNode::WDelim { ref lexeme, ref ch, ref canOpen, ref canClose } if"),
+      s"the match arm's OWN opener must keep its ordinary ref-bound bare fields, not the sibling val's prefixed scheme:\n$g")
+    assert(g.contains("let WNode::WDelim { lexeme: opener_lexeme,"),
+      s"the val's OWN opener must still destructure with the prefixed scheme despite the sibling collision:\n$g")
+
+  test("a mutable class's own qualified enum-case field initializer resolves `Enum.Case` correctly, and a ctor-param read by a LATER field init is not moved out from under it"):
+    // `private val gfm = profile == MarkdownProfile.Gfm` inside `class MarkdownBlocks(profile:
+    // MarkdownProfile, …)` (`uniml/markdown`'s `MarkdownBlocks.scala`) — TWO compounding bugs:
+    // (1) `renderMutableClass` renders a mutable class's OWN field initializers before
+    // `_qualifiedCtors` (a MODULE-level var, needed to resolve `MarkdownProfile.Gfm` to
+    // `MarkdownProfile::Gfm`) was assigned — `mutableClasses.map(renderMutableClass)` is a plain
+    // `val`, evaluated eagerly in TEXTUAL order, and `_qualifiedCtors`'s assignment used to sit
+    // further down, after that line already ran. Every enum-case reference inside ANY mutable
+    // class's own field initializer resolved against an EMPTY `_qualifiedCtors` and emitted the
+    // qualifier VERBATIM: `error[E0423]: expected value, found enum MarkdownProfile`. Fixed by
+    // moving `enumOk`/`_qualifiedCtors`'s assignment ahead of `mutableClassRendered`.
+    // (2) Once (1) is fixed, the struct-literal shorthand used to splice a var-field's own init
+    // DIRECTLY into the literal (`MarkdownBlocks { profile, gfm: (profile == MarkdownProfile::Gfm)
+    // }`) — Rust field-init order is TEXTUAL, so the bare `profile` shorthand a few characters
+    // earlier already MOVED it (not `Copy`), and `gfm`'s own init reading `profile` again a moment
+    // later was a use-after-move: `error[E0382]: borrow of moved value: profile`. Fixed by binding
+    // each var-field's init to a `let` of its own name FIRST, then building the struct literal
+    // entirely from bare shorthand — field order inside the literal can no longer matter.
+    val src =
+      """```scalascript
+        |enum MarkdownProfile:
+        |  case Gfm
+        |  case ScalaScript
+        |
+        |class MarkdownBlocks(profile: MarkdownProfile):
+        |  private val gfm = profile == MarkdownProfile.Gfm
+        |  def isGfm: Boolean = gfm
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("let gfm = (profile == MarkdownProfile::Gfm);") &&
+             g.contains("MarkdownBlocks { profile, gfm }"),
+      s"a mutable class's own field initializer must resolve a qualified enum case AND not move a ctor param a later field init still needs:\n$g")
+
+  test("a positionally-destructured Option field is recognized by isOptionExpr, so `.orElse` on it lowers correctly"):
+    // `case InlinePiece.Tok(kind, lex, r, ch) => r.orElse(fallback)` (`uniml/markdown`'s
+    // `MarkdownInlines.scala`) — `r`, a POSITIONALLY-destructured `Option[String]` field, was never
+    // registered in `ctx.localOptions`/`ctx.paramTypes` (the SAME two tables the sibling String/Vec/
+    // Map field-destructure case already populates for ITS OWN field types), so `isOptionExpr(r,
+    // ctx)` answered `false` — the existing `.orElse`-on-Option case's own guard never fired and
+    // `r.orElse(fallback)` reached rustc as a literal camelCase method name: `error[E0599]: no
+    // method named orElse found for enum Option<T>`.
+    val src =
+      """```scalascript
+        |enum InlinePiece:
+        |  case Tok(kind: String, lexeme: String, role: Option[String], channel: Int)
+        |
+        |def resolveRole(p: InlinePiece, fallback: Option[String]): Option[String] =
+        |  p match
+        |    case InlinePiece.Tok(kind, lex, r, ch) => r.orElse(fallback)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("r.or_else(|| fallback)"),
+      s"a positionally-destructured Option field must be recognized by isOptionExpr so .orElse lowers to .or_else(|| …):\n$g")
+
+  test("`.forall`/`.exists` on a case-class field bound via a method's own self-clone preamble is recognized as a known String"):
+    // `content.forall(c => …)` inside `case class MdLine(content: String, …): def isBlank =
+    // content.forall(…)` (`uniml/markdown`'s `MarkdownBlocks.scala`) — `content` is a case-class
+    // FIELD, bound to a local by the method's own preamble (`let content = self.content.clone();`,
+    // `selfMethod`'s clone-alias mechanism), so it was never in `ctx.localStrings` (that set only
+    // ever collects LOCAL `val`s a method's own body itself declares) — the existing `.forall`/
+    // `.exists`-on-String case's guard missed it and it fell to the generic Vec-shaped `.iter()`
+    // case: `error[E0599]: no method named iter found for struct String`. Fixed by widening that
+    // guard's bare-name disjunct to also check `ctx.paramTypes` (which already carries every field
+    // name -> Rust type) — the SAME fix shape `titleLex.isEmpty`'s own earlier history already used
+    // for `.nonEmpty`/`.isEmpty`.
+    val src =
+      """```scalascript
+        |case class MdLine(content: String, ending: String):
+        |  def isBlank: Boolean = content.forall(c => c == ' ' || c == '\t')
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("content.chars().all("),
+      s".forall on a case-class String field bound via a self-clone preamble must lower through .chars(), not .iter():\n$g")
+
+  test("`s.stripSuffix(suffix)` on a String lowers the same way `.stripPrefix` already does"):
+    // `inner.stripSuffix(">")` (`uniml/markdown`'s `MarkdownInlines.scala`'s `autolinkFor`, chained
+    // after a `.stripPrefix("<")`) — `String.stripSuffix` had NO lowering at all anywhere in this
+    // backend (`stripPrefix`, its prefix twin, already did): a call reached rustc as a literal
+    // camelCase method name, `error[E0599]: no method named stripSuffix found for struct String`.
+    // Fixed by mirroring `stripPrefix`'s own shape exactly — Scala's contract returns the ORIGINAL
+    // string unchanged on no match; Rust's `str::strip_suffix` answers `Option<&str>` instead.
+    val src =
+      """```scalascript
+        |def stripAngle(x: String): String =
+        |  x.stripPrefix("<").stripSuffix(">")
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".strip_suffix((\">\".to_string()).as_str()).map(|__r| __r.to_string()).unwrap_or_else(|| ("),
+      s"String.stripSuffix must lower the same way stripPrefix already does:\n$g")
+
+  test("`opt.isDefined` on a known Option lowers to `.is_some()`, the same as `.nonEmpty`"):
+    // `startsFence(trimmed).isDefined` (`uniml/markdown`'s `MarkdownBlocks.scala`'s `parse` — 8
+    // instances in the corpus) — `isDefined` is Scala's own SYNONYM for `nonEmpty` on an `Option`
+    // (identical semantics, a separate name only) and had no case at all: a no-paren member read on
+    // a known `Option[String]` reached the FIELD-access diagnostic path directly, since `isDefined`
+    // was never even in the existing `nonEmpty`/`isEmpty`-on-Option case's own name set:
+    // `error[E0609]: no field isDefined on type Option<String>`.
+    val src =
+      """```scalascript
+        |def startsFence(x: Int): Option[String] = if x > 0 then Some("fence") else None
+        |
+        |def check(x: Int): Boolean =
+        |  startsFence(x).isDefined
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("startsFence(x).is_some()"),
+      s"Option.isDefined must lower to .is_some(), the same as .nonEmpty:\n$g")
+
+  test("`s.indexOf(charExpr)` on a String receiver must NOT fall to the generic Vec-shaped `.indexOf`, and a genuine SscChar needle needs its own `.0` unwrap"):
+    // `lexeme.indexOf('\n')` (`uniml/markdown`'s `MarkdownInlines.scala`'s `spliceSwallowedBreaks`)
+    // — the existing one-arg `String.indexOf` case only fired when BOTH the receiver AND the
+    // needle were themselves Strings; a CHAR needle (`'\n'`, a `Lit.Char`, not a `String`) failed
+    // that guard and fell through to the GENERIC one-arg `.indexOf` case (built for a Vec receiver:
+    // `$q.iter().position(...)`) — `String` has no `.iter()`: `error[E0599]: no method named iter
+    // found for struct String`. Fixed by gating the String case on the RECEIVER alone and handling
+    // either needle shape inside it (mirroring the two-arg `indexOf(needle, from)` overload's own
+    // char-to-one-character-`&str` conversion).
+    // `content.indexOf(content.charAt(i))` — the needle here is a GENUINE `SscChar` newtype
+    // (`content.charAt(i)`, `yieldsSscChar`), not an already-plain-`i64` "conceptually char" value —
+    // self-caught only by a REAL cargo build of a SECOND isolated repro exercising this exact
+    // shape (`--print-only` has no diagnostic for a cast that resolved to the wrong Rust type):
+    // `(content.charAt(i)) as u32` on a struct is not valid Rust at all, `error[E0605]: non-
+    // primitive cast`. `renderStrPatternArg`'s own identical `isConceptuallyChar`/`yieldsSscChar`
+    // pairing (used for `String.contains`) already has the fix; applied here the same way.
+    val src =
+      """```scalascript
+        |def firstBreak(lexeme: String): Long =
+        |  lexeme.indexOf('\n')
+        |
+        |def firstOfSame(content: String, i: Int): Long =
+        |  content.indexOf(content.charAt(i))
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("__n: &str = &char::from_u32((10i64) as u32).unwrap_or('\\u{FFFD}').to_string()") &&
+             g.contains("__h.find(__n)"),
+      s"a char needle on a String receiver must lower through the Unicode-safe find()+UTF-16-count path, not .iter():\n$g")
+    assert(g.contains("&char::from_u32(((crate::runtime::_str_char_at(&content, i)).0) as u32)"),
+      s"a genuine SscChar needle must have its .0 unwrapped before the as u32 cast:\n$g")
+
+  test("a bare `case None =>` must match Option's own None even when a sibling enum ALSO declares a nullary case named `None`"):
+    // `preflight(...) match { case Some(diagnostic) => …; case None => … }`, where `preflight`
+    // returns `Option[Diagnostic]` (`uniml/markdown`'s `MarkdownBlocks.scala`'s `parse`) — the SAME
+    // file also declares `enum OpenLeaf: case None; case Paragraph; …`, a genuinely unrelated type.
+    // `ctorMap` is a FLAT, bare-name-keyed, whole-MODULE map (the same collision class
+    // `_qualifiedCtors`'s own comment already documents for the constructor side), and
+    // `renderPattern`'s general "bare name matches some known nullary enum ctor" case sat BEFORE
+    // its own `Term.Name("None") => Right("None")` case — so it matched "None" against `OpenLeaf`'s
+    // own case UNCONDITIONALLY, for every bare `case None` in the entire corpus regardless of the
+    // match subject's real type: `OpenLeaf::None => …` against an `Option<Diagnostic>` subject,
+    // `error[E0308]: expected Option<Diagnostic>, found OpenLeaf`. Fixed by excluding "None" (and
+    // "Nil", the identical risk) from the generic case — restoring the priority Scala's own name
+    // resolution already guarantees a same-named user enum case can never actually override in
+    // valid source.
+    val src =
+      """```scalascript
+        |enum OpenLeaf:
+        |  case None
+        |  case Paragraph
+        |
+        |def preflight(x: Int): Option[String] =
+        |  if x > 0 then Some("ok") else None
+        |
+        |def check(x: Int): String =
+        |  preflight(x) match
+        |    case Some(v) => v
+        |    case None    => "nothing"
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(
+        "match preflight(x) {\n" +
+        "        Some(v) => v,\n" +
+        "        None => \"nothing\".to_string(),\n" +
+        "    }"),
+      s"a bare None pattern must match Option's own None, never a sibling enum's same-named nullary case:\n$g")
+
+  test("a local def lifted out of a mutable class's own method, calling ANOTHER self-method, must capture `__self` and call through it"):
+    // `fn isIndentedCode = ... self.startsListOrQuote(trimmed) ...` (`uniml/markdown`'s
+    // `MarkdownBlocks.scala`'s `parse`) — the METHOD-call twin of the ctor-param FIELD-capture fix
+    // in the sibling test just above. `startsListOrQuote(trimmed)` is written bare (Scala elides
+    // the receiver); the ordinary `Ctx.selfMethods` mechanism renders it `self.startsListOrQuote(…)`
+    // for an ORDINARY (un-lifted) method body — but `self` is not a NAME the Scala AST carries
+    // anywhere, so it cannot flow through `pool`/the ordinary named-capture mechanism the way a
+    // genuine local or self-FIELD does, and a Rust nested `fn` item (like the lifted `check` here)
+    // cannot capture `self` any more than a field: `error[E0434]: can't capture dynamic environment
+    // in a fn item`.
+    // `Ctx.liftedDefNeedsSelf` (new): a THIRD fixed point, parallel to `captures`/`writes`, detects
+    // whether a lifted def's transitive call subtree reaches a `self.method(...)` call; such a def
+    // receives an extra `__self: &SelfType` parameter (typed off `Ctx.selfTypeName`, threaded
+    // through `renderDef`'s new `ownTypeName`), and `Ctx.selfAlias` (`"__self"` while rendering that
+    // def's own body) redirects every self-method-call render site to call through it instead of
+    // the literal `self` a nested `fn` item does not have. The CALL SITE (still inside the
+    // enclosing, genuinely `self`-aware method) forwards the real `self` as the trailing argument.
+    val src =
+      """```scalascript
+        |class Scanner(threshold: Int):
+        |  def isLong(t: String): Boolean = t.length > threshold
+        |
+        |  def scan(text: String): Vector[String] =
+        |    var out: Vector[String] = Vector.empty
+        |
+        |    def check(t: String): Unit =
+        |      if isLong(t) then out = out :+ t
+        |
+        |    check(text)
+        |    out
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("fn check(t: String, out: &mut Vec<String>, __self: &Scanner) {") &&
+             g.contains("if __self.isLong(t.clone())"),
+      s"a lifted def calling ANOTHER self-method must capture __self and call through it, not through a nonexistent self:\n$g")
+    assert(g.contains("check(text, &mut out, self);"),
+      s"the CALL SITE (still inside the enclosing self-aware method) must forward the real self:\n$g")
+
+  test("a local def lifted out of a mutable class's own method, capturing a ctor param, must NOT read that capture as `self.field`"):
+    // `def emit(kind, lexeme, ...) = ... SourceSpan(source, start, pos) ...` lifted out of
+    // `MarkdownBlocks`'s own `parse` (`uniml/markdown`'s `MarkdownBlocks.scala`) — `source` is a
+    // ctor param of the ENCLOSING mutable class, so `parse`'s own body reads it as `self.source`
+    // (`trueSelfFields`, a genuinely mutable class's method). `liftLocalDefs`'s capture detection
+    // (`pool`'s own `ctx.selfFields` branch) correctly threads `source` into `emit`'s OWN new
+    // signature as a plain parameter — but TWO SEPARATE sites still treated it as a self field
+    // after that:
+    // (1) `emit`'s own body — `childCtx` inherited `trueSelfFields` UNCHANGED, so a bare `source`
+    // read inside `emit` STILL rendered `self.source`, and a Rust nested `fn` item (unlike a
+    // closure) cannot capture ANY enclosing scope, `self` included: `error[E0434]: can't capture
+    // dynamic environment in a fn item`.
+    // (2) the CALL SITE inside `parse` itself (`emit(text, source)`) — the lift's own "extra
+    // captured args" builder constructs argument TEXT directly from the bare capture NAME, bypassing
+    // `renderTerm` (the only place `trueSelfFields` is normally consulted) entirely: `emit(text,
+    // source.clone())`, `error[E0425]: cannot find value source in this scope` (a self field is
+    // never in scope bare, only through `self.`).
+    // Fixed at both sites: `childCtx`'s own `trueSelfFields` now excludes every captured name (so
+    // the lifted def's OWN body sees `source` as the plain parameter it now is), and the two
+    // capture-text builders (a real call, and a bare eta-expansion reference to a lifted def) now
+    // prefix `self.` for any capture still in `ctx.trueSelfFields` at the point they render — i.e.
+    // at the CALL SITE, which is still inside the enclosing method's own `self`-aware scope.
+    val src =
+      """```scalascript
+        |case class SourceId(name: String)
+        |case class Tok(source: SourceId, lexeme: String)
+        |
+        |class Scanner(source: SourceId):
+        |  def scan(text: String): Vector[Tok] =
+        |    var out: Vector[Tok] = Vector.empty
+        |
+        |    def emit(lexeme: String): Unit =
+        |      out = out :+ Tok(source, lexeme)
+        |
+        |    emit(text)
+        |    out
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("fn emit(lexeme: String, out: &mut Vec<Tok>, source: SourceId) {") &&
+             g.contains("Tok { source: source, lexeme: lexeme }"),
+      s"a lifted def's OWN body must read a captured self-field as its new plain parameter, not self.field:\n$g")
+    assert(g.contains("emit(text, &mut out, self.source.clone());"),
+      s"the CALL SITE (still inside the enclosing self-aware method) must pass the self-field as self.field:\n$g")
+
+  test("`case WFixed(Vector(Tok(MdKind.Text, lexeme, _, _))) => …` — a Vec-typed field destructured through a fixed-arity sequence sub-pattern"):
+    // `emailLocalBackscan`'s own `localTextOf` (`uniml/markdown`'s `MarkdownInlines.scala`):
+    //   def localTextOf(node: WNode): Option[String] = node match
+    //     case WFixed(Vector(Tok(MdKind.Text, lexeme, _, _))) => Some(lexeme)
+    //     case d: WDelim if d.ch == '_'                       => Some(d.lexeme)
+    //     case _                                              => None
+    // Three compounding gaps, each surfaced only after fixing the prior one (never trust
+    // --print-only alone — a REAL cargo build found two of these three):
+    //
+    // 1. `Vec<T>` has no Rust constructor pattern — `renderMatch`'s own `isListPattern`/`.as_slice()`
+    // trick only ever converts the WHOLE match subject, never a field buried one level inside
+    // another pattern — so `renderPattern`'s generic `Pat.Extract` case recursed into `Vector(…)` as
+    // if it might be a real enum constructor: "extracts `Vector` which is not a known enum
+    // constructor". `vectorFieldMatchArm`/`renderVectorFieldMatch` (new) detect the single-field,
+    // Vec-typed, fixed-arity shape and rewrite the WHOLE match into `if let Enum::Ctor { field:
+    // __vecfieldN } = (subject).clone() { match __vecfieldN.as_slice() { [elems…] => body, _ =>
+    // <trailing-wildcard body> } } else { <every other arm, via a recursive renderMatch call> }` —
+    // sound only because no other arm targets the same ctor and the match ends in a bare wildcard
+    // (both required by the detector; see its own comment for why the fallback is otherwise unsafe).
+    //
+    // 2. `MdKind.Text` (a String-valued topval reference used as a direct positional arg of `Tok(…)`)
+    // rendered as a BARE literal (`kind: "text"`) — correct only when the WHOLE match subject is
+    // separately coerced to `.as_str()` (the top-level `case MdBranch.Heading => …` shape a sibling
+    // test already covers), never true for a field reached through a slice element. `error[E0308]:
+    // expected String, found &str`. Fixed the same way the pre-existing `Lit.String`-as-direct-arg
+    // case already was: a fresh-name-plus-guard rewrite (`__litpat1 == "text"`), not a text literal.
+    //
+    // 3. `d.ch == '_'` (`d: WDelim` bound via `Pat.Typed`) — `renderPattern`'s own twin case borrows
+    // EVERY field with `ref` (`ref lexeme, ref ch, …`; destructuring a field out of a borrowed `d`
+    // while `d` stays borrowed can only borrow that field too), but `renderMatch`'s own `bodyCtx`
+    // only ever marked the OUTER bind name (`d`) as `byRefMut`, never the individual fields — so a
+    // bare `ch` read (after `d.ch` rewrites to bare `ch`) stayed un-dereffed: `error[E0277]: can't
+    // compare &i64 with i64`. Fixed by adding `ec.fieldNames` to `byRefMut` alongside `n` in that
+    // SAME bodyCtx case, plus two call sites that needed to actually CONSUME that fact:
+    // `Term.Select`'s own destructured-field rewrite (applies `(*_)` itself now, rather than
+    // returning a bare name for a later pass that never re-visits it) and `cloneIfMoved` (a
+    // by-value use of such a field, `Some(d.lexeme)`, now clones through the new `(*_)` wrapper
+    // instead of silently skipping it — `error[E0507]: cannot move out of *lexeme`).
+    //
+    // Verified via a real `cargo build` AND an actual `cargo run` of the isolated repro
+    // (/tmp/t91.scala this session): matching WFixed → `Some("hello")`, wrong-kind WFixed → `None`,
+    // empty/two-element WFixed → `None` (the slice pattern's own fixed arity), matching WDelim →
+    // `Some("_")`, non-matching WDelim → `None` — all six cases correct.
+    val src =
+      """```scalascript
+        |object MdKind:
+        |  val Text = "text"
+        |
+        |enum InlinePiece:
+        |  case Open(kind: String, role: Option[String] = None)
+        |  case Close(expectedKind: Option[String] = None, role: Option[String] = None)
+        |  case Tok(kind: String, lexeme: String, role: Option[String], channel: Int)
+        |
+        |private sealed trait WNode
+        |private final case class WFixed(pieces: Vector[InlinePiece]) extends WNode
+        |private final case class WDelim(lexeme: String, ch: Char, canOpen: Boolean, canClose: Boolean) extends WNode
+        |
+        |def localTextOf(node: WNode): Option[String] = node match
+        |  case WFixed(Vector(Tok(MdKind.Text, lexeme, _, _))) => Some(lexeme)
+        |  case d: WDelim if d.ch == '_'                       => Some(d.lexeme)
+        |  case _                                              => None
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    // `__litpatN` — `_pendingPatternGuardCounter` is a MODULE-level counter never reset between
+    // compiles, so its exact number depends on how many OTHER string-literal-in-pattern rewrites
+    // ran earlier in THIS SAME test-suite process, not just this one test in isolation. A literal
+    // `__litpat1` passed running this test alone and failed running the full suite for exactly that
+    // reason — matched by shape here instead of pinning the number.
+    val expected = ("""pub fn localTextOf\(node: WNode\) -> Option<String> \{
+    let Text = "text"\.to_string\(\);
+    if let WNode::WFixed \{ pieces: __vecfield0 \} = \(node\)\.clone\(\) \{
+        match __vecfield0\.as_slice\(\) \{
+            \[InlinePiece::Tok \{ kind: __litpat(\d+), lexeme, role: _, channel: _ \}\] if __litpat\1 == "text" => Some\(lexeme\.clone\(\)\),
+            _ => None,
+        \}
+    \} else \{
+        match node \{
+            ref d @ WNode::WDelim \{ ref lexeme, ref ch, ref canOpen, ref canClose \} if \(\(\*ch\) == 95i64\) => Some\(\(\*lexeme\)\.clone\(\)\),
+            _ => None,
+        \}
+    \}
+\}""").r
+    assert(expected.findFirstIn(g).isDefined,
+      s"a Vec-typed field destructured through a fixed-arity Vector sub-pattern must rewrite to an if-let + slice match, not refuse as an unknown ctor:\n$g")
+
+  test("`.slice(a, b)` is element-preserving for `isKnownVecReceiver`'s own inline-chain recognition, not just for a local's declared type"):
+    // `nodes.slice(found + 1, closerIdx).flatMap(flatten)` (`uniml/markdown`'s
+    // `MarkdownInlines.scala`'s `processEmphasis`) — `.slice` is element-preserving the SAME way
+    // `.take`/`.drop` already are for `isKnownVecReceiver`'s own inline-chain recursion (this
+    // file's `inferCaptureType`/`collectLocalSeqs` already trusted it for a LOCAL's OWN declared
+    // type, but `isKnownVecReceiver` never did for this INLINE-CHAIN shape), so `.flatMap`
+    // chained directly onto a `.slice(...)` call never recognized its receiver as a known Vec:
+    // `error[E0599]: no method named flatMap found for struct Vec<WNode>` (`.flatMap`'s own
+    // dedicated case, gated on `isKnownVecReceiver(qual, ctx)`, never fired).
+    val src =
+      """```scalascript
+        |case class WNode(id: Int)
+        |case class InlinePiece(text: String)
+        |
+        |private def flatten(node: WNode): Vector[InlinePiece] = Vector(InlinePiece(node.id.toString))
+        |
+        |def processEmphasis(nodes: Vector[WNode], found: Int, closerIdx: Int): Vector[InlinePiece] =
+        |  nodes.slice(found + 1, closerIdx).flatMap(flatten).toVector
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".to_vec().iter().cloned().flat_map(flatten).collect::<Vec<_>>()"),
+      s".flatMap chained onto .slice(...) must recognize the receiver as a known Vec:\n$g")
+
+  test("a NESTED positional ctor field (one level deeper than the pattern's own top-level ctor) threads its own String/Vec/Map/Option type too, in both a standalone match and a `.collect`/`.collectFirst` PartialFunction arm"):
+    // `case UniEdge(_, UniNode.Branch(MdBranch.ListItem, itemEdges, _, _)) =>
+    // itemEdges.flatMap(…)` (`uniml/markdown`'s `MarkdownProjection.scala`'s `projectBlock`/
+    // `taskState`/`listStart`) — `itemEdges` sits ONE CTOR DEEPER than the pattern this lane used
+    // to handle (`Branch`'s own second field, nested inside `UniEdge`'s own second field), so the
+    // FLAT per-field type-threading — which only ever looked at DIRECT children of the top-level
+    // ctor — silently skipped it entirely (a nested `Pat.Extract`, not a `Pat.Var`, matches
+    // neither of that flat pass's own cases): `error[E0599]: no method named flatMap found for
+    // struct Vec<UniEdge>`. Fixed by making the shared per-field threading (`ctorFieldBindCtx`)
+    // RECURSE into a nested `Pat.Extract` field. A SEPARATE gap surfaced once the recursive
+    // version compiled clean for a standalone `match` but the corpus's own `.collect { case … }`
+    // shape still failed identically: `.collect`/`.collectFirst` build their OWN PartialFunction-
+    // arm `bodyCtx` entirely separately from `renderMatch`'s, via the narrower `variantBodyCtxExtra`
+    // alone (only a whole-value `Pat.Typed` bind) — never chained to `ctorFieldBindCtx` at all.
+    val src =
+      """```scalascript
+        |enum MdBranch:
+        |  case ListItem
+        |  case Other
+        |
+        |enum UniNode:
+        |  case Branch(kind: MdBranch, edges: Vector[UniEdge], a: Int, b: Int)
+        |  case Leaf(text: String)
+        |
+        |case class UniEdge(role: Option[String], child: UniNode)
+        |
+        |def flattenChild(n: UniNode): Vector[String] = n match
+        |  case UniNode.Leaf(t) => Vector(t)
+        |  case _ => Vector.empty
+        |
+        |def taskState(edges: Vector[UniEdge]): Vector[String] =
+        |  edges.head match
+        |    case UniEdge(_, UniNode.Branch(MdBranch.ListItem, itemEdges, _, _)) =>
+        |      itemEdges.flatMap(e => flattenChild(e.child))
+        |    case _ => Vector.empty
+        |
+        |def projectBlock(edges: Vector[UniEdge]): Vector[Vector[String]] =
+        |  edges.collect {
+        |    case UniEdge(_, UniNode.Branch(MdBranch.ListItem, itemEdges, _, _)) =>
+        |      itemEdges.flatMap(e => flattenChild(e.child))
+        |  }
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("itemEdges.iter().cloned().flat_map(move |e| { flattenChild(e.child.clone()) }).collect::<Vec<_>>()"),
+      s"a nested positional ctor field must resolve as a Vec in BOTH the standalone match and the .collect PartialFunction arm:\n$g")
+
+  test("`.foreach` over a call to a def declared `Option[Enum.Variant]` threads the SPECIFIC variant to the closure param, read off the RAW declared type"):
+    // `definitionOf(b).foreach { defn => … defn.label … }` (`uniml/markdown`'s
+    // `MarkdownProjection.scala`'s `collectDefinitions`; `def definitionOf(branch: …): Option[
+    // MarkdownBlock.LinkDefinition]`) — TWO stacked gaps: the general `.foreach` case computed its
+    // closure-param `elemType` via `elementTypeOf` ALONE (the Vec-shaped half, always `None` for
+    // an Option-typed receiver — `.orElse(optionElementTypeOf(…))` is a pure additive fallback,
+    // deliberately unable to touch the Vec-receiver cases that case's own comment records as
+    // tried-and-reverted twice); and `optionElementTypeOf`'s own call-to-a-def case read
+    // `_returnTypes`, where `mapType` has ALREADY collapsed the variant type argument to its
+    // owning enum (`"Option<MarkdownBlock>"` — correctly; no independent Rust type exists for one
+    // case), so even with the fallback wired the closure param typed as the whole enum:
+    // `error[E0609]: no field label on type MarkdownBlock`. Fixed the same way
+    // `eitherSideCtorName` reads around the identical collapse for `Either`: the RAW, unmapped
+    // declared type off `_defBodies`, where `Option[MarkdownBlock.LinkDefinition]` still names
+    // the variant.
+    val src =
+      """```scalascript
+        |enum MarkdownBlock:
+        |  case LinkDefinition(label: String, destination: String)
+        |  case Paragraph(text: String)
+        |
+        |case class UniNodeBranch(kind: String)
+        |
+        |private def definitionOf(branch: UniNodeBranch): Option[MarkdownBlock.LinkDefinition] =
+        |  if branch.kind == "def" then Some(MarkdownBlock.LinkDefinition("a", "b")) else None
+        |
+        |def collectDefinitions(branch: UniNodeBranch): Unit =
+        |  var map: Map[String, MarkdownBlock.LinkDefinition] = Map.empty
+        |  definitionOf(branch).foreach { defn =>
+        |    val key = defn.label
+        |    if !map.contains(key) then map = map + (key -> defn)
+        |  }
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("(match &defn { MarkdownBlock::LinkDefinition { label, .. } => label.clone(), _ => unreachable!() })"),
+      s"the .foreach closure param over Option[Enum.Variant] must resolve the variant's own field:\n$g")
+
+  test("`name @ Ctor(StringLiteral, _, …)` renders as a `ref` borrow pattern, not a by-value bind that partially moves the value it binds"):
+    // `case b @ UniNode.Branch(MdBranch.Definition, _, _, _) => … definitionOf(b) …`
+    // (`uniml/markdown`'s `MarkdownProjection.scala`'s `collectDefinitions`) — the by-value
+    // pass-through rendered `b @ UniNode::Branch { kind: __litpatN, … }`, moving the `String`
+    // field out of the very value `b` binds: `error[E0382]: use of partially moved value` on the
+    // body's own read of `b` — latent behind the same function's E0609 (a type error suppresses
+    // borrowck for the whole fn) until that was fixed. Same borrow rewrite the all-bare-binders
+    // `name @ Ctor(f1, f2, …)` shape already gets (`refBindableCtorArgs`'s own comment has the
+    // admission rules and the `&String == &str` guard-typing proof); the body's whole-value read
+    // derefs and clones via the same `byRefMut` marking as that original shape.
+    val src =
+      """```scalascript
+        |object MdBranch:
+        |  val Definition = "markdown.definition"
+        |
+        |enum UniNode:
+        |  case Branch(kind: String, edges: Vector[Int], span: Int, origin: String)
+        |  case Leaf
+        |
+        |def definitionOf(branch: UniNode): Option[String] =
+        |  branch match
+        |    case UniNode.Branch(kind, _, _, _) => Some(kind)
+        |    case _                             => None
+        |
+        |def walk(node: UniNode): Unit = node match
+        |  case b @ UniNode.Branch(MdBranch.Definition, _, _, _) =>
+        |    definitionOf(b).foreach { defn =>
+        |      val key = defn
+        |      ()
+        |    }
+        |  case UniNode.Branch(_, edges, _, _) => ()
+        |  case _                              => ()
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    // `__litpatN` matched by shape, not pinned — `_pendingPatternGuardCounter` is module-level and
+    // never reset between compiles (see the Vector-sub-pattern test's own comment above).
+    val expected =
+      ("""ref b @ UniNode::Branch \{ kind: ref __litpat(\d+), edges: _, span: _, origin: _ \} if __litpat\1 == "markdown\.definition" => \{ for defn in definitionOf\(\(\*b\)\.clone\(\)\)""").r
+    assert(expected.findFirstIn(g).isDefined,
+      s"a `name @ Ctor(literal, _, …)` bind must render as a ref borrow pattern with a ref litpat guard:\n$g")
+
+  test("a 2-param `.zipWithIndex.exists` closure's FIRST param gets the collect-arm-pinned variant type, and Vec `.indexWhere` lowers to `Iterator::position`"):
+    // `items.iterator.zipWithIndex.exists { (item, idx) => val itemEdges = item.edges; … itemEdges.
+    // indexWhere { case … } … }` where `val items = edges.collect { case UniEdge(_, b @ UniNode.
+    // Branch(MdBranch.ListItem, _, _, _)) => b }` (`uniml/markdown`'s `MarkdownProjection.scala`'s
+    // `listLoose`) — THREE stacked gaps, each masking the next (a type error suppresses everything
+    // downstream of the receiver it poisons): (1) `items`'s element could at best resolve to the
+    // OWNING ENUM (`UniNode` — correctly, `mapType`'s deliberate collapse), but the collect arm's
+    // own pattern pins every element to `Branch`, which `item.edges` (a `Branch`-only field) needs
+    // — `collectArmBoundCtorElem` reads it off the arm; (2) `renderVecIterBody`'s elemType
+    // threading was gated `params.sizeIs <= 1`, so a 2-param zipWithIndex-tupled closure's first
+    // param never received ANY type — `tupleFirstElemType`, a separate channel from `elemType`
+    // (which for the chain correctly stays `None`: its true element is the 2-tuple); without both,
+    // `error[E0609]: no field edges on type UniNode`. (3) `Vec` has no `indexWhere` under any
+    // spelling and the fallback re-emitted the Scala name verbatim (`error[E0599]`, latent behind
+    // the E0609) — lowered to `Iterator::position` with Scala's own `-1` not-found sentinel, the
+    // Vec twin of the String `indexWhere` case.
+    val src =
+      """```scalascript
+        |object MdBranch:
+        |  val ListItem = "markdown.list-item"
+        |
+        |object MdKind:
+        |  val Blank = "markdown.blank"
+        |
+        |case class MdToken(kind: String, lexeme: String)
+        |
+        |enum UniNode:
+        |  case Branch(kind: String, edges: Vector[UniEdge], span: Int, origin: String)
+        |  case Token(value: MdToken)
+        |
+        |case class UniEdge(role: Option[String], child: UniNode)
+        |
+        |private def listLoose(edges: Vector[UniEdge]): Boolean =
+        |  val items = edges.collect { case UniEdge(_, b @ UniNode.Branch(MdBranch.ListItem, _, _, _)) => b }
+        |  items.iterator.zipWithIndex.exists { (item, idx) =>
+        |    val itemEdges = item.edges
+        |    val blankIdx = itemEdges.indexWhere {
+        |      case UniEdge(_, UniNode.Token(t)) => t.kind == MdKind.Blank
+        |      case _                            => false
+        |    }
+        |    if blankIdx < 0 then false
+        |    else if idx < items.size - 1 then true
+        |    else itemEdges.drop(blankIdx + 1).exists { case UniEdge(_, _: UniNode.Branch) => true; case _ => false }
+        |  }
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("let itemEdges = (match &item { UniNode::Branch { edges, .. } => edges.clone(), _ => unreachable!() });"),
+      s"the zipWithIndex closure's first param must carry the collect-arm-pinned Branch variant so item.edges resolves:\n$g")
+    assert(g.contains(".position(|__pf| match __pf {") && g.contains(".map(|__i| __i as i64).unwrap_or(-1))"),
+      s"Vec .indexWhere must lower to Iterator::position with the -1 sentinel:\n$g")
+
+  test("a dyn-trait-returning match wraps `Rc::new` PER ARM, and a constructed implementor into a `Rc<dyn Trait>` parameter gets wrapped at the call"):
+    // `private def dialectFor(profile: MarkdownProfile): DialectAdapter = profile match { case
+    // CommonMark => CommonMarkDialect; case Gfm => GfmDialect; case ScalaScript =>
+    // ScalaScriptMarkdownDialect }` + `UniML.parse(source, ConfiguredMarkdownDialect(profile,
+    // limits), limits.core)` (`uniml/markdown`'s `MarkdownDialect.scala`) — the last two errors
+    // of the whole corpus, one root cause in two positions (Scala's implicit trait upcast has no
+    // Rust spelling; `Rc::new` is the explicit one, and it must land where the coercion happens):
+    // (1) `renderDef`'s whole-body `Rc::new(match …)` forces THREE distinct unit structs to unify
+    // FIRST (`error[E0308]: match arms have incompatible types`) — pushed into each arm via
+    // `renderMatch`'s `wrapArm`, where every `Rc::new(ConcreteN)` unsize-coerces to the expected
+    // return type independently; (2) the ARGUMENT position never wrapped at all (`error[E0308]:
+    // expected Rc<dyn DialectAdapter>, found ConfiguredMarkdownDialect`) — `needsRcDynWrap` reads
+    // the RAW declared parameter type off the def the call actually names (`_ownedDefBodies`;
+    // NEVER the bare-name `_paramTypes` want-list, where this corpus's four `def parse` shadow
+    // each other), gated structurally on the argument being a ctor construction so a name passing
+    // a dialect along can never double-wrap. Both shapes hand-proven in a standalone crate first.
+    val src =
+      """```scalascript
+        |enum MarkdownProfile:
+        |  case CommonMark, Gfm, ScalaScript
+        |
+        |trait DialectAdapter:
+        |  def id: String
+        |
+        |object CommonMarkDialect extends DialectAdapter:
+        |  val id: String = "markdown.commonmark"
+        |
+        |object GfmDialect extends DialectAdapter:
+        |  val id: String = "markdown.gfm"
+        |
+        |object ScalaScriptMarkdownDialect extends DialectAdapter:
+        |  val id: String = "markdown.scalascript"
+        |
+        |case class Limits(maxDepth: Int)
+        |
+        |private final case class ConfiguredMarkdownDialect(profile: MarkdownProfile, maxDepth: Int)
+        |    extends DialectAdapter:
+        |  val id: String = "markdown.configured"
+        |
+        |object UniML:
+        |  def parse(source: String, dialect: DialectAdapter, limits: Limits): String = dialect.id
+        |
+        |private def dialectFor(profile: MarkdownProfile): DialectAdapter = profile match
+        |  case MarkdownProfile.CommonMark   => CommonMarkDialect
+        |  case MarkdownProfile.Gfm          => GfmDialect
+        |  case MarkdownProfile.ScalaScript  => ScalaScriptMarkdownDialect
+        |
+        |object Markdown:
+        |  def parse(source: String, profile: MarkdownProfile, limits: Limits): String =
+        |    UniML.parse(source, ConfiguredMarkdownDialect(profile, 3), limits)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("MarkdownProfile::CommonMark => std::rc::Rc::new(CommonMarkDialect),")
+        && g.contains("MarkdownProfile::Gfm => std::rc::Rc::new(GfmDialect),"),
+      s"each arm of a dyn-trait-returning match must carry its own Rc::new:\n$g")
+    assert(!g.contains("std::rc::Rc::new(match"),
+      s"the whole-body wrap must not stack on the per-arm wraps:\n$g")
+    assert(g.contains("UniML_parse(source, std::rc::Rc::new(ConfiguredMarkdownDialect { profile: profile, maxDepth: 3i64 }), limits)"),
+      s"a constructed implementor into a Rc<dyn Trait> parameter must be wrapped at the call:\n$g")
+
+  test("a call to a LOCAL (nested) def declared `: Option[T]` is recognized as Option-typed, not just a top-level def"):
+    // `localTextOf(nodes(i)).isDefined` / `localTextOf(nodes(i)).get` (`uniml/markdown`'s
+    // `MarkdownInlines.scala`'s `emailLocalBackscan`; `def localTextOf(node: WNode): Option[
+    // String] = …`, a def declared LOCALLY inside `emailLocalBackscan` itself) — `_defBodies`
+    // (the table `isOptionExpr`'s own "call to a def declared Option[T]" case already reads) is
+    // populated ONLY from `collectDefs`/`topLevelDefs`, which deliberately never descends into a
+    // `Defn.Def`'s own body — a nested/local def is a genuinely different scope, lifted out
+    // separately by `liftLocalDefs` — so `localTextOf` was invisible to that lookup entirely:
+    // `error[E0609]: no field isDefined on type Option<String>` (misleadingly naming the type
+    // that was already correct — the real gap was never recognizing the CALL as Option-typed).
+    val src =
+      """```scalascript
+        |def emailLocalBackscan(nodes: Vector[String], pending: Vector[String]): String =
+        |  def localTextOf(node: String): Option[String] =
+        |    if node.nonEmpty then Some(node) else None
+        |  var chunk = pending.mkString
+        |  var drop = 0
+        |  while drop < nodes.length && localTextOf(nodes(nodes.length - 1 - drop)).isDefined do
+        |    chunk = localTextOf(nodes(nodes.length - 1 - drop)).get
+        |    drop += 1
+        |  chunk
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".is_some())"),
+      s"a call to a local def declared Option[T] must recognize .isDefined as Option.is_some():\n$g")
+    assert(g.contains(".clone().unwrap();"),
+      s"a call to a local def declared Option[T] must recognize .get as Option unwrap:\n$g")
+
+  test("`val last = xs.last` threads the Vec's OWN element ctor so `.copy(...)` resolves, and a multi-use field-select match subject clones to avoid a partial move"):
+    // `val last = out.last; … last.copy(instruction = rewritten)` (`uniml/markdown`'s
+    // `MarkdownBlocks.scala`'s `closeDangling`, `out: Vector[VmToken]`) — `.last`/`.head` are
+    // NO-PAREN accessors (Scala elides `()` on a niladic method), a shape `collectLocalRustTypes`
+    // had no case for at all (every case there keys off `Term.Apply`, never a bare `Term.Select`),
+    // so `last`'s element-typed ctor name never joined `paramTypes` and `.copy` had no struct to
+    // resolve against: `error[E0599]: no method named copy found for struct VmToken`. Fixing that
+    // let rustc's own analysis reach a SECOND, previously-masked bug in the SAME function:
+    // `last.instruction match { case VmInstruction.Emit(role) => …; case other => other }` — the
+    // bind-all arm moves `last.instruction` BY VALUE, which Rust treats as PARTIALLY moving `last`
+    // itself, and `last` is read again right after (`VmToken { instruction: rewritten, ..last }`):
+    // `error[E0382]: borrow of partially moved value: last`. Fixed by cloning a match subject
+    // that is a field-select off a multi-use name, gated on some arm actually destructuring a
+    // ctor with fields (a `Boolean`/`i64` field matched only by literal patterns is `Copy` and
+    // never has this problem — a first, ungated attempt fired on an unrelated `bool` field match
+    // too, regressing an existing golden, caught by the test suite before it reached a commit).
+    val src =
+      """```scalascript
+        |enum VmInstruction:
+        |  case Emit(role: String)
+        |  case Close(expected: Option[String], role: String)
+        |  case Reframe(closeBefore: Vector[String], open: Vector[String], closeAfter: Vector[String], role: String)
+        |
+        |case class VmToken(id: Int, instruction: VmInstruction)
+        |
+        |def rewriteLast(out0: Vector[VmToken], remaining: Vector[String]): Vector[VmToken] =
+        |  val last = out0.last
+        |  val rewritten = last.instruction match
+        |    case VmInstruction.Emit(role) =>
+        |      VmInstruction.Reframe(closeBefore = Vector.empty, open = Vector.empty, closeAfter = remaining, role = role)
+        |    case VmInstruction.Close(expected, role) =>
+        |      VmInstruction.Reframe(closeBefore = Vector.empty, open = Vector.empty, closeAfter = expected.toVector ++ remaining, role = role)
+        |    case VmInstruction.Reframe(cb, op, ca, role) =>
+        |      VmInstruction.Reframe(cb, op, ca ++ remaining, role)
+        |    case other => other
+        |  out0.updated(out0.size - 1, last.copy(instruction = rewritten))
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("VmToken { instruction: rewritten, ..(last).clone() }"),
+      s"last.copy(instruction = rewritten) must resolve VmToken specifically via a struct-update:\n$g")
+    assert(g.contains("match (last.instruction).clone() {"),
+      s"a multi-use field-select match subject must be cloned to avoid a partial move:\n$g")
+
+  test("a tuple match pattern with a `Some(Ctor(field))`-wrapped element and a bare `Ctor(field)` element both thread their field's own type"):
+    // `(out0.lastOption, inline) match { case (Some(MarkdownInline.Text(a)), MarkdownInline.Text(b))
+    // => … MarkdownInline.Text(a + b) }` (`uniml/markdown`'s `MarkdownProjection.scala`'s
+    // `projectInlines`'s `appendMerging`) — a TUPLE pattern, one element wrapped in `Some(...)`,
+    // the other bare; neither the existing bare `Pat.Extract` case (which only ever sees ONE
+    // top-level pattern, not a tuple of them) nor the existing `Some(x)` case (which only threads
+    // a WHOLE-VALUE bind, not a further nested ctor destructure) recognized either element here,
+    // so `a`/`b` — both genuinely `String` fields — never joined `ctx.localStrings`, and the
+    // `+`-concat rewrite's guard missed both: `error[E0308]: expected &str, found String`.
+    val src =
+      """```scalascript
+        |enum MarkdownInline:
+        |  case Text(value: String)
+        |  case Other
+        |
+        |def appendMerging(out0: Vector[MarkdownInline], inline: MarkdownInline): Vector[MarkdownInline] =
+        |  (out0.lastOption, inline) match
+        |    case (Some(MarkdownInline.Text(a)), MarkdownInline.Text(b)) =>
+        |      out0.dropRight(1) :+ MarkdownInline.Text(a + b)
+        |    case _ => out0 :+ inline
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("MarkdownInline::Text { value: format!(\"{}{}\", a, b) }"),
+      s"a + b inside a tuple-of-(Some-wrapped, bare) ctor pattern must lower as a String concat, not Rust's native +:\n$g")
+
+  test("a genuine lambda passed to String.filter/.map/.forall/.exists/.count is LET-SPLICED, not called as an IIFE rustc cannot infer through"):
+    // `scheme.forall(c => MdChars.isAsciiAlnum(c) || c == '+' || …)` / `inner.exists(c =>
+    // MdChars.isUnicodeWhitespace(c) || c == '<')` (`uniml/markdown`'s `MarkdownInlines.scala`'s
+    // `autolinkScheme`/`hasCodeSpan`) — `renderTerm`/`renderCharPredOrFn`'s own String-receiver
+    // cases all rendered a one-arg lambda argument as a bare CLOSURE LITERAL, then called it
+    // immediately (`(move |c| { … })(argExpr)`) — exactly the shape rustc cannot infer `c`'s type
+    // through on its own (no different from `renderVecIterBody`'s own doubly-nested-closure gap,
+    // documented there for the identical reason): `error[E0282]: type annotations needed`.
+    // Surfaced by an EARLIER fix in this same area (`.filter`/`.map` on a String, added this
+    // session): once those stopped erroring, rustc's own analysis reached these THREE further,
+    // previously-unseen sites in the SAME two functions. Fixed with one shared helper
+    // (`renderCharPredOrFn`) used by `.filter`/`.map`/`.forall`/`.exists`/`.count` alike: a
+    // genuine `Term.Function` literal is LET-SPLICED (the param bound via `let` right before its
+    // body, never called), while a bare method reference (no such ambiguity — its own signature
+    // already fixes the argument type) keeps the simpler immediately-invoked-call form.
+    val src =
+      """```scalascript
+        |object MdChars:
+        |  def isUnicodeWhitespace(c: Char): Boolean = c == ' ' || c == '\t'
+        |  def isAsciiAlnum(c: Char): Boolean = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
+        |
+        |def scheme(scheme: String): Boolean =
+        |  scheme.forall(c => MdChars.isAsciiAlnum(c) || c == '+' || c == '.' || c == '-')
+        |
+        |def hasBadChar(inner: String): Boolean =
+        |  inner.isEmpty || inner.exists(c => MdChars.isUnicodeWhitespace(c) || c == '<')
+        |
+        |def countBad(lexeme: String): Int =
+        |  lexeme.count(c => c == '<')
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".all(|__ch| { let c = (__ch as u32) as i64;"),
+      s"String.forall's lambda argument must be let-spliced, not called as an IIFE:\n$g")
+    assert(g.contains(".any(|__ch| { let c = (__ch as u32) as i64;"),
+      s"String.exists's lambda argument must be let-spliced, not called as an IIFE:\n$g")
+    assert(g.contains(".filter(|__ch| { let c = ((*__ch) as u32) as i64;") && g.contains(").count() as i64)"),
+      s"String.count's lambda argument must be let-spliced, not called as an IIFE:\n$g")
+
+  test("a match subject read again across `while`-loop iterations is cloned, except an SscChar subject (Copy) which still gets its `.0` unwrap instead"):
+    // `endMarkers match { case None => …; case Some(markers) => … }` inside a `while` loop
+    // (`uniml/markdown`'s `MarkdownBlocks.scala`'s `htmlBlockLoop`; `endMarkers: Option[Vector[
+    // String]]`, a loop-INVARIANT `val` declared before the loop, never reassigned inside it) —
+    // matching an enum BY VALUE moves it; the first iteration's `Some(markers)` arm moves
+    // `endMarkers` out, and the second iteration's own `match endMarkers { … }` reads it again:
+    // `error[E0382]: use of moved value` ("in previous iteration of loop"). A first fix placed
+    // the new `ctx.inWhileLoop` clone case AHEAD of the existing `yieldsSscChar` case, and it
+    // shadowed the `.0` unwrap entirely for a genuine `SscChar` subject read the same way inside
+    // a loop (`char match { case '\'' | '"' => … }`, `uniml/xml`'s `Doc.scala`) — `SscChar`
+    // derives `Copy` and never needed cloning, but `(char).clone()` still compared as a struct
+    // against bare `i64` literal patterns: `error[E0308]: expected SscChar, found i64`, caught
+    // by a real `cargo build` on uniml/xml (not markdown) before it reached a commit. Fixed by
+    // ordering the SscChar check first.
+    val src =
+      """```scalascript
+        |def scan(lines: Vector[String], index: Int): Int =
+        |  val endMarkers: Option[Vector[String]] = Some(Vector("-->"))
+        |  var i = index
+        |  var done = false
+        |  while i < lines.size && !done do
+        |    val l = lines(i)
+        |    endMarkers match
+        |      case None => done = true
+        |      case Some(markers) =>
+        |        i += 1
+        |        if markers.exists(l.contains) then done = true
+        |  i
+        |
+        |def scanQuote(s: String, quoteC: Char): Char =
+        |  var quote = quoteC
+        |  var i = 0
+        |  while i < s.length do
+        |    val char = s.charAt(i)
+        |    char match
+        |      case '\'' | '"' => quote = char
+        |      case _          => ()
+        |    i += 1
+        |  quote
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("match (endMarkers).clone() {"),
+      s"a loop-invariant Option local read again across while-loop iterations must be cloned before the match:\n$g")
+    assert(g.contains("match (char).0 {"),
+      s"an SscChar match subject must still get its .0 unwrap, not a redundant .clone():\n$g")
+
+  test("a `.contains`/`.contains_key` method reference (eta-expansion) borrows its argument, except when `find` already hands it one"):
+    // `markers.exists(lc.contains)` (`uniml/markdown`'s `MarkdownBlocks.scala`'s
+    // `finishParagraph`; `markers: Vector[String]`) — the method-reference-to-closure arm always
+    // bound `__x` (from `.iter().cloned()`, an OWNED value) by value: `String::contains` and
+    // `HashMap::contains_key` both want a REFERENCE (`Pattern`/`Borrow<Q>` are implemented for
+    // `&str`/`&K`, never the owned type itself): `error[E0277]: the trait bound String: Pattern
+    // is not satisfied`. A first fix borrowed unconditionally and immediately regressed
+    // uniml/xml/json/yaml's own `names.find(byName.contains_key)` (`Dialect.scala`'s `register`)
+    // — `find`'s OWN dispatch already hands this closure a REFERENCE directly when `elemType` is
+    // known (see `findParam`/`findArg`'s own comment: `contains_key` wants `&Q`, so the typed
+    // `__f` is passed AS-IS, unborrowed, specifically so this closure can use it bare), and
+    // double-wrapping it made `&&String`: `error[E0277]: the trait bound String: Borrow<&String>
+    // is not satisfied`, caught by a real `cargo build` on `uniml/xml` (not `markdown`) before it
+    // reached a commit. Scoped to skip the borrow only for that one `method == "find" &&
+    // elemType.isDefined` combination.
+    val src =
+      """```scalascript
+        |def hasAny(markers: Vector[String], lc: String): Boolean =
+        |  markers.exists(lc.contains)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("markers.iter().cloned().any(|__x| lc.contains(&__x))"),
+      s"a .contains method reference must borrow its owned closure argument:\n$g")
+
+  test("a local val bound to an if/else of char-conceptual arms — even NESTED inside an if-block, not just at the def's own top level — and `.toInt` on a name (not just a literal), are both recognized as char-conceptual indexOf needles"):
+    // `if … then val open2 = content.charAt(i); val close2 = if open2 == '(' then ')' else open2;
+    // content.indexOf(close2, i + 1)` (`uniml/markdown`'s `MarkdownInlines.scala`'s
+    // `linkOrImage`'s destination-title scan) — `close2` is bound through neither shape
+    // `isConceptuallyChar`'s existing `Term.Name` cases check (not a niladic def, not the CURRENT
+    // def's own declared parameter), so the needle rendered as a raw `i64`: `error[E0308]:
+    // expected &str, found &i64`. A FIRST fix read only `ctx.bodyStats` (the def's own TOP-level
+    // statements) — it passed a simplified, un-nested repro but missed the real corpus, where
+    // `close2` sits one `if`-block deeper; widened to walk the current def's whole raw body
+    // (`_defBodies`) recursively instead, stopping at a nested `def` boundary. And `val q =
+    // content.charAt(i); … content.indexOf(q.toInt, i + 1)` (`MarkdownInlines.scala`'s HTML-
+    // attribute-value scan) — the existing `.toInt`-on-a-char case only matched a LITERAL
+    // `Lit.Char` receiver, not a NAME bound from `.charAt()` (the identical shape, just through a
+    // binding instead of a literal): same `error[E0308]`.
+    val src =
+      """```scalascript
+        |def scanClose(content: String, i: Int): Int =
+        |  if i < content.length && (content.charAt(i) == '"' || content.charAt(i) == '\'' || content.charAt(i) == '(') then
+        |    val open2 = content.charAt(i)
+        |    val close2 = if open2 == '(' then ')' else open2
+        |    content.indexOf(close2, i + 1)
+        |  else -1
+        |
+        |def scanAttr(content: String, i: Int): Int =
+        |  val q = content.charAt(i)
+        |  if q == '\'' || q == '"' then
+        |    content.indexOf(q.toInt, i + 1)
+        |  else -1
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("_str_index_of_from(&content, &(char::from_u32((close2) as u32).unwrap_or('\\u{FFFD}').to_string()), (i + 1i64))"),
+      s"close2 (an if/else-bound local nested inside an if-block, not a .charAt() call or literal) must be recognized as a char-conceptual needle:\n$g")
+    assert(g.contains("_str_index_of_from(&content, &(char::from_u32((crate::runtime::_to_int(&q)) as u32).unwrap_or('\\u{FFFD}').to_string()), (i + 1i64))"),
+      s"q.toInt (a NAME's .toInt, not a literal's) must be recognized as a char-conceptual needle:\n$g")
+
+  test("a multi-use name in a bare if/else branch tail position gets the SAME clone-on-move safety a call argument already gets"):
+    // `val trivia = if cut >= 0 then blankContent.substring(0, cut) else blankContent` / `val keep
+    // = if cut >= 0 then blankContent.substring(cut) else ""` (`uniml/markdown`'s
+    // `MarkdownBlocks.scala`'s `finishParagraph`, `blankContent` a tuple-destructured `.foreach`
+    // closure param, read four times total) — the if/else renderer never ran either branch's bare
+    // tail value through `cloneIfMoved` at all, unlike every OTHER position that can hand back a
+    // bare multi-use name (a call argument, a closure return, a `.getOrElse` default): the bare
+    // `else { blankContent }` branch MOVED it, and the same name is read again building `keep`
+    // right after: `error[E0382]: borrow of moved value: blankContent`.
+    val src =
+      """```scalascript
+        |private def indentCut(s: String, n: Int): Int = if s.length > n then n else -1
+        |
+        |def process(held: Vector[(String, String)]): Unit =
+        |  held.foreach { case (blankContent, ending) =>
+        |    val cut = indentCut(blankContent, 4)
+        |    val trivia = if cut >= 0 then blankContent.substring(0, cut) else blankContent
+        |    val keep = if cut >= 0 then blankContent.substring(cut) else ""
+        |    println(trivia + keep)
+        |  }
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("} else { blankContent.clone() };"),
+      s"a multi-use name in a bare if/else tail position must be cloned, not moved:\n$g")
+
+  test("`case Some(x) => x.field` over a `Map[K, Enum.Variant].get(...)` subject resolves the SPECIFIC variant, not the collapsed enum"):
+    // `refs.get(normalizeLabel(labelText)) match { case Some(defn) => (defn.destination, defn.
+    // title); … }` (`uniml/markdown`'s `MarkdownProjection.scala`'s `linkOrImage`, `refs: Map[
+    // String, MarkdownBlock.LinkDefinition]` a def parameter) — the existing `Some(x)`-bound
+    // struct-name resolution only recognised a BARE `fn(args)` call subject (keyed through
+    // `_returnTypes`); a `Map.get(...)` call fell through entirely, so `defn` never got a ctor
+    // name. Even if it had: `mapType` collapses a variant type argument to its owning ENUM name,
+    // so `ctx.paramTypes`/`_returnTypes` could only ever say `MarkdownBlock`, never the specific
+    // `LinkDefinition` — `error[E0609]: no field destination on type MarkdownBlock`. Fixed by
+    // reading `refs`'s OWN raw, unmapped parameter type off `_defBodies` instead (the same
+    // "read the AST, not the collapsed Rust string" fix `eitherSideCtorName` already established
+    // for `Either`'s identical problem).
+    val src =
+      """```scalascript
+        |enum MarkdownBlock:
+        |  case LinkDefinition(label: String, destination: String, title: Option[String])
+        |  case Paragraph(text: String)
+        |
+        |def linkOrImage(refs: Map[String, MarkdownBlock.LinkDefinition], labelText: String): (String, Option[String]) =
+        |  refs.get(labelText) match
+        |    case Some(defn) => (defn.destination, defn.title)
+        |    case None       => ("", None)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("MarkdownBlock::LinkDefinition { destination, .. } => destination.clone()") &&
+           g.contains("MarkdownBlock::LinkDefinition { title, .. } => title.clone()"),
+      s"defn.destination/defn.title must resolve against the specific LinkDefinition variant, not the collapsed enum:\n$g")
+
+  test("a local val bound to a MATCH EXPRESSION over a known-seq subject is itself recorded as a seq"):
+    // `val withoutTrailingBreak = is match { case rest :+ MarkdownInline.SoftBreak => rest; …
+    // case _ => is }` (`uniml/markdown`'s `MarkdownProjection.scala`'s `trimBlockInlines`, `is` the
+    // def's own `Vector[MarkdownInline]` parameter) — `collectLocalSeqs` had no case for a MATCH
+    // EXPRESSION initializer at all. Every arm here is either the subject `is` verbatim or a name
+    // a list cons/snoc pattern (`:+`) binds, so the whole match is seq-rooted too — narrowly scoped
+    // to exactly that shape (subject already known seq-rooted, every arm either returns the
+    // subject's own name or a name a `::`/`:+`/`Cons` pattern binds), not "trust every arm
+    // blindly" (unsound for e.g. `case Some(x) => x`, which is NOT seq-rooted just because the
+    // subject was). Also needed: `patBoundNames` had no case for a `::`/`:+` pattern at all, so
+    // even a correctly-identified list pattern's own bound name (`rest`) went unrecognized.
+    // Without both, `withoutTrailingBreak` was never recorded as a seq, and `.iterator` chained
+    // onto it fell to the generic field-access refusal: `error[E0609]: no field iterator on type
+    // Vec<MarkdownInline>`.
+    val src =
+      """```scalascript
+        |enum MarkdownInline:
+        |  case SoftBreak
+        |  case HardBreak
+        |  case Text(v: String)
+        |
+        |def trimBlockInlines(is: Vector[MarkdownInline]): Vector[MarkdownInline] =
+        |  val withoutTrailingBreak = is match
+        |    case rest :+ MarkdownInline.SoftBreak => rest
+        |    case rest :+ MarkdownInline.HardBreak => rest
+        |    case _                                => is
+        |  withoutTrailingBreak.iterator.zipWithIndex.map { (inline, idx) => inline }.toVector
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(!g.contains(".iterator"),
+      s"withoutTrailingBreak must be recorded as a seq so .iterator lowers as a no-op:\n$g")
+
+  test("a `case other => other` catch-all trailing an enum match is kept when the explicit arms do NOT cover every variant"):
+    // `inline match { case MarkdownInline.Text(v) => …; case other => other }` (`uniml/markdown`'s
+    // `MarkdownProjection.scala`'s `trimBlockInlines`) — `renderMatch`'s existing "drop a trailing
+    // identity catch-all" optimization (for the toolkit's JVM-side idempotency passthrough, where
+    // the explicit arms already cover the WHOLE enum and the catch-all provably cannot fire) was
+    // gated on "at least one ctor arm exists" — far weaker than its own stated justification
+    // ("the variant arms are exhaustive"). `MarkdownInline` has more variants than just `Text`, so
+    // the catch-all is NOT dead here, but the old guard dropped it anyway: `error[E0004]: non-
+    // exhaustive patterns`. Widened to check the explicit arms' own ctor names actually cover
+    // EVERY variant of the subject's enum (`ctx.ctorMap`, keyed by ctor, carrying each one's
+    // `enumName`) before dropping — an arm this check cannot confidently attribute to a ctor name
+    // counts as NOT covered, keeping the catch-all rather than risking a live one.
+    val src =
+      """```scalascript
+        |enum MarkdownInline:
+        |  case SoftBreak
+        |  case HardBreak
+        |  case Text(v: String)
+        |  case Emphasis(v: String)
+        |
+        |def normalize(inline: MarkdownInline): MarkdownInline =
+        |  inline match
+        |    case MarkdownInline.Text(v) => MarkdownInline.Text(v + "!")
+        |    case other => other
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("other => other"),
+      s"a catch-all must survive when the explicit arms do not cover every enum variant:\n$g")
+
+  test("a bare zero-arg-def reference used as a Map receiver (`.get`/`.getOrElse`) inserts the implicit `()` call"):
+    // `namedEntities.getOrElse(body, lex)` (`uniml/markdown`'s `MarkdownProjection.scala`'s
+    // `decodeEntity`; `private def namedEntities: Map[String, String] = ...`, a zero-arg def) —
+    // Scala elides `()` on a NILADIC def unconditionally, but nothing rendered the implied call:
+    // the bare reference fell through to the ordinary bare-name fallback (the FUNCTION ITEM,
+    // uncalled): `error[E0599]: no method named getOrElse found for fn item fn() -> HashMap<...>
+    // {namedEntities}`. A general "any zero-arg-def name gets ()" fix in the shared bare-name
+    // fallback was tried and reverted in the SAME round: it also fired on unrelated local vals
+    // sharing a name with some OTHER zero-arg def elsewhere in the module. Landed instead as two
+    // narrow, call-site-local cases (`.get`/`.getOrElse`), gated on the qualifier being a bare
+    // name that IS a known zero-arg def whose OWN declared return type is a Map.
+    val src =
+      """```scalascript
+        |object Entities:
+        |  val table: Map[String, String] = Map("a" -> "A")
+        |
+        |private def namedEntities: Map[String, String] = Entities.table
+        |
+        |def decodeEntity(lex: String, body: String): String =
+        |  namedEntities.getOrElse(body, lex)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("namedEntities().get(&body).cloned().unwrap_or(lex.into())"),
+      s"a bare zero-arg-def reference used as a Map receiver must insert the implicit () call:\n$g")
+
+  test("`xs.exists { case p => … }` / `xs.forall { case p => … }` — a PartialFunction argument — rename to `.any`/`.all` the same way a Function argument already does"):
+    // `edges.exists { case UniEdge(_, UniNode.Token(t)) => … ; case _ => false }` (`uniml/markdown`'s
+    // `MarkdownProjection.scala`'s `listLoose`/`firstMarker`, `MarkdownInlines.scala`'s
+    // `hasCodeSpan`) — a PartialFunction argument reaches `renderVecIterBody`'s FINAL fallback
+    // (every other case there matches a `Term.Function`/method-reference/`Term.AnonymousFunction`
+    // shape, none of which a PartialFunction is), and that fallback's catch-all emitted the SCALA
+    // method name verbatim: `error[E0599]: no method named exists found for struct Vec<T>` — Rust's
+    // `Vec`/`Iterator` has `.any`/`.all`, never `.exists`/`.forall`. Same rename every OTHER
+    // `.exists`/`.forall` dispatch case in this file already applies for its own closure shape.
+    val src =
+      """```scalascript
+        |case class UniEdge(kind: Int, tag: String)
+        |
+        |def setext(edges: Vector[UniEdge]): Boolean =
+        |  edges.exists { case UniEdge(k, _) if k == 1 => true; case _ => false }
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("edges.iter().cloned().any(|__pf| match __pf {"),
+      s"a PartialFunction argument to .exists must rename to .any, not emit the Scala method name verbatim:\n$g")
+
+  test("`.filter`/`.map` on a String receiver lower via `.chars()`, and a String-typed local built from `.map` still resolves `.head`/`.last`"):
+    // `trimmed.filter(c => …)` (`uniml/markdown`'s `MarkdownBlocks.scala`'s `isThematicBreak`) and
+    // `raw.map(c => …)` (`MarkdownProjection.scala`'s `codeSpanValue`) — `.filter`/`.map` on a
+    // STRING receiver had NO dedicated lowering at all (unlike `.forall`/`.exists`/`.count`, which
+    // already special-case a String receiver): the generic Vec-shaped cases have no receiver-type
+    // guard, so a String reached `.iter()`, which it does not have (`error[E0599]`). Once `raw.
+    // map(...)` lowers correctly, the RESULTING local (`spaced`) must ALSO be recognized as a
+    // String by `collectLocalStrings` (`"map"` added to `StringPreserving`) so `spaced.head`/
+    // `spaced.last` — String's own no-paren first/last-char accessors, previously unlowered
+    // entirely (`error[E0609]`) — resolve too.
+    val src =
+      """```scalascript
+        |private def isThematicBreak(trimmed: String): Boolean =
+        |  val stripped = trimmed.filter(c => c != ' ' && c != '\t')
+        |  stripped.length >= 3
+        |
+        |private def codeSpanValue(raw0: Option[String]): String =
+        |  val raw = raw0.getOrElse("")
+        |  val spaced = raw.map(c => if c == '\n' || c == '\r' then ' ' else c)
+        |  if spaced.length >= 2 && spaced.head == ' ' && spaced.last == ' ' then spaced.substring(1, spaced.length - 1) else spaced
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".chars().filter(|__ch| ") && g.contains(").collect::<String>()"),
+      s"String.filter must lower via .chars() + collect::<String>(), not the Vec-shaped .iter():\n$g")
+    assert(g.contains(".chars().map(|__ch| char::from_u32("),
+      s"String.map must lower via .chars() + char::from_u32 + collect::<String>():\n$g")
+    assert(g.contains("crate::runtime::_str_char_at(&spaced, 0i64)") &&
+           g.contains("crate::runtime::_str_char_at(&spaced, crate::runtime::_str_length(&spaced) - 1i64)"),
+      s"spaced.head/spaced.last must route through _str_char_at once spaced is known to be a String:\n$g")
+
+  test("a topval referencing an EARLIER SIBLING topval by bare name resolves, and the chain it builds (.split/.iterator/String.indexOf/.toMap) all lower correctly"):
+    // `val table: Map[String, String] = encoded.split(…).iterator.map { record => … }.toMap`
+    // (`uniml/markdown`'s `MarkdownEntitiesGenerated.scala`, referencing `private val encoded:
+    // String = "…"`, an earlier-declared SIBLING topval of the SAME object) — a compound bug, four
+    // separate gaps in one expression chain: (1) `encoded` itself was unresolved — a topval's own
+    // initializer is rendered standalone, with no `let name = init;` preamble from anywhere, so a
+    // sibling reference had nowhere to resolve (`error[E0425]`); (2) `.iterator` chained after
+    // `.split(sep)` fell to the generic field-access refusal, since `isKnownVecReceiver` never
+    // recognized `.split`'s OWN result as a Vec (`error[E0609]`); (3) the closure param `record`
+    // reached its body with no element type (same root cause as #2, in `elementTypeOf` this time),
+    // so `record.indexOf(controlChar.toInt)` — genuinely a String method — misrouted through the
+    // Vec-shaped `.indexOf` (`error[E0282]`); (4) `.toMap` over a genuine `Vec<(K, V)>` had no
+    // lowering of its own at all, only the identity case for a receiver ALREADY a Map.
+    val src =
+      """```scalascript
+        |object Entities:
+        |  private val encoded: String = "aXA bXB "
+        |
+        |  val table: Map[String, String] =
+        |    encoded
+        |      .split(' ')
+        |      .iterator
+        |      .map { record =>
+        |        val cut = record.indexOf('X'.toInt)
+        |        record.substring(0, cut) -> record.substring(cut + 1)
+        |      }
+        |      .toMap
+        |
+        |private def namedEntities: Map[String, String] = Entities.table
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("\"aXA bXB \".to_string().split("),
+      s"encoded must inline as its own already-rendered init text, not an unresolved bare name:\n$g")
+    assert(!g.contains(".iterator"),
+      s".iterator chained after .split(...) must lower as a no-op, not a bare field access:\n$g")
+    assert(g.contains("__h.find(__n)"),
+      s"record.indexOf(controlChar.toInt) must route through the Unicode-safe String.indexOf, not Vec.indexOf:\n$g")
+    assert(g.contains(".into_iter().collect::<std::collections::HashMap<_, _>>()"),
+      s"a genuine Vec<(K, V)>.toMap must build a real HashMap, not fall through unresolved:\n$g")
+
+  test("a zero-arg METHOD read without parens, sharing its bare name with a genuine FIELD elsewhere, resolves precisely for a placeholder/indexing/call-result receiver"):
+    // Three receiver shapes the name-only `_zeroArgDefNames` catch-all cannot help with once the
+    // SAME bare name is ALSO a genuine struct FIELD somewhere else in the module (it refuses
+    // EVERY use of that name, by design): `window.iterator.map(_.raw)` (a `Term.Placeholder`
+    // qualifier), `window(linesUsed).raw` (an INDEXING `Term.Apply` qualifier), and
+    // `dialectFor(x).id` (a CALL-RESULT qualifier) — each needs its own precise, receiver-type-
+    // aware fallback (`uniml/markdown`'s `MarkdownBlocks.scala`'s `scanRefDef` for `raw`
+    // colliding with `MarkdownValue.scala`'s `RawHtml(raw: String)`; `MarkdownDialect.scala`'s
+    // `dialectId` for `id` colliding with `Source.scala`'s `SourceToken.id: Long`).
+    val src =
+      """```scalascript
+        |case class MdLine(content: String, ending: String):
+        |  def raw: String = content + ending
+        |
+        |case class RawHtml(raw: String)
+        |
+        |trait DialectAdapter:
+        |  def id: String
+        |
+        |object CommonMarkDialect extends DialectAdapter:
+        |  val id: String = "commonmark"
+        |
+        |case class SourceToken(id: Long, text: String)
+        |
+        |private def dialectFor(x: Int): DialectAdapter = CommonMarkDialect
+        |
+        |def scanWindow(lines: Vector[MdLine], index: Int, last: Int): String =
+        |  val window = lines.slice(index, last)
+        |  window.iterator.map(_.raw).mkString
+        |
+        |def scanWindow2(window: Vector[MdLine], linesUsed: Int): Int =
+        |  window(linesUsed).raw.length
+        |
+        |def dialectId(x: Int): String =
+        |  dialectFor(x).id
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".map(|__p0| { __p0.raw() })"),
+      s"a placeholder-bound receiver's zero-arg method must resolve with parens, not as a field:\n$g")
+    assert(g.contains("window[(linesUsed) as usize].clone().raw().len()"),
+      s"an INDEXED receiver's zero-arg method must resolve with parens, not as a field:\n$g")
+    assert(g.contains("dialectFor(x).id()"),
+      s"a CALL-RESULT receiver's zero-arg method must resolve with parens, not as a field:\n$g")
+
+  test("`xs.zipWithIndex.exists { (item, idx) => … }` destructures the tuple param, not just `xs.zipWithIndex.map`"):
+    // `items.iterator.zipWithIndex.exists { (item, idx) => … idx … }` (`uniml/markdown`'s
+    // `MarkdownProjection.scala`'s `listLoose`) — the genuine two-param-closure-over-a-tuple shape
+    // `renderVecIterBody`'s own `"map"` case already destructures (`params.sizeIs == 2`, reachable
+    // ONLY via `.zipWithIndex`'s tupled-element auto-unpacking); `"exists"`/`"forall"` never had the
+    // matching guard and always bound the single-param `|item|` to the WHOLE tuple, so a body
+    // referencing `idx` read as `error[E0425]: cannot find value idx in this scope`.
+    val src =
+      """```scalascript
+        |def listLoose(items: Vector[Int]): Boolean =
+        |  items.iterator.zipWithIndex.exists { (item, idx) =>
+        |    if item < 0 then false
+        |    else if idx < items.size - 1 then true
+        |    else item > 0
+        |  }
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".any(|(item, idx)| {"),
+      s"a two-param closure passed to .exists over a zipWithIndex tuple must destructure both names:\n$g")
+
+  test("`Integer.parseInt(s)` (one-arg, radix-10) and `Character.toLowerCase(c)` lower as Java-interop static calls, unwrapping an SscChar argument"):
+    // `Integer.parseInt(body.substring(1))` (`uniml/markdown`'s `MarkdownProjection.scala`'s
+    // `resolveEntity`) — only the TWO-arg (radix) overload had a case; the bare one-arg overload
+    // fell through to the generic Apply path and rendered `Integer` (a Rust TYPE name) as a value:
+    // `error[E0425]: cannot find value Integer in this scope`. And `Character.toLowerCase(c)`
+    // (`uniml/markdown`'s `MarkdownLexer.scala`'s `foldCase`) — same shape, nothing lowered it at
+    // all, routed to a new `_char_to_lowercase` runtime helper. `c` here is bound from
+    // `s.charAt(i)`, a genuine `SscChar`, so the call needs the same `.0` unwrap every other
+    // `i64`-expecting call site in this file already applies.
+    val src =
+      """```scalascript
+        |def parseDec(s: String): Int =
+        |  Integer.parseInt(s)
+        |
+        |def foldChar(s: String): String =
+        |  val c = s.charAt(0)
+        |  Character.toLowerCase(c).toString
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("i64::from_str_radix(&(s), 10u32).unwrap_or(0)"),
+      s"Integer.parseInt(s) (one-arg) must lower via from_str_radix with a literal radix-10:\n$g")
+    assert(g.contains("crate::runtime::_char_to_lowercase((c).0)"),
+      s"Character.toLowerCase(c) must route to the new runtime helper with c's SscChar unwrapped:\n$g")
+
+  test("an if/else arm bound to `.charAt`'s result through a NAME (not just the direct syntactic call) still gets its SscChar `.0` unwrap"):
+    // `foldCase`'s own three-way fold (`uniml/markdown`'s `MarkdownLexer.scala`): `val c =
+    // s.charAt(i); if c >= 'A' && c <= 'Z' then (c + 32).toChar else if c < 128 then c else
+    // Character.toLowerCase(c)` — the existing if/else-arm SscChar coercion (`isBareCharAt`) only
+    // recognized a branch SYNTACTICALLY `.charAt(...)`, not a NAME already bound from it, so the
+    // bare `{ c }` branch (sitting next to a sibling arm that resolves to `i64`) never got its
+    // `.0`: `error[E0308]: expected i64, found SscChar`. Widened to the full `yieldsSscChar`
+    // (which already tracks a name-bound `.charAt` result via `Ctx.localSscChars`) — the identical
+    // predicate every OTHER `i64`-expecting consumer site in this file already uses.
+    val src =
+      """```scalascript
+        |def foldCase(s: String): String =
+        |  var out: Vector[String] = Vector.empty
+        |  var i = 0
+        |  while i < s.length do
+        |    val c = s.charAt(i)
+        |    out = out :+ (
+        |      if c >= 'A' && c <= 'Z' then (c + 32).toChar
+        |      else if c < 128 then c
+        |      else Character.toLowerCase(c)).toString
+        |    i += 1
+        |  out.mkString
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("if (c < 128i64) { (c).0 } else { crate::runtime::_char_to_lowercase((c).0) }"),
+      s"the bare-name `.charAt`-bound if-arm must unwrap to i64 (`.0`), matching its sibling arm's type:\n$g")
+
+  test("an implicit-receiver self-method call strips a NAMED trailing argument the same way the ordinary call path already does"):
+    // `htmlBlockType(t, paragraphOpen = true)` (`uniml/markdown`'s `MarkdownBlocks.scala`'s
+    // `couldOpenParagraphInterrupt`, an implicit-receiver call to a sibling method with a NAMED
+    // trailing arg) — the `ctx.selfMethods` arm rendered every arg with a bare `renderTerm`, never
+    // stripping a `Term.Assign(Term.Name(param), value)` named-argument shape down to just `value`:
+    // `error[E0425]: cannot find value paragraphOpen in this scope` (rustc read the unstripped
+    // `paragraphOpen = true` as a read of an undeclared local).
+    val src =
+      """```scalascript
+        |class Blocks(limits: Int):
+        |  private def htmlBlockType(trimmed: String, paragraphOpen: Boolean): Option[Int] =
+        |    if paragraphOpen then Some(1) else None
+        |
+        |  def couldOpen(t: String): Boolean =
+        |    htmlBlockType(t, paragraphOpen = true).isDefined
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("self.htmlBlockType(t, true).is_some()"),
+      s"a named trailing arg on a self-method call must strip to a positional value, not the literal `name = value`:\n$g")
+
+  test("a companion-object static method sharing the bare name `split` with `String.split` resolves as an object-member call, not the String lowering"):
+    // `MdLine.split(text)` (`uniml/markdown`'s `MarkdownBlocks.scala`'s `parse`, `object MdLine:
+    // def split(text: String): Vector[MdLine] = ...`) — the one-arg `(s: String).split(sep)` case
+    // had NO receiver-type guard at all and matched on the bare method name "split" alone, so it
+    // fired for this companion-object STATIC call too, rendering the bare object reference `MdLine`
+    // as if it were a String value followed by `.split(...)`: `error[E0423]: expected value, found
+    // struct MdLine`. Fixed by having that case step aside — via the same `_objectMembers` lookup an
+    // existing SITE-2 callee-name check elsewhere in this method already keys off of — whenever
+    // `qual` is a bare object name that itself declares a "split" member, letting the ordinary
+    // object-member call machinery resolve it instead.
+    val src =
+      """```scalascript
+        |case class MdLine(content: String, ending: String)
+        |
+        |object MdLine:
+        |  def split(text: String): Vector[MdLine] =
+        |    Vector(MdLine(text, ""))
+        |
+        |class Parser(limits: Int):
+        |  def parse(text: String): Vector[MdLine] =
+        |    val lines = MdLine.split(text)
+        |    lines
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("let lines = split(text);"),
+      s"MdLine.split(text) must resolve via the object-member call path, not the String.split lowering:\n$g")
+    assert(!g.contains("MdLine.split"),
+      s"the bare object reference must never be rendered as a String.split receiver:\n$g")
+
+  test("`sealed trait Container: def frame: String` + three case classes each overriding it — synthesized virtual dispatch, not the free-function overload refusal"):
+    // `sealed trait Container: def frame: String` + `case class Blockquote()`/`ListFrame(ordered)`/
+    // `ListItemFrame(ordered, contentIndent)`, each with its own `def frame = MdBranch.<Ctor>`
+    // (`uniml/markdown`'s `MarkdownBlocks.scala`) — an ordinary Scala vtable dispatch a Rust `enum`
+    // (`renderTraitEnum`'s own lowering for a sealed trait + case classes) has no equivalent of.
+    // Every one of the three `def frame` bodies is a genuine `Defn.Def`, nested inside a case
+    // class's Template but still swept in by the general `topLevelDefs`/`collectDefs` deep scan, so
+    // all three rendered as ordinary FREE functions sharing the bare name `frame` — no `self` at
+    // all — and the overload refusal fired: `def frame emits 3 times (overloading); Rust has no
+    // overloading and this lane does not mangle names`.
+    // `collectTraitDispatchMethods` recognizes the shape instead (every variant overrides the SAME
+    // niladic trait member, none of the three bodies reads any of its own case class's fields) and
+    // synthesizes ONE dispatch method — `impl Container { fn frame(&self) -> String { match self {
+    // .. } } }` — excluding the three original defs from `defs` (so neither the free-function path
+    // nor the overload count sees them) and adding `frame` to `_zeroArgDefNames` so `ctr.frame`
+    // still parenthesizes into a method call at the call site.
+    // `MdBranch.Blockquote` (a companion-object TOP VAL) inside a variant's own body needed its
+    // usual per-def preamble (`topValsReferencedBy`) reproduced here too — a synthesized method has
+    // no `renderDef` of its own to inject it — or the qualifier-dropped bare `Blockquote` reference
+    // came back unbound (`error[E0425]`). And `Blockquote()` (zero fields) is a genuine Rust UNIT
+    // variant (`renderClassCtor`'s own empty-body branch: `Blockquote,` not `Blockquote {},`), so
+    // its match arm needed the BARE ctor name — `Container::Blockquote { .. }` on a unit variant is
+    // `error[E0769]` — while the two field-carrying variants still take the wildcard `{ .. }` this
+    // method's own no-field-read scope allows uniformly.
+    val src =
+      """```scalascript
+        |object MdBranch:
+        |  val Blockquote = "markdown.blockquote"
+        |  val List = "markdown.list"
+        |  val ListItem = "markdown.list-item"
+        |
+        |sealed trait Container:
+        |  def frame: String
+        |final case class Blockquote() extends Container:
+        |  def frame = MdBranch.Blockquote
+        |final case class ListFrame(ordered: Boolean) extends Container:
+        |  def frame = MdBranch.List
+        |final case class ListItemFrame(ordered: Boolean, contentIndent: Int) extends Container:
+        |  def frame = MdBranch.ListItem
+        |
+        |def describe(ctr: Container): String =
+        |  ctr.frame
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(
+        "impl Container {\n" +
+        "    pub fn frame(&self) -> String {\n" +
+        "        let Blockquote = \"markdown.blockquote\".to_string();\n" +
+        "        let List = \"markdown.list\".to_string();\n" +
+        "        let ListItem = \"markdown.list-item\".to_string();\n" +
+        "        match self {\n" +
+        "            Container::Blockquote => Blockquote,\n" +
+        "            Container::ListFrame { .. } => List,\n" +
+        "            Container::ListItemFrame { .. } => ListItem,\n" +
+        "        }\n" +
+        "    }\n" +
+        "}\n")
+      && g.contains("pub fn describe(ctr: Container) -> String {\n    ctr.frame()\n}"),
+      s"three per-variant overrides of one abstract trait member must synthesize a single dispatch method, not three colliding free functions:\n$g")
+
+  test("`firstMarker(edges).flatMap { m => … m.takeWhile(Obj.pred) … digits.toLongOption }` — Option-closure param string-seeding, an object-qualified predicate reference, and safe numeric parsing all compose"):
+    // `firstMarker(edges).flatMap { m => val digits = m.takeWhile(MdChars.isAsciiDigit); if
+    // digits.isEmpty then None else digits.toLongOption }` (`uniml/markdown`'s
+    // `MarkdownProjection.scala`'s `listStart`) — THREE compounding gaps, each hit in turn as the
+    // prior one was fixed:
+    // (1) `collectLocalStrings`'s static pre-pass never learned `m` (an Option-`.flatMap` closure's
+    // own named param) was a `String`, even though the Option's declared element type
+    // (`firstMarker`'s own `Option[String]` return, read via `_returnTypes` — this walk has no
+    // render-time `ctx` of its own) says so — so `digits` (bound from `m.takeWhile(...)`) never
+    // registered as string-preserving either, and `digits.isEmpty` (no-paren) reached
+    // `isKnownStringField` with nothing to check. Brace-block syntax (`.flatMap { m => … }`) parses
+    // the closure argument as a `Term.Block` wrapping the `Term.Function`, not the function bare —
+    // unwrapped the same way `renderVecIterBody`'s own `Term.Block(List(f: Term.Function))` case
+    // already does at render time.
+    // (2) `digits.toLongOption` (the safe, `Option`-returning twin of `.toInt`/`.toLong`) had no
+    // backend lowering at all — added as `.parse::<T>().ok()`, `Result<T,_> -> Option<T>` discarding
+    // the parse error exactly as Scala's own `toXOption` contract does.
+    // (3) Once (1)+(2) cleared the two explicit-refusal diagnostics, a REAL `cargo build` (never
+    // trust `--print-only` alone) surfaced a THIRD, silent one: `MdChars.isAsciiDigit` — an
+    // OBJECT-QUALIFIED FUNCTION REFERENCE (eta-expansion, no call) passed to `.takeWhile` — fell
+    // through the String `takeWhile`/`dropWhile` case's generic `renderTerm` path, which cannot tell
+    // an eta-expanded 1-arg def apart from a genuine niladic def read without parens
+    // (`ProcessBatch.empty`) and defaults to the niladic reading: `(isAsciiDigit())(...)`, a call to
+    // a zero-arg invocation of a function needing one argument, then a call on ITS result
+    // (`error[E0061]`/`error[E0618]`). Fixed with the SAME capitalised-object-name detection
+    // `xs.flatMap(f)`'s own object-qualified-reference case already uses, calling
+    // `qualifiedMemberName` directly instead of falling through to `renderTerm`.
+    val src =
+      """```scalascript
+        |case class UniEdge(id: Int)
+        |
+        |object MdChars:
+        |  def isAsciiDigit(c: Char): Boolean = c >= '0' && c <= '9'
+        |
+        |def firstMarker(edges: Vector[UniEdge]): Option[String] = if edges.nonEmpty then Some("123") else None
+        |
+        |def listStart(edges: Vector[UniEdge]): Option[Long] =
+        |  firstMarker(edges).flatMap { m =>
+        |    val digits = m.takeWhile(MdChars.isAsciiDigit)
+        |    if digits.isEmpty then None else digits.toLongOption
+        |  }
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("m.chars().take_while(|__ch| isAsciiDigit(((*__ch) as u32) as i64)).collect::<String>()")
+      && g.contains("if digits.is_empty() { None } else { digits.parse::<i64>().ok() }"),
+      s"an Option-closure's own param must seed as a String, an object-qualified predicate reference must not gain a spurious call, and toLongOption must lower to parse().ok():\n$g")
+
+  test("`xs.count(_.field == x)` / `xs.filter(_.field == x)` — a placeholder predicate types cleanly"):
+    // `lexed.tokens.count(_.kind == "yaml.anchor")` / `ranges.filter(_.start == index)`
+    // (`uniml/yaml`) — `renderVecIterBody`'s `Term.AnonymousFunction` branch wrapped the WHOLE
+    // rendered closure in an IIFE (`|__f| ($f)(__f.clone())`) to bridge `Iterator::filter`'s own
+    // `&Item` signature — but a closure LITERAL called like that is exactly the shape rustc
+    // cannot infer a type through: `error[E0282]: type annotations needed`. This was a
+    // PRE-EXISTING gap in `.filter`/`.find`/`.takeWhile`/`.dropWhile` with a placeholder
+    // predicate, not specific to `.count` (which merely reuses the same dispatch).
+    val src =
+      """```scalascript
+        |case class Tok(kind: String)
+        |
+        |def anchorCount(tokens: List[Tok]): Int =
+        |  tokens.count(_.kind == "anchor")
+        |
+        |def anchors(tokens: List[Tok]): List[Tok] =
+        |  tokens.filter(_.kind == "anchor")
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("let __p0 = __f.clone();"),
+      s"a placeholder predicate for filter/count must use a let-binding, not a closure-literal IIFE:\n$g")
+    assert(!g.contains(")(__f.clone())"),
+      s"the closure-literal-call IIFE shape must not survive for a placeholder predicate:\n$g")
+
+  test("a LIFTED local def's OWN String param feeds the `+`-is-string-concat rewrite"):
+    // `def parseBlockScalar(headerText: String, ...) = var lexeme = headerText +
+    // headerLine.lineBreak` (`uniml/yaml`'s `YamlSemanticParser.scala`) — `ctx.localStrings` is
+    // computed ONCE at the TOP-LEVEL `renderDef`, seeded only from THAT def's own params — a
+    // lifted local def's OWN param (`headerText`) was invisible to it, so the `+`-is-string-concat
+    // rewrite's guard never fired and it fell to Rust's native `String + String` operator instead
+    // of `format!`: `error[E0308]: expected &str, found String`.
+    val src =
+      """```scalascript
+        |def parse(input: String): String =
+        |  def build(headerText: String, suffix: String): String =
+        |    headerText + suffix
+        |  build(input, "!")
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("format!(\"{}{}\", headerText, suffix)"),
+      s"a lifted local def's own String params must feed the format! string-concat rewrite:\n$g")
+
+  test("`(set: Set[String]) + (s: String)` is a Set add, never string concat, even when the RHS is a String"):
+    // `declared + handle` where `declared: Set[String]` and `handle: String`
+    // (`uniml/yaml`'s `YamlTagEnvironment.register`) — the `format!`-concat case's own guard only
+    // ever checked whether EITHER operand looks like a string, and `handle` alone always does;
+    // positioned before the Set/Vec single-element-add case, it always won — a genuine
+    // `Set[String] + String` (never string concatenation in Scala) rendered as
+    // `format!("{}{}", declared, handle)`: `error[E0308]: expected Vec<String>, found String`.
+    val src =
+      """```scalascript
+        |case class Env(declared: Set[String]):
+        |  def register(handle: String): Env =
+        |    copy(declared = declared + handle)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("[&(declared)[..], &[handle][..]].concat()"),
+      s"a Set/Vec + element must never take the string-concat lowering, even with a String RHS:\n$g")
+
+  test("`Int.MaxValue`/`Int.MinValue` — Scala's boxed-numeric static constants"):
+    // No case existed for either at all, reaching rustc as a bare reference to a nonexistent
+    // value: `error[E0425]: cannot find value Int in this scope`. `Int` maps to `i64` throughout
+    // this lane, so the bound is `i64::MAX`/`i64::MIN`, not `i32`'s.
+    val src =
+      """```scalascript
+        |def maxOf(x: Int): Int = if x > Int.MaxValue - 1 then Int.MinValue else x
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("i64::MAX") && g.contains("i64::MIN"),
+      s"Int.MaxValue/MinValue must lower to i64::MAX/MIN:\n$g")
+
+  test("an SscChar argument to a String Pattern method (.contains(char)) unwraps `.0` before the cast"):
+    // `!(",]}".contains(text.charAt(cursor)))` (`uniml/yaml`'s `YamlSemanticParser.scala`) —
+    // `renderStrPatternArg`'s `isConceptuallyChar` case cast a genuine `SscChar` NEWTYPE straight
+    // to `u32` without unwrapping `.0` first: `as u32` on a struct is not valid Rust at all —
+    // `error[E0605]: non-primitive cast`.
+    val src =
+      """```scalascript
+        |def checkChar(text: String, cursor: Int): Boolean =
+        |  !(",]}".contains(text.charAt(cursor)))
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(").0) as u32"), s"an SscChar Pattern argument must unwrap .0 before the u32 cast:\n$g")
+
+  test("a lifted local def's OWN Set/Vec-typed param feeds the `+`-single-element-add rewrite"):
+    // `def cloneValue(value: YamlValue, visiting: Set[String]) = ... visiting + name ...`
+    // (`uniml/yaml`'s `YamlProjection.scala`) — `collectSeqParams`'s own `isSeqType` was missing
+    // `Set`, AND `ctx.localSeqs` is computed ONCE at the TOP-LEVEL `renderDef` — a lifted local
+    // def's OWN `Set`-typed param was invisible to it on both counts, so the single-element-add
+    // rewrite never fired: `error[E0369]: cannot add String to Vec<String>`.
+    val src =
+      """```scalascript
+        |def parse(input: String): List[String] =
+        |  def cloneValue(name: String, visiting: Set[String]): List[String] =
+        |    (visiting + name).toList
+        |  cloneValue(input, Set.empty)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("[&(visiting)[..], &[name][..]].concat()"),
+      s"a lifted local def's own Set param must feed the single-element-add rewrite:\n$g")
+
+  test("a multi-use name inside a Map-plus-pair or Vec-single-add clones, not just at call args"):
+    // `handles = handles + (handle -> rawPrefix), declared = declared + handle`
+    // (`uniml/yaml`'s `YamlTagEnvironment.register`) — `handle` used a SECOND time in a sibling
+    // named arg of the SAME `copy(...)` call; both `renderMapPlusPair` (the map-pair-add builder)
+    // and the Vec/Set single-element-add case build their OWN insert/concat call rather than
+    // reaching the ordinary `cloneIfMoved`-aware argument machinery, and neither ever called it:
+    // `error[E0382]: use of moved value: handle`.
+    val src =
+      """```scalascript
+        |case class Env(handles: Map[String, String], declared: Set[String]):
+        |  def register(handle: String, prefix: String): Env =
+        |    copy(handles = handles + (handle -> prefix), declared = declared + handle)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("m2.insert(handle.clone()"),
+      s"the map-pair key, used again in a sibling arg, must be cloned:\n$g")
+    assert(g.contains("&[handle.clone()][..]") || g.contains("&[handle][..]"),
+      s"the map-pair value must be present:\n$g")
+
+  test("`tokens.indices.map { ... tokens ... }` then `tokens` again later clones at the move-capture"):
+    // `tokens.indices.map { index => … tokens(index) … }` then `validateFlow(tokens)` AFTER the
+    // `.map` (`uniml/yaml`'s `YamlStructure.scala`'s `assign`) — the `move` closure takes
+    // OWNERSHIP of every name it reads from the enclosing scope, so a multi-use param (read again
+    // later in the same def) was gone the moment the closure was BUILT: `error[E0382]: use of
+    // moved value: tokens`.
+    val src =
+      """```scalascript
+        |def validateFlow(tokens: List[Int]): Boolean = tokens.nonEmpty
+        |
+        |def assign(tokens: List[Int]): (List[Int], Boolean) =
+        |  val assigned = tokens.indices.map { index => tokens(index) + 1 }.toList
+        |  (assigned, validateFlow(tokens))
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("let tokens = tokens.clone(); move |index|"),
+      s"a multi-use param captured by a move closure must be cloned at the capture point:\n$g")
+
+  test("the move-capture clone-prelude never mistakes an OPERATOR or CONSTRUCTOR name for a local"):
+    // Regression for a bug caught while testing the fix above: `ctx.multiUse` is a bare
+    // NAME-occurrence count with no kind filtering — it counts an infix operator
+    // (`Term.Name("-")`) or a constructor reference (`Term.Name("Range")`) exactly the same way
+    // it counts a real local/param binding, since both are `Term.Name` nodes. A closure body that
+    // ALSO uses `-`/a constructor (reused several times elsewhere in the def, satisfying
+    // `multiUse` on THOSE names too) produced `let - = -.clone(); let Range = Range.clone(); …` —
+    // not merely wrong, but not even valid Rust syntax at all.
+    val src =
+      """```scalascript
+        |case class Range(start: Int, end: Int)
+        |
+        |def build(xs: List[Int]): List[Range] =
+        |  val a = Range(0, 1)
+        |  val b = a.start - a.end
+        |  xs.indices.map { i => Range(i - b, i) }.toList
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(!g.contains("let - ") && !g.contains("let Range ="),
+      s"an operator or constructor name must never appear in the clone-prelude:\n$g")
+
+  test("`xs.indices.filter { ... xs ... }` then `xs` again later clones at the move-capture too"):
+    // `tokens.indices.filter(index => tokens(index).kind == "...")` then `tokens` again later
+    // (`uniml/yaml`'s `YamlStructure.scala`'s `streamAndDocuments`) — the `.filter` sibling of
+    // the `.map` case's own fix, same `move |&p| { … }` capture gap: `error[E0382]: use of moved
+    // value: tokens`.
+    val src =
+      """```scalascript
+        |case class Tok(kind: String)
+        |
+        |def validateFlow(tokens: List[Tok]): Boolean = tokens.nonEmpty
+        |
+        |def starts(tokens: List[Tok]): (List[Int], Boolean) =
+        |  val starts = tokens.indices.filter(index => tokens(index).kind == "x").toList
+        |  (starts, validateFlow(tokens))
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("let tokens = tokens.clone(); move |&index|"),
+      s"a multi-use param captured by a move filter closure must be cloned at the capture point:\n$g")
+
+  test("`xs.take(n)`/`xs.drop(n)` on a Vec clones a multi-use receiver before the consuming into_iter"):
+    // `tokens.take(documentStarts.head)` then `tokens` again later (`uniml/yaml`'s
+    // `YamlStructure.scala`'s `streamAndDocuments`) — Scala's own `.take` does NOT consume its
+    // receiver, but this lowering's `.into_iter()` does; neither `.take` nor `.drop` ever called
+    // `cloneIfMoved` on the receiver: `error[E0382]: borrow of moved value: tokens`.
+    val src =
+      """```scalascript
+        |def firstTwo(xs: List[Int], n: Int): (List[Int], Int) =
+        |  (xs.take(n), xs.length)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("xs.clone().into_iter().take("),
+      s"a multi-use Vec receiver must be cloned before the consuming .into_iter().take:\n$g")
+
+  test("`xs.groupBy(f)` on a Vec and on a Range both compile and group correctly"):
+    // `tokens.indices.groupBy(index => tokens(index).span.start.line)` (`uniml/yaml`'s
+    // `YamlStructure.scala`'s `blockRanges`) — genuinely no lowering existed for `.groupBy` at
+    // all; turned out to be the sole root cause behind several downstream `error[E0282]`s, not
+    // one. Two cases (Vec receiver, Range receiver — `Range<i64>` has no `.iter()`, so it needs
+    // its own rendering) both build `Vec<(K, Vec<V>)>`.
+    val src =
+      """```scalascript
+        |def byLine(tokens: List[Int]): List[(Int, List[Int])] =
+        |  tokens.indices.groupBy(index => tokens(index)).toList
+        |
+        |def byLen(xs: List[String]): List[(Int, List[String])] =
+        |  xs.groupBy(s => s.length).toList
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("__groups: Vec<(_, Vec<_>)> = Vec::new()"),
+      s"groupBy on either receiver must build a Vec<(K, Vec<V>)> group accumulator:\n$g")
+    assert(g.contains("for index in (0i64.."), s"the Range receiver must iterate directly, not via .iter():\n$g")
+    assert(g.contains("for s in xs.iter().cloned()"), s"the Vec receiver must iterate via .iter().cloned():\n$g")
+
+  test("a tuple-destructured local from an if/else of `->`-pairs is known as a String"):
+    // `val (handle, suffix) = if rawTag.startsWith("!!") then "!!" -> rawTag.drop(2) else …`
+    // (`uniml/yaml`'s `YamlTagEnvironment.expand`) — a TUPLE-PATTERN destructure whose rhs is an
+    // IF/ELSE chain of `->`-pair constructions, not a function call — the existing tuple-pattern
+    // case only ever read a CALLEE's declared tuple return type. `suffix` never registered as a
+    // String, so `handle + suffix` fell to Rust's native `+`, which wants `&str` on the right:
+    // `error[E0308]: expected &str, found String`.
+    val src =
+      """```scalascript
+        |def expand(rawTag: String, namedEnd: Int): String =
+        |  val (handle, suffix) =
+        |    if rawTag.startsWith("!!") then "!!" -> rawTag.drop(2)
+        |    else if namedEnd >= 0 then rawTag.take(namedEnd + 1) -> rawTag.drop(namedEnd + 1)
+        |    else "!" -> rawTag.drop(1)
+        |  handle + suffix
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("format!(\"{}{}\", handle, suffix)"),
+      s"handle/suffix from an if/else of ->-pairs must feed the format! string-concat rewrite:\n$g")
+
+  test("`byRefMutVar.getOrElse(default)` clones before the consuming unwrap_or"):
+    // `lastSpan.getOrElse(SourceSpan(...))` where `lastSpan: &mut Option<SourceSpan>` (a captured
+    // `var`, `uniml/yaml`'s `YamlLexer.scala`) — `renderTerm` derefs a `byRefMut` name to
+    // `(*lastSpan)`, and `.unwrap_or` CONSUMES its receiver; moving out of a dereferenced borrow
+    // is illegal UNCONDITIONALLY, not just on multi-use: `error[E0507]: cannot move out of
+    // *lastSpan which is behind a shared reference`.
+    val src =
+      """```scalascript
+        |case class Span(start: Int)
+        |
+        |def scan(n: Int): Span =
+        |  var lastSpan: Option[Span] = None
+        |  def track(): Span =
+        |    lastSpan.getOrElse(Span(0))
+        |  lastSpan = Some(Span(n))
+        |  track()
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("(*lastSpan).clone().unwrap_or("),
+      s"a byRefMut Option must be cloned before the consuming unwrap_or:\n$g")
+
+  test("`name @ (A | B)` — a bound pattern across an alternation keeps its parens"):
+    // `case YamlPropertyBoundary.Flow(value @ (']' | '}')) => …` (`uniml/yaml`'s
+    // `YamlPropertySyntax.scala`) — the source already parenthesizes the alternation, but the
+    // general `name @ Pattern` fallback rendered `inner` bare with no parens: `value @ 93i64 |
+    // 125i64`, which Rust parses as `(value @ 93i64) | 125i64` — a binding on only the FIRST arm:
+    // `error[E0408]: variable value is not bound in all patterns`, then `error[E0381]` at every
+    // later read.
+    val src =
+      """```scalascript
+        |enum Boundary:
+        |  case Flow(value: Char)
+        |  case Other
+        |
+        |def isCloser(b: Boundary): Boolean = b match
+        |  case Boundary.Flow(value @ (']' | '}')) => value == ']'
+        |  case _ => false
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("value @ (93i64 | 125i64)"),
+      s"a bound alternation pattern must keep explicit parens around the whole group:\n$g")
+
+  test("a generic closure-value path clones a multi-use LOCAL VAL captured by move, not just params"):
+    // `(*plainContinuationIndent).clone().is_some_and(move |parent| { … indentation … })` then
+    // `indentation` again LATER (`uniml/yaml`'s `YamlSemanticParser.scala`) — `indentation` is a
+    // LOCAL VAL, not a def param; an earlier version of this fix intersected the move-capture
+    // clone-prelude against `ctx.defParams` alone and missed it: `error[E0382]: borrow of moved
+    // value: indentation`.
+    val src =
+      """```scalascript
+        |def check(parent: Option[Int], input: String, start: Int, idx: Int): Int =
+        |  val indentation = input.substring(start, idx)
+        |  val flag = parent.exists(p => indentation.length > p)
+        |  indentation.length + (if flag then 1 else 0)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("let indentation = indentation.clone();"),
+      s"a multi-use local val captured by a move closure must be cloned at the capture point:\n$g")
+
+  test("a move-closure clone-prelude never clones a name declared or bound INSIDE that same closure"):
+    // Regression for a real bug found while widening the move-capture fix beyond `ctx.defParams`:
+    // `opening.map(range => FrameSpec(range.kind, Some(range.rank)))` (`uniml/yaml`'s
+    // `YamlStructure.scala`'s `assign`) — `opening`/`closing` are `val`s declared INSIDE the
+    // enclosing `.map { index => … }` closure and read more than once WITHIN it; `range` is a
+    // closure PARAMETER of a nested `.map`; `role` is a NAMED-ARGUMENT LABEL, a bare `Term.Name`
+    // on an `Assign`'s LHS, not a value read at all. A name-shape filter alone (lowerCamelCase)
+    // cannot tell any of these apart from a genuine OUTER capture — cloning them before the
+    // closure that declares them even runs is not just wrong, it does not compile:
+    // `error[E0425]: cannot find value opening in this scope`. Caught by testing this fixture's
+    // own real `cargo build` output, not by the test suite alone (a narrower fixture used while
+    // developing the fix happened not to exercise any of the three shapes).
+    val src =
+      """```scalascript
+        |case class Range(start: Int, end: Int, rank: Int)
+        |case class FrameSpec(kind: String, role: Option[String])
+        |case class Instr(open: List[FrameSpec])
+        |
+        |def assign(tokens: List[Int], ranges: List[Range]): List[Instr] =
+        |  tokens.indices.map { index =>
+        |    val opening = ranges.filter(_.start == index)
+        |    val closing = ranges.filter(_.end == index)
+        |    Instr(open = opening.map(range => FrameSpec(range.rank.toString, Some(range.rank.toString))))
+        |  }.toList
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(!g.contains("let opening = opening.clone()") && !g.contains("let closing = closing.clone()") &&
+           !g.contains("let range = range.clone()") && !g.contains("let role = role.clone()"),
+      s"a name declared or bound inside the closure must never appear in its own clone-prelude:\n$g")

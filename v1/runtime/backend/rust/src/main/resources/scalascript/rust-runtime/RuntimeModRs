@@ -258,6 +258,87 @@
       |    _str_substring(s, from, units.len() as i64)
       |}
       |
+      |// `s.startsWith(prefix, toffset)` — the two-arg overload (`src.startsWith("<?xml", pos)`,
+      |// `uniml/xml`'s `Doc.scala`'s hand-written XML scanner, checked from the CURRENT scan
+      |// position throughout). Same UTF-16-code-unit basis as `_str_char_at`/`_str_substring` above
+      |// — a byte-offset `&s[at..]` slice (the obvious one-liner) panics on any non-ASCII input at
+      |// exactly the position this scanner cares about most, right after a multi-byte character.
+      |// Unlike `_str_substring`, an out-of-range `at` returns `false` rather than panicking: that
+      |// is the JVM's own `String.startsWith(prefix, toffset)` contract (negative or `> length`
+      |// answers false, never throws), and a scanner probing "am I at a marker" one code unit past
+      |// the end is ordinary, not exceptional.
+      |#[allow(dead_code)]
+      |pub fn _str_starts_with_at(s: &str, prefix: &str, at: i64) -> bool {
+      |    if at < 0 { return false; }
+      |    let units: Vec<u16> = s.encode_utf16().collect();
+      |    let start = at as usize;
+      |    if start > units.len() { return false; }
+      |    let prefix_units: Vec<u16> = prefix.encode_utf16().collect();
+      |    let end = start + prefix_units.len();
+      |    end <= units.len() && units[start..end] == prefix_units[..]
+      |}
+      |
+      |// `s.indexOf(needle, fromIndex)` — the two-arg overload (`input.indexOf("?>", index + 5)`,
+      |// `input.indexOf(';', cursor + 1)`, `uniml/xml`'s `Doc.scala`'s hand-written XML scanner) —
+      |// same UTF-16-code-unit basis as `_str_starts_with_at` above, and the same reason: a byte
+      |// offset diverges from Scala's own answer on any non-ASCII prefix. Slices to the UTF-16
+      |// boundary first (lossy — the same tradeoff `_str_substring` already makes) so the search
+      |// itself can use `str::find` and the surrounding OFFSET stays exact.
+      |#[allow(dead_code)]
+      |pub fn _str_index_of_from(s: &str, needle: &str, from: i64) -> i64 {
+      |    if from < 0 { return -1; }
+      |    let units: Vec<u16> = s.encode_utf16().collect();
+      |    let start = (from as usize).min(units.len());
+      |    let suffix = String::from_utf16_lossy(&units[start..]);
+      |    match suffix.find(needle) {
+      |        Some(byte_idx) => (start + suffix[..byte_idx].encode_utf16().count()) as i64,
+      |        None => -1,
+      |    }
+      |}
+      |
+      |// `content.regionMatches(true, i, "www.", 0, 4)` (`uniml/markdown`'s `MarkdownInlines.scala`'s
+      |// `autolinkAtWWW`/`autolinkScheme` — scanning for a URL scheme or `www.` at the current
+      |// position, case-insensitively) — same UTF-16-code-unit basis as `_str_starts_with_at`/
+      |// `_str_index_of_from` above, and the SAME "out of range answers false, never panics"
+      |// contract Java's own `String.regionMatches` has (a negative offset or a region running past
+      |// either string's end is not exceptional here, just a non-match). `ignoreCase`, when set,
+      |// decodes each region back to a `String` and compares lowercased — the ordinary Rust idiom
+      |// for case-insensitive text comparison, and exact enough for the ASCII scheme names
+      |// (`http`/`https`/`mailto`/`www.`) this lane's own callers actually probe for.
+      |#[allow(dead_code)]
+      |pub fn _str_region_matches(s: &str, ignore_case: bool, toffset: i64, other: &str, ooffset: i64, len: i64) -> bool {
+      |    if toffset < 0 || ooffset < 0 || len < 0 { return false; }
+      |    let s_units: Vec<u16> = s.encode_utf16().collect();
+      |    let o_units: Vec<u16> = other.encode_utf16().collect();
+      |    let (to, oo, l) = (toffset as usize, ooffset as usize, len as usize);
+      |    if to + l > s_units.len() || oo + l > o_units.len() { return false; }
+      |    if !ignore_case {
+      |        s_units[to..to + l] == o_units[oo..oo + l]
+      |    } else {
+      |        let sa = String::from_utf16_lossy(&s_units[to..to + l]);
+      |        let oa = String::from_utf16_lossy(&o_units[oo..oo + l]);
+      |        sa.to_lowercase() == oa.to_lowercase()
+      |    }
+      |}
+      |
+      |// `Character.toLowerCase(c)` (`uniml/markdown`'s `MarkdownLexer.scala`'s `foldCase` — the
+      |// Unicode-data-only, LOCALE-INDEPENDENT fold used for every non-ASCII code unit, as opposed to
+      |// `String.toLowerCase()`'s locale-sensitive one; see that def's own doc comment for why the two
+      |// must stay distinct here). `c` is a UTF-16 code unit (this lane's `SscChar`/`i64` convention),
+      |// so the round trip is `i64 -> char -> lowercase -> i64`; Rust's `char::to_lowercase()` is an
+      |// iterator because a few scalars fold to MULTIPLE chars (German ß-like cases), but every
+      |// caller here treats the result as a single code unit, so only the first is kept — same
+      |// "answer the input unchanged rather than panic" contract as this file's other char/String
+      |// helpers when the input can't be interpreted (an unpaired surrogate never round-trips through
+      |// `char::from_u32`).
+      |#[allow(dead_code)]
+      |pub fn _char_to_lowercase(c: i64) -> i64 {
+      |    match char::from_u32(c as u32) {
+      |        Some(ch) => ch.to_lowercase().next().map(|lc| lc as i64).unwrap_or(c),
+      |        None => c,
+      |    }
+      |}
+      |
       |#[allow(dead_code)]
       |pub fn _exists(path: &str) -> bool { std::path::Path::new(path).exists() }
       |

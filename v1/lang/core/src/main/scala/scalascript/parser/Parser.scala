@@ -2155,7 +2155,40 @@ object Parser:
             j += 1
       sb.toString
 
+    // An ordinary CHAR LITERAL `'x'` / `'\n'` / `'"'` / `'\uD800'` — as opposed to the `'{ … }`
+    // quote-macro trigger the caller already checks for before falling here. Scans for the next
+    // UNESCAPED `'`, exactly like `skipString` does for `"` — correct for any escape length
+    // (`\n`, `\uD800`, …) without needing to know it, since none of an escape's own content chars
+    // are `'` or `\`, so this only ever stops at the real closing quote.
+    //
+    // WITHOUT THIS the caller had no case for a bare `'` at all, and a char literal whose content
+    // is a DOUBLE QUOTE (`'"'` — `PureMarkupCodec.scala`'s `.append('"')`, spelling out the `"`
+    // character) fell through to `case c => …`, copying the OPENING `'` as an ordinary character
+    // and leaving `i` pointing at the `"` inside it. The very next iteration then matched `case '"'
+    // => skipString(i)`, treating that literal's OWN quote character as the START of a REAL string
+    // and scanning forward for the next actual `"` in the source — which could be an entirely
+    // unrelated string dozens of lines later, silently swallowing everything in between as
+    // "string content". The corruption doesn't fail immediately; it just misaligns every
+    // subsequent quote/brace count, and scalameta only reports the mismatch once it reaches a
+    // point where the (now wrongly nested) parens genuinely don't balance — often lines away from
+    // the actual defect, and inside whatever run of text this pass had accidentally injected
+    // `__ssc_macro__`/`__ssc_quote_expr__` into, which is why the parser error named `macro`.
+    def skipChar(start: Int): Int =
+      var j = start + 1
+      var esc = false
+      while j < n && (esc || in(j) != '\'') do
+        esc = !esc && in(j) == '\\'
+        j += 1
+      if j < n then j + 1 else j
+
     def findBalanced(openIdx: Int, open: Char, close: Char): Int =
+      // Deliberately NOT `skipChar`-aware for `'`, unlike the main loop below: inside a genuine
+      // `${…}`/`'{…}` region, a bare `'ident` (`'x`, no closing quote) is this PASS'S OWN "quoted
+      // argument" syntax (see `rewriteQuotedArgs`/`rewriteSplices`), not a char literal — treating
+      // it as one sends `skipChar` hunting for a closing `'` that was never meant to exist,
+      // consuming the rest of the string and losing the real closing `}` this function exists to
+      // find. Measured: adding that case here broke `${ plusOneImpl('x) }`'s own test the moment
+      // it was tried, which is why it lives only in the OUTER loop, where `'` has no such meaning.
       var depth = 1
       var j = openIdx + 1
       while j < n && depth > 0 do
@@ -2199,6 +2232,13 @@ object Parser:
             out.append(in(i)); i += 1
         case '"' =>
           val end = skipString(i)
+          out.appendAll(in, i, end - i)
+          i = end
+        // An ordinary char literal, NOT the `'{` quote-macro trigger just above (that case
+        // already claimed it when it applies) — see `skipChar`'s own comment for the defect this
+        // closes.
+        case '\'' =>
+          val end = skipChar(i)
           out.appendAll(in, i, end - i)
           i = end
         case c =>
