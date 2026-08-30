@@ -1,0 +1,11 @@
+slug: dstreams-aggregate-per-key
+branch: feature/dstreams-aggregate-per-key
+agent: claude-code
+started: 2026-08-30T14:48:41Z
+heartbeat: 2026-08-30T14:48:41Z
+status: claimed-before-planning
+items: dstreams-aggregate-per-key
+paths: file:v1/runtime/plugins/dstreams-plugin/ file:std/dstreams.ssc file:std/aggregator.ssc file:specs/aggregation-algebra.md file:specs/distributed-streams.md file:BACKLOG.md file:tests/conformance/std-dstreams-aggregator.ssc file:tests/conformance/expected/std-dstreams-aggregator.txt file:tests/conformance/corpus-baseline.tsv file:tests/conformance/contract-roster.tsv
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
