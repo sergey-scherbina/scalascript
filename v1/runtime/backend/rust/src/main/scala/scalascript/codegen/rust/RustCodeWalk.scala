@@ -4512,6 +4512,34 @@ object RustCodeWalk:
                   }
                 case _ => ()
             case _ => ()
+        // `firstMarker(edges).flatMap { m => val digits = m.takeWhile(MdChars.isAsciiDigit); if
+        // digits.isEmpty then None else digits.toLongOption }` (`uniml/markdown`'s
+        // `MarkdownProjection.scala`'s `listStart`) — `m`'s own type comes only from
+        // `firstMarker`'s declared `Option[String]` return type, which `renderTerm`'s own
+        // `seedOptionElemParam` already resolves for RENDER-TIME ctx purposes — but THIS walk is
+        // a static pre-pass with no ctx of its own (the SAME gap the `.foreach { case (a, b) =>
+        // … }` case just above closes for a tuple-destructure closure). Without this, `m` was
+        // never in `strs`, so `m.takeWhile(...)` never registered as string-preserving, `digits`
+        // never registered as a String, and `digits.isEmpty` (no-paren) reached
+        // `isKnownStringField` with nothing to check. Brace-block syntax (`.flatMap { m => … }`,
+        // the spelling this corpus actually uses) parses the argument as a `Term.Block` wrapping
+        // the `Term.Function`, not the function bare — unwrapped first, the same way
+        // `renderVecIterBody`'s own `Term.Block(List(f: Term.Function))` case already does for
+        // the identical reason at render time.
+        case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("flatMap" | "map")), args)
+            if args.values.sizeIs == 1 =>
+          val elemIsString = qual match
+            case m.Term.Apply.After_4_6_0(m.Term.Name(fn), _) => _returnTypes.get(fn).contains("Option<String>")
+            case _                                             => false
+          if elemIsString then
+            val argFn = args.values.head match
+              case m.Term.Block(List(f: m.Term.Function)) => Some(f)
+              case f: m.Term.Function                       => Some(f)
+              case _                                        => None
+            argFn.foreach {
+              case fn if fn.paramClause.values.sizeIs == 1 => strs += fn.paramClause.values.head.name.value
+              case _                                        => ()
+            }
         case _ => ()
       t.children.foreach(walk)
     walk(body)
@@ -6665,6 +6693,17 @@ object RustCodeWalk:
     case m.Term.Select(qual, m.Term.Name("toList" | "toSeq" | "toVector" | "toIndexedSeq"))
         if !isRangeExpr(qual) =>
       renderTerm(qual, ctx).map(q => s"$q.clone().into_iter().collect::<Vec<_>>()")
+    // `digits.toLongOption` (`uniml/markdown`'s `MarkdownProjection.scala`'s `listStart`) — the
+    // SAFE, `Option`-returning twin of `.toLong`/`.toInt`/`.toDouble` just below: `None` on a
+    // failed parse instead of `.toInt`'s own total-helper coercion (0/silent-truncate). Rust's
+    // `str::parse::<T>().ok()` is the direct equivalent — `Result<T, _> -> Option<T>` discarding
+    // the parse error, exactly Scala's own `toXOption` contract.
+    case m.Term.Select(qual, m.Term.Name("toIntOption")) =>
+      renderTerm(qual, ctx).map(q => s"$q.parse::<i64>().ok()")
+    case m.Term.Select(qual, m.Term.Name("toLongOption")) =>
+      renderTerm(qual, ctx).map(q => s"$q.parse::<i64>().ok()")
+    case m.Term.Select(qual, m.Term.Name("toDoubleOption")) =>
+      renderTerm(qual, ctx).map(q => s"$q.parse::<f64>().ok()")
     // Numeric coercions — P0 bench fix (specs/rust-backend-bench-coverage.md §Gap A).
     case m.Term.Select(qual, m.Term.Name("toLong")) =>
       renderTerm(qual, ctx).map(q => s"($q as i64)")
@@ -7932,6 +7971,22 @@ object RustCodeWalk:
             q <- renderTerm(qual, ctx)
             b <- renderTerm(fn2.body, enteringClosure(ctx, Set(p)))
           yield s"$q.chars().$rustMeth(|__ch| { let $p = ((*__ch) as u32) as i64; $b }).collect::<String>()"
+        // `m.takeWhile(MdChars.isAsciiDigit)` (`uniml/markdown`'s `MarkdownProjection.scala`'s
+        // `listStart`) — an OBJECT-QUALIFIED FUNCTION REFERENCE (eta-expansion, no call), the same
+        // shape `xs.flatMap(f)`'s own case (a few hundred lines below) already special-cases for the
+        // identical reason: `renderTerm`'s generic `Term.Select` path (`selectOrNiladicCtor`) cannot
+        // tell an eta-expanded 1-arg def apart from a genuine niladic def read without parens
+        // (`ProcessBatch.empty`) — both are the SAME `Term.Select` shape — and defaults to the
+        // niladic reading, appending `()`. Falling through to the generic `case other` below produced
+        // `(isAsciiDigit())(...)`: a call to a zero-arg invocation of a function that needs one
+        // argument, then an attempt to call ITS result — `error[E0061]`/`error[E0618]`. Detected by
+        // the same capitalised-object-name convention `flatMap`'s case uses (no full symbol table on
+        // this lane): a bare object-qualified reference calls `qualifiedMemberName` directly instead
+        // of going through `renderTerm`.
+        case m.Term.Select(m.Term.Name(obj), m.Term.Name(meth))
+            if obj.headOption.exists(_.isUpper) && !ctx.paramTypes.contains(obj) =>
+          for q <- renderTerm(qual, ctx)
+          yield s"$q.chars().$rustMeth(|__ch| ${qualifiedMemberName(obj, meth)}(((*__ch) as u32) as i64)).collect::<String>()"
         case other =>
           for
             q    <- renderTerm(qual, ctx)

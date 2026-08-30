@@ -3449,6 +3449,54 @@ class RustGenCodeWalkTest extends AnyFunSuite:
       && g.contains("if !lexeme.is_empty()"),
       s"a captured var's tuple-string positions must flow through a bare-name alias and a .foreach destructure:\n$g")
 
+  test("`firstMarker(edges).flatMap { m => … m.takeWhile(Obj.pred) … digits.toLongOption }` — Option-closure param string-seeding, an object-qualified predicate reference, and safe numeric parsing all compose"):
+    // `firstMarker(edges).flatMap { m => val digits = m.takeWhile(MdChars.isAsciiDigit); if
+    // digits.isEmpty then None else digits.toLongOption }` (`uniml/markdown`'s
+    // `MarkdownProjection.scala`'s `listStart`) — THREE compounding gaps, each hit in turn as the
+    // prior one was fixed:
+    // (1) `collectLocalStrings`'s static pre-pass never learned `m` (an Option-`.flatMap` closure's
+    // own named param) was a `String`, even though the Option's declared element type
+    // (`firstMarker`'s own `Option[String]` return, read via `_returnTypes` — this walk has no
+    // render-time `ctx` of its own) says so — so `digits` (bound from `m.takeWhile(...)`) never
+    // registered as string-preserving either, and `digits.isEmpty` (no-paren) reached
+    // `isKnownStringField` with nothing to check. Brace-block syntax (`.flatMap { m => … }`) parses
+    // the closure argument as a `Term.Block` wrapping the `Term.Function`, not the function bare —
+    // unwrapped the same way `renderVecIterBody`'s own `Term.Block(List(f: Term.Function))` case
+    // already does at render time.
+    // (2) `digits.toLongOption` (the safe, `Option`-returning twin of `.toInt`/`.toLong`) had no
+    // backend lowering at all — added as `.parse::<T>().ok()`, `Result<T,_> -> Option<T>` discarding
+    // the parse error exactly as Scala's own `toXOption` contract does.
+    // (3) Once (1)+(2) cleared the two explicit-refusal diagnostics, a REAL `cargo build` (never
+    // trust `--print-only` alone) surfaced a THIRD, silent one: `MdChars.isAsciiDigit` — an
+    // OBJECT-QUALIFIED FUNCTION REFERENCE (eta-expansion, no call) passed to `.takeWhile` — fell
+    // through the String `takeWhile`/`dropWhile` case's generic `renderTerm` path, which cannot tell
+    // an eta-expanded 1-arg def apart from a genuine niladic def read without parens
+    // (`ProcessBatch.empty`) and defaults to the niladic reading: `(isAsciiDigit())(...)`, a call to
+    // a zero-arg invocation of a function needing one argument, then a call on ITS result
+    // (`error[E0061]`/`error[E0618]`). Fixed with the SAME capitalised-object-name detection
+    // `xs.flatMap(f)`'s own object-qualified-reference case already uses, calling
+    // `qualifiedMemberName` directly instead of falling through to `renderTerm`.
+    val src =
+      """```scalascript
+        |case class UniEdge(id: Int)
+        |
+        |object MdChars:
+        |  def isAsciiDigit(c: Char): Boolean = c >= '0' && c <= '9'
+        |
+        |def firstMarker(edges: Vector[UniEdge]): Option[String] = if edges.nonEmpty then Some("123") else None
+        |
+        |def listStart(edges: Vector[UniEdge]): Option[Long] =
+        |  firstMarker(edges).flatMap { m =>
+        |    val digits = m.takeWhile(MdChars.isAsciiDigit)
+        |    if digits.isEmpty then None else digits.toLongOption
+        |  }
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("m.chars().take_while(|__ch| isAsciiDigit(((*__ch) as u32) as i64)).collect::<String>()")
+      && g.contains("if digits.is_empty() { None } else { digits.parse::<i64>().ok() }"),
+      s"an Option-closure's own param must seed as a String, an object-qualified predicate reference must not gain a spurious call, and toLongOption must lower to parse().ok():\n$g")
+
   test("`xs.count(_.field == x)` / `xs.filter(_.field == x)` — a placeholder predicate types cleanly"):
     // `lexed.tokens.count(_.kind == "yaml.anchor")` / `ranges.filter(_.start == index)`
     // (`uniml/yaml`) — `renderVecIterBody`'s `Term.AnonymousFunction` branch wrapped the WHOLE
