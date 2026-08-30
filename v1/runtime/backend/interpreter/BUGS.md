@@ -7,6 +7,52 @@ grepping for status.
 
 Newest first.
 
+## imported-generic-fold-with-a-tuple-accumulator-presents-one-component — a cross-module generic fold+present over a tuple accumulator returns ONE tuple component instead of the tuple
+
+<!-- status: open
+     lane: int
+     kind: bug
+     area: runtime
+     gate: none
+     reported-by: claude-code
+     reported-at: 2026-08-30
+     confirmed: yes -->
+
+Found writing `tests/conformance/std-aggregator-properties.ssc` (the aggregation-algebra laws
+case): `runAggregator(xs, ZipAgg(SumAgg(), CountAgg[Double]()))` — whose accumulator is a
+`(Double, Int)` TUPLE via `PairMonoid` — returns `2` (the count component alone) under `--v1`,
+where the reference front returns the tuple `(4, 2)`. Minimal repro, pinned by a one-declaration
+control (the IDENTICAL function body, local vs imported):
+
+```scalascript
+[Aggregator, runAggregator, ZipAgg, SumAgg, CountAgg](std/aggregator.ssc)
+
+def runLocal[In, Acc, Out](xs: List[In], agg: Aggregator[In, Acc, Out]): Out =
+  val acc = xs.foldLeft(agg.monoid.empty)((a, in) => agg.monoid.combine(a, agg.prepare(in)))
+  agg.present(acc)
+
+val xs = List(3.0, 1.0)
+val agg = ZipAgg(SumAgg(), CountAgg[Double]())
+println(runLocal(xs, agg).toString)      // (4, 2)  — correct
+println(runAggregator(xs, agg).toString) // 2       — one component
+```
+
+`runLocal`'s body is a verbatim copy of `runAggregator`'s (`std/aggregator.ssc`); only the module
+boundary differs. Every intermediate step is correct when performed by hand in the importing file
+— `agg.prepare`, `agg.monoid.combine`, an inline `foldLeft`, and `agg.present` on the folded
+tuple all give the right tuples (verified step by step); only the imported whole loses the tuple.
+A MapAgg-wrapped ZipAgg (`mean` in `std-aggregator.ssc`'s conformance case) presents CORRECTLY
+through the same imported `runAggregator`, which is why the existing case never caught this — the
+scalar `MapAgg.present` result masks whatever happens to the raw tuple. Suspicion, NOT verified:
+the fused/`jit-foldleft-tc` foldLeft path (`EvalRuntime.evalFusedFoldLeft` appears in stack traces
+whenever this shape runs) applied to the imported module's compiled block; the damage and the
+cause are separate claims and only the damage is established here.
+
+`std-aggregator-properties.ssc` deliberately AVOIDS the shape (its partition-invariance "whole"
+is computed by an inline fold, with a comment citing this slug) so the laws gate stays green on
+`int` while this is open — `gate: none` until a fix lands and the case can switch back to
+`runAggregator` for the tuple-accumulator comparisons.
+
 ## sortby-on-a-non-int-key-sorts-lexicographically-not-numerically — `List.sortBy` on a `Double` key sorts as if the keys were strings
 
 <!-- status: fixed

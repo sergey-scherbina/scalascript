@@ -1,0 +1,162 @@
+---
+name: conformance-std-aggregator-properties
+version: 1.0.0
+known-red: "jvm — the whole std/aggregator.ssc module is transpiled per case, so this case inherits the module-level jvm blockers even though it never CALLS the affected functions: fmix64's 64-bit Long mixing constants hit the pre-existing, already-tracked int-width non-conformance (see int-width's own known-red; it carries no BUGS slug), and runEffAggregator's Monad-based .flatMap on a generic F[Acc] leaves F unconstrained in the emitted Scala (tracked in v1/runtime/backend/jvm/BUGS.md; the slug is deliberately not repeated here — a fix for it is in flight and the int-width half keeps this lane red regardless, so naming it would only make this declaration stale the moment that fix lands). EXPIRES when std/aggregator.ssc compiles on run-jvm."
+---
+
+# Std — Aggregator algebraic laws (production-readiness properties)
+
+Verifies, on concrete values, the algebraic laws production use of the aggregation algebra
+depends on ([`specs/aggregation-algebra.md`](../../specs/aggregation-algebra.md), "Production
+readiness — measured status"): partition-invariance of the `DStream`/`Dataset` bridge (fold any
+partitioning, merge, get the whole-list answer — the property that makes distributed aggregation
+correct), `combine` associativity/commutativity/identity for the shipped monoids, `SlidingWindow`
+retraction against recompute-from-scratch at every step, and empty/single-element edge cases for
+every canonical aggregator. `HLLMonoid`'s union law is deliberately NOT repeated here — it is
+already exercised end-to-end (merging two overlapping partial sketches) by
+`std-aggregator-approx.ssc`, whose per-lane status tracks HLL's own open backend bugs; keeping HLL
+out of this case keeps the LAWS gate runnable on lanes where those unrelated bugs are still open.
+
+Compound values (`Option`, tuples) are compared via `.toString` equality — cross-lane string
+equality is exactly what the golden diff asserts, and `==` on instances is not structural on every
+lane. `Map` results are probed per-key (`getOrElse`), never printed whole, so map iteration order
+cannot make the output partitioning-dependent.
+
+[intSumGroup, doubleSumGroup, Aggregator, runAggregator, ZipAgg, MapAgg, SumAgg, CountAgg, MinMonoid, MaxMonoid, MinAgg, MaxAgg, VarianceAgg, populationVariance, firstAgg, lastAgg, groupByAgg, SumGroupAgg, emptyWindow, aggregatorSeqOp, aggregatorCombOp, strHash, CMSAcc, CMSMonoid, doubleSum](std/aggregator.ssc)
+
+[Order](std/order.ssc)
+
+[Monoid, intSum](std/semigroup-monoid.ssc)
+
+```scalascript
+// ── (a) Partition-invariance: fold ANY partitioning, merge, equal the whole-list run ─────────
+val xs = List(3.0, 1.0, 4.0, 1.0, 5.0, 9.0, 2.0, 6.0, 5.0, 3.0)
+val agg = ZipAgg(SumAgg(), CountAgg[Double]())
+val seqOp  = aggregatorSeqOp(agg)
+val combOp = aggregatorCombOp(agg)
+def foldPart(part: List[Double]): (Double, Int) = part.foldLeft(agg.monoid.empty)(seqOp)
+// The whole-list reference is an INLINE fold, not `runAggregator(xs, agg)`: the imported
+// runAggregator loses a TUPLE accumulator's tuple on the int lane — filed as
+// v1/runtime/backend/interpreter/BUGS.md
+// imported-generic-fold-with-a-tuple-accumulator-presents-one-component. Switch back to
+// runAggregator here when that bug is fixed.
+val wholeAcc = xs.foldLeft(agg.monoid.empty)((acc, x) => agg.monoid.combine(acc, agg.prepare(x)))
+val whole = agg.present(wholeAcc)
+
+val split1 = combOp(foldPart(xs.take(3)), foldPart(xs.drop(3)))
+val split2 = combOp(foldPart(xs.take(7)), foldPart(xs.drop(7)))
+val split3 = combOp(foldPart(List[Double]()), foldPart(xs))
+val split4 = combOp(foldPart(xs), foldPart(List[Double]()))
+val split5 = combOp(combOp(foldPart(xs.take(2)), foldPart(xs.drop(2).take(5))), foldPart(xs.drop(7)))
+println(agg.present(split1).toString == whole.toString)
+println(agg.present(split2).toString == whole.toString)
+println(agg.present(split3).toString == whole.toString)
+println(agg.present(split4).toString == whole.toString)
+println(agg.present(split5).toString == whole.toString)
+
+// Partition-invariance for a keyed aggregation: per-key probes, never whole-Map printing.
+val sales = List(("east", 10.0), ("west", 5.0), ("east", 3.0), ("west", 7.0), ("north", 1.0))
+val byKeyWhole = groupByAgg(sales, SumAgg())
+println(byKeyWhole.getOrElse("east", -1.0))
+println(byKeyWhole.getOrElse("west", -1.0))
+println(byKeyWhole.getOrElse("north", -1.0))
+println(byKeyWhole.getOrElse("absent", -1.0))
+val partA = groupByAgg(sales.take(2), SumAgg())
+val partB = groupByAgg(sales.drop(2), SumAgg())
+println(partA.getOrElse("east", 0.0) + partB.getOrElse("east", 0.0) == byKeyWhole.getOrElse("east", -1.0))
+println(partA.getOrElse("west", 0.0) + partB.getOrElse("west", 0.0) == byKeyWhole.getOrElse("west", -1.0))
+
+// ── (b) combine associativity + commutativity ────────────────────────────────────────────────
+val a = 17
+val b = -4
+val c = 23
+println(intSum.combine(intSum.combine(a, b), c) == intSum.combine(a, intSum.combine(b, c)))
+println(intSum.combine(a, b) == intSum.combine(b, a))
+val da = 1.5
+val db = -2.25
+val dc = 4.0
+println(doubleSum.combine(doubleSum.combine(da, db), dc) == doubleSum.combine(da, doubleSum.combine(db, dc)))
+println(doubleSum.combine(da, db) == doubleSum.combine(db, da))
+
+val minM = MinMonoid[Int](summon[Order[Int]])
+val maxM = MaxMonoid[Int](summon[Order[Int]])
+val oa = Some(5)
+val ob = Some(2)
+val oc = Some(9)
+println(minM.combine(minM.combine(oa, ob), oc).toString == minM.combine(oa, minM.combine(ob, oc)).toString)
+println(minM.combine(oa, ob).toString == minM.combine(ob, oa).toString)
+println(maxM.combine(maxM.combine(oa, ob), oc).toString == maxM.combine(oa, maxM.combine(ob, oc)).toString)
+println(maxM.combine(oa, ob).toString == maxM.combine(ob, oa).toString)
+
+// Variance monoid: associativity/commutativity through the aggregator's own monoid, compared on
+// the PRESENTED value (population variance) so float rendering stays scalar.
+val vAgg = VarianceAgg()
+val vm = vAgg.monoid
+val v1 = vAgg.prepare(2.0)
+val v2 = vAgg.prepare(7.0)
+val v3 = vAgg.prepare(4.5)
+val vLeft  = vm.combine(vm.combine(v1, v2), v3)
+val vRight = vm.combine(v1, vm.combine(v2, v3))
+println(populationVariance(vLeft) == populationVariance(vRight))
+println(populationVariance(vm.combine(v1, v2)) == populationVariance(vm.combine(v2, v1)))
+
+// CMS merge: element-wise sum is associative and commutative; estimates witness it.
+val cms = CMSMonoid(4, 64)
+val cmsA = cms.add(cms.add(cms.empty, "apple"), "apple")
+val cmsB = cms.add(cms.empty, "banana")
+val cmsC = cms.add(cms.empty, "apple")
+val cmsLeft  = cms.combine(cms.combine(cmsA, cmsB), cmsC)
+val cmsRight = cms.combine(cmsA, cms.combine(cmsB, cmsC))
+println(cms.estimate(cmsLeft, "apple") == cms.estimate(cmsRight, "apple"))
+println(cms.estimate(cmsLeft, "banana") == cms.estimate(cmsRight, "banana"))
+println(cms.estimate(cms.combine(cmsA, cmsB), "apple") == cms.estimate(cms.combine(cmsB, cmsA), "apple"))
+println(cms.estimate(cmsLeft, "apple"))
+println(cms.estimate(cmsLeft, "banana"))
+println(cms.estimate(cmsLeft, "durian"))
+
+// ── (c) identity: combine with empty is a no-op ──────────────────────────────────────────────
+println(intSum.combine(intSum.empty, a) == a)
+println(intSum.combine(a, intSum.empty) == a)
+println(doubleSum.combine(doubleSum.empty, da) == da)
+println(minM.combine(minM.empty, oa).toString == oa.toString)
+println(minM.combine(oa, minM.empty).toString == oa.toString)
+println(populationVariance(vm.combine(vm.empty, v2)) == populationVariance(v2))
+println(cms.estimate(cms.combine(cms.empty, cmsA), "apple") == cms.estimate(cmsA, "apple"))
+println(intSumGroup.combine(a, intSumGroup.inverse(a)) == intSumGroup.empty)
+println(doubleSumGroup.combine(da, doubleSumGroup.inverse(da)) == doubleSumGroup.empty)
+
+// ── (d) SlidingWindow retraction == recompute from scratch, at EVERY step ────────────────────
+val readings = List(1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0)
+val windowSize = 3
+val finalState = readings.foldLeft((emptyWindow(SumGroupAgg(), windowSize), List[Double](), true)) { (acc, r) =>
+  val (w0, seen0, ok0) = acc
+  val w1 = w0.push(r)
+  val seen1 = seen0 :+ r
+  val start = if seen1.length > windowSize then seen1.length - windowSize else 0
+  val expected = seen1.drop(start).foldLeft(0.0)((s, x) => s + x)
+  (w1, seen1, ok0 && w1.current == expected)
+}
+val (finalWindow, allSeen, allAgree) = finalState
+println(allAgree)
+println(finalWindow.current)
+println(allSeen.length)
+
+// ── (e) empty-input / single-element edge cases for every canonical aggregator ───────────────
+println(runAggregator(List[Double](), SumAgg()))
+println(runAggregator(List[String](), CountAgg[String]()))
+println(runAggregator(List[Int](), MinAgg(summon[Order[Int]])).toString)
+println(runAggregator(List[Int](), MaxAgg(summon[Order[Int]])).toString)
+println(runAggregator(List[(Double, Int)](), firstAgg[Double]()).toString)
+println(runAggregator(List[(Double, Int)](), lastAgg[Double]()).toString)
+println(groupByAgg(List[(String, Double)](), SumAgg()).getOrElse("any", -1.0))
+
+println(runAggregator(List(42.0), SumAgg()))
+println(runAggregator(List(42.0), CountAgg[Double]()))
+println(runAggregator(List(42), MinAgg(summon[Order[Int]])).toString)
+println(runAggregator(List(42), MaxAgg(summon[Order[Int]])).toString)
+println(runAggregator(List(42.0), MapAgg(VarianceAgg(), populationVariance)))
+println(runAggregator(List((42.0, 0)), firstAgg[Double]()).toString)
+println(runAggregator(List((42.0, 0)), lastAgg[Double]()).toString)
+val singleWindow = emptyWindow(SumGroupAgg(), 3).push(42.0)
+println(singleWindow.current)
+```

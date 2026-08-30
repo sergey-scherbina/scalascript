@@ -1,0 +1,37 @@
+# aggregator-fold
+
+The aggregation-algebra hot path (`specs/aggregation-algebra.md`): a `prepare`/`combine` fold
+through a `Monoid` dictionary with a TUPLE accumulator (the `ZipAgg(SumAgg, CountAgg)` shape —
+one pass, two answers), plus a `groupByAgg`-style keyed fold through `Map.updated`/`getOrElse`.
+Stresses trait-method dispatch through a typeclass value, per-element tuple allocation, and
+Map churn under a keyed aggregation — the exact costs `runAggregator`/`groupByAgg` pay per
+element in production use. Self-contained mirror of `std/aggregator.ssc`'s shapes (bench corpus
+entries do not import modules); keep the shapes in sync with the spec if they change there.
+
+```scalascript
+trait Monoid2[A]:
+  def empty: A
+  def combine(a: A, b: A): A
+
+class PairSumCount() extends Monoid2[(Long, Long)]:
+  def empty: (Long, Long) = (0L, 0L)
+  def combine(a: (Long, Long), b: (Long, Long)): (Long, Long) =
+    (a._1 + b._1, a._2 + b._2)
+
+def workload(): Long =
+  val m = PairSumCount()
+  // zip-shaped fold: sum + count in one pass over 1000 elements
+  var acc = m.empty
+  var i = 0
+  while i < 1000 do
+    acc = m.combine(acc, (i.toLong, 1L))
+    i = i + 1
+  // groupBy-shaped keyed fold: 1000 elements into a 10-key Map
+  var groups: Map[Int, Long] = Map[Int, Long]()
+  var j = 0
+  while j < 1000 do
+    val k = j % 10
+    groups = groups.updated(k, groups.getOrElse(k, 0L) + j.toLong)
+    j = j + 1
+  acc._1 + acc._2 + groups.getOrElse(3, 0L)
+```

@@ -1107,3 +1107,48 @@ rather than redefining it:
 - **`Arrow`/`Category`, and a new `Future`/`Task`/`Result` value type** — §11.4 explains why:
   `Either`/`! Async` already cover what the latter would be reached for, and neither of the former
   has a second concrete use here beyond §11.3's `dimap`, which doesn't need one to be useful.
+
+## 14. Production readiness — measured status (2026-08-30)
+
+What "ready for production use" concretely means for this module, and what is MEASURED versus
+still designed-but-unintegrated:
+
+**Covered, gated, measured:**
+
+- **Algebraic laws** (the correctness production scaling depends on) are now a conformance case:
+  `tests/conformance/std-aggregator-properties.ssc` verifies partition-invariance of the §9
+  bridge (fold any partitioning — including empty partitions and a 3-way split — merge with
+  `aggregatorCombOp`, equal the whole-list fold), `combine` associativity/commutativity/identity
+  for the shipped monoids (`intSum`, `doubleSum`, `MinMonoid`/`MaxMonoid`, the variance monoid,
+  CMS merge, the `Group` inverse laws), `SlidingWindow` retraction against recompute-from-scratch
+  at every push, and empty/single-element edge cases for every canonical aggregator. Green on
+  `int` and `js`; `jvm` is declared known-red against the module-level transpile blockers
+  (§6's `fmix64` Long constants under the `int-width` non-conformance, and §11's
+  `runEffAggregator` — see the case's own `known-red` text). `HLLMonoid`'s union law stays
+  covered by `std-aggregator-approx.ssc` rather than repeated here.
+- **A perf baseline shape** exists: `bench/corpus/aggregator-fold.ssc` (the `ZipAgg`-shaped
+  tuple-accumulator fold plus a `groupByAgg`-shaped keyed `Map` fold, 1000 elements each) runs
+  under `scripts/runtime-bench.sh` alongside the rest of the corpus. Numbers were deliberately
+  NOT recorded at landing time — the host was contended (parallel agent builds), and a number
+  taken under load is a hypothesis, not a result; run
+  `scripts/runtime-bench.sh aggregator-fold` on a quiet host to record the baseline.
+- Writing the laws case **found a real `int`-lane defect** the existing cases could not see
+  (`v1/runtime/backend/interpreter/BUGS.md`
+  `imported-generic-fold-with-a-tuple-accumulator-presents-one-component` — a cross-module
+  generic fold+present over a TUPLE accumulator returns one component; `MapAgg`-wrapped uses
+  masked it everywhere else). The case works around it with an inline whole-list fold and cites
+  the slug at the workaround site.
+
+**Not covered — real, separate work, stated plainly:**
+
+- **Live distributed execution**: the §9 bridge is verified as an algebraic property
+  (partition-fold-then-merge ≡ whole-fold), NOT wired into a running `DStream`/`Pipeline`
+  backend (`specs/distributed-streams.md`). Scaling claims beyond the law itself — backpressure,
+  partition rebalancing, worker failure mid-fold — belong to that spec's runtime and have no
+  coverage here.
+- **Durability/fault-tolerance of accumulator STATE** (checkpointing a partial `Acc`, replay
+  after a crash): nothing in this module persists anything; `specs/durable-execution.md`'s
+  machinery is where that would come from, and no integration exists.
+- **Per-lane parity**: the `js`/`jvm` backend defects tracked in the conformance cases'
+  `known-red` declarations gate how much of the module each compiled lane can run today; the
+  laws case above is the honest per-lane scoreboard.

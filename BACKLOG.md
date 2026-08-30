@@ -1,3 +1,32 @@
+## aggregator-production-readiness-slice-1 — DONE: laws conformance case, bench entry, spec §14 status section
+
+<!-- status: fixed
+     lane: multi
+     area: runtime
+     kind: feature
+     gate: tests/conformance/std-aggregator-properties.ssc
+     fixed-in: aggregator-production-slice claim, 2026-08-30
+     reported-by: self (user ask: production readiness for the aggregation algebra)
+     reported-at: 2026-08-30 -->
+
+First measured production-readiness slice for `std/aggregator.ssc` (claim
+`aggregator-production-slice`, 2026-08-30). Landed: (1)
+`tests/conformance/std-aggregator-properties.ssc` — the algebraic laws production use depends on,
+as a gated case: §9-bridge partition-invariance across five partitionings (incl. empty parts and a
+3-way split), monoid associativity/commutativity/identity (incl. CMS merge and the `Group` inverse
+laws), `SlidingWindow` retraction vs recompute-from-scratch at every push, and
+empty/single-element edges for every canonical aggregator — 30 law checks, green on `int` and
+`js`, known-red `jvm` against the module-level transpile blockers its declaration names; (2)
+`bench/corpus/aggregator-fold.ssc` — the algebra's hot shapes (tuple-accumulator typeclass fold +
+keyed `Map` fold) in the runtime-bench corpus; numbers deliberately deferred to a quiet host (this
+landing ran during parallel agent builds — a number under load is a hypothesis); (3)
+`specs/aggregation-algebra.md` §14 "Production readiness — measured status" — what is measured vs
+designed-but-unintegrated (live DStream wiring and accumulator-state durability stated plainly as
+uncovered, with the owning specs named). Writing the laws case FOUND a real `int` bug the existing
+cases masked: `v1/runtime/backend/interpreter/BUGS.md`
+`imported-generic-fold-with-a-tuple-accumulator-presents-one-component` (filed open; the case
+works around it with an inline fold and cites the slug at the site).
+
 ## aggregation-algebra-canonical-and-effectful — DONE: §5–§11 of the aggregation-algebra spec, landed section by section after the core
 
 <!-- status: fixed
