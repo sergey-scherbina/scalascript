@@ -3,9 +3,9 @@ branch: feature/interp-class-body-val-field
 agent: claude-code
 started: 2026-08-30T07:10:46Z
 heartbeat: 2026-08-30T07:10:46Z
-status: claimed-before-planning
+status: in-progress
 items: class-body-val-field-undefined-in-a-sibling-method
 paths: file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/StatRuntime.scala file:v1/runtime/backend/interpreter/BUGS.md file:specs/aggregation-algebra.md file:BACKLOG.md file:std/aggregator.ssc
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+next: make class-body val/var statements become real instance fields (fieldsArr/fieldNames), evaluated per-instance with ctor params in scope
