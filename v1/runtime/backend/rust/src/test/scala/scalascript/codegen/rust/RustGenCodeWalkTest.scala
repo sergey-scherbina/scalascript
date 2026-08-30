@@ -3461,6 +3461,40 @@ class RustGenCodeWalkTest extends AnyFunSuite:
       && g.contains("if !lexeme.is_empty()"),
       s"a captured var's tuple-string positions must flow through a bare-name alias and a .foreach destructure:\n$g")
 
+  test("a mutable class's own qualified enum-case field initializer resolves `Enum.Case` correctly, and a ctor-param read by a LATER field init is not moved out from under it"):
+    // `private val gfm = profile == MarkdownProfile.Gfm` inside `class MarkdownBlocks(profile:
+    // MarkdownProfile, …)` (`uniml/markdown`'s `MarkdownBlocks.scala`) — TWO compounding bugs:
+    // (1) `renderMutableClass` renders a mutable class's OWN field initializers before
+    // `_qualifiedCtors` (a MODULE-level var, needed to resolve `MarkdownProfile.Gfm` to
+    // `MarkdownProfile::Gfm`) was assigned — `mutableClasses.map(renderMutableClass)` is a plain
+    // `val`, evaluated eagerly in TEXTUAL order, and `_qualifiedCtors`'s assignment used to sit
+    // further down, after that line already ran. Every enum-case reference inside ANY mutable
+    // class's own field initializer resolved against an EMPTY `_qualifiedCtors` and emitted the
+    // qualifier VERBATIM: `error[E0423]: expected value, found enum MarkdownProfile`. Fixed by
+    // moving `enumOk`/`_qualifiedCtors`'s assignment ahead of `mutableClassRendered`.
+    // (2) Once (1) is fixed, the struct-literal shorthand used to splice a var-field's own init
+    // DIRECTLY into the literal (`MarkdownBlocks { profile, gfm: (profile == MarkdownProfile::Gfm)
+    // }`) — Rust field-init order is TEXTUAL, so the bare `profile` shorthand a few characters
+    // earlier already MOVED it (not `Copy`), and `gfm`'s own init reading `profile` again a moment
+    // later was a use-after-move: `error[E0382]: borrow of moved value: profile`. Fixed by binding
+    // each var-field's init to a `let` of its own name FIRST, then building the struct literal
+    // entirely from bare shorthand — field order inside the literal can no longer matter.
+    val src =
+      """```scalascript
+        |enum MarkdownProfile:
+        |  case Gfm
+        |  case ScalaScript
+        |
+        |class MarkdownBlocks(profile: MarkdownProfile):
+        |  private val gfm = profile == MarkdownProfile.Gfm
+        |  def isGfm: Boolean = gfm
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("let gfm = (profile == MarkdownProfile::Gfm);") &&
+             g.contains("MarkdownBlocks { profile, gfm }"),
+      s"a mutable class's own field initializer must resolve a qualified enum case AND not move a ctor param a later field init still needs:\n$g")
+
   test("a positionally-destructured Option field is recognized by isOptionExpr, so `.orElse` on it lowers correctly"):
     // `case InlinePiece.Tok(kind, lex, r, ch) => r.orElse(fallback)` (`uniml/markdown`'s
     // `MarkdownInlines.scala`) — `r`, a POSITIONALLY-destructured `Option[String]` field, was never

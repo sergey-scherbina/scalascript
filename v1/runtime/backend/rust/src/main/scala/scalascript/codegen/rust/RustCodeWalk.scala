@@ -311,12 +311,33 @@ object RustCodeWalk:
       (if needsEitherType(module) && !sourceDefinesEither then List(renderBuiltinEitherEnum()) else Nil) ++
       enums.map(e => renderEnum(e, userTypeNames)) ++
       traitEnums.map { case SealedTraitEnum(t, caseClasses) => renderTraitEnum(t, caseClasses, userTypeNames) }
+    val (enumErrs, enumOk) = enumRendered.partitionMap(identity)
+    // `private val gfm = profile == MarkdownProfile.Gfm` inside `class MarkdownBlocks(profile:
+    // MarkdownProfile, …)` (`uniml/markdown`'s `MarkdownBlocks.scala`) — `renderMutableClass`
+    // renders a mutable class's OWN field initializers through a MINIMAL `initCtx` (its own comment:
+    // "every field this corpus's one mutable class declares initializes to a plain literal, so
+    // nothing here needs … ctorMap"), which was true until this corpus's `gfm` broke the premise —
+    // resolving `MarkdownProfile.Gfm` needs `_qualifiedCtors` (a MODULE-level var, not part of
+    // `Ctx`, so `initCtx` was never the actual problem). `_qualifiedCtors` used to be assigned only
+    // AFTER `mutableClassRendered` below had ALREADY run (`mutableClasses.map(renderMutableClass)`
+    // is a plain `val`, evaluated eagerly the moment this line executes, in textual order) — so
+    // every enum-case reference inside ANY mutable class's own field initializer resolved against an
+    // EMPTY `_qualifiedCtors`, fell through to the generic field-select path, and emitted the
+    // qualifier VERBATIM: `MarkdownProfile.Gfm` (a literal dot, not `::`) — `error[E0423]: expected
+    // value, found enum MarkdownProfile` (the exact symptom `_qualifiedCtors`'s OWN comment already
+    // documents for a DIFFERENT root cause — a same-name collision — one paragraph below this).
+    // `enumOk`/`_qualifiedCtors`'s assignment moved up here, before `mutableClassRendered`, closes
+    // the ordering gap; `structRendered`/`structOk` do not need to move (nothing in a mutable
+    // class's own field initializers can reference a not-yet-rendered STANDALONE struct's ctor the
+    // way an enum CASE reference does — a struct literal names its OWN type directly, never through
+    // this qualified-select path at all).
+    _qualifiedCtors =
+      enumOk.flatMap(_.ctors).map { case (ctorName, ec) => (ec.enumName, ctorName) -> ec }.toMap
     val structRendered    = standaloneCases.map(c => renderStruct(c, userTypeNames))
     // NOT folded into `ctorMap` below with the rest of `structOk` — see `_mutableClassNames`'s own
     // comment for why a mutable class's construction cannot go through the ordinary case-class
     // constructor path at all.
     val mutableClassRendered = mutableClasses.map(c => renderMutableClass(c, userTypeNames))
-    val (enumErrs, enumOk)     = enumRendered.partitionMap(identity)
     val (structErrs, structOk) = structRendered.partitionMap(identity)
     val (mutableClassErrs, mutableClassOk) = mutableClassRendered.partitionMap(identity)
     // owner name -> its OWN type params — used both by a METHOD's own rendering (`renderDef`'s
@@ -337,9 +358,9 @@ object RustCodeWalk:
     // and cargo is the only thing that caught it (`--print-only` has no diagnostic for "resolved to
     // the wrong enum and still rendered SOMETHING"). A (enumName, ctorName) pair cannot collide this
     // way — a single `enum` cannot declare the same case name twice — so every QUALIFIED select or
-    // pattern below reads through this map instead of the bare-keyed one.
-    _qualifiedCtors =
-      enumOk.flatMap(_.ctors).map { case (ctorName, ec) => (ec.enumName, ctorName) -> ec }.toMap
+    // pattern below reads through this map instead of the bare-keyed one. ASSIGNED ABOVE now (right
+    // after `enumOk` itself), not here — see that assignment's own comment for why the ordering
+    // matters for a mutable class's own field initializers.
     // Signatures, for the `Any` boundary. Unresolvable types fall back to the empty string, which
     // reads as "no opinion" at the call site and leaves the argument untouched.
     _paramTypes = defs.map { d =>
@@ -2062,7 +2083,19 @@ object RustCodeWalk:
                                                              |$fieldsText,
                                                              |}""".stripMargin
       val newParams = ctorOk.map((n, t) => s"${rustIdent(n)}: $t").mkString(", ")
-      val newFields = (ctorOk.map((n, _) => rustIdent(n)) ++ varOk.map((n, _, init) => s"${rustIdent(n)}: $init"))
+      // `private val gfm = profile == MarkdownProfile.Gfm` inside `class MarkdownBlocks(profile:
+      // MarkdownProfile, …)` (`uniml/markdown`'s `MarkdownBlocks.scala`) — a var-field's own init
+      // expression used to be spliced DIRECTLY into the struct-literal shorthand
+      // (`MarkdownBlocks { profile, gfm: (profile == MarkdownProfile::Gfm) }`), and Rust field-init
+      // order in a struct literal is TEXTUAL order: the bare `profile` shorthand a few characters
+      // earlier already MOVED it (`profile: MarkdownProfile` is not `Copy`), so `gfm`'s own init
+      // reading `profile` again a moment later was a use-after-move: `error[E0382]: borrow of moved
+      // value: profile`. Bound to a `let` of its OWN name FIRST instead — every ctor param is still
+      // fully available at that point, regardless of how many var-field inits read it — then the
+      // struct literal itself is built entirely from bare shorthand (ctor params AND these new
+      // `let`s share the field's own name), so field ORDER inside the literal can no longer matter.
+      val varLets = varOk.map((n, _, init) => s"        let ${rustIdent(n)} = $init;").mkString("\n")
+      val newFields = (ctorOk.map((n, _) => rustIdent(n)) ++ varOk.map((n, _, _) => rustIdent(n)))
         .mkString(", ")
       val render =
         s"""#[allow(dead_code)]
@@ -2070,7 +2103,7 @@ object RustCodeWalk:
            |
            |impl $name {
            |    fn new($newParams) -> $name {
-           |        $name { $newFields }
+           |${if varLets.isEmpty then "" else s"$varLets\n"}        $name { $newFields }
            |    }
            |}
            |""".stripMargin
