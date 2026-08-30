@@ -637,8 +637,27 @@ val part2  = List("d", "e").foldLeft(agg.monoid.empty)(seqOp)
 println(combOp(part1, part2))   // => 5, same as counting all five elements in one partition
 ```
 
-This is a proof of the bridge's MECHANISM, not an end-to-end `DStream` integration test — it does
-not exercise `aggregatePerKey` itself, windowing, or any backend.
+This is a proof of the bridge's MECHANISM. The end-to-end integration is now WIRED (2026-08-30,
+claim `dstreams-aggregate-per-key`): `aggregatePerKey(zero)(seqOp)(combOp)` is a live operator on
+the native `DStream` backend (the `dstreams-plugin` DirectRunner), and `std/dstreams.ssc` exports
+`aggregateWith(stream, agg)` — the convenience layer that derives all three from any `Aggregator`
+in this document and applies `present` per key. Gated by
+`tests/conformance/std-dstreams-aggregator.ssc`, which pins, over REAL pipeline runs: per-key
+`SumAgg`/`CountAgg`/`VarianceAgg` accumulators equal to this document's reference fold; `mean`
+(zip/map composition) via `aggregateWith` equal to `groupByAgg`; per-key `HLLAgg` distinct-count
+equal to per-key `runAggregator`; the two-partition split-and-merge equality computed from real
+pipeline outputs (which is what exercises `combOp` — the DirectRunner is one partition, so inside a
+single run `combOp` legitimately applies zero times, exactly as a one-partition run of any real
+backend would); and the empty-input case. Windowed aggregation and the external backends
+(Spark/Kafka/Flink, `specs/distributed-streams.md` v2.1.3+) remain unwired here.
+
+**Fault-tolerance, checked and deferred honestly:** the native DirectRunner has NO retry/redelivery
+machinery — `evalDag` is a synchronous single-process walk, and the `AtLeastOnce` capability it
+declares is vacuously met by running once. The retry machinery that DOES exist in this repo
+(`tests/conformance/distributed-failure-retry.ssc`, coordinator-detects-`Exit`-and-retries) belongs
+to the v1.22 mapreduce actor cluster (`std/mapreduce/cluster.ssc`), a separate subsystem not
+reachable from the dstreams-plugin's lanes. A fault-injection test for `aggregatePerKey` therefore
+needs either that wiring or Spark — slice B work, not silently skipped.
 
 Because §7's `Group` requirement for sliding windows is a property of `Aggregator.monoid` (whether
 it happens to be a `Group`, checkable by the caller or a future compiler capability-negotiation

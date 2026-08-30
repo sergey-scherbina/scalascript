@@ -20,6 +20,7 @@ exports:
   - DSource
   - DSink
   - InMemory
+  - aggregateWith
 ---
 
 # `std.dstreams` — Distributed Streams
@@ -153,6 +154,21 @@ extern def withWatermark(strategy: WatermarkStrategy[T]): DStream[T]
 // Processing-time timer: after `durationMs` of inactivity per key, fire f(key).
 // Requires Capability.TimerProcessingTime.
 extern def timerProcessing(durationMs: Long)(f: K => Iterable[B]): DStream[KV[K, B]]
+```
+
+## Aggregation — the `Aggregator` bridge (`specs/aggregation-algebra.md` §9)
+
+`aggregatePerKey(zero)(seqOp)(combOp)` is a native `DStream` operator (supplied by the
+`dstreams-plugin`, like `combinePerKey`): per-key accumulator starts at `zero`, `seqOp` folds
+each element in, `combOp` merges partition accumulators, and the output is `KV(key, accumulator)`
+— `present` deliberately not applied at this level. `aggregateWith` below is the convenience
+layer that runs any `std/aggregator.ssc` `Aggregator` on a keyed stream end to end. Gated by
+`tests/conformance/std-dstreams-aggregator.ssc`.
+
+```scalascript
+def aggregateWith[In, Acc, Out](stream: Any, agg: Any): Any =
+  stream.aggregatePerKey(agg.monoid.empty)((acc, in) => agg.monoid.combine(acc, agg.prepare(in)))((a, b) => agg.monoid.combine(a, b))
+    .map(kv => KV(kv.key, agg.present(kv.value)))
 ```
 
 ## DSource / DSink

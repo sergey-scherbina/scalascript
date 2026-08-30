@@ -1,4 +1,4 @@
-# corpus-contract-roster-v1	baseline-sha256=dd21c9e23b907320896d22b71a6dbbee66f9e3342365ba4f5473ba1a6f096d76	roster-sha256=a62102f006ba444a470ac8783974a0c36d9f530fa0620ea9989817eb61b0cf28
+# corpus-contract-roster-v1	baseline-sha256=dd21c9e23b907320896d22b71a6dbbee66f9e3342365ba4f5473ba1a6f096d76	roster-sha256=a505514d52ef0d1b7d8d0e497b9581640d1875acfac111833d2cf7de1b284636
 _bug1_httpclient
 _bug1b
 _bug1c
@@ -446,6 +446,7 @@ std-aggregator
 std-aggregator-approx
 std-aggregator-properties
 std-bifunctor
+std-dstreams-aggregator
 std-foldable-traversable
 std-fs-failure
 std-fs-failure-raises

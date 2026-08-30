@@ -1,0 +1,12 @@
+east=17, north=1, west=12
+true
+east=3, north=1, west=2
+true
+true
+east=5.666666666666667, north=1, west=6
+true
+east=2.0004884402538363, west=3.0010991695491978
+true
+true
+true
+0

@@ -182,9 +182,24 @@ itself scopes out of the first slice — queued here rather than attempted in th
   equivalence property the spec itself names: folding two partitions with `seqOp` then merging with
   `combOp` equals folding the whole input with `seqOp` directly. This proves the bridge's mechanism,
   not a live `DStream` integration — no `aggregatePerKey`/windowing/backend was exercised, per the
-  spec's own scoping (that needs plugin infrastructure beyond `std/aggregator.ssc`). A live
-  integration test, if wanted, is real, separate work — not queued here since nothing about it is
-  designed yet.
+  spec's own scoping (that needs plugin infrastructure beyond `std/aggregator.ssc`).
+  **The live integration is now WIRED** (claim `dstreams-aggregate-per-key`, 2026-08-30,
+  owner-approved slice A): `aggregatePerKey(zero)(seqOp)(combOp)` implemented as a native `DStream`
+  operator in `v1/runtime/plugins/dstreams-plugin/` (mirrors `combinePerKey`'s DAG-node shape;
+  output is `KV(key, accumulator)`, `present` not applied at the raw level), and `std/dstreams.ssc`
+  exports `aggregateWith(stream, agg)` — the convenience layer deriving all three from any
+  `Aggregator` and applying `present` per key (placed in dstreams, NOT aggregator, so
+  `std/aggregator.ssc` stays compilable on lanes with no dstreams plugin). Gated by
+  `tests/conformance/std-dstreams-aggregator.ssc` (`backends: [interpreter]` — the plugin is
+  v1-interpreter-only): per-key Sum/Count/Variance accumulators equal the reference fold, `mean`
+  via `aggregateWith` equals `groupByAgg`, per-key HLL distinct-count equals per-key
+  `runAggregator`, the two-partition split-and-merge law holds over REAL pipeline outputs
+  (exercising `combOp`; the DirectRunner itself is one partition where `combOp` applies zero
+  times, as a one-partition run of any backend would), and empty input yields no keys.
+  Fault-injection checked and DEFERRED honestly: the DirectRunner has no retry machinery; the
+  retry that exists (`distributed-failure-retry`) is the v1.22 mapreduce actor subsystem,
+  unreachable from these lanes — slice B alongside Spark (v2.1.3), see
+  `specs/aggregation-algebra.md` §9's fault-tolerance note.
 - **§10 rendering — DONE** (claim `aggregator-rendering`, 2026-08-30). `mapToRows`/`renderTableHtml`
   bridge a `groupByAgg` result to `std/ui/data.ssc`'s live-table shape; `jsonStringify` already
   worked with no new code (§10.2). Found landing it: `v.toString` on a `Double` isn't lane-portable

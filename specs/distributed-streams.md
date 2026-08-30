@@ -316,7 +316,7 @@ Operators are lazy — they build nodes in the pipeline DAG. No computation happ
 |----------|-----------|-------|
 | `keyBy(f)` | `DStream[A] => (A => K) => DStream[KV[K, A]]` | Partition by key; required before windowed keyed ops |
 | `combinePerKey(f)` | `DStream[KV[K, A]] => ((A, A) => A) => DStream[KV[K, A]]` | Commutative+associative merge per key |
-| `aggregatePerKey(z)(f)(g)` | `DStream[KV[K, A]] => B => ((B, A) => B) => ((B, B) => B) => DStream[KV[K, B]]` | Per-key aggregate with combiner |
+| `aggregatePerKey(z)(f)(g)` | `DStream[KV[K, A]] => B => ((B, A) => B) => ((B, B) => B) => DStream[KV[K, B]]` | Per-key aggregate with combiner. **Live on the native backend** (dstreams-plugin, 2026-08-30) — output is `KV(key, accumulator)`, `present` not applied; the DirectRunner is one partition so `g` applies zero times per run, and its correctness is pinned by `tests/conformance/std-dstreams-aggregator.ssc`'s explicit split-and-merge equality over real pipeline outputs. `std/dstreams.ssc`'s `aggregateWith(stream, agg)` runs any `specs/aggregation-algebra.md` `Aggregator` through it end to end. |
 | `groupPerKey` | `DStream[KV[K, A]] => DStream[KV[K, Iterable[A]]]` | Collect all values per key (bounded only) |
 
 ### 5.3 Windowing

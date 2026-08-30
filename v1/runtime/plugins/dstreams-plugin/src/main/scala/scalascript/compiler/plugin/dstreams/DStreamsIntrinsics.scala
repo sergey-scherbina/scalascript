@@ -199,6 +199,32 @@ object DStreamsIntrinsics:
           PluginValue.instance("KV", Map("key" -> k, "value" -> v))
         }
 
+      case Inst("_dag_aggregatePerKey", fields) =>
+        // The Aggregator bridge's target operator (specs/aggregation-algebra.md §9,
+        // specs/distributed-streams.md §5): per-key accumulator starts at `zero`, `seqOp`
+        // folds each element in, `combOp` merges partition accumulators. The DirectRunner
+        // IS one partition, so combOp legitimately applies ZERO times here — exactly as a
+        // one-partition run of a real backend would; its correctness is pinned by the
+        // conformance case's own explicit split-and-merge equality
+        // (tests/conformance/std-dstreams-aggregator.ssc), not silently assumed.
+        // Output is KV(key, accumulator) — `present` deliberately NOT applied, matching
+        // the raw operator; the .ssc-level `aggregateWith` applies it.
+        val upstream = evalDag(fields("upstream"), ctx)
+        val zero     = fields("zero")
+        val seqOp    = fields("seqOp")
+        val groups   = LinkedHashMap[PluginValue, PluginValue]()
+        for kv <- upstream do
+          kv match
+            case Inst("KV", kvFields) =>
+              val k = kvFields("key")
+              val v = kvFields("value")
+              val acc = groups.getOrElse(k, zero)
+              groups(k) = call(ctx, seqOp, List(acc, v))
+            case _ =>
+        groups.iterator.map { case (k, acc) =>
+          PluginValue.instance("KV", Map("key" -> k, "value" -> acc))
+        }
+
       case Inst("_dag_merge", fields) =>
         val left  = evalDag(fields("left"), ctx)
         val right = evalDag(fields("right"), ctx)
@@ -618,6 +644,34 @@ object DStreamsIntrinsics:
     "combinePerKey" -> PluginValue.nativeFn("DStream.combinePerKey", {
       case List(f) => mkDStreamWithOps(dagNode("combinePerKey", Map("upstream" -> dag, "f" -> f)), ctx)
       case _       => PluginError.raise("DStream.combinePerKey(f)")
+    }),
+
+    // aggregatePerKey(zero)(seqOp)(combOp) — the Aggregator-bridge operator (curried).
+    // The interpreter may deliver a fully-applied curried call as one flat argument list
+    // (the same fact statefulMap's List(init, f) arm handles), so accept every prefix.
+    "aggregatePerKey" -> PluginValue.nativeFn("DStream.aggregatePerKey", {
+      case List(zero, seqOp, combOp) =>
+        mkDStreamWithOps(dagNode("aggregatePerKey",
+          Map("upstream" -> dag, "zero" -> zero, "seqOp" -> seqOp, "combOp" -> combOp)), ctx)
+      case List(zero, seqOp) => PluginValue.nativeFn("DStream.aggregatePerKey$2", {
+        case List(combOp) =>
+          mkDStreamWithOps(dagNode("aggregatePerKey",
+            Map("upstream" -> dag, "zero" -> zero, "seqOp" -> seqOp, "combOp" -> combOp)), ctx)
+        case _ => PluginError.raise("DStream.aggregatePerKey(zero)(seqOp)(combOp) — combOp")
+      })
+      case List(zero) => PluginValue.nativeFn("DStream.aggregatePerKey$1", {
+        case List(seqOp, combOp) =>
+          mkDStreamWithOps(dagNode("aggregatePerKey",
+            Map("upstream" -> dag, "zero" -> zero, "seqOp" -> seqOp, "combOp" -> combOp)), ctx)
+        case List(seqOp) => PluginValue.nativeFn("DStream.aggregatePerKey$2", {
+          case List(combOp) =>
+            mkDStreamWithOps(dagNode("aggregatePerKey",
+              Map("upstream" -> dag, "zero" -> zero, "seqOp" -> seqOp, "combOp" -> combOp)), ctx)
+          case _ => PluginError.raise("DStream.aggregatePerKey(zero)(seqOp)(combOp) — combOp")
+        })
+        case _ => PluginError.raise("DStream.aggregatePerKey(zero)(seqOp)(combOp) — seqOp")
+      })
+      case _ => PluginError.raise("DStream.aggregatePerKey(zero)(seqOp)(combOp)")
     }),
 
     "merge" -> PluginValue.nativeFn("DStream.merge", {

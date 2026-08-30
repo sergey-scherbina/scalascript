@@ -1,0 +1,112 @@
+#!/usr/bin/env ssc
+---
+name: conformance-std-dstreams-aggregator
+version: 1.0.0
+description: aggregatePerKey / aggregateWith — the Aggregator bridge live on the DStream native backend
+backends: [interpreter]
+---
+
+# DStream × Aggregator — the §9 bridge on a live runner
+
+`specs/aggregation-algebra.md` §9's `aggregatorSeqOp`/`aggregatorCombOp` were verified as a
+standalone algebraic mechanism when they landed; this case runs them through the REAL
+`aggregatePerKey` operator on the dstreams-plugin DirectRunner and pins the results equal to the
+module's own `runAggregator`/reference-fold semantics — including the two-partition split-and-merge
+equality computed from real pipeline outputs, which is what exercises `combOp` (the DirectRunner
+itself is one partition, so `combOp` applies zero times inside a single run, exactly as a
+one-partition run of any real backend would).
+
+`backends: [interpreter]` because the dstreams plugin is a v1 interpreter plugin — no other lane
+has the operator at all.
+
+[Aggregator, runAggregator, SumAgg, CountAgg, ZipAgg, MapAgg, VarianceAgg, populationVariance, groupByAgg, aggregatorSeqOp, aggregatorCombOp, HLLAgg, strHash](std/aggregator.ssc)
+
+[Order](std/order.ssc)
+
+[Monoid, intSum](std/semigroup-monoid.ssc)
+
+[aggregateWith](std/dstreams.ssc)
+
+```scalascript
+val sales = List(("east", 10.0), ("west", 5.0), ("east", 3.0), ("west", 7.0), ("north", 1.0), ("east", 4.0))
+
+def keyed(xs: List[(String, Double)]): Any =
+  Pipeline.create("agg").read(InMemory.source(xs)).map(t => KV(t._1, t._2))
+
+def pipelineAccs[Acc, Out](xs: List[(String, Double)], agg: Aggregator[Double, Acc, Out]): Any =
+  keyed(xs).aggregatePerKey(agg.monoid.empty)(aggregatorSeqOp(agg))(aggregatorCombOp(agg)).runToList()
+
+def renderKvs(kvs: Any): String =
+  kvs.map(kv => s"${kv.key}=${kv.value}").sortBy(x => x).mkString(", ")
+
+def refAccMap[Acc, Out](xs: List[(String, Double)], agg: Aggregator[Double, Acc, Out]): Map[String, Acc] =
+  val seqOp = aggregatorSeqOp(agg)
+  xs.foldLeft(Map[String, Acc]())((m, t) => m.updated(t._1, seqOp(m.getOrElse(t._1, agg.monoid.empty), t._2)))
+
+def renderMap(m: Map[String, Any]): String =
+  m.toList.map(kv => s"${kv._1}=${kv._2}").sortBy(x => x).mkString(", ")
+
+// 1. Sum per key — pipeline accumulators equal the reference per-key fold, and both printed.
+val sumPipe = renderKvs(pipelineAccs(sales, SumAgg()))
+val sumRef  = renderMap(refAccMap(sales, SumAgg()))
+println(sumPipe)
+println(sumPipe == sumRef)
+
+// 2. Count per key.
+val countAgg = CountAgg[Double]()
+val cntPipe = renderKvs(pipelineAccs(sales, countAgg))
+val cntRef  = renderMap(refAccMap(sales, countAgg))
+println(cntPipe)
+println(cntPipe == cntRef)
+
+// 3. Variance accumulators per key — identical sequential fold order, so exactly equal.
+val varPipe = renderKvs(pipelineAccs(sales, VarianceAgg()))
+val varRef  = renderMap(refAccMap(sales, VarianceAgg()))
+println(varPipe == varRef)
+
+// 4. aggregateWith end to end: per-key MEAN via zip/map composition, equal to groupByAgg.
+val meanAgg = MapAgg(ZipAgg(SumAgg(), CountAgg[Double]()), (p: (Double, Int)) => p._1 / p._2.toDouble)
+val meanPipe = renderKvs(aggregateWith(keyed(sales), meanAgg).runToList())
+val meanRef  = renderMap(groupByAgg(sales, meanAgg))
+println(meanPipe)
+println(meanPipe == meanRef)
+
+// 5. Approximate per key: HLL distinct-count of words, aggregateWith vs per-key runAggregator.
+val visits = List(
+  ("east", "alice"), ("east", "bob"), ("east", "alice"),
+  ("west", "carol"), ("west", "carol"), ("west", "dave"), ("west", "eve"),
+)
+val hll = HLLAgg[String](12, s => strHash(17, s))
+def keyedS(xs: List[(String, String)]): Any =
+  Pipeline.create("agg-s").read(InMemory.source(xs)).map(t => KV(t._1, t._2))
+val hllPipe = renderKvs(aggregateWith(keyedS(visits), hll).runToList())
+val eastRef = runAggregator(visits.filter(t => t._1 == "east").map(t => t._2), hll)
+val westRef = renderMap(Map("west" -> runAggregator(visits.filter(t => t._1 == "west").map(t => t._2), hll), "east" -> eastRef))
+println(hllPipe)
+println(hllPipe == westRef)
+
+// 6. Split-and-merge on REAL pipeline outputs — the partition-invariance law that licenses
+// running this operator across partitions, exercised with combOp on exact-merge aggregators
+// (sums of integer-valued doubles are exact; counts are Int; HLL merge is per-register max).
+def accMapOf(kvs: Any): Map[String, Any] =
+  kvs.foldLeft(Map[String, Any]())((m, kv) => m.updated(kv.key, kv.value))
+
+def splitMergeEqual[Acc, Out](agg: Aggregator[Double, Acc, Out]): Boolean =
+  val combOp = aggregatorCombOp(agg)
+  val whole = accMapOf(pipelineAccs(sales, agg))
+  val p1    = accMapOf(pipelineAccs(sales.take(3), agg))
+  val p2    = accMapOf(pipelineAccs(sales.drop(3), agg))
+  val keys  = (p1.keys.toList ++ p2.keys.toList).distinct.sortBy(k => k)
+  val merged = keys.map { k =>
+    val l = p1.getOrElse(k, agg.monoid.empty)
+    val r = p2.getOrElse(k, agg.monoid.empty)
+    (k, combOp(l, r))
+  }
+  renderMap(merged.foldLeft(Map[String, Any]())((m, kv) => m.updated(kv._1, kv._2))) == renderMap(whole)
+
+println(splitMergeEqual(SumAgg()))
+println(splitMergeEqual(CountAgg[Double]()))
+
+// 7. Empty input — no keys, no output.
+println(pipelineAccs(List[(String, Double)](), SumAgg()).length)
+```

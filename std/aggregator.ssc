@@ -633,11 +633,20 @@ def aggregatorCombOp[In, Acc, Out](agg: Aggregator[In, Acc, Out]): (Acc, Acc) =>
 // stream.keyBy(keyFn).aggregatePerKey(agg.monoid.empty)(aggregatorSeqOp(agg))(aggregatorCombOp(agg))
 ```
 
-Verified standalone (without a live `DStream` backend, which needs plugin infrastructure beyond
-`std/aggregator.ssc` itself): `aggregatorSeqOp`/`aggregatorCombOp` are what `aggregatePerKey` calls
-internally, so folding two "partitions" with `seqOp` and merging their results with `combOp` must
-equal folding the whole input with `seqOp` directly — exactly the property that licenses running
-`aggregatePerKey` across any number of real partitions:
+The convenience layer over that raw operator — `aggregateWith(stream, agg)`, which derives
+`zero`/`seqOp`/`combOp` from the `Aggregator` and applies `present` to each per-key accumulator —
+lives in `std/dstreams.ssc`, NOT here: it references `DStream`'s operator surface and `KV`, and
+this module deliberately does not import `std/dstreams.ssc` (and must stay compilable on lanes
+that have no dstreams plugin at all).
+
+`aggregatePerKey` is LIVE on the native `DStream` backend (the `dstreams-plugin` DirectRunner) and
+`aggregateWith` runs any `Aggregator` in this module on it end to end — gated by
+`tests/conformance/std-dstreams-aggregator.ssc`, which pins pipeline results equal to this module's
+own `runAggregator` reference semantics per key, including the explicit two-partition
+split-and-merge equality below run on real pipeline outputs. `aggregatorSeqOp`/`aggregatorCombOp`
+are what `aggregatePerKey` calls internally, so folding two "partitions" with `seqOp` and merging
+their results with `combOp` must equal folding the whole input with `seqOp` directly — exactly the
+property that licenses running `aggregatePerKey` across any number of real partitions:
 
 ```scalascript
 val agg    = CountAgg[String]()
