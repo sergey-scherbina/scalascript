@@ -446,7 +446,14 @@ class Typer(
           }
         }
       case imp: Content.Import =>
-        imp.bindings.foreach(b => scope.define(Symbol(b.name, SType.Any, SymbolKind.Val)))
+        // `[Card as MyCard](./card.ssc)` binds MyCard, NOT Card — the alias is the name the
+        // consumer writes, and the original is not in scope at all. Binding `b.name` here made
+        // strict mode report `Reference to undefined name: MyCard` for a program every backend
+        // runs correctly. Harmless while `check` was opt-in; a hard refusal the moment `run`
+        // started consulting the typer (run-gated-by-check), which is how it was found —
+        // tests/e2e/import-alias-smoke.sh went red on the INT lane with EMPTY output, the
+        // signature of a gate refusing before execution.
+        imp.bindings.foreach(b => scope.define(Symbol(b.alias.getOrElse(b.name), SType.Any, SymbolKind.Val)))
       case _ => ()
     }
     var subsqlCount = sqlCount
@@ -569,10 +576,12 @@ class Typer(
           Some(TypedDef.CodeBlock(cb.lang, parsed = false, Nil))
 
       case imp: Content.Import =>
+        // Same rule as the collect pass above: an aliased import binds the ALIAS. The two sites
+        // must agree, or a name is in scope during one pass and not the other.
         imp.bindings.foreach { b =>
-          scope.define(Symbol(b.name, SType.Any, SymbolKind.Val))
+          scope.define(Symbol(b.alias.getOrElse(b.name), SType.Any, SymbolKind.Val))
         }
-        Some(TypedDef.Import(imp.path, imp.bindings.map(_.name)))
+        Some(TypedDef.Import(imp.path, imp.bindings.map(b => b.alias.getOrElse(b.name))))
 
       case _ => None
 
@@ -620,11 +629,18 @@ class Typer(
             name -> ops.map(_.name)
         }.toMap
         if declaredEffects.nonEmpty || analysisResult.effectfulFuns.nonEmpty then
+          // `asErrors = false` — the verifier's own contract says these are advisories
+          // (`[effect-verifier]`, not `[effect-error]`), and EffectTyperTest calls them
+          // warnings throughout. Wrapping them with the default `isWarning = false` made
+          // them HARD errors anyway: `ssc check` exited 1 on `tests/conformance/lib/eff-a.ssc`
+          // (an effectful generic helper with no declared row) whose behaviour every lane runs
+          // green. Surfaced when `run` started consulting the typer (run-gated-by-check): the
+          // advisory must not refuse a program the runtime verifiably executes correctly.
           scalascript.transform.EffectAnalysis.verify(
             declaredEffects, analysisResult, asErrors = false,
             leakedByFun  = leakedByFun,
             knownEffects = scalascript.transform.EffectAnalysis.declaredEffectNames(trees)
-          ).foreach(msg => errors += TypeError(msg, None))
+          ).foreach(msg => errors += TypeError(msg, None, isWarning = true))
       }
     }
     summaries.toList

@@ -276,9 +276,12 @@ The gap is EVERYWHERE, not one component's bug, which is why it is a feature and
   evidence, arity checks) currently re-derives facts per file and goes blind at the same boundary;
   a shared interface artifact fixes them all at once, per-backend hacks fix them one at a time.
 
-Related, sequenced BEFORE this: gating `run` through the v1 `check` at all (owner approved option
-(a), default-on — its own claim) — that lands the single-file guarantee this entry then extends
-across module boundaries. Do that first; this entry is the second, larger step.
+Related, sequenced BEFORE this — **LANDED** (claim `run-gated-by-check`, 2026-08-30): `ssc-tools
+run` now consults the v1 Typer by default on every lane it dispatches, refusing on type errors
+with the typer's own message; bypass `--no-check` / `SSC_NO_CHECK=1`. The compiler-free `bin/ssc`
+(StandardMain) stays deliberately ungated — its charter admits only the native front/runtime
+(`"checker":"native"` in its own execution plan). That claim landed the single-file guarantee;
+THIS entry extends it across module boundaries, and is now the sole remaining step.
 
 ## process-needs-a-detached-spawn — std/process can only run children it WAITS for, so a served program cannot start anything that outlives the request
 

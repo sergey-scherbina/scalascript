@@ -1660,7 +1660,7 @@ final class RunCmd extends CliCommand:
   def name = "run"
   override def summary = "Execute .ssc via the v2 VM by default"
   override def category = "Run & develop"
-  override def details = List("Flags: --frontend <custom|react|solid|vue|electron|swing|javafx|swiftui>", "       --mode <server|client> / --transport <http|in-process>", "       --host <addr> / --port <n> / --open-browser | --no-open-browser", "       --native  (self-hosted frontend -> CoreIR -> v2 VM; no compiler process)", "       --v2 / --compat-frontend  (self-hosted native front -> CoreIR -> v2 VM)", "       --v1  (rollback to the v1 tree-walking interpreter)", "       --bytecode  (direct ASM execution; combines with --native)", "       -- separates source files from program args for v2 VM runners")
+  override def details = List("Flags: --frontend <custom|react|solid|vue|electron|swing|javafx|swiftui>", "       --mode <server|client> / --transport <http|in-process>", "       --host <addr> / --port <n> / --open-browser | --no-open-browser", "       --native  (self-hosted frontend -> CoreIR -> v2 VM; no compiler process)", "       --v2 / --compat-frontend  (self-hosted native front -> CoreIR -> v2 VM)", "       --v1  (rollback to the v1 tree-walking interpreter)", "       --bytecode  (direct ASM execution; combines with --native)", "       --no-check  (skip the pre-run type check; env: SSC_NO_CHECK=1)", "       -- separates source files from program args for v2 VM runners")
   def run(args: List[String]): Unit =
     if args.isEmpty then { System.err.println("Error: No files specified"); System.exit(1) }
     // `--spark-version <v>` and `--spark-master <url>` plumb into
@@ -1688,6 +1688,7 @@ final class RunCmd extends CliCommand:
     var nativeFlag:        Boolean        = false  // --native (self-hosted frontend -> v2)
     var compatFrontendFlag: Boolean       = false  // --compat-frontend (legacy alias for native-front v2 VM)
     var bytecodeFlag:      Boolean        = false  // --bytecode (v2 lane compiled to JVM bytecode, Phase 4)
+    var noCheckFlag:       Boolean        = false  // --no-check (skip the pre-run type gate)
     val fileArgs = scala.collection.mutable.ArrayBuffer.empty[String]
     val programArgs = scala.collection.mutable.ArrayBuffer.empty[String]
     var afterArgSeparator = false
@@ -1731,6 +1732,7 @@ final class RunCmd extends CliCommand:
         // mistyped run flag into a missing-file error rather than an unknown-flag
         // one — see tests/BUGS.md native-release-native-image-three-defects.
         case "--interpret" | "--vm"        => bytecodeFlag = false
+        case "--no-check"                  => noCheckFlag  = true
         case "--device-id" if it.hasNext  => deviceIdFlag = Some(it.next()); deviceFlag = true
         case "--frontend"         if it.hasNext =>
           val name = it.next()
@@ -1750,6 +1752,24 @@ final class RunCmd extends CliCommand:
     if frontendRoutes > 1 then
       System.err.println("run: --v1, --native, and --compat-frontend/--v2 are mutually exclusive")
       System.exit(1)
+
+    // run-gated-by-check (owner decision 2026-08-30, option (a)): every lane this command
+    // dispatches — default v2, --v1, --native, --v2, --bytecode, electron/tui/server modes —
+    // passes the v1 Typer's check FIRST, once, here. A type error refuses the run with the
+    // typer's own message; warnings and parse errors do not (see preRunTypeErrors). Bypass:
+    // `--no-check` or SSC_NO_CHECK=1. The compiler-free `bin/ssc` (StandardMain) is
+    // DELIBERATELY not gated: its charter mentions only the native front/runtime
+    // ("checker":"native" in its own execution plan), and the v1 Typer lives outside it.
+    if !runCheckBypassRequested(noCheckFlag) then
+      val typeFailures = preRunTypeErrors(fileArgs.toList)
+      if typeFailures.nonEmpty then
+        typeFailures.foreach { (f, e) =>
+          val loc = e.span.map(s => s"$f:${s.start.line}:${s.start.column}").getOrElse(f)
+          System.err.println(s"$loc: error: ${e.msg}")
+        }
+        System.err.println(
+          s"run: ${typeFailures.size} type error(s) — not executed (bypass: --no-check, or SSC_NO_CHECK=1)")
+        System.exit(1)
 
     val targetSelection = targetFlag.orElse(ActiveFlags.current.target)
     val appleTarget = targetSelection.exists {
@@ -5977,11 +5997,62 @@ private def availableIntrinsicNames(): Set[String] =
     availIntrinsicsMemo = Some(s); s
   }
 
+/** run-gated-by-check — the pre-run type gate (owner decision 2026-08-30, option (a): default ON).
+ *
+ *  Returns the NON-WARNING type errors `ssc check` would report for each existing `.ssc` input,
+ *  so `run` can refuse a program the typer rejects (`needsDog(Cat())`) BEFORE executing it —
+ *  the run-path half of `v2/BUGS.md trait-typed-parameter-accepts-a-non-conforming-argument`.
+ *
+ *  Deliberately narrower than `check`:
+ *    - files that do not exist, or do not parse, return NO entries here — the runner's own
+ *      diagnostics for those paths predate this gate and stay exactly as they were;
+ *    - warnings (lints, macro advisories, `[effect-verifier]` rows) never refuse a run and are
+ *      not even printed on this path — `ssc check` remains the surface that shows them;
+ *    - an unexpected exception inside the check machinery must never block a run
+ *      (`checkOneFile` already folds those into `parseErrors`, which this filters out).
+ *
+ *  Known, documented limit (NOT solved here): imported names type loosely, so a cross-module
+ *  mismatch still passes — root `BACKLOG.md` `cross-module-type-checking`, sequenced after this. */
+private[cli] def preRunTypeErrors(files: List[String]): List[(String, scalascript.typer.TypeError)] =
+  val pluginBuiltins: Set[String] =
+    BackendRegistry.inProcess
+      .flatMap(_.intrinsics.keys)
+      .flatMap { qn =>
+        val full = qn.value
+        full :: full.split('.').headOption.toList
+      }
+      .toSet
+  files
+    .filter(f => f.endsWith(".ssc") && os.exists(os.Path(f, os.pwd)))
+    .flatMap { f =>
+      // Cheap pass first (no `.sscpkg` scan — measured 2026-08-30: the scan is the expensive
+      // half of a cold gate). A file the cheap pass would refuse is re-verified with the FULL
+      // builtin set before the refusal stands, so a program calling an advanced-plugin
+      // intrinsic is never refused for a name the full `check` resolves.
+      val cheap = checkOneFile(f, Map.empty, pluginBuiltins, includeAvailableIntrinsics = false)
+      if cheap.missing || cheap.parseErrors then Nil
+      else if !cheap.errors.exists(!_.isWarning) then Nil
+      else
+        val full = checkOneFile(f, Map.empty, pluginBuiltins)
+        if full.missing || full.parseErrors then Nil
+        else full.errors.filterNot(_.isWarning).map(e => f -> e)
+    }
+
+/** True when the pre-run type gate is bypassed: `run --no-check`, or `SSC_NO_CHECK=1`/`true`
+ *  (the env spelling for harnesses and scripts that cannot pass a flag). */
+private[cli] def runCheckBypassRequested(noCheckFlag: Boolean): Boolean =
+  noCheckFlag || sys.env.get("SSC_NO_CHECK").exists(v => v == "1" || v.equalsIgnoreCase("true"))
+
 private def checkOneFile(
   file: String,
   interfaces: Map[String, scalascript.ir.ModuleInterface],
   pluginBuiltins: Set[String],
-  strictNamespaces: Boolean = false
+  strictNamespaces: Boolean = false,
+  /** run-gated-by-check: the bundled-but-opt-in `.sscpkg` scan (`availableIntrinsicNames`) is the
+   *  expensive half of a cold check (every archive opened once per process). The pre-run gate's
+   *  CHEAP first pass skips it; anything that pass would refuse is re-verified with the full set
+   *  before the refusal stands. `ssc check` itself always uses the full set, as it always has. */
+  includeAvailableIntrinsics: Boolean = true
 ): CheckResult =
   val path = os.Path(file, os.pwd)
   if !os.exists(path) then
@@ -6040,7 +6111,9 @@ private def checkOneFile(
       // the typer. See `Interpreter.ambientGlobalNames`: the hand-kept copy had drifted to 77 of 111
       // missing, and a checker that calls `readFile` or `coroutineCreate` an undefined name rejects
       // programs its own runtime runs. (tests/BUGS.md typer-prelude-list-should-be-generated-from-std-exports.)
-      val allBuiltins = pluginBuiltins ++ availableIntrinsicNames()
+      val allBuiltins =
+        if includeAvailableIntrinsics then pluginBuiltins ++ availableIntrinsicNames()
+        else pluginBuiltins
       val typed = CompileStats.time("typer") {
         if effIfaces.isEmpty then
           Typer(Map.empty, strict = true, extraBuiltins = allBuiltins, preludeSymbols = pluginPrelude,
