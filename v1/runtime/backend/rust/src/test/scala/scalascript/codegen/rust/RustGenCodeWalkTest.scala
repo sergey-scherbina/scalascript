@@ -4042,6 +4042,32 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(expected.findFirstIn(g).isDefined,
       s"a Vec-typed field destructured through a fixed-arity Vector sub-pattern must rewrite to an if-let + slice match, not refuse as an unknown ctor:\n$g")
 
+  test("a tuple match pattern with a `Some(Ctor(field))`-wrapped element and a bare `Ctor(field)` element both thread their field's own type"):
+    // `(out0.lastOption, inline) match { case (Some(MarkdownInline.Text(a)), MarkdownInline.Text(b))
+    // => … MarkdownInline.Text(a + b) }` (`uniml/markdown`'s `MarkdownProjection.scala`'s
+    // `projectInlines`'s `appendMerging`) — a TUPLE pattern, one element wrapped in `Some(...)`,
+    // the other bare; neither the existing bare `Pat.Extract` case (which only ever sees ONE
+    // top-level pattern, not a tuple of them) nor the existing `Some(x)` case (which only threads
+    // a WHOLE-VALUE bind, not a further nested ctor destructure) recognized either element here,
+    // so `a`/`b` — both genuinely `String` fields — never joined `ctx.localStrings`, and the
+    // `+`-concat rewrite's guard missed both: `error[E0308]: expected &str, found String`.
+    val src =
+      """```scalascript
+        |enum MarkdownInline:
+        |  case Text(value: String)
+        |  case Other
+        |
+        |def appendMerging(out0: Vector[MarkdownInline], inline: MarkdownInline): Vector[MarkdownInline] =
+        |  (out0.lastOption, inline) match
+        |    case (Some(MarkdownInline.Text(a)), MarkdownInline.Text(b)) =>
+        |      out0.dropRight(1) :+ MarkdownInline.Text(a + b)
+        |    case _ => out0 :+ inline
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("MarkdownInline::Text { value: format!(\"{}{}\", a, b) }"),
+      s"a + b inside a tuple-of-(Some-wrapped, bare) ctor pattern must lower as a String concat, not Rust's native +:\n$g")
+
   test("a genuine lambda passed to String.filter/.map/.forall/.exists/.count is LET-SPLICED, not called as an IIFE rustc cannot infer through"):
     // `scheme.forall(c => MdChars.isAsciiAlnum(c) || c == '+' || …)` / `inner.exists(c =>
     // MdChars.isUnicodeWhitespace(c) || c == '<')` (`uniml/markdown`'s `MarkdownInlines.scala`'s

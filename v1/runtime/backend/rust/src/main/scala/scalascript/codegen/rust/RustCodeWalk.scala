@@ -12983,6 +12983,28 @@ object RustCodeWalk:
          |${indent(restText)}
          |}""".stripMargin
 
+  /** The SAME per-field String/Vec/Map/Option type-threading `renderMatch`'s own bare
+   *  `Pat.Extract(callee, argClause)` case already does (that case's own comment has the shape),
+   *  factored out so a `Pat.Tuple` element can reuse it — see that new case's own comment for why. */
+  private def ctorFieldBindCtx(pat: m.Pat, ctx: Ctx): Ctx = pat match
+    case m.Pat.Extract.After_4_6_0(callee, argClause)
+        if ctorNameOf(callee).flatMap(ctx.ctorMap.get).exists(_.fieldNames.sizeIs == argClause.values.size) =>
+      val ec = ctx.ctorMap(ctorNameOf(callee).get)
+      val binds = argClause.values.zip(ec.fieldTypes).collect {
+        case (m.Pat.Var(m.Term.Name(bn)), t) => bn -> t
+      }
+      val strNames    = binds.collect { case (bn, "String") => bn }.toSet
+      val vecNames    = binds.collect { case (bn, t) if t.startsWith("Vec<") => bn }.toSet
+      val mapNames    = binds.collect { case (bn, t) if t.startsWith("std::collections::HashMap<") => bn }.toSet
+      val optionNames = binds.collect { case (bn, t) if t.startsWith("Option<") => bn }.toSet
+      ctx.copy(
+        localStrings = ctx.localStrings ++ strNames,
+        localSeqs    = ctx.localSeqs ++ vecNames,
+        localMaps    = ctx.localMaps ++ mapNames,
+        localOptions = ctx.localOptions ++ optionNames
+      )
+    case _ => ctx
+
   private def renderMatch(
       subject: m.Term, cases: List[m.Case], ctx: Ctx,
       // Applied to each arm's BODY. Identity everywhere except when the match sits in a tail
@@ -13378,6 +13400,25 @@ object RustCodeWalk:
             localMaps    = ctx.localMaps ++ mapNames,
             localOptions = ctx.localOptions ++ optionNames
           )
+        // `case (Some(MarkdownInline.Text(a)), MarkdownInline.Text(b)) => … MarkdownInline.Text(a +
+        // b)` (`uniml/markdown`'s `MarkdownProjection.scala`'s `projectInlines`'s `appendMerging`,
+        // matching `(out.lastOption, inline)`) — a TUPLE pattern, one element bare, the other
+        // wrapped in `Some(...)`; neither the bare `Pat.Extract` case just above (which only ever
+        // sees ONE top-level pattern, not a tuple of them) nor the earlier `Some(x)` case (which
+        // only threads a WHOLE-VALUE bind, `bound = Pat.Var`, not a further nested ctor
+        // destructure) recognizes either element here, so `a`/`b` — both genuinely `String` fields
+        // — never joined `ctx.localStrings`, and the `+`-concat rewrite's guard missed both:
+        // `error[E0308]: expected &str, found String` (Rust's native `+`, reached once the guard
+        // failed for `b`). Reuses `ctorFieldBindCtx` (the bare-`Pat.Extract` case just above,
+        // factored out) per element, unwrapping ONE `Some(...)` layer first when present — the
+        // only extra shape a tuple slot needs beyond what that case already handles.
+        case m.Pat.Tuple(elements) =>
+          elements.foldLeft(ctx) { (acc, el) =>
+            el match
+              case m.Pat.Extract.After_4_6_0(m.Term.Name("Some"), argClause) if argClause.values.sizeIs == 1 =>
+                ctorFieldBindCtx(argClause.values.head, acc)
+              case other => ctorFieldBindCtx(other, acc)
+          }
         case _ => ctx
       _pendingPatternGuards = Nil
       for
