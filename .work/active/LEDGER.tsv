@@ -1,2 +1,3 @@
-# generation: 3137
+# generation: 3138
 #slug	agent	started	items	paths
+interp-map-dot-empty	claude-code	2026-08-30T08:44:18Z	map-dot-empty-reads-empty-as-a-literal-key-not-the-companion-accessor	file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/DispatchRuntime.scala file:v1/runtime/backend/interpreter/BUGS.md file:specs/aggregation-algebra.md file:BACKLOG.md file:std/aggregator.ssc
