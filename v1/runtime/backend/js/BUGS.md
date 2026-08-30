@@ -214,13 +214,14 @@ conformance cases stay known-red on `js`, now genuinely against only the bug eac
 
 ## js-codegen-drops-generic-typeclass-resolution-when-multiple-instances-exist
 
-<!-- status: open
+<!-- status: fixed
      lane: js
      kind: bug
      area: codegen
      gate: tests/conformance/std-order.ssc (known-red js), tests/conformance/std-aggregator.ssc (known-red js)
      reported-by: claude-code
      reported-at: 2026-08-29
+     fixed-in: 2348719f5
      confirmed: yes -->
 
 **Corrected 2026-08-30**: the `ReferenceError` this entry describes was, from §8 onward, masked
@@ -228,46 +229,110 @@ BY a separate `SyntaxError` (`js-val-tuple-destructuring-does-not-escape-a-reser
 -component-name`, above) that made the whole emitted file fail to parse before this one's runtime
 error was ever reached — `node --check` on the emitted JS was never re-run after that entry's
 defect was introduced, so this was carried forward as the sole diagnosis across three more
-landings without being re-verified. Both defects are real and independent; this entry's own repro
+landings without being re-verified. Both defects were real and independent; this entry's own repro
 and root cause, below, are unchanged and still accurate for what they describe.
 
 Found landing `std/aggregator.ssc`'s `min`/`max` (needs `std/order.ssc`'s `Order[A]` typeclass) and
 writing its first real conformance coverage — `std/order.ssc` shipped with zero tests before this,
 so nothing had caught it. Two distinct symptoms, same root cause: when more than one named `given`
 instance of a generic trait is in scope, the JS backend's codegen for resolving one of them —
-whether via a `(using o: Order[A])` function parameter or an explicit `summon[Order[A]]` — loses
+whether via a `(using o: Order[A])` function parameter or an explicit `summon[Order[A]]` — lost
 the binding.
 
-**Symptom 1 — a `using` parameter is dropped from the generated function's parameter list.**
-`def compare[A](a: A, b: A)(using o: Order[A]): Int = o.compare(a, b)` (`std/order.ssc`) emits:
+**Symptom 1 — a `using` parameter was dropped from the generated function's parameter list.**
+`def compare[A](a: A, b: A)(using o: Order[A]): Int = o.compare(a, b)` (`std/order.ssc`) gave:
 
     const compare = (a, b) => _dispatch(o, 'compare', [a, b]);
 
-`o` never appears in the parameter list — the call site (`compare(3, 5)`) passes only two
-arguments, so `o` is a free variable that was never bound anywhere, and every call throws
-`ReferenceError: o is not defined`.
+`o` never appeared in the parameter list — the call site (`compare(3, 5)`) passed only two
+arguments, so `o` was a free variable never bound anywhere, throwing `ReferenceError: o is not
+defined` on every call.
 
-**Symptom 2 — `summon[T]` emits a bare identifier that only exists as a registry KEY.** Each named
-`given` is correctly registered in a runtime table (`_ssc_givens["Order_Int"] = orderInt`, etc.),
-but `summon[Order[Int]]` (used explicitly in `examples/std-aggregator.ssc`/its conformance case,
-e.g. `MinAgg(summon[Order[Int]])`) compiles the call site to:
+**Symptom 2 — `summon[T]` emitted a bare identifier that only existed as a registry KEY.** Each
+named `given` is correctly registered in a runtime table (`_ssc_givens["Order_Int"] = orderInt`,
+etc.), but `summon[Order[Int]]` (used explicitly in `examples/std-aggregator.ssc`/its conformance
+case, e.g. `MinAgg(summon[Order[Int]])`) compiled the call site to:
 
     _println(_call(runAggregator, ints, _call(MinAgg, Order_Int)));
 
-`Order_Int` is never declared as a binding anywhere in the emitted module — only the STRING
-`"Order_Int"` exists, as a key into `_ssc_givens`. This throws `ReferenceError: Order_Int is not
-defined`. The fix is presumably to emit `_ssc_givens["Order_Int"]` (or equivalent) at the summon
-site instead of a bare identifier matching the registry key's text.
+`Order_Int` was never declared as a binding anywhere in the emitted module — only the STRING
+`"Order_Int"` existed, as a key into `_ssc_givens`, throwing `ReferenceError: Order_Int is not
+defined`.
 
-Neither symptom reproduces with exactly one instance of the trait in scope, nor on `int`/`jvm`
+Neither symptom reproduced with exactly one instance of the trait in scope, nor on `int`/`jvm`
 (confirmed: both pass with the same source). `ssc info --front-report` on both repro files falls
 back from F to the reference front (a designed, pre-existing GAP, `__ambiguous_using_Order`/
 `__missing_using_Semigroup` — see `std-semigroup-monoid`'s own long-standing fallback) — the
-reference front then compiles a correct AST that the JS backend miscompiles from.
+reference front then compiles a correct AST that the JS backend miscompiled from.
 
-Repro: `bin/ssc-tools emit-js tests/conformance/std-order.ssc` (symptom 1) or
-`bin/ssc-tools emit-js examples/std-aggregator.ssc` (symptom 2, in the `MinAgg`/`MaxAgg` lines) —
-both int/jvm run the same source correctly via `bin/ssc-tools run --v1`/plain `run`.
+**FIXED, both symptoms**:
+
+- **Symptom 1** — `JsGen`'s TOP-LEVEL `Defn.Def` codegen already had proper `using`-param support
+  (params included as undefined-by-default formals, with `if (p === undefined) p =
+  _resolveGiven(...)` guards). The OBJECT/PACKAGE-nested `Defn.Def` codegen (`std/order.ssc` is a
+  `package:` module, so every function in it takes this second path) is a SEPARATE, incomplete
+  reimplementation that filtered `using` clauses out of `allClauses` (correct — a using clause is
+  not a real curry level for arity purposes) but then dropped them ENTIRELY, with no guard to
+  replace them. Extracted the top-level path's guard-computation logic into a shared
+  `usingParamGuards` helper (used by both sites now, closing the exact "one path has the feature,
+  the other doesn't" gap this session already hit twice for `Defn.Class`), and had the
+  object-nested path append the using params to the signature and their guards to the entry
+  guards — mirroring how it already does this for context-bound (`[A: TC]`) synthetic params.
+- **Symptom 2** — `genExpr`'s `summon[TC[T]]` case had a real registry-lookup path
+  (`_resolveGiven(key)`) for SYNTHESIZED givens (per-type `Mirror`, custom `derives`) but, per its
+  own comment, believed "explicit user givens keep the bare-name resolution" — an assumption that
+  was never true: EVERY given, synthesized or explicit, is registered ONLY into `_ssc_givens[key]
+  = <its real binding>` (`_ssc_givens["$key"] = $explicitJsName;` at the `given` codegen sites);
+  no given of either kind is ever bound to a top-level identifier spelled like its registry key.
+  Fixed by routing the non-synthesized, non-context-bound case through `_ssc_givens[key] ??
+  _resolveGiven(key)` too, instead of falling back to the bare `key` string.
+
+Verified beyond the filed repros: `std-order.ssc`'s conformance case now PASSES on `js` outright
+(its `known-red` declaration removed, not just narrowed); `examples/std-aggregator.ssc`'s
+`MinAgg`/`MaxAgg`/`summon` lines now match `int`'s output exactly. Landing this let
+`std-aggregator`'s own conformance case progress past `MinAgg`/`MaxAgg` on `js`, exposing (not
+introducing) a THIRD, unrelated pre-existing defect in `groupByAgg` — see
+`js-codegen-map-dot-empty-has-no-companion-handling` — so that case stays known-red on `js`, now
+against a different, later bug.
+
+## js-codegen-map-dot-empty-has-no-companion-handling — `Map.empty` dispatches `'empty'` on the raw JS-native `Map` class and throws `Method not found: empty on <function>`
+
+<!-- status: open
+     lane: js
+     kind: bug
+     area: codegen
+     gate: tests/conformance/std-aggregator.ssc (known-red js)
+     reported-by: claude-code
+     reported-at: 2026-08-30
+     confirmed: yes -->
+
+Found landing the fix for `js-codegen-drops-generic-typeclass-resolution-when-multiple-instances-
+exist` (above): with `MinAgg`/`summon` fixed, `std-aggregator.ssc`'s conformance case progressed
+on `js` far enough to reach `groupByAgg`, whose `MapMonoid.empty = Map.empty` (restored to the
+original design when the `int` lane's own, mechanically different `Map.empty` bug —
+`v1/runtime/backend/interpreter/BUGS.md`
+`map-dot-empty-reads-empty-as-a-literal-key-not-the-companion-accessor` — was fixed the same day)
+hits this SEPARATE, pre-existing JS-backend gap, previously unreachable behind the summon
+`ReferenceError`. Minimal repro, no aggregator code involved:
+
+```scalascript
+val m: Map[String, Int] = Map.empty
+println(m)
+```
+
+throws `Error: Method not found: empty on <function>` from `_dispatch`. The codegen only
+special-cases `Map` in CALL position (`Term.Apply` with fun `Map`/`Map[K,V]` → `_Map(...)`); a
+bare `Map` in RECEIVER position (`Map.empty` is `Term.Select(Term.Name("Map"), ...)`) gets no
+handling, so the emitted `_dispatch(Map, 'empty', [])` reaches JavaScript's own built-in `Map`
+CLASS (a function), which the dispatcher has no `'empty'` case for. The `int` lane's bug with the
+same user-facing symptom had a different mechanism (a heuristic auto-calling the constructor and
+then reading `'empty'` as a string key on the resulting empty map); this one never gets that far —
+there is no ScalaScript `Map` companion binding in the emitted module at all, only the accidental
+capture of the JS global. A fix would special-case `Term.Select(Term.Name("Map"),
+Term.Name("empty"))` (and plausibly `Map.empty[K, V]`) to emit `_Map()` directly, the same way
+call-position `Map(...)` already lowers. `int`/`native`/`run-jvm` all resolve the identical source
+correctly. `std-aggregator.ssc`'s conformance case stays known-red on `js` against this bug (its
+declaration updated from the fixed summon bug to this one).
 
 ## agent-mcp-toolsource-js-mcpconnect-times-out-against-a-server-that-answers
 
