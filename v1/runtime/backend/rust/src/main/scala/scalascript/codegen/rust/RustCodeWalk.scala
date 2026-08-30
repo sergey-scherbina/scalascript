@@ -2605,6 +2605,42 @@ object RustCodeWalk:
     case m.Term.Select(_, m.Term.Name(n)) => Some(n)
     case _                                => None
 
+  /** The SHARED admission guard for the `ref name @ Enum::Ctor { ref field, … }` borrow rewrite —
+   *  `renderPattern`'s `Pat.Bind`-over-a-with-fields-variant case and `renderMatch`'s `bodyCtx`
+   *  twin (which marks the bound names `byRefMut`) MUST admit exactly the same arg shapes, or a
+   *  pattern renders as a borrow whose body still reads the binders by value (or vice versa); one
+   *  predicate, called from both, is what keeps them in step. Two admitted forms:
+   *
+   *  - every positional arg a bare binder (`case instruction @ VmInstruction.Reframe(closeBefore,
+   *    open, closeAfter, role) =>`, `TreeVm.scala` — the original shape, unchanged);
+   *  - a mix of bare binders, WILDCARDS, and string-literal args (a `Lit.String`, or a
+   *    String-valued topval reference like `MdBranch.Definition` — the same two shapes the generic
+   *    `Pat.Extract` case already lowers to a fresh `__litpatN` name plus an equality guard),
+   *    PROVIDED at least one arg is such a literal. `case b @ UniNode.Branch(MdBranch.Definition,
+   *    _, _, _) =>` (`uniml/markdown`'s `MarkdownProjection.scala`'s `collectDefinitions`) is the
+   *    corpus site: the by-value pass-through rendered `b @ UniNode::Branch { kind: __litpat2, … }`,
+   *    which moves the `String` field out of the very value `b` binds — `error[E0382]: use of
+   *    partially moved value` on the body's `definitionOf(b)` — latent until the `defn.label`
+   *    E0609 in the same fn was fixed (a type error suppresses borrowck for the whole fn). The
+   *    literal-guard comparison still typechecks as a borrow: `__litpat2` becomes `&String`, and
+   *    `&String == &str` resolves via the std blanket `impl PartialEq<&B> for &A` over
+   *    `String: PartialEq<str>` (hand-proven standalone before this was written).
+   *
+   *  A binder+wildcard mix with NO literal arg is deliberately NOT admitted: that shape renders by
+   *  value today and compiles wherever the corpus uses it, and widening a working rendering for no
+   *  observed error is exactly the kind of speculative change this file's history keeps paying
+   *  for. */
+  private def refBindableCtorArgs(args: List[m.Pat]): Boolean =
+    val litArg: m.Pat => Boolean =
+      case _: m.Lit.String => true
+      case m.Term.Select(m.Term.Name(objName), m.Term.Name(valName)) =>
+        _topValInits.get((objName, valName)).exists(_.endsWith(".to_string()"))
+      case _ => false
+    args.forall {
+      case m.Pat.Var(_) | m.Pat.Wildcard() => true
+      case other                           => litArg(other)
+    } && (args.forall(_.isInstanceOf[m.Pat.Var]) || args.exists(litArg))
+
   /** The bare ctor name off a TYPE — either spelling, bare (`Element`) or qualified
    *  (`Markup.Element`). The type-level twin of `ctorNameOf` above, for a typed match-arm bind
    *  (`case e: Markup.Element =>` / `case e: Element =>`); see `renderMatch`'s own use for why the
@@ -6127,6 +6163,32 @@ object RustCodeWalk:
    *  member, not a field". `None` for anything this narrow pass cannot place, same contract as
    *  `elementTypeOf`. */
   private def optionElementTypeOf(t: m.Term, ctx: Ctx): Option[String] = t match
+    // `definitionOf(b).foreach { defn => … defn.label … }` (`uniml/markdown`'s
+    // `MarkdownProjection.scala`'s `collectDefinitions`; `private def definitionOf(branch:
+    // UniNode.Branch): Option[MarkdownBlock.LinkDefinition] = …`) — `_returnTypes` (the case just
+    // below, tried first for anything this one misses) holds the ALREADY-MAPPED Rust string, and
+    // `mapType` deliberately collapses a variant type argument to its owning ENUM name (`Option
+    // [MarkdownBlock.LinkDefinition]` mapped to `"Option<MarkdownBlock>"`, correctly — there is no
+    // independent Rust type for "just the LinkDefinition case") — exactly the same fact
+    // `eitherSideCtorName` already reads around for `Either`'s identical problem. Reads the RAW,
+    // unmapped Scala type instead — `definitionOf`'s own declaration, off `_defBodies` (module-
+    // wide, keyed by bare name; safe here since a def CALLED like this is never a local — a
+    // nested def with the same name shadowing this lookup module-wide is the one known caveat
+    // `_defBodies` itself always carries). Without this, `defn`'s closure-param type stayed the
+    // collapsed `MarkdownBlock`, and `defn.label` — a genuine `LinkDefinition`-only field — fell
+    // to the generic field-access refusal: `error[E0609]: no field label on type MarkdownBlock`.
+    case m.Term.Apply.After_4_6_0(m.Term.Name(fn), _)
+        if _defBodies.get(fn).flatMap(_.decltpe).exists {
+          case m.Type.Apply.After_4_6_0(m.Type.Name("Option"), args) =>
+            args.values.sizeIs == 1 && (args.values.head match {
+              case m.Type.Select(_, m.Type.Name(n)) => ctx.ctorMap.contains(n)
+              case _                                => false
+            })
+          case _ => false
+        } =>
+      _defBodies.get(fn).flatMap(_.decltpe).collect {
+        case m.Type.Apply.After_4_6_0(_, args) => args.values.head
+      }.collect { case m.Type.Select(_, m.Type.Name(n)) => n }
     case m.Term.Apply.After_4_6_0(m.Term.Name(fn), _) =>
       _returnTypes.get(fn).collect { case s if s.startsWith("Option<") => s.stripPrefix("Option<").stripSuffix(">") }
     case m.Term.Name(n) =>
@@ -8527,7 +8589,12 @@ object RustCodeWalk:
         // the collectLocalSscChars sibling-collision fix) in case any of them happened to also
         // cover the reassigned-`HashMap` case — still net WORSE (9/10 -> 13 real errors), so the
         // underlying gap is still open and unrelated to any of those three.
-        body <- renderVecIterBody(args.values.head, q, enriched, method = "foreach", elemType = elementTypeOf(qual, ctx))
+        // `elementTypeOf` alone never answers for an Option-typed `qual` (it is the Vec-shaped
+        // half only) — `.orElse(optionElementTypeOf(qual, ctx))` is a pure ADDITIVE fallback,
+        // reached only when the Vec-shaped answer is already `None`, so it can never touch (or
+        // regress) the Vec-receiver cases the comment just above already measured and reverted
+        // once — see `optionElementTypeOf`'s own new case for the corpus site this fixes.
+        body <- renderVecIterBody(args.values.head, q, enriched, method = "foreach", elemType = elementTypeOf(qual, ctx).orElse(optionElementTypeOf(qual, ctx)))
       yield body
 
     // `trimmed.filter(c => …)` / `raw.map(c => …)` on a STRING receiver (`uniml/markdown`'s
@@ -13430,11 +13497,17 @@ object RustCodeWalk:
         // reference for free, but here `role` is handed to `UniEdge(role, tokenNode)` — a
         // CONSTRUCTOR argument position, which does not autoderef — so without this, `role` stays
         // `&Option<String>` where the field wants an owned `Option<String>` (`error[E0308]`).
+        // Admission is `refBindableCtorArgs`, THE SAME predicate `renderPattern`'s twin calls (its
+        // comment has the sync argument) — widened together for `case b @ UniNode.Branch(MdBranch.
+        // Definition, _, _, _) =>`; only the names the pattern actually BINDS (`n` + the bare
+        // binders) join `byRefMut` — a wildcard binds nothing and a lowered `__litpatN` is only
+        // ever read inside the arm's own guard, where it is already the reference the comparison
+        // wants.
         case m.Pat.Bind(m.Pat.Var(m.Term.Name(n)), m.Pat.Extract.After_4_6_0(callee, argClause))
             if ctorNameOf(callee).exists(cn =>
                  ctx.ctorMap.get(cn).exists(_.fieldNames.nonEmpty) &&
                  argClause.values.sizeIs == ctx.ctorMap(cn).fieldNames.size &&
-                 argClause.values.forall { case m.Pat.Var(_) => true; case _ => false }) =>
+                 refBindableCtorArgs(argClause.values)) =>
           val binderNames = argClause.values.collect { case m.Pat.Var(m.Term.Name(bn)) => bn }
           ctx.copy(byRefMut = ctx.byRefMut ++ binderNames + n)
         // `case Markup.PI(target, data) => …` / `case PI(target, data) => …` — a positional ctor
@@ -14331,19 +14404,40 @@ object RustCodeWalk:
     // `error[E0382]: use of partially moved value`, on `instruction.clone()` a few lines later. SAME
     // fix as `Pat.Typed`'s own with-fields-variant case just below (see its comment for the
     // reasoning in full): `ref` on the whole binding and every field turns the pattern into a
-    // BORROW instead, which takes nothing. Scoped to the shape actually written here — every
-    // positional binder a bare name, matching the field COUNT — so anything more exotic (a nested
-    // sub-pattern, a literal) still falls to the plain pass-through below, unchanged.
+    // BORROW instead, which takes nothing. Admission is `refBindableCtorArgs` — originally every
+    // positional binder a bare name, widened to also admit a wildcard/string-literal mix for
+    // `case b @ UniNode.Branch(MdBranch.Definition, _, _, _) =>` (that predicate's own comment has
+    // the full E0382 story and the hand-proven `&String == &str` guard-typing argument); anything
+    // it refuses still falls to the plain pass-through below, unchanged.
     case m.Pat.Bind(m.Pat.Var(m.Term.Name(n)), m.Pat.Extract.After_4_6_0(callee, argClause))
         if ctorNameOf(callee).exists(cn =>
              ctx.ctorMap.get(cn).exists(_.fieldNames.nonEmpty) &&
              argClause.values.sizeIs == ctx.ctorMap(cn).fieldNames.size &&
-             argClause.values.forall { case m.Pat.Var(_) => true; case _ => false }) =>
+             refBindableCtorArgs(argClause.values)) =>
       val ctorName = ctorNameOf(callee).get
       val ec = ctx.ctorMap(ctorName)
-      val binderNames = argClause.values.collect { case m.Pat.Var(m.Term.Name(bn)) => bn }
-      val fieldBinds = ec.fieldNames.zip(binderNames).map { case (f, bn) =>
-        if f == bn then s"ref $f" else s"$f: ref $bn"
+      val fieldBinds = ec.fieldNames.zip(argClause.values).map {
+        case (f, m.Pat.Var(m.Term.Name(bn))) => if f == bn then s"ref $f" else s"$f: ref $bn"
+        // A wildcard field binds nothing, so there is nothing to `ref` — `_` takes nothing from
+        // the value either way.
+        case (f, m.Pat.Wildcard()) => s"$f: _"
+        // The two literal shapes, lowered EXACTLY like the generic `Pat.Extract` case below lowers
+        // them (fresh `__litpatN` + pending equality guard — `_pendingPatternGuards`'s own comment
+        // has the base E0308 story), except bound `ref`: the guard then compares `&String` against
+        // the literal `&str`, which the std blanket ref-impl accepts (see `refBindableCtorArgs`).
+        case (f, lit: m.Lit.String) =>
+          _pendingPatternGuardCounter += 1
+          val fresh = s"__litpat${_pendingPatternGuardCounter}"
+          _pendingPatternGuards :+= s"""$fresh == "${escapeRustString(lit.value)}""""
+          s"$f: ref $fresh"
+        case (f, m.Term.Select(m.Term.Name(objName), m.Term.Name(valName))) =>
+          _pendingPatternGuardCounter += 1
+          val fresh = s"__litpat${_pendingPatternGuardCounter}"
+          val lit   = _topValInits((objName, valName)).stripSuffix(".to_string()")
+          _pendingPatternGuards :+= s"$fresh == $lit"
+          s"$f: ref $fresh"
+        // Unreachable under `refBindableCtorArgs`, spelled out so the match is total.
+        case (f, _) => s"$f: _"
       }
       val pathPart = if ec.isStruct then ctorName else s"${ec.enumName}::$ctorName"
       Right(s"ref $n @ $pathPart { ${fieldBinds.mkString(", ")} }")

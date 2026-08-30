@@ -4113,6 +4113,86 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(g.contains("itemEdges.iter().cloned().flat_map(move |e| { flattenChild(e.child.clone()) }).collect::<Vec<_>>()"),
       s"a nested positional ctor field must resolve as a Vec in BOTH the standalone match and the .collect PartialFunction arm:\n$g")
 
+  test("`.foreach` over a call to a def declared `Option[Enum.Variant]` threads the SPECIFIC variant to the closure param, read off the RAW declared type"):
+    // `definitionOf(b).foreach { defn => … defn.label … }` (`uniml/markdown`'s
+    // `MarkdownProjection.scala`'s `collectDefinitions`; `def definitionOf(branch: …): Option[
+    // MarkdownBlock.LinkDefinition]`) — TWO stacked gaps: the general `.foreach` case computed its
+    // closure-param `elemType` via `elementTypeOf` ALONE (the Vec-shaped half, always `None` for
+    // an Option-typed receiver — `.orElse(optionElementTypeOf(…))` is a pure additive fallback,
+    // deliberately unable to touch the Vec-receiver cases that case's own comment records as
+    // tried-and-reverted twice); and `optionElementTypeOf`'s own call-to-a-def case read
+    // `_returnTypes`, where `mapType` has ALREADY collapsed the variant type argument to its
+    // owning enum (`"Option<MarkdownBlock>"` — correctly; no independent Rust type exists for one
+    // case), so even with the fallback wired the closure param typed as the whole enum:
+    // `error[E0609]: no field label on type MarkdownBlock`. Fixed the same way
+    // `eitherSideCtorName` reads around the identical collapse for `Either`: the RAW, unmapped
+    // declared type off `_defBodies`, where `Option[MarkdownBlock.LinkDefinition]` still names
+    // the variant.
+    val src =
+      """```scalascript
+        |enum MarkdownBlock:
+        |  case LinkDefinition(label: String, destination: String)
+        |  case Paragraph(text: String)
+        |
+        |case class UniNodeBranch(kind: String)
+        |
+        |private def definitionOf(branch: UniNodeBranch): Option[MarkdownBlock.LinkDefinition] =
+        |  if branch.kind == "def" then Some(MarkdownBlock.LinkDefinition("a", "b")) else None
+        |
+        |def collectDefinitions(branch: UniNodeBranch): Unit =
+        |  var map: Map[String, MarkdownBlock.LinkDefinition] = Map.empty
+        |  definitionOf(branch).foreach { defn =>
+        |    val key = defn.label
+        |    if !map.contains(key) then map = map + (key -> defn)
+        |  }
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("(match &defn { MarkdownBlock::LinkDefinition { label, .. } => label.clone(), _ => unreachable!() })"),
+      s"the .foreach closure param over Option[Enum.Variant] must resolve the variant's own field:\n$g")
+
+  test("`name @ Ctor(StringLiteral, _, …)` renders as a `ref` borrow pattern, not a by-value bind that partially moves the value it binds"):
+    // `case b @ UniNode.Branch(MdBranch.Definition, _, _, _) => … definitionOf(b) …`
+    // (`uniml/markdown`'s `MarkdownProjection.scala`'s `collectDefinitions`) — the by-value
+    // pass-through rendered `b @ UniNode::Branch { kind: __litpatN, … }`, moving the `String`
+    // field out of the very value `b` binds: `error[E0382]: use of partially moved value` on the
+    // body's own read of `b` — latent behind the same function's E0609 (a type error suppresses
+    // borrowck for the whole fn) until that was fixed. Same borrow rewrite the all-bare-binders
+    // `name @ Ctor(f1, f2, …)` shape already gets (`refBindableCtorArgs`'s own comment has the
+    // admission rules and the `&String == &str` guard-typing proof); the body's whole-value read
+    // derefs and clones via the same `byRefMut` marking as that original shape.
+    val src =
+      """```scalascript
+        |object MdBranch:
+        |  val Definition = "markdown.definition"
+        |
+        |enum UniNode:
+        |  case Branch(kind: String, edges: Vector[Int], span: Int, origin: String)
+        |  case Leaf
+        |
+        |def definitionOf(branch: UniNode): Option[String] =
+        |  branch match
+        |    case UniNode.Branch(kind, _, _, _) => Some(kind)
+        |    case _                             => None
+        |
+        |def walk(node: UniNode): Unit = node match
+        |  case b @ UniNode.Branch(MdBranch.Definition, _, _, _) =>
+        |    definitionOf(b).foreach { defn =>
+        |      val key = defn
+        |      ()
+        |    }
+        |  case UniNode.Branch(_, edges, _, _) => ()
+        |  case _                              => ()
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    // `__litpatN` matched by shape, not pinned — `_pendingPatternGuardCounter` is module-level and
+    // never reset between compiles (see the Vector-sub-pattern test's own comment above).
+    val expected =
+      ("""ref b @ UniNode::Branch \{ kind: ref __litpat(\d+), edges: _, span: _, origin: _ \} if __litpat\1 == "markdown\.definition" => \{ for defn in definitionOf\(\(\*b\)\.clone\(\)\)""").r
+    assert(expected.findFirstIn(g).isDefined,
+      s"a `name @ Ctor(literal, _, …)` bind must render as a ref borrow pattern with a ref litpat guard:\n$g")
+
   test("a call to a LOCAL (nested) def declared `: Option[T]` is recognized as Option-typed, not just a top-level def"):
     // `localTextOf(nodes(i)).isDefined` / `localTextOf(nodes(i)).get` (`uniml/markdown`'s
     // `MarkdownInlines.scala`'s `emailLocalBackscan`; `def localTextOf(node: WNode): Option[
