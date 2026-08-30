@@ -4042,6 +4042,35 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(expected.findFirstIn(g).isDefined,
       s"a Vec-typed field destructured through a fixed-arity Vector sub-pattern must rewrite to an if-let + slice match, not refuse as an unknown ctor:\n$g")
 
+  test("a call to a LOCAL (nested) def declared `: Option[T]` is recognized as Option-typed, not just a top-level def"):
+    // `localTextOf(nodes(i)).isDefined` / `localTextOf(nodes(i)).get` (`uniml/markdown`'s
+    // `MarkdownInlines.scala`'s `emailLocalBackscan`; `def localTextOf(node: WNode): Option[
+    // String] = …`, a def declared LOCALLY inside `emailLocalBackscan` itself) — `_defBodies`
+    // (the table `isOptionExpr`'s own "call to a def declared Option[T]" case already reads) is
+    // populated ONLY from `collectDefs`/`topLevelDefs`, which deliberately never descends into a
+    // `Defn.Def`'s own body — a nested/local def is a genuinely different scope, lifted out
+    // separately by `liftLocalDefs` — so `localTextOf` was invisible to that lookup entirely:
+    // `error[E0609]: no field isDefined on type Option<String>` (misleadingly naming the type
+    // that was already correct — the real gap was never recognizing the CALL as Option-typed).
+    val src =
+      """```scalascript
+        |def emailLocalBackscan(nodes: Vector[String], pending: Vector[String]): String =
+        |  def localTextOf(node: String): Option[String] =
+        |    if node.nonEmpty then Some(node) else None
+        |  var chunk = pending.mkString
+        |  var drop = 0
+        |  while drop < nodes.length && localTextOf(nodes(nodes.length - 1 - drop)).isDefined do
+        |    chunk = localTextOf(nodes(nodes.length - 1 - drop)).get
+        |    drop += 1
+        |  chunk
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".is_some())"),
+      s"a call to a local def declared Option[T] must recognize .isDefined as Option.is_some():\n$g")
+    assert(g.contains(".clone().unwrap();"),
+      s"a call to a local def declared Option[T] must recognize .get as Option unwrap:\n$g")
+
   test("`val last = xs.last` threads the Vec's OWN element ctor so `.copy(...)` resolves, and a multi-use field-select match subject clones to avoid a partial move"):
     // `val last = out.last; … last.copy(instruction = rewritten)` (`uniml/markdown`'s
     // `MarkdownBlocks.scala`'s `closeDangling`, `out: Vector[VmToken]`) — `.last`/`.head` are

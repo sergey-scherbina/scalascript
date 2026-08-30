@@ -11067,6 +11067,23 @@ object RustCodeWalk:
       isNumericExpr(l, ctx) && args.values.forall(isNumericExpr(_, ctx))
     case _ => false
 
+  /** The declared return type of a LOCAL def named `innerName`, nested somewhere inside the
+   *  CURRENT def (`outerDefName`, read off `_defBodies`) — `_defBodies` itself is module-wide and
+   *  bare-name keyed, but only from `collectDefs`/`topLevelDefs`, which deliberately never
+   *  descends into a `Defn.Def`'s OWN body (`topLevelDefs`'s own comment: a nested def is a
+   *  LOCAL one, a different scope, lifted out separately by `liftLocalDefs`) — so a genuinely
+   *  local def like `localTextOf` (`uniml/markdown`'s `MarkdownInlines.scala`'s
+   *  `emailLocalBackscan`) is invisible to every `_defBodies`-keyed lookup, `isOptionExpr`'s own
+   *  included. Walks the OUTER def's raw body directly instead, stopping at any FURTHER nested
+   *  def (the same scope boundary `collectLocalSscChars`'s own walk already draws, so a
+   *  same-named local in a SIBLING function is never mistaken for this one's). */
+  private def nestedLocalDefDecltpe(outerDefName: String, innerName: String): Option[m.Type] =
+    def find(t: m.Tree): Option[m.Type] = t match
+      case d: m.Defn.Def if d.name.value == innerName => d.decltpe
+      case _: m.Defn.Def                              => None
+      case _                                          => t.children.iterator.map(find).collectFirst { case Some(ty) => ty }
+    _defBodies.get(outerDefName).flatMap(d => find(d.body))
+
   private def isOptionExpr(term: m.Term, ctx: Ctx): Boolean = term match
     case m.Term.Name("None") => true
     case m.Term.Apply.After_4_6_0(m.Term.Name("Some"), args) if args.values.size == 1 =>
@@ -11109,7 +11126,14 @@ object RustCodeWalk:
     // function declared `-> Option<String>`, and rustc answered `expected Option<String>, found
     // Vec<String>`. Every Option-returning helper meets this the moment something maps over it.
     case m.Term.Apply.After_4_6_0(m.Term.Name(n), _) =>
-      _defBodies.get(n).flatMap(_.decltpe).exists {
+      // `localTextOf(nodes(i)).isDefined` (`uniml/markdown`'s `MarkdownInlines.scala`'s
+      // `emailLocalBackscan`; `def localTextOf(node: WNode): Option[String] = …`, a LOCAL def
+      // nested inside `emailLocalBackscan` itself) — `_defBodies` alone answers `None` for a
+      // local def (see `nestedLocalDefDecltpe`'s own comment for why); without the fallback,
+      // `error[E0609]: no field isDefined on type Option<String>` misleadingly named the type
+      // that WAS already correct — the real gap was never recognizing the call as Option-typed
+      // in the first place.
+      (_defBodies.get(n).flatMap(_.decltpe).orElse(nestedLocalDefDecltpe(ctx.defName, n))).exists {
         case m.Type.Apply.After_4_6_0(m.Type.Name("Option"), _) => true
         case _                                                  => false
       }
