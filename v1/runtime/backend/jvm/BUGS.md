@@ -9,13 +9,14 @@ Newest first.
 
 ## jvm-gen-emits-flatmap-on-an-unconstrained-generic-type-param — a `Monad[F]`-based extension call on `F[Acc]` transpiles to real Scala with no evidence `F` supports it
 
-<!-- status: open
+<!-- status: fixed
      lane: jvm
      kind: bug
      area: codegen
      gate: tests/conformance/std-aggregator.ssc (known-red jvm)
      reported-by: claude-code
      reported-at: 2026-08-30
+     fixed-in: 042f6d1ef
      confirmed: yes -->
 
 Found landing `std/aggregator.ssc`'s `runEffAggregator` (`specs/aggregation-algebra.md` §11.1):
@@ -42,14 +43,31 @@ value flatMap is not a member of F[Acc]
 where:    F is a type in method runEffAggregator with bounds <: [_] =>> Any
 ```
 
-The generated Scala never threads `m`'s extension method into scope for `F` — it would need
+The generated Scala never threaded `m`'s extension method into scope for `F` — it needed
 something like `m.flatMap(accF)(...)` (calling the value's own method) or a proper Scala `given`
 conversion, not a bare `accF.flatMap(...)` on an unconstrained `F`. Repro:
 `bin/ssc-tools run-jvm tests/conformance/std-aggregator.ssc` (the file's `known-red: jvm` entry
-names this bug); `bin/ssc-tools run --v1` and the default native lane both run the same source
-correctly. Not investigated further: whether this is specific to `Monad`/`flatMap`, or any
-extension method reached via a value-level (not context-bound) typeclass parameter on a
-higher-kinded generic.
+named this bug); `bin/ssc-tools run --v1` and the default native lane both run the same source
+correctly. Not specific to `Monad`/`flatMap` — the mechanism applies to any extension method
+reached via a value-level (not context-bound) typeclass parameter on a higher-kinded generic.
+
+**FIXED** by a new whole-source splice pass, `JvmGen.threadTypeclassGivensInSource` (same
+parse→splice mechanism as `fuseLazyListInSource`, chained at both source-assembly sites): for
+every emitted def whose type params include a higher-kinded one (`F[_]`) and every value param
+whose declared type is a SINGLE-argument application of a plain name to exactly that HK param
+(`m: Monad[F]` — the classic typeclass-dictionary shape; `agg: EffAggregator[F, In, Acc, Out]`
+deliberately does not match), the body is wrapped as `{ given Monad[F] = m; <body> }`. Real
+Scala 3 then resolves the trait's extension methods through the local given — exactly how the
+hand-written equivalent works, and no call-site change is needed since `m` stays an ordinary
+positional parameter. Conservative guards: defs whose tparams carry context bounds are skipped
+(the bound already supplies an equivalent given — a second would be ambiguous), a def where two
+params map to the SAME type is skipped for the same reason, and overlapping (nested-def) splices
+keep only the outermost. Verified: a minimal `Monad[F]`-shaped repro now prints `Some(42)` on
+`run-jvm`, matching `--v1`; `tests/conformance/std-aggregator.ssc` on `run-jvm` no longer
+reports the `value flatMap is not a member of F[Acc]` error — its jvm lane's ONLY remaining
+errors are `fmix64`'s 64-bit `Long` literals (the pre-existing, already-tracked `int-width`
+non-conformance, present since §6 put `fmix64` in the same module), so the case stays known-red
+on `jvm` with its declaration updated to cite that instead.
 
 ## jvm-gen-row-payload-helpers-only-exist-for-serving-programs — `fieldsPayload` emits a call to a function it never defines
 
