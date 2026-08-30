@@ -1,6 +1,5 @@
-# generation: 3189
+# generation: 3190
 #slug	agent	started	items	paths
 run-gated-by-check	claude-code	2026-08-30T20:13:19Z	run-gated-by-check	file:v1/tools/cli/ file:v1/lang/core/src/main/scala/scalascript/typer/Typer.scala file:BACKLOG.md
 v2-higher-kinded-arity	claude-code	2026-08-30T21:57:27Z	higher-kinded-generic-field-corrupts-arity-of-an-unrelated-val-class-elsewhere-in-scope	file:specs/v2.2-p6.5-fsub.ssc file:v2/BUGS.md file:BACKLOG.md file:std/aggregator.ssc file:specs/aggregation-algebra.md file:tests/conformance/std-aggregator.ssc
 interp-tuple-accumulator-fold	claude-code	2026-08-30T21:58:59Z	imported-generic-fold-with-a-tuple-accumulator-presents-one-component	file:v1/runtime/backend/interpreter/ file:tests/conformance/std-aggregator-properties.ssc file:tests/conformance/expected/ file:BACKLOG.md
-v3-backlog-extension-superseded	claude-code	2026-08-30T22:04:25Z	v3-extension-backlog-section-is-superseded	file:v3/BACKLOG.md
