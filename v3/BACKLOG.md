@@ -37,23 +37,31 @@ claim(s), landed wave by wave; a stage does not start before the previous one's 
 
 Then three NEW end-stages, in this order, each planned carefully before any code:
 
-10. **UniML refactor — remove mutable classes where possible** ("избавиться от мутабельных классов
-    там если возможно"). Scope: survey `uniml/` for mutable state (`var` fields, mutable
-    collections in tree nodes), measure what immutability costs where it is load-bearing
-    (parse-time builders may stay mutable INTERNALLY; the public tree should not be), and land as
-    a refactor with the full front-diff/parity/corpus gates green at every step. "If possible" is
-    the owner's own qualifier: where a measurement says immutability is too expensive, park that
-    piece here with the number.
+10. **UniML refactor — eliminate mutable types, everywhere it is possible** (owner, 2026-08-30,
+    strengthening the first phrasing: "по возможности желательно ПОЛНОСТЬЮ избавиться от
+    мутабельных типов везде" — all `uniml/` submodules, not just the core tree). **The replacement
+    idiom is named, not left open: instead of mutability, use ALGEBRAS and AGGREGATORS** — the
+    `std/aggregator.ssc` discipline applied to the compiler's own internals: state that today
+    accumulates by mutation (parse-time builders, symbol/registry maps, counters) becomes a fold
+    over a monoid/aggregator (`empty`/`combine`/`prepare`/`present`), joins become `combine`,
+    retraction where needed comes from a `Group`. Survey first (`var` fields, mutable collections,
+    in-place tree edits), convert in measured steps with front-diff/parity/corpus gates green at
+    every one; where a measurement says the algebraic form is too expensive on a hot path, park
+    THAT piece here with the number — the goal is full elimination, the qualifier is per-piece
+    and evidence-based, not a blanket excuse.
 11. **v3 front audit + refactor on the FRESH UniML** — after 10, re-audit
     `specs/40-front-on-uniml.md`/`specs/50-uniml-projection.md` against the refactored UniML and
-    refactor v3's front accordingly; the front-diff ceiling and the projection's refusal list are
-    the acceptance instruments.
+    refactor v3's front accordingly (same algebras-over-mutability discipline); the front-diff
+    ceiling and the projection's refusal list are the acceptance instruments.
 12. **v3's OWN backends, replacing the v2 bridge** — the end-state: `translate` targets owned by
     v3 rather than delegated through `BridgeV2`/the v2 fleet. Sequenced LAST deliberately: it
     inherits the audited front (11), the complete language (2–8), and the perf baseline (9).
-    First deliverable is a plan document (which target first, what the bridge is still needed
-    for, the parity gate that proves each backend against the bridge before the bridge retires)
-    put to the owner before code.
+    **Target order is DECIDED (owner, 2026-08-30): JVM → JS → Rust → Swift → Python → R.**
+    The bridge retires PER TARGET: each new backend must beat a parity gate against the bridge on
+    the full corpus before the bridge stops serving that target; the bridge as a whole retires
+    only when every target it serves has a native successor. First deliverable is still a plan
+    document per target (starting with JVM: bytecode directly à la v2's `backend-jvm-bytecode`,
+    or source-level à la `run-jvm` — put to the owner with measured trade-offs before code).
 
 Execution discipline for all twelve: the module's own rules — measured against N/exec/bridge and
 the front-diff/parity floors, every mechanism switchable off from its first commit, and honest
