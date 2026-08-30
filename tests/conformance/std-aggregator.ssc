@@ -1,7 +1,7 @@
 ---
 name: conformance-std-aggregator
 version: 1.0.0
-known-red: "jvm, js — two independent codegen defects, in two different backends. js: runEffAggregator's accF.flatMap(agg.present) passes a method reference through a receiver in argument position, which the JS backend invokes with zero args instead of eta-expanding to a function (v1/runtime/backend/js/BUGS.md js-codegen-method-reference-in-argument-position-is-invoked-not-eta-expanded). jvm: runEffAggregator's Monad[F]-based .flatMap call on a generic F[Acc] transpiles to real Scala with F left completely unconstrained, so the real Scala 3 compiler rejects it (v1/runtime/backend/jvm/BUGS.md jvm-gen-emits-flatmap-on-an-unconstrained-generic-type-param). EXPIRES when both codegen bugs are fixed."
+known-red: "jvm, js — two independent defects, in two different backends. js: runEffAggregator's accF.flatMap(agg.present) passes a method reference through a receiver in argument position, which the JS backend invokes with zero args instead of eta-expanding to a function (v1/runtime/backend/js/BUGS.md js-codegen-method-reference-in-argument-position-is-invoked-not-eta-expanded). jvm: the module now carries fmix64 (HLLAgg's hash mixer, landed with §6), whose 64-bit Long literals run-jvm transpiles into a context requiring a 32-bit Int — the pre-existing, already-tracked int-width non-conformance (see int-width's own known-red); the earlier jvm reason (a Monad[F]-based flatMap on an unconstrained generic, see v1/runtime/backend/jvm/BUGS.md) is fixed. EXPIRES when both remaining defects are fixed."
 ---
 
 # Std — Aggregator

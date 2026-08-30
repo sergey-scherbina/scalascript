@@ -630,7 +630,7 @@ class JvmGen(
     // `components-smoke`'s JVM lane were this one line's absence. Second defect of exactly this
     // shape in the same file today; the first was the `Cons` lowering. The two emit paths applying
     // different fixups is the real bug behind both.
-    val userSrc   = maybeLowerCons(fuseLazyListInSource(sb.substring(preambleLen)))
+    val userSrc   = maybeLowerCons(fuseLazyListInSource(threadTypeclassGivensInSource(sb.substring(preambleLen))))
       .replace("__extern__", "???")
     // Inject UI helper functions (top-level) + primitives object block when
     // the module uses a frontend framework.  Helpers are prepended so they're
@@ -1785,7 +1785,7 @@ class JvmGen(
     val actorSrc     = rewriteActorAstCallsInSource(rawSrc)
     // jvm-lazylist-fusion: fuse bounded LazyList.from(s).map(f)?.take(n).sum pipelines into
     // native loops so the emitted Scala (emit-scala / run-jvm) doesn't pay LazyList cons cost.
-    val qualifiedSrc = maybeLowerCons(fuseLazyListInSource(actorSrc))
+    val qualifiedSrc = maybeLowerCons(fuseLazyListInSource(threadTypeclassGivensInSource(actorSrc)))
     // `extern def` stubs at top-level (or inside an effectful object) are
     // stripped by the `case d: Defn.Def if isExternDef(d.body)` arm in
     // emitStat — but stubs nested inside plain classes / non-recursing
@@ -3521,6 +3521,85 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
           val ordered = splices.sortBy(-_.start).toList
           val sb = new StringBuilder(src)
           ordered.foreach(sp => sb.replace(sp.start, sp.end, sp.replacement))
+          sb.toString
+
+  /** A def like `def run[F[_], A](fa: F[A], m: Monad[F]): F[A] = fa.flatMap(...)` passes its
+   *  typeclass dictionary as a plain VALUE parameter — the int/native lanes resolve
+   *  `fa.flatMap` against whatever instance `m` holds, but the emitted REAL Scala leaves `F`
+   *  completely unconstrained, and Scala 3 refuses: `value flatMap is not a member of F[A]`.
+   *  The information is already in the signature; what the emitted Scala is missing is the
+   *  instance being GIVEN inside the body. So: for every def whose type params include a
+   *  higher-kinded one (`F[_]`), and every value param whose declared type is a SINGLE-argument
+   *  application of a plain name to exactly that HK param (`m: Monad[F]` — the classic
+   *  typeclass-dictionary shape; `EffAggregator[F, In, Acc, Out]` deliberately does NOT match),
+   *  wrap the body as `{ given Monad[F] = m; <body> }`. Scala then resolves the trait's
+   *  extension methods through the local given, which is exactly how the hand-written
+   *  equivalent works. Conservative guards: a def whose tparams carry context bounds is skipped
+   *  (its bound already supplies a given of the same shape — a second one would be ambiguous),
+   *  and a def where two params map to the SAME type is skipped for the same reason.
+   *  Same parse → splice mechanism as [[fuseLazyListInSource]].
+   *  BUGS `jvm-gen-emits-flatmap-on-an-unconstrained-generic-type-param`. */
+  private def threadTypeclassGivensInSource(src: String): String =
+    if !src.contains("[_]") then return src
+    import scala.meta.{dialects, *}
+    def tryParse(text: String): Option[Tree] =
+      scala.util.Try(dialects.Scala3(Input.VirtualFile("<tcg>", text)).parse[Source])
+        .toOption.flatMap(_.toOption).map(t => t: Tree)
+    val (parsed, off): (Option[Tree], Int) =
+      tryParse(src) match
+        case Some(t) => (Some(t), 0)
+        case None =>
+          val pfx = "object __sscTcGivens {\n"
+          (tryParse(pfx + src + "\n}"), pfx.length)
+    parsed match
+      case None => src
+      case Some(tree) =>
+        case class Splice(start: Int, end: Int, replacement: String)
+        val splices = scala.collection.mutable.ListBuffer.empty[Splice]
+        @annotation.nowarn("msg=deprecated")
+        def walk(t: Tree): Unit =
+          t match
+            case d: Defn.Def =>
+              val tparams = d.paramClauseGroups.flatMap(_.tparamClause.values)
+              val hkNames = tparams.collect {
+                case tp if tp.tparamClause.values.nonEmpty => tp.name.value
+              }.toSet
+              val hasCtxBounds = tparams.exists(_.cbounds.nonEmpty)
+              if hkNames.nonEmpty && !hasCtxBounds then
+                val dictParams = d.paramClauseGroups.flatMap(_.paramClauses)
+                  .filterNot(_.mod.nonEmpty).flatMap(_.values).flatMap { p =>
+                    p.decltpe.collect {
+                      case ta @ Type.Apply.After_4_6_0(Type.Name(_), args)
+                          if args.values.lengthCompare(1) == 0 &&
+                             args.values.headOption.exists {
+                               case Type.Name(n) => hkNames.contains(n); case _ => false
+                             } =>
+                        (p.name.value, ta.syntax)
+                    }
+                  }
+                val uniqueByType = dictParams.groupBy(_._2).forall(_._2.sizeIs == 1)
+                if dictParams.nonEmpty && uniqueByType then
+                  val bodyStart = d.body.pos.start - off
+                  val bodyEnd   = d.body.pos.end - off
+                  val givens = dictParams.map((pn, tpe) => s"given $tpe = $pn;").mkString(" ")
+                  val orig   = src.substring(bodyStart, bodyEnd)
+                  splices += Splice(bodyStart, bodyEnd, s"{ $givens $orig }")
+              // Walk into the body too: nested defs inside classes/objects get their own pass.
+              d.children.foreach(walk)
+            case other => other.children.foreach(walk)
+        walk(tree)
+        if splices.isEmpty then src
+        else
+          // Nested defs produce nested (overlapping) splices; keep only the outermost of any
+          // overlapping pair — the inner def's body text is carried inside the outer splice
+          // verbatim, which leaves the nested def unfixed rather than corrupting the source.
+          val ordered = splices.sortBy(sp => (sp.start, -sp.end)).toList
+          val kept = scala.collection.mutable.ListBuffer.empty[Splice]
+          ordered.foreach { sp =>
+            if !kept.exists(k => sp.start < k.end && k.start < sp.end) then kept += sp
+          }
+          val sb = new StringBuilder(src)
+          kept.sortBy(-_.start).foreach(sp => sb.replace(sp.start, sp.end, sp.replacement))
           sb.toString
 
   /** Build the `_pfToFun { case … => Some(body); case _ => None }`

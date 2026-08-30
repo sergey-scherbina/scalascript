@@ -217,10 +217,15 @@ itself scopes out of the first slice — queued here rather than attempted in th
   blocks `LiftAgg`/`ZipEffAgg` specifically until either that bug is fixed, or a different design
   is found for composing effectful aggregators that avoids an `F[_]`-parameterized class holding an
   `F`-involving field — worth thinking about explicitly rather than re-attempting the same shape.
-  Also found and filed: `run-jvm` emits `.flatMap` on a completely unconstrained generic `F`, which
-  real Scala 3 rejects — `v1/runtime/backend/jvm/BUGS.md`
-  `jvm-gen-emits-flatmap-on-an-unconstrained-generic-type-param`; `std-aggregator`'s conformance
-  case now carries `known-red: jvm` alongside its pre-existing `known-red: js`.
+  Also found and filed at the time: `run-jvm` emitted `.flatMap` on a completely unconstrained
+  generic `F`, which real Scala 3 rejects — `v1/runtime/backend/jvm/BUGS.md`
+  `jvm-gen-emits-flatmap-on-an-unconstrained-generic-type-param`. **Now fixed** (claim
+  `jvm-flatmap-generic`, 2026-08-30): a new `threadTypeclassGivensInSource` splice pass wraps the
+  body of any def taking a `TC[F]`-shaped value param (with `F[_]` its own HK type param) as
+  `{ given TC[F] = m; <body> }`, letting real Scala resolve the trait's extension methods itself.
+  `std-aggregator`'s jvm lane no longer hits the flatMap error; it stays `known-red: jvm` against
+  the pre-existing, already-tracked `int-width` non-conformance instead (`fmix64`'s 64-bit `Long`
+  literals, in the same module since §6), its declaration updated to say so.
 - **`Arrow`/`Category`/a new `Future`/`Task`/`Result` type** — explicitly NOT queued here. §11.4
   gives the reason (`Either`/`! Async` already cover the latter; neither `Arrow` nor `Category` has
   a second concrete use beyond §11.3's `dimap`) and stands until a second genuine use surfaces —
