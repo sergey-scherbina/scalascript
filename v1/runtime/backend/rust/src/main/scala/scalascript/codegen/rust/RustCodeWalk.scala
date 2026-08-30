@@ -13540,6 +13540,30 @@ object RustCodeWalk:
         // `.clone()`, never a compile error, since every ctor this lane emits derives `Clone`),
         // and is exactly the fix when it is not.
         else if ctx.inWhileLoop && subject.isInstanceOf[m.Term.Name] then s"($s0).clone()"
+        // `last.instruction match { case VmInstruction.Emit(role) => …; case other => other }`
+        // (`uniml/markdown`'s `MarkdownBlocks.scala`'s `closeDangling`) — the subject is a FIELD
+        // read off `last` (`Term.Select(Term.Name("last"), Term.Name("instruction"))`), and the
+        // bare bind-all arm (`case other => other`) moves that field BY VALUE — which Rust treats
+        // as PARTIALLY moving `last` itself, not just the one field. `last` is read again right
+        // after (`VmToken { instruction: rewritten, ..last }`, the struct-update spread): `error
+        // [E0382]: borrow of partially moved value: last`. `ctx.multiUse` already knows `last` is
+        // read more than once (the same fact `cloneIfMoved`'s own call-argument positions already
+        // act on); a field-read subject naming such a receiver gets the identical `.clone()`
+        // protection here, one level up from the WHOLE-NAME case just above. Gated ADDITIONALLY on
+        // some arm actually destructuring a ctor with fields (`Pat.Extract` with a non-empty arg
+        // list) — a `Boolean`/`i64` field, matched only by literal patterns, is `Copy` and never
+        // has this problem at all: a first attempt without that extra gate fired on `frame.state
+        // match { case true => …; case false => … }` too (`frame` ALSO multi-use, via a later
+        // `consumeKey(frame)`), adding a needless `.clone()` on a `bool` field and regressing an
+        // existing golden that asserts the exact un-cloned text — caught by the test suite before
+        // this reached a commit.
+        else if cases1.exists(_.pat match {
+          case m.Pat.Extract.After_4_6_0(_, argClause) => argClause.values.nonEmpty
+          case _ => false
+        }) && (subject match {
+          case m.Term.Select(m.Term.Name(n), _) => ctx.multiUse.contains(n)
+          case _ => false
+        }) then s"($s0).clone()"
         else s0
       if errs.nonEmpty then Left(errs.flatten)
       else
@@ -13662,6 +13686,19 @@ object RustCodeWalk:
                 // `.into_iter()` on a `String`: `error[E0599]`.
                 case m.Term.Apply.After_4_6_0(m.Term.Name(fn), args) if args.values.size == 1 =>
                   paramTypeMap.get(fn).collect { case ty if ty.startsWith("Vec<") => ty.stripPrefix("Vec<").stripSuffix(">") }
+                    .foreach(elemTy => out(nm) = elemTy)
+                // `val last = out.last` (`uniml/markdown`'s `MarkdownBlocks.scala`'s
+                // `spliceSwallowedBreaks`, `out: Vector[VmToken]` a def parameter) — `.last`/`.head`
+                // are NO-PAREN accessors (Scala elides `()` on a niladic method), so this binds via
+                // a bare `Term.Select`, a shape NONE of the cases above match (they all key off
+                // `Term.Apply`). `last`'s ELEMENT-typed ctor name never joined `paramTypeMap`, so
+                // `last.copy(instruction = rewritten)` had no struct to resolve `.copy` against:
+                // `error[E0599]: no method named copy found for struct VmToken` (misleadingly
+                // naming the struct rustc infers from context — the real defect is this lane never
+                // recognized `last` as one at all). Same Vec-element-type answer the indexing case
+                // just above already gives, for the bare-accessor spelling instead of `xs(i)`.
+                case m.Term.Select(m.Term.Name(qn), m.Term.Name("last" | "head")) =>
+                  paramTypeMap.get(qn).collect { case ty if ty.startsWith("Vec<") => ty.stripPrefix("Vec<").stripSuffix(">") }
                     .foreach(elemTy => out(nm) = elemTy)
                 case _ => ()
             case _ => ()

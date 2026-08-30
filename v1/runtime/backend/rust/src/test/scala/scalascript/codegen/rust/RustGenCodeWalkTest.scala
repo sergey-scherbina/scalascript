@@ -4042,6 +4042,50 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(expected.findFirstIn(g).isDefined,
       s"a Vec-typed field destructured through a fixed-arity Vector sub-pattern must rewrite to an if-let + slice match, not refuse as an unknown ctor:\n$g")
 
+  test("`val last = xs.last` threads the Vec's OWN element ctor so `.copy(...)` resolves, and a multi-use field-select match subject clones to avoid a partial move"):
+    // `val last = out.last; … last.copy(instruction = rewritten)` (`uniml/markdown`'s
+    // `MarkdownBlocks.scala`'s `closeDangling`, `out: Vector[VmToken]`) — `.last`/`.head` are
+    // NO-PAREN accessors (Scala elides `()` on a niladic method), a shape `collectLocalRustTypes`
+    // had no case for at all (every case there keys off `Term.Apply`, never a bare `Term.Select`),
+    // so `last`'s element-typed ctor name never joined `paramTypes` and `.copy` had no struct to
+    // resolve against: `error[E0599]: no method named copy found for struct VmToken`. Fixing that
+    // let rustc's own analysis reach a SECOND, previously-masked bug in the SAME function:
+    // `last.instruction match { case VmInstruction.Emit(role) => …; case other => other }` — the
+    // bind-all arm moves `last.instruction` BY VALUE, which Rust treats as PARTIALLY moving `last`
+    // itself, and `last` is read again right after (`VmToken { instruction: rewritten, ..last }`):
+    // `error[E0382]: borrow of partially moved value: last`. Fixed by cloning a match subject
+    // that is a field-select off a multi-use name, gated on some arm actually destructuring a
+    // ctor with fields (a `Boolean`/`i64` field matched only by literal patterns is `Copy` and
+    // never has this problem — a first, ungated attempt fired on an unrelated `bool` field match
+    // too, regressing an existing golden, caught by the test suite before it reached a commit).
+    val src =
+      """```scalascript
+        |enum VmInstruction:
+        |  case Emit(role: String)
+        |  case Close(expected: Option[String], role: String)
+        |  case Reframe(closeBefore: Vector[String], open: Vector[String], closeAfter: Vector[String], role: String)
+        |
+        |case class VmToken(id: Int, instruction: VmInstruction)
+        |
+        |def rewriteLast(out0: Vector[VmToken], remaining: Vector[String]): Vector[VmToken] =
+        |  val last = out0.last
+        |  val rewritten = last.instruction match
+        |    case VmInstruction.Emit(role) =>
+        |      VmInstruction.Reframe(closeBefore = Vector.empty, open = Vector.empty, closeAfter = remaining, role = role)
+        |    case VmInstruction.Close(expected, role) =>
+        |      VmInstruction.Reframe(closeBefore = Vector.empty, open = Vector.empty, closeAfter = expected.toVector ++ remaining, role = role)
+        |    case VmInstruction.Reframe(cb, op, ca, role) =>
+        |      VmInstruction.Reframe(cb, op, ca ++ remaining, role)
+        |    case other => other
+        |  out0.updated(out0.size - 1, last.copy(instruction = rewritten))
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("VmToken { instruction: rewritten, ..(last).clone() }"),
+      s"last.copy(instruction = rewritten) must resolve VmToken specifically via a struct-update:\n$g")
+    assert(g.contains("match (last.instruction).clone() {"),
+      s"a multi-use field-select match subject must be cloned to avoid a partial move:\n$g")
+
   test("a tuple match pattern with a `Some(Ctor(field))`-wrapped element and a bare `Ctor(field)` element both thread their field's own type"):
     // `(out0.lastOption, inline) match { case (Some(MarkdownInline.Text(a)), MarkdownInline.Text(b))
     // => … MarkdownInline.Text(a + b) }` (`uniml/markdown`'s `MarkdownProjection.scala`'s
