@@ -255,9 +255,16 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # time, so +56 is drift, not a new performance hazard — the arm was necessary to fix a real
 # ReferenceError, not something to extract elsewhere (this method's cost is dispatch-arm COUNT,
 # same lesson as renderTerm's Ctx.copy() sites, and this is one new arm, not a restructuring).
+# genExpr 25384 -> 25468 (+84), from the fix for js-codegen-drops-generic-typeclass-resolution-when-
+# multiple-instances-exist (v1/runtime/backend/js/BUGS.md): the summon[TC[T]] arm's fallback for an
+# explicit user given now emits `_ssc_givens[key] ?? _resolveGiven(key)` instead of a bare identifier
+# spelled like the registry key, which was never bound anywhere and threw ReferenceError. RAISED, NOT
+# REVERTED, same terms as above: drift on a method already 3.18x the limit and never JIT-compiled,
+# in exchange for a real ReferenceError fix; not a restructuring candidate for the same arm-count
+# reason as every prior entry.
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
-25384 scalascript.codegen.JsGen::genExpr
+25468 scalascript.codegen.JsGen::genExpr
 23885 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile

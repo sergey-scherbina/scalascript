@@ -1,7 +1,6 @@
 ---
 name: conformance-std-order
 version: 1.0.0
-known-red: "js — the JS backend drops the `using` parameter from a generic function's compiled parameter list when more than one named instance of the trait is in scope, leaving it an unbound free variable (v1/runtime/backend/js/BUGS.md js-codegen-drops-generic-typeclass-resolution-when-multiple-instances-exist). EXPIRES when that codegen bug is fixed."
 ---
 
 # Std — Order

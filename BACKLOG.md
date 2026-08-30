@@ -36,12 +36,20 @@ itself scopes out of the first slice — queued here rather than attempted in th
   delegating to trait DEFAULT methods, which don't carry through a `given` instance per
   `std/foldable-traversable.ssc`'s own note; and `compare` bodies calling `.compareTo`, which
   ScalaScript's primitives don't implement). Fixed in the same claim, now with real coverage
-  (`tests/conformance/std-order.ssc`). Also found and filed, not fixed here (out of scope for a
+  (`tests/conformance/std-order.ssc`). Also found and filed at the time (out of scope for a
   std-library task): `v1/runtime/backend/js/BUGS.md`
   `js-codegen-drops-generic-typeclass-resolution-when-multiple-instances-exist` — the JS backend
-  loses a `using` parameter or a `summon` binding once more than one named instance of a generic
-  trait is in scope. `std-order`/`std-aggregator`'s conformance cases carry `known-red: js` against
-  it.
+  lost a `using` parameter or a `summon` binding once more than one named instance of a generic
+  trait was in scope. **Now fixed** (claim `js-multi-given-resolution`, 2026-08-30): the
+  object/package-nested `Defn.Def` codegen dropped `using` clauses entirely where the top-level
+  path handled them (extracted into a shared `usingParamGuards` helper used by both), and
+  `summon`'s fallback for an explicit user given emitted a bare identifier spelled like the
+  registry key, which no given was ever bound to (now `_ssc_givens[key] ?? _resolveGiven(key)`).
+  `std-order`'s conformance case now PASSES on `js` outright (known-red deleted);
+  `std-aggregator`'s stays known-red on `js` against a third, later bug this fix exposed in
+  `groupByAgg` (`js-codegen-map-dot-empty-has-no-companion-handling`, filed not fixed — the JS
+  backend's own `Map.empty` gap, mechanically different from the interpreter's same-named bug
+  fixed earlier the same day).
 - **§6 approximate aggregators — DONE** (claim `aggregator-approx`, 2026-08-30). `ApproxAggregator`
   (adds `errorBound`), `HLLAgg` (a real `Aggregator`), and `CMSMonoid`/`TDigestMonoid` (kept as
   `Monoid` plus `add`/`estimate`/`addPoint`/`quantile` methods, per the spec's own reasoning —

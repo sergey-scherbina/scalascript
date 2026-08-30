@@ -1,7 +1,7 @@
 ---
 name: conformance-std-aggregator
 version: 1.0.0
-known-red: "jvm, js — two independent codegen defects, in two different backends. js: summon[Order[Int]]/summon[Order[String]] (for MinAgg/MaxAgg) compile to a bare identifier matching the given's runtime-registry KEY text, never bound anywhere in the emitted module (v1/runtime/backend/js/BUGS.md js-codegen-drops-generic-typeclass-resolution-when-multiple-instances-exist). jvm: runEffAggregator's Monad[F]-based .flatMap call on a generic F[Acc] transpiles to real Scala with F left completely unconstrained, so the real Scala 3 compiler rejects it (v1/runtime/backend/jvm/BUGS.md jvm-gen-emits-flatmap-on-an-unconstrained-generic-type-param). EXPIRES when both codegen bugs are fixed."
+known-red: "jvm, js — two independent codegen defects, in two different backends. js: groupByAgg's MapMonoid.empty compiles Map.empty to _dispatch(Map, 'empty', []), and the JS backend never gave the bare Map identifier any companion-object handling for a no-arg member access, so Map is the raw JS-native Map class and the dispatch fails (v1/runtime/backend/js/BUGS.md js-codegen-map-dot-empty-has-no-companion-handling). jvm: runEffAggregator's Monad[F]-based .flatMap call on a generic F[Acc] transpiles to real Scala with F left completely unconstrained, so the real Scala 3 compiler rejects it (v1/runtime/backend/jvm/BUGS.md jvm-gen-emits-flatmap-on-an-unconstrained-generic-type-param). EXPIRES when both codegen bugs are fixed."
 ---
 
 # Std — Aggregator

@@ -2994,46 +2994,7 @@ class JsGen(
       val nonUsingParams = d.paramClauseGroups.flatMap(_.paramClauses).filterNot { pc =>
         pc.mod match { case Some(_: scala.meta.Mod.Using) => true; case _ => false }
       }.flatMap(_.values)
-      val usingGuards: List[String] = d.paramClauseGroups.flatMap(_.paramClauses).filter { pc =>
-        pc.mod match { case Some(_: scala.meta.Mod.Using) => true; case _ => false }
-      }.flatMap(_.values).flatMap { pv =>
-        val pname = pv.name.value
-        pv.decltpe.toList.flatMap { tpe =>
-          val guardOpt: Option[String] = tpe match
-            case Type.Apply.After_4_6_0(Type.Name(tc), args) =>
-              // Find a hint param whose type matches the type argument of TC[A]
-              val typeParamName = args.values match
-                case List(Type.Name(n)) => n
-                case _                  => ""
-              // A concrete type: starts uppercase with >1 char (Option, List, Int...).
-              // For concrete type args, use literal key; for type vars (A, F, T...) use runtime.
-              def isConcrete(n: String): Boolean = n.length > 1 && n.head.isUpper
-              val matchingParam = if typeParamName.nonEmpty then
-                nonUsingParams.find { p =>
-                  p.decltpe.exists {
-                    case Type.Name(n) => n == typeParamName
-                    case ta: Type.Apply => ta.tpe match { case Type.Name(n) => n == typeParamName; case _ => false }
-                    case _ => false
-                  }
-                }
-              else None
-              if matchingParam.isDefined then
-                // Type variable matched a non-using param → derive TC arg at runtime
-                val hint = matchingParam.get.name.value
-                Some(s"""if ($pname === undefined) $pname = _resolveGiven("${tc}_" + _ssc_typeOf($hint));""")
-              else if typeParamName.nonEmpty && isConcrete(typeParamName) then
-                // Concrete type argument (e.g. Console[Option]) → use literal key
-                Some(s"""if ($pname === undefined) $pname = _ssc_givens["${tc}_${typeParamName}"] ?? _resolveGiven("${tc}_${typeParamName}");""")
-              else
-                // Type variable without matching param → best-effort with first non-using param
-                val hint = nonUsingParams.headOption.map(_.name.value).getOrElse("undefined")
-                Some(s"""if ($pname === undefined) $pname = _resolveGiven("${tc}_" + _ssc_typeOf($hint));""")
-            case Type.Name(tc) =>
-              Some(s"""if ($pname === undefined) $pname = _ssc_givens["$tc"] || _resolveGiven("$tc");""")
-            case _ => None
-          guardOpt.toList
-        }
-      }
+      val (_, usingGuards) = usingParamGuards(d.paramClauseGroups.flatMap(_.paramClauses), nonUsingParams)
       // Context-bound type params [A: TC] → synthetic JS param "A$TC", summon key "TC_A"
       @annotation.nowarn("msg=deprecated")
       val cbParams: List[(String, String)] =
@@ -3391,6 +3352,61 @@ class JsGen(
    *  field is NOT re-destructured (a `const` redeclaration of a lambda param is a JS syntax error).
    *  Curried methods (>1 param clause) are left unregistered — their calling convention would not match
    *  `_dispatch`'s flat argument array. */
+  /** Runtime resolve-guards for a def's `using` parameter clauses (`(using o: Order[A])`),
+   *  shared by the top-level `Defn.Def` path and the object/package-nested one. Returns the
+   *  using clauses' own `Term.Param`s — which the caller must still add to the JS signature as
+   *  ordinary (undefined-by-default) formals, since a using param IS a real formal, just one
+   *  callers usually don't pass explicitly — and one `if (p === undefined) p = …resolve…;`
+   *  guard line per param. `nonUsingParams` is the def's own explicit params, used as a "hint"
+   *  whose RUNTIME type derives which given to resolve when the using clause's type argument is
+   *  a generic type parameter (`A`) rather than a concrete type.
+   *
+   *  js-codegen-drops-generic-typeclass-resolution-when-multiple-instances-exist: the
+   *  object/package-nested path filtered `using` clauses out of BOTH the signature and any
+   *  guard entirely (`allClauses = …paramClauses.filterNot(_.mod.nonEmpty)`), leaving the
+   *  body's own reference to the using param completely unbound — `ReferenceError`. Reproduces
+   *  only with more than one named `given` instance of the trait in scope; with exactly one,
+   *  `_resolveGiven`'s own fallback path (unrelated to this codegen) happens to still find it. */
+  private def usingParamGuards(
+      paramClauses: List[Term.ParamClause], nonUsingParams: List[Term.Param]
+  ): (List[Term.Param], List[String]) =
+    val usingParamVals = paramClauses.filter { pc =>
+      pc.mod match { case Some(_: scala.meta.Mod.Using) => true; case _ => false }
+    }.flatMap(_.values)
+    val guards = usingParamVals.flatMap { pv =>
+      val pname = pv.name.value
+      pv.decltpe.toList.flatMap { tpe =>
+        val guardOpt: Option[String] = tpe match
+          case Type.Apply.After_4_6_0(Type.Name(tc), args) =>
+            val typeParamName = args.values match
+              case List(Type.Name(n)) => n
+              case _                  => ""
+            def isConcrete(n: String): Boolean = n.length > 1 && n.head.isUpper
+            val matchingParam = if typeParamName.nonEmpty then
+              nonUsingParams.find { p =>
+                p.decltpe.exists {
+                  case Type.Name(n) => n == typeParamName
+                  case ta: Type.Apply => ta.tpe match { case Type.Name(n) => n == typeParamName; case _ => false }
+                  case _ => false
+                }
+              }
+            else None
+            if matchingParam.isDefined then
+              val hint = matchingParam.get.name.value
+              Some(s"""if ($pname === undefined) $pname = _resolveGiven("${tc}_" + _ssc_typeOf($hint));""")
+            else if typeParamName.nonEmpty && isConcrete(typeParamName) then
+              Some(s"""if ($pname === undefined) $pname = _ssc_givens["${tc}_${typeParamName}"] ?? _resolveGiven("${tc}_${typeParamName}");""")
+            else
+              val hint = nonUsingParams.headOption.map(_.name.value).getOrElse("undefined")
+              Some(s"""if ($pname === undefined) $pname = _resolveGiven("${tc}_" + _ssc_typeOf($hint));""")
+          case Type.Name(tc) =>
+            Some(s"""if ($pname === undefined) $pname = _ssc_givens["$tc"] || _resolveGiven("$tc");""")
+          case _ => None
+        guardOpt.toList
+      }
+    }
+    (usingParamVals, guards)
+
   /** A class-body `val` (not a constructor parameter) needs its RHS evaluated PER INSTANCE, with
    *  the constructor's OWN parameters already in scope — unlike an object's body val (a
    *  singleton, evaluated once, `genObjectAsExpr`'s own `Defn.Val` arm), a class is compiled to a
@@ -3598,13 +3614,22 @@ class JsGen(
           s"""if ($pname === undefined) $pname = _resolveGiven("${tcName}_" + _ssc_typeOf($hintParam));"""
         }
         val cbParamsStr = if objCbParams.isEmpty then "" else ", " + objCbParams.map(_._1).mkString(", ")
+        // `using` params: see `usingParamGuards`'s own doc — `allClauses` deliberately excludes
+        // them (a using clause is not a real curry level for arity purposes), but that meant they
+        // were dropped from the signature ENTIRELY with no guard to replace them, leaving the
+        // body's own reference unbound. js-codegen-drops-generic-typeclass-resolution-when-
+        // multiple-instances-exist.
+        val (usingParamVals, usingGuards) =
+          usingParamGuards(dd.paramClauseGroups.flatMap(_.paramClauses), allClauses.flatMap(_.values))
+        val usingParamsStr =
+          if usingParamVals.isEmpty then "" else ", " + usingParamVals.map(p => safeJsParam(p.name.value)).mkString(", ")
         val savedCbMap2 = cbSummonMap.toMap
         cbSummonMap.clear()
         objCbParams.foreach { (pname, skey) => cbSummonMap(skey) = pname }
         // Reserved-word params are renamed in the signature (safeJsParam, e.g.
         // `default` → `default_p`); the body must see the same renames or its
         // references emit the bare reserved word (SyntaxError on Node).
-        val objectParamVals = allClauses.flatMap(_.values)
+        val objectParamVals = allClauses.flatMap(_.values) ++ usingParamVals
         val objDefRenames = paramRenameMap(objectParamVals.map(_.name.value))
         val bodyJsExpr = withParamTypeEvidence(objectParamVals) {
          withParamRenames(objDefRenames) {
@@ -3613,7 +3638,7 @@ class JsGen(
             case expr                  => genExpr(expr)
          }
         }
-        val entryGuards = intParamGuardLines(objectParamVals) ++ objCbGuards
+        val entryGuards = intParamGuardLines(objectParamVals) ++ objCbGuards ++ usingGuards
         val bodyJsRaw =
           if entryGuards.isEmpty then bodyJsExpr
           else s"{ ${entryGuards.mkString(" ")} return $bodyJsExpr; }"
@@ -3628,11 +3653,12 @@ class JsGen(
           else s"(${paramListWithDefaults(params)})"
         if allClauses.length <= 1 then
           val baseSig = clauseSig(allClauses.flatMap(_.values))
-          // Append cb params to the signature if present
-          val sig = if cbParamsStr.isEmpty then baseSig
+          // Append cb params and using params to the signature if present
+          val extraParamsStr = cbParamsStr + usingParamsStr
+          val sig = if extraParamsStr.isEmpty then baseSig
                     else baseSig match
-                      case s"($inner)" => s"($inner$cbParamsStr)"
-                      case other       => s"($other$cbParamsStr)"
+                      case s"($inner)" => s"($inner$extraParamsStr)"
+                      case other       => s"($other$extraParamsStr)"
           // ─── Self-TCO, the same transform the TOP-LEVEL path has had all along ──────────────
           //
           // Functions declared inside an `object`/package module took this branch and got a plain
@@ -3664,7 +3690,7 @@ class JsGen(
           val tcoParams    = tcoParamVals.map(_.name.value)
           val tcoEligible =
             tcoParams.nonEmpty && fname.nonEmpty &&
-            objCbParams.isEmpty &&
+            objCbParams.isEmpty && usingParamVals.isEmpty &&
             !tcoParamVals.exists(_.default.isDefined) &&
             !tcoParamVals.lastOption.exists(_.decltpe.exists(_.isInstanceOf[Type.Repeated])) &&
             !containsAwaitClient(dd.body) &&
@@ -5093,10 +5119,21 @@ class JsGen(
             case _ => "undefined"
           // arch-meta-v2-p5 (A2): synthesized givens (per-type Mirror + custom
           // `derives`) live in `_ssc_givens` (the Mirror eagerly, derives lazily)
-          // — resolve them through the registry.  Explicit user givens keep the
-          // bare-name resolution.
+          // — resolve them through the registry.
+          //
+          // An explicit user given (`given orderInt: Order[Int] with ...`) does NOT keep a
+          // "bare-name resolution" — it was NEVER bound to a top-level identifier spelled like
+          // the synthesized key ("Order_Int"); every given, synthesized or explicit, is
+          // registered ONLY into `_ssc_givens[key] = <its real JS binding>` (see the `given`
+          // codegen sites: `_ssc_givens["$key"] = $explicitJsName;`). Emitting the bare `key`
+          // string as an identifier reached a free variable that was never declared anywhere,
+          // throwing `ReferenceError` — reproduces only with MORE THAN ONE named instance of
+          // the trait in scope (with exactly one, some other path happens to still resolve it).
+          // js-codegen-drops-generic-typeclass-resolution-when-multiple-instances-exist.
           if jsSyntheticGivenKeys.contains(key) then s"""_resolveGiven(${jsQuote(key)})"""
-          else cbSummonMap.getOrElse(key, key)
+          else cbSummonMap.get(key) match
+            case Some(cbName) => cbName
+            case None         => s"""_ssc_givens[${jsQuote(key)}] ?? _resolveGiven(${jsQuote(key)})"""
         case (Term.Name("Prism"), List(_, variantType)) =>
           val variantName = variantType match
             case n: Type.Name => n.value
