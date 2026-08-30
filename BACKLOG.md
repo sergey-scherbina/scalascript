@@ -186,6 +186,42 @@ No gate yet because none of the above has code to gate — the first item taken 
 get its own conformance case the same way `std/aggregator.ssc` got
 `tests/conformance/std-aggregator.ssc`, mirroring `std/semigroup-monoid.ssc`'s existing pattern.
 
+## cross-module-type-checking — the typer types IMPORTED names loosely, in every front and every backend, so a cross-module type mismatch is never caught anywhere
+
+<!-- status: open
+     lane: multi
+     kind: feature
+     area: front
+     gate: none -->
+
+Owner-directed 2026-08-30 ("нужно будет сделать во всех фронтах и бекендах"). Found while
+diagnosing `v2/BUGS.md` `trait-typed-parameter-accepts-a-non-conforming-argument` (diagnosis landed
+`62b235d59`): the v1 `Typer` (`bin/ssc-tools check`) correctly rejects the single-file repro
+(`Type mismatch: expected Dog, found Cat`) and is corpus-clean — 408/408 conformance cases pass
+`check`, 9.4s for the whole corpus — but the SAME mismatch through a module boundary passes:
+importing `GroupAggregator`/`MinAgg` from `std/aggregator.ssc` and calling `emptyWindow(MinAgg(...),
+3)`, `check` says OK, because imported names are typed loosely (effectively `Any`-shaped), so any
+argument conforms. That is exactly the motivating case (`specs/aggregation-algebra.md` §7's "should
+be a compile-time rejection" claim) — single-file gating alone would not catch it.
+
+The gap is EVERYWHERE, not one component's bug, which is why it is a feature and not a BUGS entry:
+
+- **v1 Typer** — types imported bindings loosely; needs module interfaces (the `.scim`
+  `emit-interface` artifact already exists — check whether it carries enough signature detail to
+  feed the typer, that is the natural vehicle) threaded into `check`'s environment per import.
+- **v2 self-hosted fronts (F + legacy)** — erase parameter types at parse time by design
+  (`parseParams`, `specs/v2.2-p6.5-fsub.ssc:2627` — see the trait-param diagnosis in `v2/BUGS.md`);
+  a nominal cross-module check there means giving the self-hosted front a typer, sized as a project.
+- **v3** — has the `check`-vs-`run` gating question too once its front grows types; note in
+  `v3/BUGS.md`/BACKLOG when the time comes.
+- **Backends (js/jvm/rust codegen)** — anything type-directed (given resolution, numeric-width
+  evidence, arity checks) currently re-derives facts per file and goes blind at the same boundary;
+  a shared interface artifact fixes them all at once, per-backend hacks fix them one at a time.
+
+Related, sequenced BEFORE this: gating `run` through the v1 `check` at all (owner approved option
+(a), default-on — its own claim) — that lands the single-file guarantee this entry then extends
+across module boundaries. Do that first; this entry is the second, larger step.
+
 ## process-needs-a-detached-spawn — std/process can only run children it WAITS for, so a served program cannot start anything that outlives the request
 
 <!-- status: fixed
