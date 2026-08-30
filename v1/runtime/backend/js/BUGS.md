@@ -345,21 +345,22 @@ known-red on `js` against the newer bug.
 
 ## js-codegen-method-reference-in-argument-position-is-invoked-not-eta-expanded — `b.flatMap(w.double)` calls `w.double` with ZERO args and passes the RESULT, instead of passing the method as a function
 
-<!-- status: open
+<!-- status: fixed
      lane: js
      kind: bug
      area: codegen
      gate: tests/conformance/std-aggregator.ssc (known-red js)
      reported-by: claude-code
      reported-at: 2026-08-30
+     fixed-in: PENDING_SHA
      confirmed: yes -->
 
 Found landing the `Map.empty` fix (above): with it in place, `std-aggregator.ssc`'s `js` lane
 progressed past `groupByAgg` to `runEffAggregator`, whose final line `accF.flatMap(agg.present)`
 passes a METHOD REFERENCE (`agg.present`, no parens, no argument — Scala eta-expansion) as
-`flatMap`'s function argument. The JS backend emits `_dispatch(accF, 'flatMap',
-[_dispatch(agg, 'present', [])])` — `agg.present` is INVOKED with zero arguments and its result
-passed, instead of being wrapped as `(x) => _dispatch(agg, 'present', [x])`. `flatMap` then throws
+`flatMap`'s function argument. The JS backend emitted `_dispatch(accF, 'flatMap',
+[_dispatch(agg, 'present', [])])` — `agg.present` INVOKED with zero arguments and its result
+passed, instead of being wrapped as `(x) => _dispatch(agg, 'present', [x])`. `flatMap` then threw
 `TypeError: args[0] is not a function`. Minimal repro, no aggregator code involved:
 
 ```scalascript
@@ -375,14 +376,60 @@ val b = Box(21)
 println(b.flatMap(w.double).get)
 ```
 
-`int` prints `42`; `js` invokes `w.double` with no args (producing `Box(NaN)`) and then throws
+`int` prints `42`; `js` invoked `w.double` with no args (producing `Box(NaN)`) and then threw
 `Error: not callable: Box(NaN)` trying to call the result. The same shape with a TOP-LEVEL def
-reference (`xs.map(topLevelFn)`) works — the gap is specifically a method reference THROUGH A
+reference (`xs.map(topLevelFn)`) worked — the gap was specifically a method reference THROUGH A
 RECEIVER (`recv.method`) in argument position, which is indistinguishable, at the `Term.Select`
-node itself, from a zero-arg method CALL; disambiguating needs the enclosing context (argument
-position + the parameter's expected function type, or at least the target method's arity).
-`int`/`native` resolve the identical source correctly. `std-aggregator.ssc` stays known-red on
-`js` against this bug (its declaration updated from the fixed `Map.empty` bug to this one).
+node itself, from a zero-arg method CALL.
+
+**FIXED** with a runtime-assisted disambiguation, since the receiver's static type is unknown at
+codegen time: a new `genArgExpr` (used at `genApply`'s argument-emission sites) routes a bare
+`name.method` argument — lowercase qualifier only: the wrapper mentions the qualifier twice (safe
+for a name, not an arbitrary expression), and an Uppercase qualifier is a companion head
+(`Map.empty`, `Sink.ignore`) whose lowering may not even bind the bare name in JS — through a new
+runtime helper `_methodRefOrValue(obj, name, thunk)` (core-collections.mjs, beside
+`_registerExt`). The helper consults the `_extensions[type:name]` registry that
+`caseClassBodyMethodRegistrations` already populates: a registered method whose function declares
+parameters beyond `_self` (`fn.length > 1`) can only have type-checked as an eta-expansion, so it
+returns a bound closure; everything else — a field read, a `._N` access, an arity-0 method, an
+unregistered name — falls to the thunk, which is the UNCHANGED pre-existing lowering with every
+`genExpr` special-case arm intact. Verified: the Box/Wrap repro (js now prints `42`),
+`xs.map(w.show)`, and non-regression on field reads, zero-arg methods (`w.label`), tuple `._1`,
+and plain lambdas — all match `int` exactly. `std-aggregator.ssc`'s `js` lane now runs to
+completion (exit 0) and matches `int` on every line EXCEPT `groupByAgg`'s Map display order,
+which exposed a FIFTH pre-existing defect — see
+`js-map-iteration-order-is-hash-order-not-insertion-order` — so the case stays known-red on `js`
+against that bug.
+
+## js-map-iteration-order-is-hash-order-not-insertion-order — a Map literal iterates/displays in hash order, where every other lane preserves insertion order
+
+<!-- status: open
+     lane: js
+     kind: bug
+     area: runtime
+     gate: tests/conformance/std-aggregator.ssc (known-red js)
+     reported-by: claude-code
+     reported-at: 2026-08-30
+     confirmed: yes -->
+
+Found landing the eta-expansion fix (above): `std-aggregator.ssc`'s `js` lane now runs to
+completion, and the ONLY remaining divergence from `int` is `groupByAgg`'s Map output order.
+Minimal repro, no aggregator code involved:
+
+```scalascript
+val m = Map("east" -> 1, "west" -> 2, "north" -> 3)
+println(m)
+println(m.toList)
+```
+
+`int` prints `Map(east -> 1, west -> 2, north -> 3)` (insertion order, matching Scala's
+`Map1`–`Map4` semantics for small maps); `js` prints `Map(east -> 1, north -> 3, west -> 2)` —
+`_Map(...)` is backed by a HAMT (`_hamtOf`, core-dispatch.mjs), whose iteration order is hash
+order. `.toList` (and so any fold over the entries) inherits the same order, so this is a real
+semantic divergence, not only cosmetic display. A fix is structural: either keep an insertion-order
+side index in the HAMT wrapper, or (matching Scala more closely) use an ordered small-map
+representation below the HAMT threshold. `std-aggregator.ssc` stays known-red on `js` against
+this bug (its declaration updated from the fixed eta-expansion bug to this one).
 
 ## agent-mcp-toolsource-js-mcpconnect-times-out-against-a-server-that-answers
 

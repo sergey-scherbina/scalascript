@@ -83,9 +83,18 @@ itself scopes out of the first slice — queued here rather than attempted in th
   `Map.empty[K, V]`). Landing IT exposed a FOURTH pre-existing defect, in `runEffAggregator`:
   a method reference through a receiver in argument position (`accF.flatMap(agg.present)`) is
   invoked with zero args instead of eta-expanded to a function
-  (`js-codegen-method-reference-in-argument-position-is-invoked-not-eta-expanded`, filed not
-  fixed, minimal repro verified standalone against `int`). `std-aggregator` stays known-red on
-  `js` against the fourth bug.
+  (`js-codegen-method-reference-in-argument-position-is-invoked-not-eta-expanded`, minimal repro
+  verified standalone against `int`). **The fourth bug is also now fixed** (claim
+  `js-method-ref-eta`, 2026-08-30): a new `genArgExpr` routes a bare lowercase `name.method`
+  argument through a runtime `_methodRefOrValue` helper that consults the `_extensions` registry —
+  a registered method with params beyond `_self` can only have type-checked as an eta-expansion,
+  so it returns a bound closure; everything else falls to the unchanged pre-existing lowering.
+  `std-aggregator`'s `js` lane now runs to completion and matches `int` on every line except
+  `groupByAgg`'s Map display order — a FIFTH pre-existing defect
+  (`js-map-iteration-order-is-hash-order-not-insertion-order`, filed not fixed: `_Map`'s HAMT
+  iterates in hash order where every other lane preserves insertion order, and `.toList` inherits
+  it, so it is semantic, not just cosmetic). `std-aggregator` stays known-red on `js` against the
+  fifth bug.
 - **§6 approximate aggregators — DONE** (claim `aggregator-approx`, 2026-08-30). `ApproxAggregator`
   (adds `errorBound`), `HLLAgg` (a real `Aggregator`), and `CMSMonoid`/`TDigestMonoid` (kept as
   `Monoid` plus `add`/`estimate`/`addPoint`/`quantile` methods, per the spec's own reasoning —

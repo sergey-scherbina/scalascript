@@ -5954,6 +5954,26 @@ class JsGen(
   private def runIfEffectful(name: String, call: String): String =
     if isEffectfulFun(name) then s"_run($call)" else call
 
+  /** Emit one call ARGUMENT. A bare `recv.method` here is ambiguous: a field read / zero-arg
+   *  call (evaluate now — the pre-existing lowering) or a Scala method REFERENCE that
+   *  eta-expands to a function (`xs.map(w.show)`, `accF.flatMap(agg.present)`). The receiver's
+   *  static type isn't known at codegen time, so the decision is deferred to the runtime
+   *  `_methodRefOrValue` helper, which consults the `_extensions` registry: a registered method
+   *  with parameters beyond `_self` can only have type-checked as an eta-expansion, everything
+   *  else evaluates the thunk — the UNCHANGED lowering, with every genExpr special-case arm
+   *  intact, so a field read, a `._N` tuple access, or an arity-0 method behaves exactly as
+   *  before. Routed only when the qualifier is a bare LOWERCASE identifier: the thunk mentions
+   *  the qualifier a second time (safe for a name, not for an arbitrary expression), and an
+   *  Uppercase qualifier is a companion/object head (`Map.empty`, `Source.empty`, `Sink.ignore`)
+   *  whose genExpr arms may not even bind the bare name in JS — wrapping those would evaluate an
+   *  unbound identifier. (js-codegen-method-reference-in-argument-position-is-invoked-not-eta-
+   *  expanded.) */
+  private def genArgExpr(t: Term): String = t match
+    case sel @ Term.Select(q @ Term.Name(qn), Term.Name(mn))
+        if qn.nonEmpty && qn.head.isLower && mn.nonEmpty && mn.head.isLetter =>
+      s"_methodRefOrValue(${genExpr(q)}, '$mn', () => ${genExpr(sel)})"
+    case other => genExpr(other)
+
   private def genApply(app: Term.Apply): String =
     // f(regular)(using tc) — flatten all curried arg lists when the outermost
     // Apply carries a `using` clause, so the JS call passes all args at once.
@@ -6027,7 +6047,7 @@ class JsGen(
     val rawArgs = app.argClause.values
     val hasNamedArgs = rawArgs.exists(_.isInstanceOf[Term.Assign])
     val argVals: List[String] =
-      if !hasNamedArgs then rawArgs.map(genExpr)
+      if !hasNamedArgs then rawArgs.map(genArgExpr)
       else
         // Extract the function name for param-order lookup.
         val fnNameOpt: Option[String] = app.fun match
@@ -6055,7 +6075,7 @@ class JsGen(
             // Function not in table — fall back: positionals first, then named by RHS only.
             rawArgs.map {
               case Term.Assign(_, rhs) => genExpr(rhs)
-              case other               => genExpr(other)
+              case other               => genArgExpr(other)
             }
     app.fun match
       // Map constructor - args are tuple pairs (Map(...) or Map[K,V](...))

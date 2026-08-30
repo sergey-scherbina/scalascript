@@ -618,6 +618,23 @@ function _registerExt(method, fn, type) {
   if (type) _extensions[type + ':' + method] = fn;
 }
 
+// A bare `recv.method` in ARGUMENT position is ambiguous at codegen time: a field read /
+// zero-arg call (evaluate now) or a Scala method REFERENCE that eta-expands to a function
+// (`xs.map(w.show)`, `accF.flatMap(agg.present)`). The receiver's registered method is the
+// authority: if `_extensions[type:name]` exists and declares parameters beyond `_self`
+// (fn.length > 1), the Select can only have type-checked as an eta-expansion, so hand back
+// a bound closure; otherwise evaluate the thunk (the unchanged, pre-existing lowering,
+// with all of genExpr's special-case arms intact). `thunk` re-mentions the receiver, so
+// the codegen only routes here when the qualifier is a bare identifier (no side effects).
+// (js-codegen-method-reference-in-argument-position-is-invoked-not-eta-expanded.)
+function _methodRefOrValue(obj, name, thunk) {
+  if (obj !== null && typeof obj === 'object' && obj._type && typeof _extensions !== 'undefined') {
+    const ext = _extensions[obj._type + ':' + name];
+    if (typeof ext === 'function' && ext.length > 1) return (...args) => ext(obj, ...args);
+  }
+  return thunk();
+}
+
 // JSON read side — bridges native JS values into our runtime shape so
 // the result of jsonParse(...) is indistinguishable from a literal
 // constructed in user code: objects become Map (not plain objects),
