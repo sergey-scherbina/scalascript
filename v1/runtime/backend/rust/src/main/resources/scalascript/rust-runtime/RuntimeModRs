@@ -321,6 +321,24 @@
       |    }
       |}
       |
+      |// `Character.toLowerCase(c)` (`uniml/markdown`'s `MarkdownLexer.scala`'s `foldCase` — the
+      |// Unicode-data-only, LOCALE-INDEPENDENT fold used for every non-ASCII code unit, as opposed to
+      |// `String.toLowerCase()`'s locale-sensitive one; see that def's own doc comment for why the two
+      |// must stay distinct here). `c` is a UTF-16 code unit (this lane's `SscChar`/`i64` convention),
+      |// so the round trip is `i64 -> char -> lowercase -> i64`; Rust's `char::to_lowercase()` is an
+      |// iterator because a few scalars fold to MULTIPLE chars (German ß-like cases), but every
+      |// caller here treats the result as a single code unit, so only the first is kept — same
+      |// "answer the input unchanged rather than panic" contract as this file's other char/String
+      |// helpers when the input can't be interpreted (an unpaired surrogate never round-trips through
+      |// `char::from_u32`).
+      |#[allow(dead_code)]
+      |pub fn _char_to_lowercase(c: i64) -> i64 {
+      |    match char::from_u32(c as u32) {
+      |        Some(ch) => ch.to_lowercase().next().map(|lc| lc as i64).unwrap_or(c),
+      |        None => c,
+      |    }
+      |}
+      |
       |#[allow(dead_code)]
       |pub fn _exists(path: &str) -> bool { std::path::Path::new(path).exists() }
       |

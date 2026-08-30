@@ -993,10 +993,30 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # `error[E0425]: cannot find value paragraphOpen in this scope`. Same strip, applied here too — one
 # `.map` over the arg list before rendering, the growth. Re-verified uniml/xml, uniml/json, and
 # uniml/yaml all still build clean (0 errors).
+# renderTerm 39856 -> 40040 (+184), continuing the same backlog, 46 -> 42 (the E0425x4 bucket's
+# two Java-interop calls, PLUS two PRE-EXISTING, previously-unrelated `Doc.scala` failures this
+# same fix incidentally cleared). `Integer.parseInt(body.substring(1))` (`uniml/markdown`'s
+# `MarkdownProjection.scala`'s `resolveEntity`) — the ONE-arg overload of `Integer.parseInt`; only
+# the existing TWO-arg (radix) case matched, so this fell through to the generic Apply path and
+# rendered the bare type name `Integer` as a value: `error[E0425]`. New inline arm, radix-10
+# literal, mirroring the existing two-arg case. `Character.toLowerCase(c)` (`uniml/markdown`'s
+# `MarkdownLexer.scala`'s `foldCase`) — the SAME shape, nothing lowered it at all; routed to a NEW
+# runtime helper (`_char_to_lowercase`, added to `RuntimeModRs` — costs nothing here, only the
+# dispatching arm does) with its own `.0` unwrap (`c` is bound from `s.charAt(i)`, a genuine
+# SscChar). Fixing that name resolution then surfaced a THIRD, deeper bug in the SAME expression:
+# `foldCase`'s sibling if-arm (bare `{ c }`, next to a branch that resolves to `i64`) had never
+# been type-checked before, because the whole expression's unresolved `Character.toLowerCase` arm
+# unified with anything — once fixed, rustc could finally see `{ c }` itself was never coerced.
+# The existing if/else-arm SscChar coercion only recognized a branch SYNTACTICALLY `.charAt(...)`
+# (`isBareCharAt`), not a NAME bound from it — widened to the full `yieldsSscChar` (which already
+# tracks exactly this via `Ctx.localSscChars`), a same-cost predicate swap that ALSO cleared two
+# more PRE-EXISTING instances of the identical gap in `Doc.scala`'s `numericReferenceValue`,
+# masked until now for the same "error-typed arm unifies with anything" reason. Re-verified
+# uniml/xml, uniml/json, and uniml/yaml all still build clean (0 errors).
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-39856 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+40040 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

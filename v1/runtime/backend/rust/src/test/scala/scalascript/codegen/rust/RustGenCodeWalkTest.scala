@@ -4042,6 +4042,59 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(expected.findFirstIn(g).isDefined,
       s"a Vec-typed field destructured through a fixed-arity Vector sub-pattern must rewrite to an if-let + slice match, not refuse as an unknown ctor:\n$g")
 
+  test("`Integer.parseInt(s)` (one-arg, radix-10) and `Character.toLowerCase(c)` lower as Java-interop static calls, unwrapping an SscChar argument"):
+    // `Integer.parseInt(body.substring(1))` (`uniml/markdown`'s `MarkdownProjection.scala`'s
+    // `resolveEntity`) — only the TWO-arg (radix) overload had a case; the bare one-arg overload
+    // fell through to the generic Apply path and rendered `Integer` (a Rust TYPE name) as a value:
+    // `error[E0425]: cannot find value Integer in this scope`. And `Character.toLowerCase(c)`
+    // (`uniml/markdown`'s `MarkdownLexer.scala`'s `foldCase`) — same shape, nothing lowered it at
+    // all, routed to a new `_char_to_lowercase` runtime helper. `c` here is bound from
+    // `s.charAt(i)`, a genuine `SscChar`, so the call needs the same `.0` unwrap every other
+    // `i64`-expecting call site in this file already applies.
+    val src =
+      """```scalascript
+        |def parseDec(s: String): Int =
+        |  Integer.parseInt(s)
+        |
+        |def foldChar(s: String): String =
+        |  val c = s.charAt(0)
+        |  Character.toLowerCase(c).toString
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("i64::from_str_radix(&(s), 10u32).unwrap_or(0)"),
+      s"Integer.parseInt(s) (one-arg) must lower via from_str_radix with a literal radix-10:\n$g")
+    assert(g.contains("crate::runtime::_char_to_lowercase((c).0)"),
+      s"Character.toLowerCase(c) must route to the new runtime helper with c's SscChar unwrapped:\n$g")
+
+  test("an if/else arm bound to `.charAt`'s result through a NAME (not just the direct syntactic call) still gets its SscChar `.0` unwrap"):
+    // `foldCase`'s own three-way fold (`uniml/markdown`'s `MarkdownLexer.scala`): `val c =
+    // s.charAt(i); if c >= 'A' && c <= 'Z' then (c + 32).toChar else if c < 128 then c else
+    // Character.toLowerCase(c)` — the existing if/else-arm SscChar coercion (`isBareCharAt`) only
+    // recognized a branch SYNTACTICALLY `.charAt(...)`, not a NAME already bound from it, so the
+    // bare `{ c }` branch (sitting next to a sibling arm that resolves to `i64`) never got its
+    // `.0`: `error[E0308]: expected i64, found SscChar`. Widened to the full `yieldsSscChar`
+    // (which already tracks a name-bound `.charAt` result via `Ctx.localSscChars`) — the identical
+    // predicate every OTHER `i64`-expecting consumer site in this file already uses.
+    val src =
+      """```scalascript
+        |def foldCase(s: String): String =
+        |  var out: Vector[String] = Vector.empty
+        |  var i = 0
+        |  while i < s.length do
+        |    val c = s.charAt(i)
+        |    out = out :+ (
+        |      if c >= 'A' && c <= 'Z' then (c + 32).toChar
+        |      else if c < 128 then c
+        |      else Character.toLowerCase(c)).toString
+        |    i += 1
+        |  out.mkString
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("if (c < 128i64) { (c).0 } else { crate::runtime::_char_to_lowercase((c).0) }"),
+      s"the bare-name `.charAt`-bound if-arm must unwrap to i64 (`.0`), matching its sibling arm's type:\n$g")
+
   test("an implicit-receiver self-method call strips a NAMED trailing argument the same way the ordinary call path already does"):
     // `htmlBlockType(t, paragraphOpen = true)` (`uniml/markdown`'s `MarkdownBlocks.scala`'s
     // `couldOpenParagraphInterrupt`, an implicit-receiver call to a sibling method with a NAMED

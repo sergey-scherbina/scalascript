@@ -6960,11 +6960,21 @@ object RustCodeWalk:
       // an if/else with EXACTLY ONE branch syntactically `.charAt(...)` and the other NOT gets that
       // one branch's `.0` — the identical unwrap `needsAnyCoercion`'s own `yieldsSscChar` case
       // already applies at a call ARGUMENT position, applied here at a branch position instead.
-      def isBareCharAt(t: m.Term): Boolean = t match
-        case m.Term.Apply.After_4_6_0(m.Term.Select(_, m.Term.Name("charAt")), a) => a.values.size == 1
-        case _ => false
-      val thenIsCharAt = isBareCharAt(ifExpr.thenp)
-      val elseIsCharAt = isBareCharAt(ifExpr.elsep)
+      //
+      // WIDENED from `isBareCharAt` (a purely SYNTACTIC "is this literally `.charAt(...)`" check)
+      // to the full `yieldsSscChar` — `MarkdownLexer.scala`'s `foldCase`: `val c = s.charAt(i); …
+      // if c >= 'A' && c <= 'Z' then … else if c < 128 then c else Character.toLowerCase(c)` binds
+      // `.charAt`'s result to a NAME first, so the direct-call check never fired for the bare-`c`
+      // branch: `error[E0308]: expected i64, found SscChar` on `{ c }` sitting next to a sibling
+      // arm that resolves to `i64` — three PRE-EXISTING failures at this shape (`Doc.scala`'s
+      // `numericReferenceValue` × 2, `MarkdownLexer.scala`'s `foldCase` × 1) that stayed masked
+      // only because `foldCase`'s OTHER arm (`Character.toLowerCase`) was itself unresolved
+      // (`error[E0425]`) until fixed, and an error-typed arm unifies with anything — fixing that
+      // name resolution is what surfaced this arm's own separate, real bug. `yieldsSscChar`
+      // already carries the exact `Ctx.localSscChars` name-tracking this needs; `isBareCharAt`
+      // was strictly narrower and is retired in its favor.
+      val thenIsCharAt = yieldsSscChar(ifExpr.thenp, ctx)
+      val elseIsCharAt = yieldsSscChar(ifExpr.elsep, ctx)
       for
         c0 <- renderTerm(ifExpr.cond, ctx)
         c   = if isValueRead(ifExpr.cond, ctx) then coerceFromValue(c0, "bool") else c0
@@ -9301,6 +9311,36 @@ object RustCodeWalk:
         s     <- renderTerm(args.values.head, ctx)
         radix <- renderTerm(args.values(1), ctx)
       yield s"i64::from_str_radix(&($s), ($radix) as u32).unwrap_or(0)"
+
+    // `Integer.parseInt(body.substring(1))` (`uniml/markdown`'s `MarkdownProjection.scala`'s
+    // `resolveEntity`, the decimal-reference branch, `&#123;`) — the ONE-arg overload of the same
+    // Java static parser the two-arg case just above already handles; only the two-arg (radix)
+    // shape had a case, so this fell through to the generic Apply path, which renders `Integer`
+    // (the QUALIFIER, a Rust TYPE name) as a value: `error[E0425]: cannot find value Integer in
+    // this scope`. Java's one-arg `Integer.parseInt` is radix-10 by definition, so this mirrors the
+    // two-arg case exactly with a literal `10u32` — same malformed-input-answers-0 convention.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(m.Term.Name("Integer"), m.Term.Name("parseInt")), args)
+        if args.values.size == 1 =>
+      for
+        s <- renderTerm(args.values.head, ctx)
+      yield s"i64::from_str_radix(&($s), 10u32).unwrap_or(0)"
+
+    // `Character.toLowerCase(c)` (`uniml/markdown`'s `MarkdownLexer.scala`'s `foldCase`) — another
+    // Java static call reached through Scala's implicit companion, same shape as `Integer.parseInt`
+    // just above. Nothing lowered this at all: the generic Apply path renders `Character` (the
+    // QUALIFIER, a Rust TYPE name) as a value, `error[E0425]: cannot find value Character in this
+    // scope`. Routed to a new runtime helper (`_char_to_lowercase`, see its own comment in
+    // `RuntimeModRs`) rather than inlined — the `char::to_lowercase()` iterator dance is shared
+    // scaffolding, not call-site-specific. `foldCase`'s `c` is bound from `s.charAt(i)`, so it is a
+    // genuine `SscChar` at this position — the same `.0` unwrap every other `i64`-expecting call
+    // site in this file already applies via `yieldsSscChar` (`_char_to_lowercase` takes a plain
+    // `i64`, matching every OTHER runtime helper's convention).
+    case m.Term.Apply.After_4_6_0(m.Term.Select(m.Term.Name("Character"), m.Term.Name("toLowerCase")), args)
+        if args.values.size == 1 =>
+      for
+        c0 <- renderTerm(args.values.head, ctx)
+        c   = if yieldsSscChar(args.values.head, ctx) then s"($c0).0" else c0
+      yield s"crate::runtime::_char_to_lowercase($c)"
 
     // `String.valueOf(code.toChar)` (`uniml/xml`'s `Doc.scala`'s `numericReferenceValue`) — Java's
     // static `String` factory, reached through Scala's implicit companion. This general Apply case
