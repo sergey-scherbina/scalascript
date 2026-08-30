@@ -12433,6 +12433,13 @@ object RustCodeWalk:
       // found &i64`. `renderTerm` on THIS term already yields the right i64 code point either way
       // (`.toInt` on a char literal IS that code point) — only the CLASSIFICATION was missing, not
       // the rendering.
+      // `val q = content.charAt(i); … content.indexOf(q.toInt, i + 1)` (`uniml/markdown`'s
+      // `MarkdownInlines.scala`'s HTML-attribute-value scan) — the SAME `.toInt`-on-a-char shape
+      // just above, but the receiver is a NAME bound from `.charAt()` (`yieldsSscChar`), not a
+      // literal — the literal-only guard never matched it, so the needle rendered as a raw i64
+      // (`.toInt`'s own OTHER render case, `crate::runtime::_to_int(&q)`, correct in isolation)
+      // fed straight into a `&str` pattern position: `error[E0308]: expected &str, found &i64`.
+      case m.Term.Select(recv, m.Term.Name("toInt")) if yieldsSscChar(recv, ctx) => true
       case m.Term.Select(_: m.Lit.Char, m.Term.Name("toInt")) => true
       case m.Term.Name(n) =>
         _defBodies.get(n).exists(_.decltpe match { case Some(m.Type.Name("Char")) => true; case _ => false }) ||
@@ -12444,7 +12451,31 @@ object RustCodeWalk:
         // `char`, not the raw `i64` code point this lane's `Char` convention gives every OTHER
         // position. Reads the CURRENT def's own raw params off `_defBodies`, keyed by `ctx.defName`.
         _defBodies.get(ctx.defName).exists(_.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
-          .exists(p => p.name.value == n && (p.decltpe match { case Some(m.Type.Name("Char")) => true; case _ => false })))
+          .exists(p => p.name.value == n && (p.decltpe match { case Some(m.Type.Name("Char")) => true; case _ => false }))) ||
+        // `val open2 = content.charAt(i); val close2 = if open2 == '(' then ')' else open2` then
+        // `content.indexOf(close2, i + 1)` (`uniml/markdown`'s `MarkdownInlines.scala`'s
+        // `linkOrImage`'s destination-title scan) — `close2` is a LOCAL VAL bound to an if/else
+        // between a `Lit.Char` and `open2` (itself SscChar, `.charAt`-bound), so it is genuinely
+        // "conceptually a char" but bound through NEITHER shape the two cases above check (not a
+        // niladic def, not the CURRENT def's own declared parameter) — the needle rendered as a
+        // raw `i64` fed straight into a `&str` pattern position: `error[E0308]: expected &str,
+        // found &i64`. Reads the CURRENT def's own top-level `val` declarations off `ctx.bodyStats`
+        // (the same table `inferCaptureType`'s callers already use for a local's own initializer
+        // shape) and recurses through `isConceptuallyChar` on each if/else arm — deliberately NOT a
+        // new `Ctx`-threaded collection like `localSscChars`: this asks the identical "conceptually
+        // char" question that function already answers, just one level of `if`/`else` indirection
+        // deeper, so no new bookkeeping is needed to keep it in sync.
+        ctx.bodyStats.collectFirst {
+          case v: m.Defn.Val if v.pats match {
+            case List(m.Pat.Var(m.Term.Name(vn))) => vn == n
+            case _                                => false
+          } => v.rhs
+        }.exists {
+          case ifx: m.Term.If =>
+            (ifx.thenp.isInstanceOf[m.Lit.Char] || isConceptuallyChar(ifx.thenp, ctx)) &&
+            (ifx.elsep.isInstanceOf[m.Lit.Char] || isConceptuallyChar(ifx.elsep, ctx))
+          case _ => false
+        }
       case _ => false)
 
   private def needsAnyCoercion(arg: m.Term, target: String, ctx: Ctx): Boolean =

@@ -4042,6 +4042,36 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(expected.findFirstIn(g).isDefined,
       s"a Vec-typed field destructured through a fixed-arity Vector sub-pattern must rewrite to an if-let + slice match, not refuse as an unknown ctor:\n$g")
 
+  test("a local val bound to an if/else of char-conceptual arms, and `.toInt` on a name (not just a literal), are both recognized as char-conceptual indexOf needles"):
+    // `val open2 = content.charAt(i); val close2 = if open2 == '(' then ')' else open2; …
+    // content.indexOf(close2, i + 1)` (`uniml/markdown`'s `MarkdownInlines.scala`'s
+    // `linkOrImage`'s destination-title scan) — `close2` is bound through neither shape
+    // `isConceptuallyChar`'s existing `Term.Name` cases check (not a niladic def, not the CURRENT
+    // def's own declared parameter), so the needle rendered as a raw `i64`: `error[E0308]:
+    // expected &str, found &i64`. And `val q = content.charAt(i); … content.indexOf(q.toInt, i +
+    // 1)` (`MarkdownInlines.scala`'s HTML-attribute-value scan) — the existing `.toInt`-on-a-char
+    // case only matched a LITERAL `Lit.Char` receiver, not a NAME bound from `.charAt()` (the
+    // identical shape, just through a binding instead of a literal): same `error[E0308]`.
+    val src =
+      """```scalascript
+        |def scanClose(content: String, i: Int): Int =
+        |  val open2 = content.charAt(i)
+        |  val close2 = if open2 == '(' then ')' else open2
+        |  content.indexOf(close2, i + 1)
+        |
+        |def scanAttr(content: String, i: Int): Int =
+        |  val q = content.charAt(i)
+        |  if q == '\'' || q == '"' then
+        |    content.indexOf(q.toInt, i + 1)
+        |  else -1
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("_str_index_of_from(&content, &(char::from_u32((close2) as u32).unwrap_or('\\u{FFFD}').to_string()), (i + 1i64))"),
+      s"close2 (an if/else-bound local, not a .charAt() call or literal) must be recognized as a char-conceptual needle:\n$g")
+    assert(g.contains("_str_index_of_from(&content, &(char::from_u32((crate::runtime::_to_int(&q)) as u32).unwrap_or('\\u{FFFD}').to_string()), (i + 1i64))"),
+      s"q.toInt (a NAME's .toInt, not a literal's) must be recognized as a char-conceptual needle:\n$g")
+
   test("a multi-use name in a bare if/else branch tail position gets the SAME clone-on-move safety a call argument already gets"):
     // `val trivia = if cut >= 0 then blankContent.substring(0, cut) else blankContent` / `val keep
     // = if cut >= 0 then blankContent.substring(cut) else ""` (`uniml/markdown`'s
