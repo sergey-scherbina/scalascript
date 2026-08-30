@@ -1190,6 +1190,12 @@ object Parser:
     val name = pat match
       case Pat.PBind(n, _) => n
       case Pat.PWild(_)    => "_caught"
+      // `case e: Throwable =>` — `parsePat` consumes the ascription itself (`parseConsPat`'s PType
+      // arm), so the `skipTypeAnn` branch below never sees it. The TYPE IS DISCARDED, same rule as
+      // that branch states: at Tier 0 the arm catches everything. Before these two arms the shape
+      // was refused as "binds one name" — which it does; the refusal was reading the wrapper.
+      case Pat.PType(_, Pat.PBind(n, _), _) => n
+      case Pat.PType(_, Pat.PWild(_), _)    => "_caught"
       case other           => throw ParseFail(Pat.posOf(other), "a `catch` arm binds one name at Tier 0")
     var t4 = t3
     if isPunct(peek(t4), ":") then
@@ -1204,7 +1210,17 @@ object Parser:
     // into the function body — the program then ran, printed nothing, and exited 0.
     var t7 = if braced then skipLayout(t6) else t6
     if braced && isPunct(peek(t7), "}") then t7 = t7.tail
-    (Expr.Try(body, name, handler, p), t7)
+    // `finally` — LOOKAHEAD ONLY. Layout is consumed only when the next word really is `finally`;
+    // otherwise `t7` is returned untouched, because in the indented form the DEDENT after the
+    // handler is what closes the enclosing `def` (the comment above, and the swallowed-file bug it
+    // records). The finalizer is a body like `try`'s own, so both the same-line and the indented
+    // spelling parse.
+    val tf = skipLayout(t7)
+    if isId(peek(tf), "finally") then
+      val (fin, t8) = parseBody(tf.tail)
+      (Expr.Try(body, name, handler, Some(fin), p), t8)
+    else
+      (Expr.Try(body, name, handler, None, p), t7)
 
   private def parseWhile(ts0: List[Tok], p: Pos): (Expr, List[Tok]) =
     val (c, t1) = parseExpr(ts0)

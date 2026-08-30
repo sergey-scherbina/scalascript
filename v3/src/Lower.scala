@@ -949,7 +949,33 @@ object Lower:
     case Expr.NamedArg(n, _, p) =>
       throw LowerFail(p, "a named argument '" + n + "' in a call whose signature is not known")
 
-    case Expr.Try(body, exn, handler, _) =>
+    // `finally` is DESUGARED HERE, once for both fronts, into nodes the IR already executes —
+    // no new instruction, no bridge or executor change. The shape:
+    //
+    //   { val $v = try (try body catch exn => handler) catch $e => { fin; __throw__($e) }
+    //     fin
+    //     $v }
+    //
+    // runs the finalizer exactly once on every path: body succeeds -> the trailing `fin`; body
+    // throws and the handler answers -> the trailing `fin`; the handler (or an uncaught rethrow)
+    // throws -> the OUTER catch runs `fin` and rethrows. The finalizer expression appears twice in
+    // the tree and executes once per path — the standard price of desugaring without a new
+    // instruction, paid AFTER every AST pass has already run (they saw `fin` once, on the node).
+    // Scala's rule that a throwing finalizer replaces the in-flight exception falls out of
+    // `__throw__` being the last statement of the outer handler.
+    case Expr.Try(body, exn, handler, Some(f), p) =>
+      val tag = p.line.toString + "_" + p.col.toString
+      val e2  = "$fin_e" + tag
+      val tv  = "$fin_v" + tag
+      val inner   = Expr.Try(body, exn, handler, None, p)
+      val rethrow = Expr.Block(List(Stmt.Exp(f)),
+                               Some(Expr.Call("__throw__", List(Expr.Name(e2, p)), p)), p)
+      val outer   = Expr.Try(inner, e2, rethrow, None, p)
+      val whole   = Expr.Block(List(Stmt.Val(tv, outer, false, p), Stmt.Exp(f)),
+                               Some(Expr.Name(tv, p)), p)
+      lower(whole, fns, classes, zeroArity, st0)
+
+    case Expr.Try(body, exn, handler, None, _) =>
       val (d, st1) = st0.fresh
       val (xr, st2) = st1.fresh
       val (bi, br, st3) = lower(body, fns, classes, zeroArity, st2)
@@ -1167,7 +1193,7 @@ object Lower:
       case Expr.Assign(n, v, p)              => Expr.Assign(n, go(v), p)
       case Expr.Update(a, i, v, p)           => Expr.Update(go(a), go(i), go(v), p)
       case Expr.Lambda(ps, b, p)             => Expr.Lambda(ps, selfCalls(b, ms.filter(m => !ps.exists(q => q.name == m))), p)
-      case Expr.Try(b, x, h, p)              => Expr.Try(go(b), x, go(h), p)
+      case Expr.Try(b, x, h, f, p)           => Expr.Try(go(b), x, go(h), f.map(go), p)
       case Expr.Interp(parts, xs, p)         => Expr.Interp(parts, xs.map(go), p)
       // A MARKER'S ARGUMENTS. The four walkers in THIS file run inside `Lower`, after the rewrite
       // pass, so a marker reaching them is already a defect — but they descend rather than throw,
@@ -2196,7 +2222,7 @@ object Lower:
     case Expr.MethodCall(r, _, as, _) => assignedFree(r, bound) ++ as.flatMap(a => assignedFree(a, bound))
     case Expr.NamedArg(_, v, _)   => assignedFree(v, bound)
     case Expr.Interp(_, xs, _)    => xs.flatMap(x => assignedFree(x, bound))
-    case Expr.Try(b, x, h, _)     => assignedFree(b, bound) ++ assignedFree(h, x :: bound)
+    case Expr.Try(b, x, h, f, _)  => assignedFree(b, bound) ++ assignedFree(h, x :: bound) ++ f.toList.flatMap(assignedFree(_, bound))
     case Expr.Lambda(ps, b, _)    => assignedFree(b, bound ++ ps.map(_.name))
     case Expr.Match(sc, arms, _) =>
       assignedFree(sc, bound) ++ arms.flatMap { a =>
@@ -2301,7 +2327,7 @@ object Lower:
         case Expr.MethodRef(r, n, p)      => Expr.MethodRef(go(r), n, p)
         case Expr.NamedArg(n, v, p)       => Expr.NamedArg(n, go(v), p)
         case Expr.Interp(parts, xs, p)    => Expr.Interp(parts, xs.map(go), p)
-        case Expr.Try(b, n, h, p)         => Expr.Try(go(b), n, go(h), p)
+        case Expr.Try(b, n, h, f, p)      => Expr.Try(go(b), n, go(h), f.map(go), p)
         case Expr.Lambda(ps, b, p)        => Expr.Lambda(ps, go(b), p)
         case Expr.Match(sc, arms, p)      =>
           Expr.Match(go(sc), arms.map(a => MatchArm(a.pat, a.guard.map(go), go(a.body))), p)
@@ -2737,7 +2763,7 @@ object Lower:
     var found = false
     mapDeep(e, x => { x match
       case Expr.Lambda(_, _, _) | Expr.Block(_, _, _) | Expr.Match(_, _, _) |
-           Expr.Try(_, _, _, _) | Expr.Handle(_, _, _) => found = true
+           Expr.Try(_, _, _, _, _) | Expr.Handle(_, _, _) => found = true
       case _ => ()
       x })
     found
@@ -2927,7 +2953,7 @@ object Lower:
       case Expr.While(c, b, p)          => Expr.While(go(c), go(b), p)
       case Expr.Assign(n, v, p)         => Expr.Assign(n, go(v), p)
       case Expr.Update(a, i, v, p)      => Expr.Update(go(a), go(i), go(v), p)
-      case Expr.Try(b, x, h, p)         => Expr.Try(go(b), x, go(h), p)
+      case Expr.Try(b, x, h, f, p)      => Expr.Try(go(b), x, go(h), f.map(go), p)
       case Expr.Interp(parts, xs, p)    => Expr.Interp(parts, xs.map(go), p)
       case Expr.Match(sc, arms, p) =>
         Expr.Match(go(sc), arms.map(a => MatchArm(a.pat, a.guard.map(go), go(a.body))), p)

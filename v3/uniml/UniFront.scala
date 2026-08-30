@@ -649,13 +649,16 @@ object UniFront:
 
     case U.Throw(v, s) => Expr.Call("__throw__", List(expr(v)), pos(s))
     case U.Try(b, handler, fin, s) =>
-      if fin.isDefined then no("`finally`", s)
+      // `finally` rides the node — the desugaring lives ONCE, in `Lower`, so both fronts print the
+      // same `(try …)` tree and front-diff can compare them. A `finally` WITHOUT a `catch` stays
+      // refused below, same as v3's own front ("`try` without `catch` is outside SSC3 core Tier 0").
+      val f = fin.map(expr)
       handler match
         case Some(U.PartialFn(arms, _)) if arms.length == 1 =>
           arms.head.pattern match
-            case U.PatVar(n, _)      => Expr.Try(expr(b), n, expr(arms.head.body), pos(s))
-            case U.PatTyped(U.PatVar(n, _), _, _) => Expr.Try(expr(b), n, expr(arms.head.body), pos(s))
-            case U.PatWild(_)        => Expr.Try(expr(b), "_caught", expr(arms.head.body), pos(s))
+            case U.PatVar(n, _)      => Expr.Try(expr(b), n, expr(arms.head.body), f, pos(s))
+            case U.PatTyped(U.PatVar(n, _), _, _) => Expr.Try(expr(b), n, expr(arms.head.body), f, pos(s))
+            case U.PatWild(_)        => Expr.Try(expr(b), "_caught", expr(arms.head.body), f, pos(s))
             case _ => no("a `catch` arm that is not a single binding", s)
         case _ => no("a `catch` with several arms or a non-literal handler", s)
 

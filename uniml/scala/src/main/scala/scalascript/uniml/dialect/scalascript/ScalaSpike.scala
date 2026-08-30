@@ -2462,8 +2462,14 @@ object SpikeParse:
         else parseExpr(c, 1).getOrElse(Node.Frame("spike.error", None, Vector.empty)) // a PartialFunction value
       kids += handler.withRole("try.catch")
     if isWord(c, "finally") then
+      // `finally` is a LAYOUT OPENER, for the same reason `try` is (the comment above): taking a
+      // single expression kept only the finalizer's FIRST statement and left the rest to the
+      // enclosing block — a two-println finalizer ran one println inside the try and one after it,
+      // and the try's own value was discarded as a statement. `try-multistmt-body` shape (3).
+      val finLine = c.peekLine
       c.advance() // `finally`
-      parseExpr(c, 1).foreach(f => kids += f.withRole("try.finally"))
+      if !c.eof && c.peekLine > finLine then kids += parseBlock(c, c.peekCol).withRole("try.finally")
+      else parseExpr(c, 1).foreach(f => kids += f.withRole("try.finally"))
     Node.Frame("spike.try", None, kids.result())
 
   // braceless `case P => B; …` arms (Scala 3 fewer-braces catch) → __pf => __pf match { arms } (spike.pfblock).

@@ -4284,3 +4284,49 @@ refusal for another. What it DID buy was four rows in `front-capability-gate` th
 (`std-os`, `std-os-doc-import`, `std-os-readline`, `cluster-connect`). The workaround was then spent
 in SSC3-13c, which is where varargs actually paid: `Dataset.of` is `def of[T](items: T*)` and the
 sixteen-element CAP is gone.
+
+## SSC3-16 — `finally`, desugared into nodes the IR already runs (claim `v3-try-finally`)
+
+**Landed.** The second of the four cheap slices the owner ordered on 2026-08-30. `finally` was one
+of the 24 Tier-0 refusals and the cheapest of the five groups the backlog's table splits them into
+— one case, `tests/conformance/try-multistmt-body.ssc`, and no rewrite needed.
+
+**NO NEW INSTRUCTION, and that was the whole design.** `Lower` desugars the four-part node into
+three-part ones it already lowers:
+
+```text
+  { val $v = try (try body catch exn => handler) catch $e => { fin; __throw__($e) }
+    fin
+    $v }
+```
+
+Every path runs the finalizer exactly once — body succeeds, the trailing `fin`; body throws and the
+handler answers, the trailing `fin`; the handler itself throws, the OUTER catch runs `fin` and
+rethrows. Scala's rule that a throwing finalizer REPLACES the in-flight exception is not coded for;
+it falls out of `__throw__` being the last statement of the outer handler. The price is that the
+finalizer expression appears TWICE in the tree, and it is paid after every AST pass has run — they
+each saw `fin` once, on the node, because the desugaring is in `Lower` and not in the parser.
+
+So neither the executor nor `BridgeV2` was touched, and the feature is on both lanes at once.
+
+**The parser half is a LOOKAHEAD, not a consume.** `finally` is checked for after `skipLayout(t7)`
+and the layout is only spent when the word is really there — in the indented spelling the DEDENT
+after the handler is what closes the enclosing `def`, which is the swallowed-file failure the
+comment above that line already records. Two `catch`-arm shapes had to be admitted on the way:
+`case e: Throwable =>` reaches the arm as `PType(_, PBind(n))` because `parsePat` eats the
+ascription itself, and was being refused as "binds one name" — which is exactly what it does. The
+type is discarded, the same rule the neighbouring branch already states.
+
+**Measured.** `v3/exec-gate.sh` GREEN (97 cases, both lanes agree), `v3/selftest.sh` GREEN,
+`v3/bridge-gate.sh` GREEN (7 programs), `v3/front-diff.sh` GREEN at 86/88 fixtures with 0
+disagreements — the two uniml-only fixtures left (`annotation-own-line`, `object-nested-class`) are
+the NEXT slice's own target, not a regression here. UniML 218/218. Corpus: **N = 276 / 379, DIFF 0,
+CRASH 0**, and `finally` is GONE from the refusal histogram, where the backlog's table had measured
+it at 1. Repo `smoke-ci` 117/118; the one red is `no-nul-in-sources` on
+`v1/runtime/backend/rust/…/RustCodeWalk.scala`, which fails the same way on `origin/main` and is
+already named in a sibling's release note.
+
+**WHAT IS STILL REFUSED, and neither is a gap this slice opened.** `try` with a `finally` and NO
+`catch` is refused by name at `parseTry` — a Tier-0 boundary that predates this work and is a
+decision to re-put, not a bug. And an early `return` out of a `try` body cannot skip the finalizer
+here for the simplest possible reason: `return` is not in Tier 0 at all (`unknown name 'return'`).

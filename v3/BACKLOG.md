@@ -11,7 +11,7 @@ backlog ("все это запланировать в беклог и делат
 claim(s), landed wave by wave; a stage does not start before the previous one's numbers are in:
 
 1. **(in flight)** the four cheap slices of 2026-08-30: abstract `val` in `extern class` (landed),
-   `finally`, lexer `@`, `extension` in `Lower`'s dispatch.
+   `finally` (landed, SSC3-16), lexer `@`, `extension` in `Lower`'s dispatch.
 2. **Rewrite-door R2–R4** — the markers (`Focus` 5, `direct` 3, `Prism` 1 = 9 cases), per
    `specs/60-compile-time-extension.md`; R1 landed. Closes
    `v3-a-marker-is-a-compile-time-rewrite-nothing-in-a-library-can-answer`.
@@ -186,7 +186,7 @@ refusals are five different questions:
 | markers | 9 | `Focus[Person](_.age)` (5, `lenses`, `optic-polish`), `direct[Option] { … }` (3, tagless direct style), `prism` (1) |
 | interpolators | 6 | `html` 4, `md` 1, `f` 1 — answered by the design above |
 | abstract `val` | 2 | `val name: String` with no value, `std/http.ssc:170` |
-| `finally` | 1 | `try`/`catch` are in the core, `finally` is not |
+| ~~`finally`~~ | ~~1~~ | **DONE, SSC3-16** — desugared in `Lower` into `try`/`catch` nodes the IR already runs |
 | other | 1 | a handler expression in `std-ui-jobpanel` |
 
 **THE MARKERS ARE MACRO-SHAPED, WHICH IS WHY THEY ARE REFUSED BY NAME.** `Focus[T](_.field)` must
@@ -194,8 +194,8 @@ become a lens over a named field and `direct[F] { x = … }` must become a flatM
 COMPILE-TIME REWRITES, not runtime features, so no amount of library code answers them. That is a
 front feature to design, and the largest single group of the five.
 
-**CHEAPEST OF THE REST:** `finally` and the abstract `val` are three cases between them and neither
-needs a rewrite. `html"…"` is deliberately NOT proposed for Tier 0 — the interpolator design covers
+**CHEAPEST OF THE REST:** `finally` and the abstract `val` were three cases between them and neither
+needed a rewrite — both have since landed (abstract `val`, then `finally` in SSC3-16). `html"…"` is deliberately NOT proposed for Tier 0 — the interpolator design covers
 it without putting markup into the language.
 
 ## v3's own front cannot lex `@` — two fixtures are uniml-only because of it

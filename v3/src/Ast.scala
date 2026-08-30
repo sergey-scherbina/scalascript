@@ -108,7 +108,11 @@ enum Expr:
   case Apply(fn: Expr, args: List[Expr], pos: Pos)
   case Match(scrut: Expr, arms: List[MatchArm], pos: Pos)
   case Lambda(params: List[Param], body: Expr, pos: Pos)
-  case Try(body: Expr, exn: String, handler: Expr, pos: Pos)
+  /** `try body catch case exn => handler [finally fin]`. The finalizer is OPTIONAL and carried on
+    * the node rather than desugared in a front: the rule lives once, in `Lower`, and both fronts
+    * print the same tree — the same reason `until`/`to` stay operators here (front-diff found the
+    * drift when one front desugared and the other did not). */
+  case Try(body: Expr, exn: String, handler: Expr, fin: Option[Expr], pos: Pos)
 
 /** Patterns, Tier 0. Constructor arguments are a binder or a wildcard — NESTED patterns are
   * refused by name rather than half-supported, because a half-supported pattern silently matches
@@ -312,7 +316,7 @@ object Expr:
     case Apply(_, _, p)   => p
     case Match(_, _, p)   => p
     case Lambda(_, _, p)  => p
-    case Try(_, _, _, p)  => p
+    case Try(_, _, _, _, p) => p
 
   /** THE DEEP EXPRESSION WALKER — children rebuilt first, then `f` applied to the result.
     *
@@ -365,7 +369,7 @@ object Expr:
       case Expr.Handle(b, arms, p)      => Expr.Handle(go(b), arms.map(a => a.copy(body = go(a.body))), p)
       case Expr.Resume(k, v, p)         => Expr.Resume(k, go(v), p)
       case Expr.Lambda(ps, b, p)        => Expr.Lambda(ps, go(b), p)
-      case Expr.Try(b, x, h, p)         => Expr.Try(go(b), x, go(h), p)
+      case Expr.Try(b, x, h, f, p)      => Expr.Try(go(b), x, go(h), f.map(go), p)
       case Expr.Interp(parts, xs, p)    => Expr.Interp(parts, xs.map(go), p)
       case Expr.Match(sc, arms, p) =>
         Expr.Match(go(sc), arms.map(a => MatchArm(a.pat, a.guard.map(go), go(a.body))), p)
@@ -401,7 +405,7 @@ object Expr:
     mapDeep(e, x => {
       x match
         case Expr.Lambda(ps, _, _) => out = out ++ ps.map(_.name)
-        case Expr.Try(_, n, _, _)  => out = out + n
+        case Expr.Try(_, n, _, _, _) => out = out + n
         // PATTERN BINDERS, which this set did not carry when it served `checkArity` alone. `case
         // rows => …` binds `rows`, and a module-level `def rows` of the same name is a different
         // thing; leaving them out let both readers mistake the binder for the global.

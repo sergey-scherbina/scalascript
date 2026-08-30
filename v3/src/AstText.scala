@@ -142,7 +142,9 @@ object AstText:
     case Expr.Update(a, i, v, _) => sx("update", List(expr(a), expr(i), expr(v)))
     case Expr.Match(sc, arms, _) => sx("match", expr(sc) :: arms.map(arm))
     case Expr.Lambda(ps, b, _) => sx("lam", List(sx("params", ps.map(param)), expr(b)))
-    case Expr.Try(b, x, h, _)  => sx("try", List(expr(b), q(x), expr(h)))
+    // The finalizer prints as a FOURTH child only when present, so every existing tree stays
+    // byte-identical and front-diff sees a `finally` the day either front produces one.
+    case Expr.Try(b, x, h, f, _) => sx("try", List(expr(b), q(x), expr(h)) ++ f.map(expr).toList)
     // A block with NO statements and a result IS that result — `Block(Nil, Some(e))` and `e` mean
     // the same thing to every later phase. Printing them identically is a CANONICALISATION, not a
     // fudge: two fronts may legitimately differ on whether a one-expression body is wrapped, and a
