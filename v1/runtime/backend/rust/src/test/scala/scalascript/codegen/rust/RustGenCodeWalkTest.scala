@@ -4042,6 +4042,47 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(expected.findFirstIn(g).isDefined,
       s"a Vec-typed field destructured through a fixed-arity Vector sub-pattern must rewrite to an if-let + slice match, not refuse as an unknown ctor:\n$g")
 
+  test("a topval referencing an EARLIER SIBLING topval by bare name resolves, and the chain it builds (.split/.iterator/String.indexOf/.toMap) all lower correctly"):
+    // `val table: Map[String, String] = encoded.split(…).iterator.map { record => … }.toMap`
+    // (`uniml/markdown`'s `MarkdownEntitiesGenerated.scala`, referencing `private val encoded:
+    // String = "…"`, an earlier-declared SIBLING topval of the SAME object) — a compound bug, four
+    // separate gaps in one expression chain: (1) `encoded` itself was unresolved — a topval's own
+    // initializer is rendered standalone, with no `let name = init;` preamble from anywhere, so a
+    // sibling reference had nowhere to resolve (`error[E0425]`); (2) `.iterator` chained after
+    // `.split(sep)` fell to the generic field-access refusal, since `isKnownVecReceiver` never
+    // recognized `.split`'s OWN result as a Vec (`error[E0609]`); (3) the closure param `record`
+    // reached its body with no element type (same root cause as #2, in `elementTypeOf` this time),
+    // so `record.indexOf(controlChar.toInt)` — genuinely a String method — misrouted through the
+    // Vec-shaped `.indexOf` (`error[E0282]`); (4) `.toMap` over a genuine `Vec<(K, V)>` had no
+    // lowering of its own at all, only the identity case for a receiver ALREADY a Map.
+    val src =
+      """```scalascript
+        |object Entities:
+        |  private val encoded: String = "aXA bXB "
+        |
+        |  val table: Map[String, String] =
+        |    encoded
+        |      .split(' ')
+        |      .iterator
+        |      .map { record =>
+        |        val cut = record.indexOf('X'.toInt)
+        |        record.substring(0, cut) -> record.substring(cut + 1)
+        |      }
+        |      .toMap
+        |
+        |private def namedEntities: Map[String, String] = Entities.table
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("\"aXA bXB \".to_string().split("),
+      s"encoded must inline as its own already-rendered init text, not an unresolved bare name:\n$g")
+    assert(!g.contains(".iterator"),
+      s".iterator chained after .split(...) must lower as a no-op, not a bare field access:\n$g")
+    assert(g.contains("__h.find(__n)"),
+      s"record.indexOf(controlChar.toInt) must route through the Unicode-safe String.indexOf, not Vec.indexOf:\n$g")
+    assert(g.contains(".into_iter().collect::<std::collections::HashMap<_, _>>()"),
+      s"a genuine Vec<(K, V)>.toMap must build a real HashMap, not fall through unresolved:\n$g")
+
   test("a zero-arg METHOD read without parens, sharing its bare name with a genuine FIELD elsewhere, resolves precisely for a placeholder/indexing/call-result receiver"):
     // Three receiver shapes the name-only `_zeroArgDefNames` catch-all cannot help with once the
     // SAME bare name is ALSO a genuine struct FIELD somewhere else in the module (it refuses

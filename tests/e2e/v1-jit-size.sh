@@ -1031,10 +1031,23 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # `dynTraitNameOfRustType`/`_structZeroArgMethods` lookup already established just above, applied
 # to a receiver SHAPE neither existing precise case covered. Re-verified uniml/xml, uniml/json,
 # and uniml/yaml all still build clean (0 errors).
+# renderTerm 40788 -> 40836 (+48), continuing the same backlog, 38 -> 37 (one E0425 compound bug
+# fully cleared: `MarkdownEntitiesGenerated.scala`'s `table`/`namedEntities`, four separate
+# lowering gaps entangled in one expression chain — `encoded.split(sep).iterator.map { record =>
+# … record.indexOf(controlChar.toInt) … }.toMap`). Three of the four fixes live OUTSIDE
+# `renderTerm`'s own match (`contentTopVals`'s sibling-topval `loopCtx` accumulation,
+# `isKnownVecReceiver`'s and `elementTypeOf`'s new `.split` cases, `isConceptuallyChar`'s new
+# `Lit.Char.toInt` case) and cost nothing here. The ONE inline arm is a genuine Vec-of-tuples
+# `.toMap` -> `.into_iter().collect::<HashMap<_, _>>()` conversion, the growth — placed AHEAD of
+# the generic no-paren refusal a few lines below it (not after, where a first attempt put it and
+# a real `cargo build` immediately proved dead: widening `isKnownVecReceiver` to recognize
+# `.split` made that SAME receiver satisfy the refusal's own guard too, and match order means
+# whichever comes first wins). Re-verified uniml/xml, uniml/json, and uniml/yaml all still build
+# clean (0 errors).
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-40788 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+40836 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

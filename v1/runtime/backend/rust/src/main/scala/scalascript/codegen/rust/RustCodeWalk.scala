@@ -1354,15 +1354,31 @@ object RustCodeWalk:
         case other              => List((other, owner))
       }
       val topStats: List[(m.Tree, Option[String])] = descend(topStats0, None)
+      // `val table: Map[String, String] = encoded.split(…)....toMap` (`uniml/markdown`'s
+      // `MarkdownEntitiesGenerated.scala`) referencing `encoded` (`private val encoded: String =
+      // "…"`), an EARLIER-DECLARED SIBLING topval of the SAME object — `ctx` here is the single
+      // fixed `ctx0` `collectTopVals` built once, `topVals = Nil` and never updated across this
+      // loop's iterations, so `encoded` reached `renderTerm` as a bare, unrecognized name and fell
+      // through to the generic identifier fallback: `error[E0425]: cannot find value encoded in
+      // this scope`. A topval's OWN initializer is rendered standalone (unlike an ordinary def
+      // body, it never gets a `let name = init;` preamble from anywhere), so a sibling reference
+      // has nowhere else to resolve. Accumulating each rendered `(name, init)` into a running
+      // `ctx.topVals` as the loop advances — and widening `bareNameOrNiladicCtor`'s existing
+      // `ctx.inLiftedFn` inlining (see its own comment: a lifted `fn` item can't see an outer
+      // `let` either, so it inlines the topval's stored init text) to the SAME "<topval>"
+      // `defName` sentinel this function's own `ctx0` carries — answers it with the identical,
+      // already-established mechanism, not a new one.
+      var loopCtx = ctx
       topStats.collect { case (v: m.Defn.Val, owner) => (v, owner) }.foreach { (v, owner) =>
         v.pats match
           case List(m.Pat.Var(m.Term.Name(name))) =>
-            renderTerm(v.rhs, ctx).foreach { init =>
+            renderTerm(v.rhs, loopCtx).foreach { init =>
               found += ((topValEmitName(name, owner), init))
               owner.foreach { o =>
                 _topValOwners += (name -> (_topValOwners.getOrElse(name, Set.empty) + o))
                 _topValInits += ((o, name) -> init)
               }
+              loopCtx = loopCtx.copy(topVals = loopCtx.topVals :+ (name -> init))
             }
           case _ => ()
       }
@@ -6020,6 +6036,17 @@ object RustCodeWalk:
     // `.isEmpty` (no-paren) fell to the generic "collection member" refusal.
     case m.Term.Apply.After_4_6_0(m.Term.Select(inner, m.Term.Name("take" | "drop")), args) if args.values.size == 1 =>
       elementTypeOf(inner, ctx)
+    // `encoded.split(' ').iterator.map { record => … }` (`uniml/markdown`'s
+    // `MarkdownEntitiesGenerated.scala`'s `table`) — UNLIKE `.filter`/`.take`/`.drop` just above
+    // (element-PRESERVING, so they recurse into the RECEIVER's own element type), `.split` always
+    // produces a `Vec<String>` regardless of what it is called on — the answer is fixed, not
+    // recursive. Without this, the `.map` closure's `record` parameter reached its body with no
+    // type, and `record.indexOf(...)` — genuinely a `String` method — fell to the Vec-shaped
+    // `.indexOf` case instead (`.iter().position(...)`, wrong for a `String` receiver):
+    // `error[E0282]: type annotations needed` (the Vec `.position` closure's own element type had
+    // nothing to infer from either).
+    case m.Term.Apply.After_4_6_0(m.Term.Select(_, m.Term.Name("split")), args) if args.values.size == 1 =>
+      Some("String")
     // `element.attrs` — a STRUCT FIELD access whose OWN declared type is `Vec<Attr>`
     // (`ctorNameOfExpr` on the qualifier resolves `element`'s ctor, then this reads the field's
     // type off THAT ctor's `fieldTypes` — the same two-step lookup `selectOrNiladicCtor`'s
@@ -7603,6 +7630,22 @@ object RustCodeWalk:
     case m.Term.Select(qual, m.Term.Name(meth))
         if isKnownStringField(qual, ctx) && Set("nonEmpty", "isEmpty").contains(meth) =>
       renderTerm(qual, ctx).map(q => if meth == "isEmpty" then s"$q.is_empty()" else s"!$q.is_empty()")
+
+    // `….map { record => … key -> value }.toMap` (`uniml/markdown`'s `MarkdownEntitiesGenerated.
+    // scala`'s `table`) — a GENUINE Vec-to-Map conversion, distinct from the identity `.toMap` case
+    // a few hundred lines down (which only fires when the receiver is ALREADY a Map). Widening
+    // `isKnownVecReceiver` to recognize `.split(sep)` (this session's own fix, needed so `.iterator`
+    // chained after it stops refusing too) meant this exact receiver shape now ALSO satisfies the
+    // generic no-paren refusal a few lines down — `.toMap` would be caught there FIRST and hard-
+    // refused ("the rust backend has no lowering for it") before ever reaching a `.toMap`-specific
+    // case placed downstream of it, the SAME "case added after a total fallback is dead code"
+    // ordering trap this file's `.mkString` case already ran into once (see ITS own comment).
+    // MUST live here, ahead of that refusal, for exactly that reason. Rust's `HashMap` builds
+    // directly from a `(K, V)` iterator via `FromIterator`, so `.into_iter().collect()` is the
+    // exact equivalent — annotated `::<std::collections::HashMap<_, _>>()` since nothing else at
+    // this call site fixes the target type.
+    case m.Term.Select(qual, m.Term.Name("toMap")) if isKnownVecReceiver(qual, ctx) =>
+      renderTerm(qual, ctx).map(q => s"$q.into_iter().collect::<std::collections::HashMap<_, _>>()")
 
     case m.Term.Select(qual, m.Term.Name(meth))
         if (isKnownVecReceiver(qual, ctx) || isStringExpr(qual)) && !isTupleAccessor(meth) =>
@@ -10772,6 +10815,14 @@ object RustCodeWalk:
     // it — `tokens.iterator.map(…)` was judged NOT a known Vec, and the trailing bare `.mkString`
     // fell to the generic no-paren refusal.
     case m.Term.Select(q, m.Term.Name("iterator")) => isKnownVecReceiver(q, ctx)
+    // `encoded.split(' ').iterator.map { … }` (`uniml/markdown`'s
+    // `MarkdownEntitiesGenerated.scala`'s `table`) — `.split` is a STRING method (not a Vec-to-Vec
+    // combinator like the alternation just above, which all recurse INTO an already-known Vec),
+    // but its RESULT is a genuine `Vec<String>` — the one-arg `.split` case elsewhere in this file
+    // already renders it as one. Without this, `.split(sep).iterator` was judged NOT a known Vec,
+    // so `.iterator` fell through to the generic field-access refusal a few hundred lines down:
+    // `error[E0609]: no field iterator on type Vec<String>`.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(_, m.Term.Name("split")), args) if args.values.size == 1 => true
     // `segs.iterator.zipWithIndex.map { (s, idx) => … }.mkString` (`uniml/markdown`'s
     // `MarkdownBlocks.scala`'s `emitSetextUnderline`) — SAME gap as `.iterator` just above,
     // for a SECOND no-arg (parenthesis-free) combinator: `.zipWithIndex` changes the ELEMENT
@@ -12206,6 +12257,17 @@ object RustCodeWalk:
    *  `false` for every def, always. */
   private def isConceptuallyChar(t: m.Term, ctx: Ctx): Boolean =
     yieldsSscChar(t, ctx) || (t match
+      // `record.indexOf(controlChar.toInt)` (`uniml/markdown`'s `MarkdownEntitiesGenerated.scala`'s
+      // `table`) — Java/Scala's `String.indexOf(ch: Int)` overload searches for the CHARACTER whose
+      // CODE POINT equals the given int, so `controlChar.toInt` is semantically identical to the bare
+      // char `''` as a needle — just spelled through an explicit widening. The one-arg
+      // `.indexOf`/`.lastIndexOf` cases' own `needleIsChar` check only recognized a bare `Lit.Char`
+      // or this function's OTHER cases, none of which matched `Lit.Char.toInt`: the needle rendered
+      // as a raw `i64` fed straight into a `&str` pattern position, `error[E0308]: expected &str,
+      // found &i64`. `renderTerm` on THIS term already yields the right i64 code point either way
+      // (`.toInt` on a char literal IS that code point) — only the CLASSIFICATION was missing, not
+      // the rendering.
+      case m.Term.Select(_: m.Lit.Char, m.Term.Name("toInt")) => true
       case m.Term.Name(n) =>
         _defBodies.get(n).exists(_.decltpe match { case Some(m.Type.Name("Char")) => true; case _ => false }) ||
         // `private def isHandleChar(value: Char): Boolean = ... "!$&'()*+,;=".contains(value)`
@@ -13497,7 +13559,12 @@ object RustCodeWalk:
     // `let` binding is invisible from in here, so this INLINES the topval's own init text instead
     // of naming it, which a nested `fn` item CAN always see (it is a fresh literal/expression, not
     // a capture of anything).
-    if ctx.inLiftedFn then
+    // `ctx.defName == "<topval>"` — the SAME inlining `ctx.inLiftedFn` uses just below, widened to
+    // a topval's OWN initializer (`contentTopVals`'s `loopCtx`, threading each SIBLING topval
+    // rendered so far — see its own comment): that render, like a lifted `fn` item's, never gets a
+    // `let name = init;` preamble from anywhere else, so a sibling reference has nowhere else to
+    // resolve either.
+    if ctx.inLiftedFn || ctx.defName == "<topval>" then
       ctx.topVals.find(_._1 == n) match
         case Some((_, init)) => init
         case None            => bareNameOrNiladicCtorTail(n, ctx)
@@ -13595,20 +13662,33 @@ object RustCodeWalk:
       // (see `_topValOwners`'s own comment), and without this check a `DialectRegistry.empty`
       // reference could resolve through `TreeVm`'s unrelated same-named val instead.
       //
-      // `collectTopVals` renders EVERY topval's own init through `ctx0` (`topVals = Nil`, no
-      // preamble mechanism at all — see its own comment), so `XmlLimits`'s `val default =
-      // XmlLimits()` filling its `core` field from `Limits.default` reaches this SAME case while
-      // ctx carries no such local to bind to. INLINE the referenced topval's own already-rendered
-      // init text instead of a name reference — well-defined because `_topValInits` only ever
-      // holds an EARLIER-declared topval's text by the time a later one's init is being rendered
-      // (Scala's own `val` evaluation order forbids the reverse), so the lookup always hits.
+      // `collectTopVals` renders EVERY topval's own init through a `ctx` this function's own loop
+      // builds up as it goes (`contentTopVals`'s `loopCtx` — no PREAMBLE mechanism at all, see its
+      // own comment), so `XmlLimits`'s `val default = XmlLimits()` filling its `core` field from
+      // `Limits.default` reaches this SAME case while ctx carries no such LOCAL to bind to. INLINE
+      // the referenced topval's own already-rendered init text instead of a name reference —
+      // well-defined because `_topValInits` only ever holds an EARLIER-declared topval's text by
+      // the time a later one's init is being rendered (Scala's own `val` evaluation order forbids
+      // the reverse), so the lookup always hits.
+      //
+      // WAS additionally gated on `ctx.topVals.isEmpty`, back when `ctx0.topVals` was hardcoded
+      // `Nil` and NEVER updated across the loop — so "empty" was actually just a roundabout proxy
+      // for "we are inside collectTopVals's own rendering", true unconditionally, every single
+      // time. Once `loopCtx` started accumulating each SIBLING topval it renders (needed so `val
+      // table = encoded.split(…)` — `uniml/markdown`'s `MarkdownEntitiesGenerated.scala` — could
+      // see `encoded`, an EARLIER sibling, by NAME instead of only by this qualified-select path),
+      // `ctx.topVals` stopped being empty from the second topval on, and this case silently quit
+      // firing for `Limits.default` referenced by `XmlLimits.default` (declared later): the
+      // regression a real `cargo build` on the "two companion objects" regression test itself
+      // caught. `ctx.defName == "<topval>"` alone is the actual, direct signal this case always
+      // needed — no def outside `collectTopVals`'s own loop is ever named that.
       //
       // `ctx.inLiftedFn` — the SAME inline, for the SAME reason (no visible preamble), for a
       // QUALIFIED topval reference (`XmlDialect.id`) inside a lifted local `fn` item
       // (`eofDiagnostic`, `uniml/xml`'s `Doc.scala`'s `scan`) — `Ctx.inLiftedFn`'s own comment has
       // the E0434 story; `bareNameOrNiladicCtor`'s twin case handles the UNQUALIFIED spelling.
       case m.Term.Name(enumName)
-          if (ctx.inLiftedFn || (ctx.topVals.isEmpty && ctx.defName == "<topval>")) &&
+          if (ctx.inLiftedFn || ctx.defName == "<topval>") &&
              _topValInits.contains((enumName, field)) =>
         _topValInits((enumName, field))
       case m.Term.Name(enumName) if _topValOwners.get(field).exists(_.contains(enumName)) =>
