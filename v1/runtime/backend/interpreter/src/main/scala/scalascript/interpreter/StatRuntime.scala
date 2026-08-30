@@ -439,7 +439,18 @@ private[interpreter] object StatRuntime:
       val paramDefaults = params.map(_.default)
       val typeName = d.name.value
       val ctorEnv = envView
-      interp.typeFieldOrder(typeName) = paramNames
+      // A class-body `val` (declared on its own line, NOT a constructor parameter) is a real
+      // per-instance field too — e.g. `class C(n: Int): val doubled = n * 2`. Its NAME is fixed
+      // for the whole class (like a param's), so it belongs in `typeFieldOrder` alongside the
+      // params — `resolveField`'s index lookup (DispatchRuntime) and pattern-matching/derives
+      // (PatternRuntime, DerivesRuntime) all key off this list, not off any one instance's own
+      // `fieldNames`. `typeFieldTypes`/`typeFieldSchemas` (JSON-schema / OpenAPI / derives type
+      // metadata) are deliberately NOT extended here — inferring a val's type without an explicit
+      // annotation is real, separate work; derives/OpenAPI output for a class that mixes
+      // constructor params with body vals may show incomplete metadata until that's done.
+      val valFieldStats: List[Defn.Val] = d.templ.body.stats.collect { case v: Defn.Val => v }
+      val valFieldNames: List[String] = valFieldStats.flatMap(v => v.pats.flatMap(PatternRuntime.patVarNames))
+      interp.typeFieldOrder(typeName) = paramNames ++ valFieldNames
       interp.typeFieldTypes(typeName) = params.map(p =>
         p.decltpe.fold("String")(interp.typeToString)
       )
@@ -460,18 +471,43 @@ private[interpreter] object StatRuntime:
       DerivesRuntime.registerMirror(typeName, env, interp)
       interp.parentTypes.get(typeName).foreach(parent => DerivesRuntime.registerMirror(parent, env, interp))
       val classTag = interp.typeTagFor(typeName)
+      // Evaluated PER INSTANCE, not once at class-declaration time (unlike the name list above):
+      // a val's RHS can reference the constructor's own parameters, whose VALUES differ per
+      // instance even though the val's NAME is the same for the whole class — exactly like a real
+      // constructor body. It used to be silently dropped entirely: only `Defn.Def` members were
+      // collected from the class body, so `doubled` was never evaluated and reading it from ANY
+      // method (even the only one that exists) threw `Undefined: doubled`
+      // (interp-class-body-val-field-undefined-in-a-sibling-method).
+      def withValFields(inst: Value.InstanceV): Value.InstanceV =
+        if valFieldStats.isEmpty then inst
+        else
+          val scratch = mutable.Map.from(ctorEnv.toMap)
+          val names = inst.fieldNames
+          val vals  = inst.fieldsArr
+          if names != null && vals != null then
+            var i = 0
+            while i < names.length do
+              scratch(names(i)) = vals(i)
+              i += 1
+          valFieldStats.foreach(v => StatRuntime.execStat(v, scratch, false, interp))
+          val baseNames  = Option(inst.fieldNames).getOrElse(Array.empty[String])
+          val baseValues = Option(inst.fieldsArr).getOrElse(Array.empty[Value])
+          inst.fieldNames = baseNames ++ valFieldNames.toArray
+          inst.fieldsArr  = baseValues ++ valFieldNames.map(n => scratch.getOrElse(n, Value.UnitV)).toArray
+          inst
       val classFallbackCtor: List[Value] => Computation = args => {
         val filled = interp.applyDefaults(paramNames, paramDefaults, args, ctorEnv)
         val inst = Value.InstanceV(typeName.intern(), Map.empty)
         inst.fieldsArr  = filled.toArray
         inst.fieldNames = paramNames.toArray
         inst.typeTag = classTag
-        Pure(inst)
+        Pure(withValFields(inst))
       }
       val noDefaults = paramDefaults.forall(_.isEmpty)
       val ctorFn: Value.NativeFnV = if noDefaults then
         Value.NativeFnV(typeName, args =>
-          constructNoDefaultInstanceOrFallback(typeName, paramNames, args, classTag, classFallbackCtor))
+          constructNoDefaultInstanceOrFallback(typeName, paramNames, args, classTag, classFallbackCtor)
+            .map { case i: Value.InstanceV => withValFields(i); case other => other })
       else
         // Record defaults so callValueNamed can fill omitted fields in named-arg
         // construction (the ctor NativeFnV drops names, so a partial named call

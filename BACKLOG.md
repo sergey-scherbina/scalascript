@@ -70,6 +70,19 @@ itself scopes out of the first slice — queued here rather than attempted in th
   which line actually gets reached. The underlying JS codegen defect (a reserved word used as a
   `val`-tuple name isn't escaped, though the identical shape in a lambda PARAMETER's destructuring
   correctly is) remains open and filed; only `std/aggregator.ssc`'s own usage was renamed.
+  Also found, and now fixed (claim `interp-class-body-val-field`, 2026-08-30): a class-body `val`
+  field (not a constructor parameter — `HLLAgg`'s `hllMonoid`/`m`) threw `Undefined: <name>` when
+  read from a different method of the same class — the class-body scan collected only `Defn.Def`
+  members, so a `Defn.Val` statement was silently dropped and its name never reached the per-instance
+  field array or `typeFieldOrder` (the type-level registry external field access, pattern matching,
+  and `derives` all key off). Fixed in `StatRuntime.scala`'s `Defn.Class` case: body `val`s are now
+  evaluated per instance (their RHS can reference constructor params, so — unlike the name list —
+  this can't be done once at class-declaration time) and appended to both the instance's field array
+  and `typeFieldOrder`. `HLLAgg`'s `hllMonoid`/`m` are ordinary `val`s again, no `def` workaround
+  needed. Verified: 1898/1898 `backendInterpreter` sbt tests pass, 118/118 smoke-ci checks green,
+  `std-aggregator`/`std-aggregator-approx`/`std-order` conformance unchanged (still `int`-green).
+  The other v1-interpreter bug found alongside it, `array-tabulate-lambda-loses-a-sibling-top-level-
+  def-cross-module`, remains open.
 - **§7's `Group`-backed sliding window — DONE** (claim `aggregator-sliding-window`, 2026-08-29).
   `GroupAggregator`/`SlidingWindow`/`emptyWindow` ship in `std/aggregator.ssc`; `push` retracts the
   aging-out element via `inverse` in O(1) once the window is full. Found landing it, and this is the

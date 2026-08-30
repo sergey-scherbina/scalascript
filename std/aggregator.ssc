@@ -382,8 +382,8 @@ def trailingRank(w: Int): Int =
   count
 
 class HLLAgg[In](precision: Int, hash: In => Int) extends ApproxAggregator[In, HLLAcc, Double]:
-  def hllMonoid: HLLMonoid = HLLMonoid(precision)
-  def m: Int = 1 << precision
+  val hllMonoid: HLLMonoid = HLLMonoid(precision)
+  val m: Int = 1 << precision
   def monoid: Monoid[HLLAcc] = hllMonoid
   def errorBound: Double = 1.04 / math.sqrt(m.toDouble)
   def prepare(in: In): HLLAcc =
@@ -414,18 +414,16 @@ of the true 6000-element union) — the property that makes it usable across rea
 
 Two v1-interpreter-specific defects found landing `HLLAgg`, both isolated to minimal repros
 unrelated to aggregators or hashing: a class-body `val` field (declared on its own line, not a
-constructor parameter — `hllMonoid`/`m` originally) throws `Undefined: <name>` when read from a
-*different* method of the same class, even in a single file with no import at all; and a top-level
-sibling `def` called from *inside* a lambda passed to `Array.tabulate` throws `Undefined: <name>`,
-but only when the calling class is imported from a different module (identical code in one file
-works). Neither reproduces on `int`/`native`'s conformance-passing lanes; both are filed:
-`v1/runtime/backend/interpreter/BUGS.md`
-`class-body-val-field-undefined-in-a-sibling-method` and
-`array-tabulate-lambda-loses-a-sibling-top-level-def-cross-module`. `HLLAgg` uses `def` instead of
-`val` for `hllMonoid`/`m` (recomputed per access — cheap here, no state worth caching) as the
-workaround for the first; `CMSMonoid.add` (below) works around the second by building a plain copy
-via `Array.tabulate` (no sibling call inside that lambda, confirmed safe) and mutating the target
-cell in an ordinary `for` loop instead of computing the hash inside `Array.tabulate`'s own lambda.
+constructor parameter) used to throw `Undefined: <name>` when read from a *different* method of the
+same class, even in a single file with no import at all — **fixed**
+(`v1/runtime/backend/interpreter/BUGS.md` `class-body-val-field-undefined-in-a-sibling-method`);
+`hllMonoid`/`m` are ordinary `val`s again, as originally designed. And a top-level sibling `def`
+called from *inside* a lambda passed to `Array.tabulate` throws `Undefined: <name>`, but only when
+the calling class is imported from a different module (identical code in one file works) — still
+open (`array-tabulate-lambda-loses-a-sibling-top-level-def-cross-module`); `CMSMonoid.add` (below)
+works around it by building a plain copy via `Array.tabulate` (no sibling call inside that lambda,
+confirmed safe) and mutating the target cell in an ordinary `for` loop instead of computing the
+hash inside `Array.tabulate`'s own lambda.
 
 ### Count-Min Sketch — approximate frequency / top-K
 

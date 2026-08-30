@@ -388,10 +388,14 @@ gave a 54% cardinality error on 10,000 known-distinct keys — measured, not ass
 derive from individual bits of the hash). Running MurmurHash3's 64-bit finalizer (`fmix64`) over
 `strHash`'s output brought the same test down to 1.2% error. `HLLAgg` in `std/aggregator.ssc` also
 found two v1-interpreter-specific defects landing this — a class-body `val` field unreadable from a
-sibling method (worked around with `def`), and `Array.tabulate`'s lambda losing a sibling top-level
-`def` cross-module (worked around by hoisting the hash computation out of the lambda) — both filed
-in `v1/runtime/backend/interpreter/BUGS.md`, both reproduced with a minimal example unrelated to
-hashing or aggregators at all.
+sibling method, and `Array.tabulate`'s lambda losing a sibling top-level `def` cross-module (worked
+around by hoisting the hash computation out of the lambda) — both filed in
+`v1/runtime/backend/interpreter/BUGS.md`, both reproduced with a minimal example unrelated to
+hashing or aggregators at all. **The class-body-val bug is now fixed**
+(`class-body-val-field-undefined-in-a-sibling-method`): a class body's own statements were scanned
+for methods only, so a `Defn.Val` was silently dropped and its name never reached the per-instance
+field array or the type's field-order registry. `hllMonoid`/`m` are ordinary `val`s again, as
+originally designed, no `def` workaround needed. The `Array.tabulate` cross-module bug remains open.
 
 ### 6.2 Count-Min Sketch — approximate frequency / top-K
 
