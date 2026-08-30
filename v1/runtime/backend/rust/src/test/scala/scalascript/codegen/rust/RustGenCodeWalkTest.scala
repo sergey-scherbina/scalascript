@@ -3461,6 +3461,30 @@ class RustGenCodeWalkTest extends AnyFunSuite:
       && g.contains("if !lexeme.is_empty()"),
       s"a captured var's tuple-string positions must flow through a bare-name alias and a .foreach destructure:\n$g")
 
+  test("`vec.updated(index, elem)` replaces the element at that INDEX, not a Map-style insert-by-key"):
+    // `out.updated(out.size - 1, last.copy(instruction = rewritten))` (`uniml/markdown`'s
+    // `MarkdownBlocks.scala`'s `spliceSwallowedBreaks`) — the existing `.updated(index, elem)` case
+    // had no receiver-type guard at all and always rendered through `insertOwning` (`m2.insert(k,
+    // v)`) — correct for a Map's own insert-or-replace-by-KEY semantics (the shape this case was
+    // written for, still covered by the sibling test using `result.updated(member.name, member.
+    // value)`), but WRONG for a Vec: `Vec::insert` SHIFTS every later element over by one rather
+    // than replacing, a silent correctness bug whenever the index type happened to already be
+    // `usize`, and a compile error here since it never is (`error[E0308]: expected usize, found
+    // i64`). Fixed by checking `isKnownVecReceiver` and rendering an INDEX ASSIGNMENT
+    // (`m2[k as usize] = v`) instead — the correct Rust equivalent of "replace at this position".
+    val src =
+      """```scalascript
+        |case class VmToken(kind: String, instruction: Int)
+        |
+        |def replaceLast(out: Vector[VmToken], rewritten: Int): Vector[VmToken] =
+        |  val last = out(out.size - 1)
+        |  out.updated(out.size - 1, last.copy(instruction = rewritten))
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("m2[(((out.len() as i64) - 1i64)) as usize] = VmToken { instruction: rewritten, ..(last).clone() };"),
+      s"Vec.updated must replace at the given index, not fall to a Map-style .insert (which shifts elements):\n$g")
+
   test("a Vec closure param's element STRUCT type resolves through `.iterator` and through a captured var's own alias inside a lifted local def"):
     // `segs.iterator.map(s => s.content + s.ending)` where `val segs = paragraphSegs` inside
     // `finishParagraph`, a local def LIFTED out of `parse` (`uniml/markdown`'s

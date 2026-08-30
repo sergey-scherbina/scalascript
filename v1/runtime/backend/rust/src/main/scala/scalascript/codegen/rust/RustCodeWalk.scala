@@ -7972,6 +7972,18 @@ object RustCodeWalk:
           }
           s"Self { ${fields.mkString(", ")} }"
 
+    // `out.updated(out.size - 1, last.copy(instruction = rewritten))` (`uniml/markdown`'s
+    // `MarkdownBlocks.scala`'s `spliceSwallowedBreaks`) — a Vec RECEIVER's own `.updated(index,
+    // elem)` REPLACES the element AT that position; this case had no receiver-type guard at all and
+    // ALWAYS rendered through `insertOwning` (`m2.insert(k, v)`) — correct for a `Map`'s own
+    // insert-or-replace-by-KEY semantics, the shape this case was written for, but WRONG for a Vec:
+    // `Vec::insert` SHIFTS every later element over by one rather than replacing, a silent
+    // correctness bug whenever the index type happened to already be `usize`, and a compile error
+    // here since it never was (`Vec::insert`'s own signature wants `usize`, and this lane's indices
+    // are always `i64`): `error[E0308]: expected usize, found i64`. A genuine Vec receiver now
+    // renders an INDEX ASSIGNMENT instead (`m2[k as usize] = v`), the correct Rust equivalent of
+    // "replace the element at this position"; a Map receiver (or anything this lane cannot prove is
+    // a Vec) keeps the original `.insert(k, v)` unchanged.
     case m.Term.Apply.After_4_6_0(
       m.Term.Select(qual, m.Term.Name("updated")),
       args
@@ -7980,7 +7992,10 @@ object RustCodeWalk:
         q <- renderTerm(qual, ctx)
         k <- renderTerm(args.values(0), ctx)
         v <- renderTerm(args.values(1), ctx)
-      yield s"{\n    let mut m2 = $q.clone();\n    m2.${insertOwning(k, v)};\n    m2\n  }"
+      yield
+        if isKnownVecReceiver(qual, ctx) then
+          s"{\n    let mut m2 = $q.clone();\n    m2[($k) as usize] = $v;\n    m2\n  }"
+        else s"{\n    let mut m2 = $q.clone();\n    m2.${insertOwning(k, v)};\n    m2\n  }"
     case m.Term.Apply.After_4_6_0(
       m.Term.Select(qual, m.Term.Name("getOrElse")),
       args

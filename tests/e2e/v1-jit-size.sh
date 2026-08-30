@@ -962,10 +962,21 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # and out-of-range-answers-false contract every OTHER indexed String helper in this file already
 # uses) is the growth; the helper itself lives in the runtime template, not renderTerm, and costs
 # nothing here. Re-verified uniml/xml, uniml/json, and uniml/yaml all still build clean (0 errors).
+#
+# renderTerm 39736 -> 39740 (+4), continuing the same backlog, 51 -> 50. `out.updated(out.size - 1,
+# last.copy(instruction = rewritten))` (`MarkdownBlocks.scala`'s `spliceSwallowedBreaks`) — the
+# existing `.updated(index, elem)` case had no RECEIVER-TYPE guard at all and always rendered
+# through `insertOwning` (`m2.insert(k, v)`) — correct for a Map's own insert-or-replace-by-KEY
+# semantics, but WRONG for a Vec: `Vec::insert` SHIFTS elements rather than replacing one, a silent
+# correctness bug whenever the index type happened to already be usize and a compile error here
+# since it never is (`error[E0308]: expected usize, found i64`). A genuine Vec receiver now takes an
+# INDEX ASSIGNMENT (`m2[k as usize] = v`) instead — one new `if` branch inline in this arm's own
+# case, the growth. Re-verified uniml/xml, uniml/json, and uniml/yaml all still build clean (0
+# errors).
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-39736 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+39740 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF
