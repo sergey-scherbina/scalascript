@@ -3461,6 +3461,45 @@ class RustGenCodeWalkTest extends AnyFunSuite:
       && g.contains("if !lexeme.is_empty()"),
       s"a captured var's tuple-string positions must flow through a bare-name alias and a .foreach destructure:\n$g")
 
+  test("a local def lifted out of a mutable class's own method, calling ANOTHER self-method, must capture `__self` and call through it"):
+    // `fn isIndentedCode = ... self.startsListOrQuote(trimmed) ...` (`uniml/markdown`'s
+    // `MarkdownBlocks.scala`'s `parse`) — the METHOD-call twin of the ctor-param FIELD-capture fix
+    // in the sibling test just above. `startsListOrQuote(trimmed)` is written bare (Scala elides
+    // the receiver); the ordinary `Ctx.selfMethods` mechanism renders it `self.startsListOrQuote(…)`
+    // for an ORDINARY (un-lifted) method body — but `self` is not a NAME the Scala AST carries
+    // anywhere, so it cannot flow through `pool`/the ordinary named-capture mechanism the way a
+    // genuine local or self-FIELD does, and a Rust nested `fn` item (like the lifted `check` here)
+    // cannot capture `self` any more than a field: `error[E0434]: can't capture dynamic environment
+    // in a fn item`.
+    // `Ctx.liftedDefNeedsSelf` (new): a THIRD fixed point, parallel to `captures`/`writes`, detects
+    // whether a lifted def's transitive call subtree reaches a `self.method(...)` call; such a def
+    // receives an extra `__self: &SelfType` parameter (typed off `Ctx.selfTypeName`, threaded
+    // through `renderDef`'s new `ownTypeName`), and `Ctx.selfAlias` (`"__self"` while rendering that
+    // def's own body) redirects every self-method-call render site to call through it instead of
+    // the literal `self` a nested `fn` item does not have. The CALL SITE (still inside the
+    // enclosing, genuinely `self`-aware method) forwards the real `self` as the trailing argument.
+    val src =
+      """```scalascript
+        |class Scanner(threshold: Int):
+        |  def isLong(t: String): Boolean = t.length > threshold
+        |
+        |  def scan(text: String): Vector[String] =
+        |    var out: Vector[String] = Vector.empty
+        |
+        |    def check(t: String): Unit =
+        |      if isLong(t) then out = out :+ t
+        |
+        |    check(text)
+        |    out
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("fn check(t: String, out: &mut Vec<String>, __self: &Scanner) {") &&
+             g.contains("if __self.isLong(t.clone())"),
+      s"a lifted def calling ANOTHER self-method must capture __self and call through it, not through a nonexistent self:\n$g")
+    assert(g.contains("check(text, &mut out, self);"),
+      s"the CALL SITE (still inside the enclosing self-aware method) must forward the real self:\n$g")
+
   test("a local def lifted out of a mutable class's own method, capturing a ctor param, must NOT read that capture as `self.field`"):
     // `def emit(kind, lexeme, ...) = ... SourceSpan(source, start, pos) ...` lifted out of
     // `MarkdownBlocks`'s own `parse` (`uniml/markdown`'s `MarkdownBlocks.scala`) — `source` is a

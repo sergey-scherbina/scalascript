@@ -590,7 +590,8 @@ object RustCodeWalk:
       renderDef(d, intrinsics, userDefs, ctorMap, topVals, effectfulDefs, rustFnNamesInBlocks, ownFieldTypes,
                 structTparams.getOrElse(owner, Nil),
                 ownMethodNames = if isMutableOwner then classMethodNames.getOrElse(owner, Set.empty) else Set.empty,
-                trueSelf = isMutableOwner)
+                trueSelf = isMutableOwner,
+                ownTypeName = if isMutableOwner then Some(owner) else None)
         .map(g => (owner, classFieldNames.getOrElse(owner, Nil), classMethodNames.getOrElse(owner, Set.empty), d, g))
     }
     val (methodErrors, methodOk) = methodResults.partitionMap(identity)
@@ -3130,6 +3131,16 @@ object RustCodeWalk:
       // a mutable `var` — used only to pick how a capture is rendered when forwarded at a call site:
       // `ctx.byRefMut` says "already a reference here"; this set says "take a NEW `&mut` if not".
       liftedMutableCaptures: Set[String] = Set.empty,
+      // Lifted-def NAMES (across every def lifted together in one pass) whose transitive call
+      // subtree reaches a `self.method(...)` call — `fn isIndentedCode = ... self.
+      // startsListOrQuote(trimmed) ...`, a local def lifted out of `MarkdownBlocks`'s own `parse`
+      // (`uniml/markdown`'s `MarkdownBlocks.scala`). A Rust nested `fn` item cannot capture `self`
+      // any more than it can capture a field (`Ctx.trueSelfFields`'s own fix for THAT half of this
+      // gap), so such a def additionally receives a `__self: &SelfType` parameter (`liftLocalDefs`)
+      // — this set is what a lifted-def CALL SITE (both the ordinary `Term.Apply` case and the bare
+      // eta-expansion `Term.Name` case) reads to know it must append `self`/`ctx.selfAlias` as one
+      // more trailing argument, the same way `liftedDefExtraArgs` already does for named captures.
+      liftedDefNeedsSelf: Set[String] = Set.empty,
       // The enclosing def's OWN parameters, name -> already-mapped Rust type. Nothing in this
       // backend needed a local's TYPE as a standalone string before local-def lifting — Rust infers
       // an ordinary `let`, but a lifted def's captured-`var` parameter needs an explicit `&mut T` in
@@ -3219,6 +3230,18 @@ object RustCodeWalk:
       // neither changes anything about the mechanism they sit beside.
       trueSelfFields: Set[String] = Set.empty,
       selfMethods: Set[String] = Set.empty,
+      // The mutable class's OWN Rust type name — set alongside `trueSelfFields`/`selfMethods`
+      // (`renderDef`'s own `trueSelf` branch), used ONLY to type a lifted def's `__self: &$T`
+      // parameter (`Ctx.liftedDefNeedsSelf`'s own comment) when its transitive call subtree reaches
+      // a self-method call. `None` for every def that is not a genuinely mutable class's own method,
+      // matching `trueSelfFields`/`selfMethods`'s own empty-elsewhere convention.
+      selfTypeName: Option[String] = None,
+      // Set to the LIFTED DEF'S OWN new parameter name (`"__self"`) while rendering a lifted def
+      // that itself needed `Ctx.liftedDefNeedsSelf` — `self.method(...)` inside such a def's body
+      // has no `self` to read (a nested Rust `fn` item, unlike a closure, captures nothing), so the
+      // self-method-call render site substitutes THIS name instead of the literal `"self"`. `None`
+      // everywhere else, where a literal `self` is exactly right.
+      selfAlias: Option[String] = None,
       // Local name -> which positions of its `Option[(A, B)]` are known Strings — see
       // `collectLocalTupleStringPositions`'s own comment. Read by `tupleStringPositions` at a
       // `.foreach`/`.flatMap` dispatch site to type a `case (a, b) => …` closure's own binders.
@@ -3514,7 +3537,12 @@ object RustCodeWalk:
       // `bareNameOrNiladicCtor`) and `ownMethodNames` names render calls as `self.name(...)`
       // (`Ctx.selfMethods`) — true shared mutable state instead of a snapshot.
       ownMethodNames: Set[String] = Set.empty,
-      trueSelf: Boolean = false
+      trueSelf: Boolean = false,
+      // The owning mutable class's OWN Rust type name — threaded into `Ctx.selfTypeName` (see its
+      // own comment) purely so a local def lifted out of THIS method, if its body calls a self-
+      // method, can type its new `__self` parameter. `None` for every other call site (the vast
+      // majority — a free def or an ordinary case-class method never needs this).
+      ownTypeName: Option[String] = None
   ): Either[List[Diagnostic], GeneratedDef] =
     // SITE 1 — the definition. `object Tool: def text` emits as `fn Tool_text`, which is also what
     // makes the overloading refusal go away: that check groups on `GeneratedDef.name`, so two
@@ -3682,6 +3710,7 @@ object RustCodeWalk:
                         selfFields = ownFieldTypes.keySet,
                         trueSelfFields = if trueSelf then ownFieldTypes.keySet else Set.empty,
                         selfMethods    = if trueSelf then ownMethodNames else Set.empty,
+                        selfTypeName   = if trueSelf then ownTypeName else None,
                         localTupleStringPos = collectLocalTupleStringPositions(d.body),
                         // `default`/`setDefault` reach `MarkupCodec`'s own `_default` thread_local
                         // this way — `_defOwners` names the SAME owning object SITE 3 already keys
@@ -6079,6 +6108,32 @@ object RustCodeWalk:
             writes = writes.updated(name, merged)
             changedW = true
 
+      // A THIRD fixed point, parallel to `captures`/`writes`: does a def's TRANSITIVE call subtree
+      // reach a genuine `self.method(...)` call (`Ctx.selfMethods`)? `fn isIndentedCode = ... self.
+      // startsListOrQuote(trimmed) ...` (`uniml/markdown`'s `MarkdownBlocks.scala`'s `parse`) —
+      // `self` itself is not a NAME the Scala AST carries anywhere (`startsListOrQuote(trimmed)` is
+      // written bare, the implicit-receiver call `ctx.selfMethods` already recognizes for an
+      // ORDINARY method body), so it cannot flow through `pool`/`captures` the way a genuine local
+      // or self-FIELD does. Detected by scanning for an APPLIED call to a `ctx.selfMethods` name
+      // directly (not merely a free NAME, which would also catch an unrelated argument happening to
+      // share that name).
+      def callsSelfMethod(t: m.Tree): Boolean = t match
+        case m.Term.Apply.After_4_6_0(m.Term.Name(n), _) if ctx.selfMethods.contains(n) => true
+        case _ => t.children.exists(callsSelfMethod)
+      var needsSelf = localDefs.map { d =>
+        val viaOuterCalls = outerCalls(d.name.value).exists(ctx.liftedDefNeedsSelf.contains)
+        d.name.value -> (callsSelfMethod(d.body) || viaOuterCalls)
+      }.toMap
+      var changedS = true
+      while changedS do
+        changedS = false
+        for name <- defNames do
+          val merged = needsSelf(name) || callsOf(name).exists(callee => needsSelf.getOrElse(callee, false))
+          if merged != needsSelf(name) then
+            needsSelf = needsSelf.updated(name, merged)
+            changedS = true
+      val selfNeedingDefs: Set[String] = needsSelf.collect { case (n, true) => n }.toSet
+
       val baseCtx = propagatedCtx.copy(
         // Merged, not overwritten: `quotedSingle` (captured at `parse`'s own level) must stay
         // visible while rendering `flowParse`'s OWN nested lifts (`parseNode`, …) two levels down —
@@ -6086,6 +6141,7 @@ object RustCodeWalk:
         // lifted-def call at all, so they never got `diagnostics` appended:
         // `error[E0061]: this function takes 3 arguments but 2 arguments were supplied`.
         liftedDefExtraArgs    = ctx.liftedDefExtraArgs ++ orderedCaptures,
+        liftedDefNeedsSelf    = ctx.liftedDefNeedsSelf ++ selfNeedingDefs,
         liftedMutableCaptures = ctx.liftedMutableCaptures ++ allMutableCaptures,
         liftedDefDefaults     = ctx.liftedDefDefaults ++ localDefs.map { d =>
           d.name.value -> d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.default)
@@ -6160,6 +6216,13 @@ object RustCodeWalk:
             // captured," a different question from "what does THIS specific captured name mean inside
             // the lifted def's own body, now that it is a parameter."
             trueSelfFields = baseCtx.trueSelfFields -- myCaptures.toSet,
+            // `Ctx.liftedDefNeedsSelf`'s own comment has the full story: `d` here received its own
+            // `__self: &SelfType` parameter (a few lines below, in `allParams`) exactly when
+            // `selfNeedingDefs` says so, and a `self.method(...)` call INSIDE `d`'s own body — same
+            // reasoning as the field case just above — has no real `self` to read. `selfMethods`
+            // itself stays UNCHANGED (the call is still recognized as an implicit-receiver self-
+            // method call); only the NAME the render site substitutes changes.
+            selfAlias = if selfNeedingDefs.contains(d.name.value) then Some("__self") else None,
             // `def consumeKey(token: SourceToken, frame: ObjectFrame): Unit = … frame.copy(state =
             // …) …` (`uniml/json`'s `JsonStructure.scala`) — a LIFTED local def's OWN (non-captured)
             // parameters never populated `paramCtorNames` at all: the top-level `renderDef` builds
@@ -6260,8 +6323,16 @@ object RustCodeWalk:
             ret       <- renderReturnType(d, childCtx)
             bodyRs    <- renderBody(d.body, childCtx, isUnit = ret.isEmpty)
           yield
+            // `Ctx.liftedDefNeedsSelf`'s own comment: `d`'s OWN new parameter, typed off
+            // `ctx.selfTypeName` (set only when THIS whole lift originates from a genuinely mutable
+            // class's own method — `renderDef`'s `trueSelf`, the only case `selfNeedingDefs` can
+            // ever be non-empty in). Appended LAST, after the ordinary named captures, so it never
+            // shifts any existing capture's position — every call site (`Ctx.liftedDefNeedsSelf`'s
+            // own two render sites) appends its OWN argument last for the identical reason.
+            val selfParam =
+              if selfNeedingDefs.contains(d.name.value) then ctx.selfTypeName.map(t => s"__self: &$t") else None
             val allParams =
-              (List(ownParams) ++ List(captureParams.mkString(", "))).filter(_.nonEmpty).mkString(", ")
+              (List(ownParams) ++ List(captureParams.mkString(", ")) ++ selfParam.toList).filter(_.nonEmpty).mkString(", ")
             val sig = if ret.isEmpty then s"fn ${rustIdent(d.name.value)}($allParams)"
                       else               s"fn ${rustIdent(d.name.value)}($allParams) -> $ret"
             s"$sig {\n${indent(bodyRs)}\n}"
@@ -6585,8 +6656,13 @@ object RustCodeWalk:
             val (ferrs, fok) = fills.partitionMap(identity)
             if ferrs.nonEmpty then None else Some(ok ++ fok)
           case _ => Some(ok)
+        // `Ctx.liftedDefNeedsSelf`'s own comment: this WHOLE case fires unchanged inside a lifted
+        // def that captured `__self` too — `ctx.selfMethods` is inherited unchanged there on
+        // purpose (the call is still an implicit-receiver self-method call), only the receiver NAME
+        // needs to differ from the literal `self` a nested `fn` item does not have.
+        val recv = ctx.selfAlias.getOrElse("self")
         filled match
-          case Some(args2) => Right(s"self.${rustIdent(n)}(${args2.mkString(", ")})")
+          case Some(args2) => Right(s"$recv.${rustIdent(n)}(${args2.mkString(", ")})")
           case None        => Left(List(unsupported(
             s"def `${ctx.defName}` calls `self.$n(...)` with a default argument this lane could not render"
           )))
@@ -6668,6 +6744,13 @@ object RustCodeWalk:
           else if ctx.liftedMutableCaptures.contains(c) then s"&mut $selfPrefix$c"
           else s"$selfPrefix$c.clone()"
         }
+        // `Ctx.liftedDefNeedsSelf`'s own comment: appended LAST, matching where the callee's own
+        // `__self` parameter sits. `ctx.selfAlias` — set only while THIS call site is itself inside
+        // ANOTHER lifted def that also needed self (`emit` calling `track`, both lifted out of the
+        // same `parse`) — forwards that def's OWN `__self`, since a literal `self` would not exist
+        // there either; everywhere else (the ordinary, un-lifted enclosing method) `self` is exactly
+        // right.
+        val selfArg = if ctx.liftedDefNeedsSelf.contains(n) then List(ctx.selfAlias.getOrElse("self")) else Nil
         // `problem(code, msg, span)` — the caller omits the local def's OWN trailing default
         // (`severity: Severity = Severity.Error`); see `Ctx.liftedDefDefaults`'s own comment.
         val filledOk = ctx.liftedDefDefaults.get(n) match
@@ -6676,7 +6759,7 @@ object RustCodeWalk:
             val (ferrs, fok) = fills.partitionMap(identity)
             if ferrs.nonEmpty then ok else ok ++ fok
           case _ => ok
-        Right(s"$n(${(filledOk ++ extra).mkString(", ")})")
+        Right(s"$n(${(filledOk ++ extra ++ selfArg).mkString(", ")})")
 
     case m.Term.Name(n) =>
       // A top-level val (and given instance) is bound once as `let n = init;` in every
@@ -11130,7 +11213,7 @@ object RustCodeWalk:
         if ctx.byRefMut.contains(c) then s"$selfPrefix$c"
         else if ctx.liftedMutableCaptures.contains(c) then s"&mut $selfPrefix$c"
         else s"$selfPrefix$c.clone()"
-      }
+      } ++ (if ctx.liftedDefNeedsSelf.contains(n) then List(ctx.selfAlias.getOrElse("self")) else Nil)
       // NOT `move` — the closure is consumed synchronously within this one statement (`.for_each`/
       // `.map().collect()`/…), never stored or returned, so it only needs to BORROW its captures.
       // A `move` closure takes OWNERSHIP of anything it names even through `&mut`, which is exactly
@@ -12953,7 +13036,10 @@ object RustCodeWalk:
     // PARAMETERLESS method, called with no `()` at the use site, reaches here as a bare name
     // exactly like a field read does (no `Term.Apply` at all); the guarded `Term.Apply` case for a
     // self-method CALL (this function's neighbour a few hundred lines up) never sees this shape.
-    if ctx.selfMethods.contains(n) then s"self.${rustIdent(n)}()" else
+    // `Ctx.liftedDefNeedsSelf`'s own comment: the bare (zero-arg, no `Term.Apply`) twin of the
+    // guarded `self.method(...)` call case a few hundred lines up needs the same receiver swap
+    // inside a lifted def that captured `__self`.
+    if ctx.selfMethods.contains(n) then s"${ctx.selfAlias.getOrElse("self")}.${rustIdent(n)}()" else
     // `_default` read bare inside `def default: MarkupCodec = _default` — the twin of
     // `trueSelfFields` for a mutable field with no `self` at all (`renderMutableCompanionObject`'s
     // own comment). `.with(|c| c.borrow().clone())` is `thread_local!`'s own access idiom.
