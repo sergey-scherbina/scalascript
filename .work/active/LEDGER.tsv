@@ -1,4 +1,5 @@
-# generation: 3176
+# generation: 3177
 #slug	agent	started	items	paths
 js-method-ref-eta	claude-code	2026-08-30T13:55:36Z	js-codegen-method-reference-in-argument-position-is-invoked-not-eta-expanded	file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/ file:v1/runtime/backend/js/BUGS.md file:BACKLOG.md file:tests/conformance/std-aggregator.ssc file:tests/conformance/corpus-baseline.tsv file:tests/conformance/contract-roster.tsv file:tests/e2e/v1-jit-size.sh
 run-gated-by-check	claude-code	2026-08-30T20:13:19Z	run-gated-by-check	file:v1/tools/cli/ file:v1/lang/core/src/main/scala/scalascript/typer/Typer.scala file:BACKLOG.md
+v3-lexer-annotations	claude-code	2026-08-30T21:18:52Z	v3-lexer-annotations	file:v3/src/Lexer.scala,file:v3/src/Parser.scala,file:v3/SPRINT.md,file:v3/BACKLOG.md
