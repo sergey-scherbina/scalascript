@@ -11774,6 +11774,17 @@ object RustCodeWalk:
         case "takeWhile" => s"$q.iter().cloned().take_while($f).collect::<Vec<_>>()"
         case "dropWhile" => s"$q.iter().cloned().skip_while($f).collect::<Vec<_>>()"
         case "foldLeft" => s"$q.iter().cloned().fold(${zero.getOrElse("0")}, $f)"
+        // `pieces.exists(|__pf| match __pf { … })` / `edges.exists { case … }` (`uniml/markdown`'s
+        // `MarkdownInlines.scala`'s `hasCodeSpan`, `MarkdownProjection.scala`'s `listLoose`/
+        // `firstMarker`) — a PartialFunction argument (`{ case p => body; … }`) reaches THIS
+        // fallback (every other case above matches a `Term.Function`/method-reference/
+        // `Term.AnonymousFunction` shape, none of which a `Term.PartialFunction` is), and this
+        // `other2` catch-all emitted the SCALA method name verbatim — `$q.exists($f)`/
+        // `$q.forall($f)` — neither of which Rust's `Vec`/`Iterator` has: `error[E0599]: no method
+        // named exists found for struct Vec<T>`. Same `any`/`all` rename every OTHER `.exists`/
+        // `.forall` dispatch case in this file already applies for its own closure shape.
+        case "exists"   => s"$q.iter().cloned().any($f)"
+        case "forall"   => s"$q.iter().cloned().all($f)"
         case other2     => s"$q.$other2($f)"
       )
 

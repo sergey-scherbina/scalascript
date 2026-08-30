@@ -4042,6 +4042,27 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(expected.findFirstIn(g).isDefined,
       s"a Vec-typed field destructured through a fixed-arity Vector sub-pattern must rewrite to an if-let + slice match, not refuse as an unknown ctor:\n$g")
 
+  test("`xs.exists { case p => … }` / `xs.forall { case p => … }` — a PartialFunction argument — rename to `.any`/`.all` the same way a Function argument already does"):
+    // `edges.exists { case UniEdge(_, UniNode.Token(t)) => … ; case _ => false }` (`uniml/markdown`'s
+    // `MarkdownProjection.scala`'s `listLoose`/`firstMarker`, `MarkdownInlines.scala`'s
+    // `hasCodeSpan`) — a PartialFunction argument reaches `renderVecIterBody`'s FINAL fallback
+    // (every other case there matches a `Term.Function`/method-reference/`Term.AnonymousFunction`
+    // shape, none of which a PartialFunction is), and that fallback's catch-all emitted the SCALA
+    // method name verbatim: `error[E0599]: no method named exists found for struct Vec<T>` — Rust's
+    // `Vec`/`Iterator` has `.any`/`.all`, never `.exists`/`.forall`. Same rename every OTHER
+    // `.exists`/`.forall` dispatch case in this file already applies for its own closure shape.
+    val src =
+      """```scalascript
+        |case class UniEdge(kind: Int, tag: String)
+        |
+        |def setext(edges: Vector[UniEdge]): Boolean =
+        |  edges.exists { case UniEdge(k, _) if k == 1 => true; case _ => false }
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("edges.iter().cloned().any(|__pf| match __pf {"),
+      s"a PartialFunction argument to .exists must rename to .any, not emit the Scala method name verbatim:\n$g")
+
   test("`.filter`/`.map` on a String receiver lower via `.chars()`, and a String-typed local built from `.map` still resolves `.head`/`.last`"):
     // `trimmed.filter(c => …)` (`uniml/markdown`'s `MarkdownBlocks.scala`'s `isThematicBreak`) and
     // `raw.map(c => …)` (`MarkdownProjection.scala`'s `codeSpanValue`) — `.filter`/`.map` on a
