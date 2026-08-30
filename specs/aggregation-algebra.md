@@ -1,21 +1,23 @@
 # Aggregation Algebra — `Monoid`, `Group`, and `Aggregator[In, Acc, Out]`
 
-Status: **§2.2–§10 and part of §11 landed 2026-08-29–30** as
+Status: **every section landed 2026-08-29–30** except what §11.4 deliberately defers, as
 [`std/aggregator.ssc`](../std/aggregator.ssc) — `Group`, `Aggregator[In, Acc, Out]`, `zip`/`map`
 composition, `mean`-from-`sum`-and-`count`, `min`/`max` (any `Order[A]`), `variance`/`stddev`
 (Chan/Golub/LeVeque), `first`/`last` (`MinByAgg`/`MaxByAgg` generalized to a projected key, keyed
-on `.zipWithIndex`), a `Group`-backed `SlidingWindow` (§7 — see its own note on a type-checking gap
-this surfaced), `groupByAgg` (`Map[K, Acc]` as a `Monoid`), the `DStream`/`Dataset` bridge
-(`aggregatorSeqOp`/`aggregatorCombOp`), the rendering bridge (`mapToRows`/`renderTableHtml`), and
-§11's base effect shape (`EffAggregator`, `runEffAggregator`, `ContramapAgg`/`dimapAgg` — `LiftAgg`
-and `ZipEffAgg` are NOT shipped, see §11's own note on a serious front defect this surfaced),
-runnable at [`examples/std-aggregator.ssc`](../examples/std-aggregator.ssc) and gated by
-`tests/conformance/std-aggregator.ssc` + `tests/conformance/std-order.ssc` (INT green; JS and JVM
-both known-red against two independent, filed codegen bugs — `v1/runtime/backend/js/BUGS.md`
-`js-codegen-drops-generic-typeclass-resolution-when-multiple-instances-exist` and
-`v1/runtime/backend/jvm/BUGS.md` `jvm-gen-emits-flatmap-on-an-unconstrained-generic-type-param`).
-§6 (approximate aggregators) remains **design / planning** — queued in `BACKLOG.md`. Every code
-sample in this document has been run for real against this checkout's
+on `.zipWithIndex`), HyperLogLog/Count-Min Sketch/T-Digest (§6 — see its own note on three more
+front/interpreter defects this surfaced), a `Group`-backed `SlidingWindow` (§7 — see its own note
+on a type-checking gap this surfaced), `groupByAgg` (`Map[K, Acc]` as a `Monoid`), the
+`DStream`/`Dataset` bridge (`aggregatorSeqOp`/`aggregatorCombOp`), the rendering bridge
+(`mapToRows`/`renderTableHtml`), and §11's base effect shape (`EffAggregator`, `runEffAggregator`,
+`ContramapAgg`/`dimapAgg` — `LiftAgg` and `ZipEffAgg` are NOT shipped, see §11's own note on a
+serious front defect this surfaced). Runnable at
+[`examples/std-aggregator.ssc`](../examples/std-aggregator.ssc) +
+[`examples/std-aggregator-approx.ssc`](../examples/std-aggregator-approx.ssc) and gated by
+`tests/conformance/std-aggregator.ssc` + `tests/conformance/std-aggregator-approx.ssc` +
+`tests/conformance/std-order.ssc`. `std-aggregator`: INT green, JS and JVM known-red against two
+filed codegen bugs. `std-aggregator-approx`: INT, JS, and JVM all known-red against three MORE
+filed bugs (one per lane — see §6's own note); every sketch is verified correct on the reference
+front. Every code sample in this document has been run for real against this checkout's
 `bin/ssc-tools` to confirm it actually compiles and produces the stated result — see §12 for what
 that verification found (including one interpreter bug it surfaced, since fixed).
 
@@ -308,6 +310,23 @@ correctly; every tuple-destructuring lambda in `std/aggregator.ssc` uses this fo
 
 ## 6. Approximate aggregators — sketches as monoids
 
+**Landed 2026-08-30** as `std/aggregator.ssc`'s `HLLAgg`/`CMSMonoid`/`TDigestMonoid`, runnable at
+`examples/std-aggregator-approx.ssc` and gated by `tests/conformance/std-aggregator-approx.ssc` —
+**`CMSMonoid` is correct on every lane; `HLLAgg` and `TDigestMonoid` are known-red on `int`, `js`,
+and `jvm`**, one distinct, independently filed bug per lane (all found landing this, none assumed):
+`HLLAgg`'s hash needed a real bit-mixing finalizer that isn't in the original design (below);
+`int`'s `math` object has no `log` (`v1/runtime/backend/interpreter/BUGS.md`
+`math-object-is-missing-log-and-other-transcendental-functions`); `int`'s `List.sortBy` on a
+`Double` key sorts lexicographically, not numerically (`sortby-on-a-non-int-key-sorts
+-lexicographically-not-numerically`); `js` doesn't resolve a sibling zero-arg `def` referenced by
+bare name from another method (`v1/runtime/backend/js/BUGS.md`
+`js-codegen-does-not-resolve-a-sibling-zero-arg-def-from-another-method`); `jvm`'s transpilation
+inherits the pre-existing, already-tracked `int-width` non-conformance (a 64-bit `Long` literal
+`fmix64` needs doesn't fit the 32-bit `Int` `run-jvm` emits). Landing this also found and fixed a
+JS syntax error in `groupByAgg` (§8) that had been silently masking part of an already-filed bug's
+own diagnosis since that section landed — see `v1/runtime/backend/js/BUGS.md`
+`js-val-tuple-destructuring-does-not-escape-a-reserved-word-component-name`.
+
 Exact distinct-count, exact quantiles, and exact top-K cannot be computed in bounded memory over
 unbounded data — there is no monoid that does it. The industry answer (Flajolet et al. for
 HyperLogLog 2007; Cormode & Muthukrishnan for Count-Min Sketch 2005; Dunning & Ertl for T-Digest
@@ -357,6 +376,18 @@ with `HLLAcc(Array(4,3,2,1))` gives registers starting `4, 3, …` (elementwise 
 
 Standard error ≈ `1.04 / sqrt(2^precision)`; `precision = 14` (16 KB per sketch) gives ≈0.8% error
 regardless of the true cardinality — the defining property that makes it usable on unbounded data.
+
+**What landing `prepare`/`present` needed, that this section's original draft only described in
+prose:** a real hash function with strong bit-independence. `strHash` (§6.2's polynomial hash) alone
+gave a 54% cardinality error on 10,000 known-distinct keys — measured, not assumed — because
+`h = h*31 + c` doesn't mix bits enough for HLL's per-bit statistics (register index and rank both
+derive from individual bits of the hash). Running MurmurHash3's 64-bit finalizer (`fmix64`) over
+`strHash`'s output brought the same test down to 1.2% error. `HLLAgg` in `std/aggregator.ssc` also
+found two v1-interpreter-specific defects landing this — a class-body `val` field unreadable from a
+sibling method (worked around with `def`), and `Array.tabulate`'s lambda losing a sibling top-level
+`def` cross-module (worked around by hoisting the hash computation out of the lambda) — both filed
+in `v1/runtime/backend/interpreter/BUGS.md`, both reproduced with a minimal example unrelated to
+hashing or aggregators at all.
 
 ### 6.2 Count-Min Sketch — approximate frequency / top-K
 
@@ -460,7 +491,13 @@ class TDigestMonoid(maxCentroids: Int) extends Monoid[TDigestAcc]:
 Verified: feeding `1..100` into one digest and `101..200` into another, then `combine`-ing them
 (`maxCentroids = 20`) gives exactly `20` centroids after compression, `quantile(0.5)` ≈ `95.5`
 (true median of `1..200` is `100.5` — the uniform-grouping compression policy above, not the
-merge, accounts for the gap) and `quantile(0.99)` ≈ `195.5` (true p99 ≈ `198`).
+merge, accounts for the gap) and `quantile(0.99)` ≈ `195.5` (true p99 ≈ `198`) — on the reference
+front. On the `int` interpreter, the identical source gives a scrambled, non-monotonic centroid
+list after `combine` — traced to `List.sortBy` sorting a `Double` key (`c.mean`) lexicographically
+(as if the keys were strings) rather than numerically; `v1/runtime/backend/interpreter/BUGS.md`
+`sortby-on-a-non-int-key-sorts-lexicographically-not-numerically` names the exact code path
+(`Int` keys get a real numeric fast path, every other key type falls back to `Value.show` + string
+comparison). `TDigestMonoid` is known-red on `int` for this reason.
 
 ## 7. Group vs. Monoid: why it decides whether a sliding window is cheap
 

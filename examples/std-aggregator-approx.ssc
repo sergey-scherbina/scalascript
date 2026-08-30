@@ -1,0 +1,57 @@
+#!/usr/bin/env ssc
+---
+name: std-aggregator-approx
+version: 1.0.0
+description: HyperLogLog, Count-Min Sketch, and T-Digest — approximate aggregators as monoids
+---
+
+# Approximate aggregators — sketches as monoids
+
+Exact distinct-count, exact quantiles, and exact top-K cannot be computed in bounded memory over
+unbounded data. HyperLogLog, Count-Min Sketch, and T-Digest are probabilistic sketches that ARE
+monoids, trading exactness for a known, bounded error at fixed memory. See
+[`std/aggregator.ssc`](../std/aggregator.ssc) and
+[`specs/aggregation-algebra.md`](../specs/aggregation-algebra.md) §6 for the design.
+
+[Aggregator, runAggregator, strHash, HLLAgg, CMSMonoid, TDigestMonoid](std/aggregator.ssc)
+
+```scalascript
+// HyperLogLog: approximate distinct count, usable as an ordinary Aggregator.
+val hll  = HLLAgg[String](12, s => strHash(17, s))
+val keys = (1 to 10000).toList.map(i => "item-" + i.toString)
+println(runAggregator(keys, hll))
+println(hll.errorBound)
+
+// merging two overlapping partial sketches gives the correct UNION cardinality
+var partA = hll.monoid.empty
+for k <- (1 to 3000).toList.map(i => "merge-" + i.toString) do partA = hll.monoid.combine(partA, hll.prepare(k))
+var partB = hll.monoid.empty
+for k <- (2500 to 6000).toList.map(i => "merge-" + i.toString) do partB = hll.monoid.combine(partB, hll.prepare(k))
+println(hll.present(hll.monoid.combine(partA, partB)))
+
+// Count-Min Sketch: approximate frequency, kept as a Monoid plus add/estimate (present needs the
+// key as an argument, so it stays outside the plain Aggregator shape - see std/aggregator.ssc).
+val cms = CMSMonoid(4, 64)
+var cacc = cms.empty
+cacc = cms.add(cacc, "apple")
+cacc = cms.add(cacc, "apple")
+cacc = cms.add(cacc, "apple")
+cacc = cms.add(cacc, "banana")
+cacc = cms.add(cacc, "banana")
+cacc = cms.add(cacc, "cherry")
+println(cms.estimate(cacc, "apple"))
+println(cms.estimate(cacc, "banana"))
+println(cms.estimate(cacc, "cherry"))
+println(cms.estimate(cacc, "durian"))
+
+// T-Digest: approximate quantiles, same Monoid-plus-methods shape as Count-Min Sketch.
+val td = TDigestMonoid(20)
+var d1 = td.empty
+for i <- 1 to 100 do d1 = td.addPoint(d1, i.toDouble)
+var d2 = td.empty
+for i <- 101 to 200 do d2 = td.addPoint(d2, i.toDouble)
+val combined = td.combine(d1, d2)
+println(combined.centroids.length)
+println(td.quantile(combined, 0.5))
+println(td.quantile(combined, 0.99))
+```

@@ -1,0 +1,48 @@
+---
+name: conformance-std-aggregator-approx
+version: 1.0.0
+known-red: "int, js, jvm — three independent, filed codegen/interpreter bugs, one per lane. int: HLLAgg's linear-counting correction needs math.log, which the int interpreter's math object does not implement at all (v1/runtime/backend/interpreter/BUGS.md math-object-is-missing-log-and-other-transcendental-functions), and TDigestMonoid's combine/quantile sortBy(c => c.mean) on a Double key sorts lexicographically instead of numerically under int (v1/runtime/backend/interpreter/BUGS.md sortby-on-a-non-int-key-sorts-lexicographically-not-numerically). js: HLLAgg's monoid method references a sibling zero-arg def by bare name, which the JS backend emits as an unbound free identifier instead of a dispatch on the receiver (v1/runtime/backend/js/BUGS.md js-codegen-does-not-resolve-a-sibling-zero-arg-def-from-another-method). jvm: run-jvm transpiles a 64-bit Long literal (fmix64's mixing constants) into a context requiring a 32-bit Int, a symptom of the pre-existing, already-tracked int-width non-conformance (see int-width's own known-red). CMSMonoid alone is unaffected and correct on every lane. EXPIRES when all three bugs are fixed."
+---
+
+# Std — Approximate Aggregators (HyperLogLog, Count-Min Sketch, T-Digest)
+
+Exercises §6 of [`specs/aggregation-algebra.md`](../../specs/aggregation-algebra.md): sketches that
+are `Monoid`s trading exactness for a bounded error at fixed memory.
+
+[Aggregator, runAggregator, strHash, HLLAgg, CMSMonoid, TDigestMonoid](std/aggregator.ssc)
+
+```scalascript
+val hll  = HLLAgg[String](12, s => strHash(17, s))
+val keys = (1 to 10000).toList.map(i => "item-" + i.toString)
+println(runAggregator(keys, hll))
+println(hll.errorBound)
+
+var partA = hll.monoid.empty
+for k <- (1 to 3000).toList.map(i => "merge-" + i.toString) do partA = hll.monoid.combine(partA, hll.prepare(k))
+var partB = hll.monoid.empty
+for k <- (2500 to 6000).toList.map(i => "merge-" + i.toString) do partB = hll.monoid.combine(partB, hll.prepare(k))
+println(hll.present(hll.monoid.combine(partA, partB)))
+
+val cms = CMSMonoid(4, 64)
+var cacc = cms.empty
+cacc = cms.add(cacc, "apple")
+cacc = cms.add(cacc, "apple")
+cacc = cms.add(cacc, "apple")
+cacc = cms.add(cacc, "banana")
+cacc = cms.add(cacc, "banana")
+cacc = cms.add(cacc, "cherry")
+println(cms.estimate(cacc, "apple"))
+println(cms.estimate(cacc, "banana"))
+println(cms.estimate(cacc, "cherry"))
+println(cms.estimate(cacc, "durian"))
+
+val td = TDigestMonoid(20)
+var d1 = td.empty
+for i <- 1 to 100 do d1 = td.addPoint(d1, i.toDouble)
+var d2 = td.empty
+for i <- 101 to 200 do d2 = td.addPoint(d2, i.toDouble)
+val combined = td.combine(d1, d2)
+println(combined.centroids.length)
+println(td.quantile(combined, 0.5))
+println(td.quantile(combined, 0.99))
+```

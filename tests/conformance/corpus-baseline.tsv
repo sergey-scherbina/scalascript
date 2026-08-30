@@ -79,6 +79,9 @@ sql-h2-quickstart	js	FAIL
 sse-typed-client	*	SKIP
 std-aggregator	js	KNOWN-RED
 std-aggregator	jvm	KNOWN-RED
+std-aggregator-approx	int	KNOWN-RED
+std-aggregator-approx	js	KNOWN-RED
+std-aggregator-approx	jvm	KNOWN-RED
 std-order	js	KNOWN-RED
 streams	*	SKIP
 sync-todo	js	FAIL

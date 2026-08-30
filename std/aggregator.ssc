@@ -46,19 +46,27 @@ exports:
   - runEffAggregator
   - ContramapAgg
   - dimapAgg
+  - ApproxAggregator
+  - strHash
+  - HLLAcc
+  - HLLMonoid
+  - HLLAgg
+  - CMSAcc
+  - CMSMonoid
+  - Centroid
+  - TDigestAcc
+  - TDigestMonoid
 ---
 
 # Aggregator — the aggregation-algebra core primitive
 
-Design: [`specs/aggregation-algebra.md`](../specs/aggregation-algebra.md). This module ships the
-piece that document calls "the central primitive" (`Group`, `Aggregator[In, Acc, Out]`, `zip`/`map`
-composition — §2.2–§4), all of §5's canonical exact aggregators (`min`/`max`, `variance`/`stddev`,
-`first`/`last`), §7's `Group`-backed sliding window, §8's `groupBy` (`Map[K, Acc]` as a `Monoid`,
-pointwise), §9's `DStream`/`Dataset` bridge (`aggregatorSeqOp`/`aggregatorCombOp`), §10's rendering
-bridge (`mapToRows`/`renderTableHtml`), and PART of §11 (`EffAggregator`, `runEffAggregator`,
-`ContramapAgg`/`dimapAgg` — see this module's own note on what §11 leaves out and why).
-Approximate aggregators (HyperLogLog, …) are out of scope for this module — see the spec's §13 and
-`BACKLOG.md` for what is deferred and why.
+Design: [`specs/aggregation-algebra.md`](../specs/aggregation-algebra.md). This module ships
+`Group`/`Aggregator[In, Acc, Out]`/`zip`/`map` composition (§2.2–§4), all of §5's canonical exact
+aggregators, §6's approximate aggregators (`HLLAgg`, `CMSMonoid`, `TDigestMonoid`), §7's
+`Group`-backed sliding window, §8's `groupBy`, §9's `DStream`/`Dataset` bridge, §10's rendering
+bridge, and PART of §11 (`EffAggregator`, `runEffAggregator`, `ContramapAgg`/`dimapAgg` — see this
+module's own note on what §11 leaves out and why) — every section of the spec except `Arrow`/
+`Category`/a new `Future`/`Task`/`Result` type, which §11.4 explains stay deliberately deferred.
 
 [Monoid, intSum](./semigroup-monoid.ssc)
 
@@ -306,6 +314,208 @@ def lastAgg[A](): Aggregator[(A, Int), Option[(A, Int)], Option[A]] =
 `runAggregator(xs.zipWithIndex, firstAgg[Double]())` is `first`; swap in `lastAgg` for `last`. Both
 return `None` on empty input, for the same reason `min`/`max` do.
 
+## Approximate aggregators — sketches as monoids
+
+Exact distinct-count, exact quantiles, and exact top-K cannot be computed in bounded memory over
+unbounded data. The industry answer (Flajolet et al. for HyperLogLog 2007; Cormode & Muthukrishnan
+for Count-Min Sketch 2005; Dunning & Ertl for T-Digest 2019) is a family of probabilistic sketches
+that ARE monoids, trading exactness for a known, bounded error at fixed memory — `Aggregator`
+doesn't need a new concept, just a marker that the estimate is approximate:
+
+```scalascript
+trait ApproxAggregator[In, Acc, Out] extends Aggregator[In, Acc, Out]:
+  def errorBound: Double
+```
+
+Shared hash helpers, used by both sketches below that need one:
+
+```scalascript
+def strHash(seed: Int, s: String): Int =
+  var h = seed
+  for i <- 0 until s.length do
+    h = h * 31 + s.charAt(i).toInt
+  math.abs(h)
+```
+
+### HyperLogLog — approximate distinct count
+
+Register array of `2^precision` small counters; `combine` is elementwise MAX (a monoid — taking
+the max of maxes is associative and commutative, and a register only ever grows). `present` runs
+the harmonic-mean estimator, with a linear-counting correction when many registers are still zero:
+
+```scalascript
+case class HLLAcc(registers: Array[Int])
+
+class HLLMonoid(precision: Int) extends Monoid[HLLAcc]:
+  def empty: HLLAcc = HLLAcc(Array.fill(1 << precision)(0))
+  def combine(a: HLLAcc, b: HLLAcc): HLLAcc =
+    val ar = a.registers
+    val br = b.registers
+    HLLAcc(Array.tabulate(ar.length)(i => math.max(ar(i), br(i))))
+```
+
+`prepare` hashes one input, uses part of the hash as the register index and the rest to find the
+position of its lowest set bit (the "rank"). A plain polynomial hash (`strHash` above) does not
+have enough bit-independence for this — verified empirically, not assumed: `strHash` alone gave a
+54% cardinality error on 10,000 known-distinct keys, because a `h = h*31 + c` accumulation does not
+mix bits enough for HLL's per-bit statistics. `fmix64` (MurmurHash3's 64-bit finalizer) run over
+`strHash`'s output brought the same test down to 1.2% error — the constants below are exact:
+
+```scalascript
+def fmix64(kIn: Int): Int =
+  var k = kIn
+  k = k ^ (k >> 33)
+  k = k * -49064778989728563L
+  k = k ^ (k >> 33)
+  k = k * -4265267296055464877L
+  k = k ^ (k >> 33)
+  k
+
+def trailingRank(w: Int): Int =
+  var x = w
+  var count = 1
+  var bits = 0
+  while (x & 1) == 0 && bits < 58 do
+    x = x >> 1
+    count = count + 1
+    bits = bits + 1
+  count
+
+class HLLAgg[In](precision: Int, hash: In => Int) extends ApproxAggregator[In, HLLAcc, Double]:
+  def hllMonoid: HLLMonoid = HLLMonoid(precision)
+  def m: Int = 1 << precision
+  def monoid: Monoid[HLLAcc] = hllMonoid
+  def errorBound: Double = 1.04 / math.sqrt(m.toDouble)
+  def prepare(in: In): HLLAcc =
+    val hv = fmix64(hash(in))
+    val hv2 = if hv < 0 then -(hv + 1) else hv
+    val idx = hv2 % m
+    val rest = hv2 / m
+    val rank = trailingRank(rest)
+    HLLAcc(Array.tabulate(m)(i => if i == idx then rank else 0))
+  def present(acc: HLLAcc): Double =
+    val regs = acc.registers
+    val alpha = 0.7213 / (1.0 + 1.079 / m.toDouble)
+    val sumInv = regs.foldLeft(0.0)((s, r) => s + math.pow(2.0, -r.toDouble))
+    val rawE = alpha * m.toDouble * m.toDouble / sumInv
+    val zeros = regs.count(r => r == 0)
+    if rawE <= 2.5 * m.toDouble && zeros > 0 then m.toDouble * math.log(m.toDouble / zeros.toDouble)
+    else rawE
+```
+
+`HLLAgg` is a real `Aggregator` (usable with `runAggregator`, `ZipAgg`, `MapAgg`, `groupByAgg`, …),
+parameterized by an explicit `hash: In => Int` rather than an implicit typeclass, matching this
+module's existing style (`MinAgg`'s explicit `Order[A]`). Verified against this checkout:
+`runAggregator((1 to 10000).toList.map(i => "item-" + i.toString), HLLAgg(12, s => strHash(17,
+s)))` gives `9881.2` against a true cardinality of `10000` (1.2% error, `errorBound` ≈1.6%); merging
+two overlapping partial sketches via `monoid.combine` before presenting gives the correct UNION
+cardinality (verified: two ranges sharing 500 keys, presented after `combine`, estimate within 0.5%
+of the true 6000-element union) — the property that makes it usable across real partitions.
+
+Two v1-interpreter-specific defects found landing `HLLAgg`, both isolated to minimal repros
+unrelated to aggregators or hashing: a class-body `val` field (declared on its own line, not a
+constructor parameter — `hllMonoid`/`m` originally) throws `Undefined: <name>` when read from a
+*different* method of the same class, even in a single file with no import at all; and a top-level
+sibling `def` called from *inside* a lambda passed to `Array.tabulate` throws `Undefined: <name>`,
+but only when the calling class is imported from a different module (identical code in one file
+works). Neither reproduces on `int`/`native`'s conformance-passing lanes; both are filed:
+`v1/runtime/backend/interpreter/BUGS.md`
+`class-body-val-field-undefined-in-a-sibling-method` and
+`array-tabulate-lambda-loses-a-sibling-top-level-def-cross-module`. `HLLAgg` uses `def` instead of
+`val` for `hllMonoid`/`m` (recomputed per access — cheap here, no state worth caching) as the
+workaround for the first; `CMSMonoid.add` (below) works around the second by building a plain copy
+via `Array.tabulate` (no sibling call inside that lambda, confirmed safe) and mutating the target
+cell in an ordinary `for` loop instead of computing the hash inside `Array.tabulate`'s own lambda.
+
+### Count-Min Sketch — approximate frequency / top-K
+
+A 2-D array of counters (`depth` hash functions × `width` buckets). `combine` is elementwise sum (a
+monoid); the estimate for a given key takes the MIN across the `depth` rows — the sketch only ever
+overestimates, and the min row is the tightest available bound. Kept as a `Monoid` plus plain
+`add`/`estimate` methods rather than wrapped in a full `Aggregator` — an `Aggregator[String, CMSAcc,
+String => Int]` wrapper would add ceremony without changing what is being shown, since `present`
+here inherently needs the key as an argument, not just the accumulator:
+
+```scalascript
+case class CMSAcc(counts: Array[Array[Int]])
+
+class CMSMonoid(depth: Int, width: Int) extends Monoid[CMSAcc]:
+  def empty: CMSAcc = CMSAcc(Array.fill(depth)(Array.fill(width)(0)))
+  def combine(a: CMSAcc, b: CMSAcc): CMSAcc =
+    val ac = a.counts
+    val bc = b.counts
+    CMSAcc(Array.tabulate(depth)(r => Array.tabulate(width)(c => ac(r)(c) + bc(r)(c))))
+  def add(acc: CMSAcc, key: String): CMSAcc =
+    val counts = acc.counts
+    val next = Array.tabulate(depth)(r => Array.tabulate(width)(c => counts(r)(c)))
+    for r <- 0 until depth do
+      val c = strHash(r * 7919 + 17, key) % width
+      next(r)(c) = next(r)(c) + 1
+    CMSAcc(next)
+  def estimate(acc: CMSAcc, key: String): Int =
+    val counts = acc.counts
+    var best = -1
+    for r <- 0 until depth do
+      val c = strHash(r * 7919 + 17, key) % width
+      val v = counts(r)(c)
+      if best == -1 || v < best then best = v
+    best
+```
+
+Verified: adding `apple` three times, `banana` twice, and `cherry` once (width 64, depth 4) gives
+`estimate` `3` / `2` / `1` respectively and `0` for a never-added key `durian`. Error bound: with
+width `w` and depth `d`, estimates are within `ε · N` of the truth with probability `1 - δ`, for
+`w = ⌈e/ε⌉` and `d = ⌈ln(1/δ)⌉` (`N` = total count).
+
+### T-Digest — approximate quantiles
+
+Maintains a small, size-bounded set of weighted centroids (cluster of nearby values + a count).
+`combine` is centroid-list merge followed by a re-clustering pass, which stays commutative and
+associative up to the digest's compression parameter. `present(q)` interpolates the requested
+quantile — same reasoning as Count-Min Sketch for staying a plain `Monoid` plus methods rather than
+a wrapped `Aggregator`, since `present` needs `q` as an argument:
+
+```scalascript
+case class Centroid(mean: Double, weight: Double)
+case class TDigestAcc(centroids: List[Centroid])
+
+class TDigestMonoid(maxCentroids: Int) extends Monoid[TDigestAcc]:
+  def empty: TDigestAcc = TDigestAcc(Nil)
+  def combine(a: TDigestAcc, b: TDigestAcc): TDigestAcc =
+    val all = (a.centroids ++ b.centroids).sortBy(c => c.mean)
+    if all.length <= maxCentroids then TDigestAcc(all)
+    else
+      val groupSize = (all.length + maxCentroids - 1) / maxCentroids
+      val grouped = all.grouped(groupSize).toList
+      val merged = grouped.map { g =>
+        val totalW = g.foldLeft(0.0)((s, c) => s + c.weight)
+        val weightedMean = g.foldLeft(0.0)((s, c) => s + c.mean * c.weight) / totalW
+        Centroid(weightedMean, totalW)
+      }
+      TDigestAcc(merged)
+  def addPoint(acc: TDigestAcc, x: Double): TDigestAcc =
+    TDigestAcc(acc.centroids ++ List(Centroid(x, 1.0)))
+  def quantile(acc: TDigestAcc, q: Double): Double =
+    val sorted = acc.centroids.sortBy(c => c.mean)
+    val totalWeight = sorted.foldLeft(0.0)((s, c) => s + c.weight)
+    val target = q * totalWeight
+    var cum = 0.0
+    var result = 0.0
+    var found = false
+    for c <- sorted do
+      if !found then
+        cum = cum + c.weight
+        if cum >= target then
+          result = c.mean
+          found = true
+    result
+```
+
+Verified: feeding `1..100` into one digest and `101..200` into another, then `combine`-ing them
+(`maxCentroids = 20`) gives exactly `20` centroids after compression, `quantile(0.5)` ≈ `95.5` (true
+median of `1..200` is `100.5` — the uniform-grouping compression policy above, not the merge,
+accounts for the gap) and `quantile(0.99)` ≈ `195.5` (true p99 ≈ `198`).
+
 ## Sliding windows — only sound for a `Group`-backed `Aggregator`
 
 A tumbling window ("every 5 minutes, non-overlapping") only ever needs `combine` — any `Monoid`
@@ -394,8 +604,8 @@ class MapMonoid[K, Acc](inner: Monoid[Acc]) extends Monoid[Map[K, Acc]]:
 def groupByAgg[K, In, Acc, Out](xs: List[(K, In)], agg: Aggregator[In, Acc, Out]): Map[K, Out] =
   val monoid = MapMonoid[K, Acc](agg.monoid)
   val acc = xs.foldLeft(monoid.empty) { (m, kv) =>
-    val (k, in) = kv
-    monoid.combine(m, Map(k -> agg.prepare(in)))
+    val (k, item) = kv
+    monoid.combine(m, Map(k -> agg.prepare(item)))
   }
   acc.toList.foldLeft(Map[K, Out]()) { (m, kv) =>
     val (k, v) = kv

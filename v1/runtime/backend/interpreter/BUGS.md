@@ -7,6 +7,122 @@ grepping for status.
 
 Newest first.
 
+## sortby-on-a-non-int-key-sorts-lexicographically-not-numerically — `List.sortBy` on a `Double` key sorts as if the keys were strings
+
+<!-- status: open
+     lane: int
+     kind: bug
+     area: runtime
+     gate: tests/conformance/std-aggregator-approx.ssc (known-red int)
+     reported-by: claude-code
+     reported-at: 2026-08-30
+     confirmed: yes -->
+
+Found landing `std/aggregator.ssc`'s `TDigestMonoid` (`specs/aggregation-algebra.md` §6.3), whose
+`combine`/`quantile` both `sortBy(c => c.mean)` (a `Double` field). Minimal repro:
+
+```scalascript
+case class P(x: Double)
+val xs = List(P(1.0), P(10.0), P(2.0), P(100.0), P(20.0))
+println(xs.sortBy(p => p.x).map(p => p.x))
+```
+
+gives `List(1, 10, 100, 2, 20)` under `--v1` — sorted as if the keys were the strings `"1"`,
+`"10"`, `"100"`, `"2"`, `"20"`; `int`/`native` and `run-jvm` all give the correct `List(1, 2, 10,
+20, 100)`. Root cause found directly in the source, not inferred: `DispatchRuntime.scala`'s
+`sortBy` has a fast path that special-cases `Value.IntV` keys for a real numeric sort (`java.util
+.Arrays.sort` on `Long`), and falls back, for every OTHER key type, to converting each key to its
+`Value.show` STRING and sorting those lexicographically (`Comparator.comparing[..., String]`) —
+correct for genuinely `String`-keyed sorts, silently wrong for `Double` (and any other non-`Int`
+numeric type, which all fall into the same slow path). `TDigestMonoid` is known-red on `int` for
+this reason; the same bug would affect ANY `sortBy` on a `Double`/`Float`/`Long`-if-distinct-from-
+`Int` key anywhere in this codebase, not just this one call site.
+
+## math-object-is-missing-log-and-other-transcendental-functions — `math.log` throws "No method 'log' on InstanceV(math(...))" under `--v1`
+
+<!-- status: open
+     lane: int
+     kind: bug
+     area: runtime
+     gate: tests/conformance/std-aggregator.ssc (known-red int)
+     reported-by: claude-code
+     reported-at: 2026-08-30
+     confirmed: yes -->
+
+Found landing `std/aggregator.ssc`'s `HLLAgg` (`specs/aggregation-algebra.md` §6.1), whose
+linear-counting correction needs `math.log`. `BuiltinsRuntime.scala` wires the `math` object's field
+map from a fixed list — `sqrt`/`abs`/`pow`/`max`/`min`/`floor`/`ceil`/`round`/`Pi`/`E` — with no
+`log` (or `exp`, `sin`, `cos`, and the rest of the transcendental functions) anywhere in the file, on
+either the field map or as an underlying `math.log` global to wire in. `int`/`native` both call
+`math.log` in other contexts already (e.g. the reference front) without issue — this is specific to
+the v1 interpreter's own `math` object being an incomplete, hand-maintained list rather than
+delegating to the host's full `scala.math`/`java.lang.Math`. Repro: `println(math.log(10.0))` under
+`bin/ssc-tools run --v1` fails; the same line under the default native lane or `--bytecode` works.
+
+## array-tabulate-lambda-loses-a-sibling-top-level-def-cross-module — `Array.tabulate`'s callback throws `Undefined: <name>` for a sibling top-level function, but only when the calling class is imported from a different module
+
+<!-- status: open
+     lane: int
+     kind: bug
+     area: runtime
+     gate: tests/conformance/std-aggregator.ssc (known-red int)
+     reported-by: claude-code
+     reported-at: 2026-08-30
+     confirmed: yes -->
+
+Found landing `std/aggregator.ssc`'s `CMSMonoid.add` (§6.2), which computed a hash INSIDE the
+lambda passed to `Array.tabulate`. Minimal repro, `std/x.ssc`:
+
+```scalascript
+def helper(x: Int): Int = x + 1
+
+class Thing():
+  def go(x: Int): Array[Int] =
+    val hv = helper(x)
+    Array.tabulate(3)(c => if c == hv then 99 else c)
+```
+
+works correctly when `Thing`/`helper` live in the SAME file as the caller, but throws `Undefined:
+helper` under `--v1` the moment `Thing` is imported from a different file (`[Thing](std/x.ssc)`)
+and used from there — identical source, only the module boundary differs. A plain `List.map` in the
+same position (`(0 until 3).toList.map(c => helper(c))`) does NOT reproduce it, and neither does a
+locally-assigned lambda called directly (`val f = (y: Int) => helper(y); f(x)`) — the trigger is
+specifically a lambda passed as an argument TO `Array.tabulate`, cross-module. Worked around in
+`CMSMonoid.add` by building the copy via `Array.tabulate` with no sibling call inside its lambda
+(confirmed safe) and mutating the target cell in an ordinary `for` loop instead.
+
+## class-body-val-field-undefined-in-a-sibling-method — a class-level `val` (not a constructor parameter) throws `Undefined: <name>` when read from a different method of the same class
+
+<!-- status: open
+     lane: int
+     kind: bug
+     area: runtime
+     gate: tests/conformance/std-aggregator.ssc (known-red int)
+     reported-by: claude-code
+     reported-at: 2026-08-30
+     confirmed: yes -->
+
+Found landing `std/aggregator.ssc`'s `HLLAgg` (§6.1), whose `hllMonoid`/`m` were originally declared
+as class-body `val`s. Minimal repro, reproduces in a SINGLE file, no import needed at all:
+
+```scalascript
+class Thing(precision: Int):
+  val doubled = precision * 2
+  def get: Int = doubled
+
+println(Thing(4).get)
+```
+
+throws `Undefined: doubled` under `--v1` — the field, declared on its own line in the class body
+(not a constructor parameter, not a local `val` inside the one method that uses it), is invisible
+from `get`, a different method of the SAME instance. Replacing `val doubled = precision * 2` with
+`def doubled: Int = precision * 2` (a zero-arg method instead of a field) fixes it completely and
+runs correctly (`8`). Every other class in `std/aggregator.ssc` already threads its per-instance
+state through constructor parameters (referenced directly, e.g. `MinAgg`'s `ord`) rather than a
+class-body `val`, which is presumably why this had not surfaced before landing `HLLAgg` — the first
+place this module needed to derive and CACHE a value from a constructor parameter rather than use
+the parameter directly. `HLLAgg` now uses `def` in place of the two original `val`s.
+
 ## map-dot-empty-reads-empty-as-a-literal-key-not-the-companion-accessor — `Map.empty` throws "No key 'empty' in map" under `--v1`
 
 <!-- status: open

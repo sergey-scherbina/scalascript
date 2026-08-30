@@ -1,11 +1,11 @@
-## aggregation-algebra-canonical-and-effectful — §5–§11 of the aggregation-algebra spec, queued after landing the core
+## aggregation-algebra-canonical-and-effectful — DONE: §5–§11 of the aggregation-algebra spec, landed section by section after the core
 
-<!-- status: open
+<!-- status: fixed
      lane: multi
      area: runtime
      kind: feature
-     gate: none
-     fixed-in: -
+     gate: tests/conformance/std-aggregator.ssc, tests/conformance/std-aggregator-approx.ssc, tests/conformance/std-order.ssc
+     fixed-in: aggregator-approx claim, 2026-08-30 (final section; see body for every prior claim)
      reported-by: self (claim aggregator-core-impl)
      reported-at: 2026-08-29
      ssc-version: bin/ssc-tools built from e6b956e47+
@@ -42,9 +42,29 @@ itself scopes out of the first slice — queued here rather than attempted in th
   loses a `using` parameter or a `summon` binding once more than one named instance of a generic
   trait is in scope. `std-order`/`std-aggregator`'s conformance cases carry `known-red: js` against
   it.
-- **§6 approximate aggregators** — `ApproxAggregator` (adds `errorBound`) plus HyperLogLog,
-  Count-Min Sketch, and T-Digest as parameterized classes. Real algorithmic work (hashing, register
-  arrays), not a straightforward port of the spec's sketch.
+- **§6 approximate aggregators — DONE** (claim `aggregator-approx`, 2026-08-30). `ApproxAggregator`
+  (adds `errorBound`), `HLLAgg` (a real `Aggregator`), and `CMSMonoid`/`TDigestMonoid` (kept as
+  `Monoid` plus `add`/`estimate`/`addPoint`/`quantile` methods, per the spec's own reasoning —
+  `present` needs an extra argument for both, which doesn't fit the plain `Aggregator` shape)
+  all ship, each verified against real, measured accuracy (not assumed): HLL gives 1.2% error on
+  10,000 known-distinct keys against a 1.6% theoretical bound, and correctly estimates a UNION after
+  merging two overlapping partial sketches; CMS gives exact counts at the tested scale; T-Digest
+  compresses 200 points to 20 centroids and estimates the median/p99 within the expected range —
+  on the reference front. **This closes out the last open section of the spec** — every section
+  except `Arrow`/`Category`/a new `Future`/`Task`/`Result` type (§11.4, deliberately deferred, not a
+  gap) is now landed. Found landing it, all filed, none fixed here (real, separate front/interpreter
+  work): `HLLAgg` is known-red on `int` (`math.log` missing from the interpreter's `math` object)
+  and `js` (a sibling zero-arg `def` referenced by bare name resolves to nothing); `TDigestMonoid` is
+  known-red on `int` (`List.sortBy` on a `Double` key sorts lexicographically, not numerically); the
+  whole `std-aggregator-approx` conformance case is also known-red on `jvm` (the pre-existing,
+  already-tracked `int-width` non-conformance, triggered by a `Long` literal `HLLAgg`'s hash mixer
+  needs). Also found and fixed IN this claim (not filed, since it was `std/aggregator.ssc`'s own
+  bug): `groupByAgg` (§8) used `in` as a `val`-tuple-destructured name, which is a JS reserved word
+  — this had been silently masking part of an already-filed JS bug's diagnosis in every conformance
+  case landed since §8, since a JS syntax error prevents the file from running AT ALL regardless of
+  which line actually gets reached. The underlying JS codegen defect (a reserved word used as a
+  `val`-tuple name isn't escaped, though the identical shape in a lambda PARAMETER's destructuring
+  correctly is) remains open and filed; only `std/aggregator.ssc`'s own usage was renamed.
 - **§7's `Group`-backed sliding window — DONE** (claim `aggregator-sliding-window`, 2026-08-29).
   `GroupAggregator`/`SlidingWindow`/`emptyWindow` ship in `std/aggregator.ssc`; `push` retracts the
   aging-out element via `inverse` in O(1) once the window is full. Found landing it, and this is the

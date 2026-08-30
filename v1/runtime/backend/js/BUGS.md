@@ -7,6 +7,67 @@ grepping for status.
 
 Newest first.
 
+## js-codegen-does-not-resolve-a-sibling-zero-arg-def-from-another-method — a class method referencing another zero-arg `def` by its bare name emits a free-standing identifier instead of a dispatch on the receiver
+
+<!-- status: open
+     lane: js
+     kind: bug
+     area: codegen
+     gate: tests/conformance/std-aggregator-approx.ssc (known-red js)
+     reported-by: claude-code
+     reported-at: 2026-08-30
+     confirmed: yes -->
+
+Found landing `std/aggregator.ssc`'s `HLLAgg` (`specs/aggregation-algebra.md` §6.1), whose `monoid`
+method returns a sibling zero-arg `def hllMonoid`. Minimal repro:
+
+```scalascript
+class Thing(precision: Int):
+  def helper: Int = precision * 2
+  def get: Int = helper
+
+println(Thing(4).get)
+```
+
+emits `_registerExt('get', (_self) => { const {precision} = _self; return helper; }, 'Thing');` —
+`helper` is left as a bare, unbound identifier instead of `_dispatch(_self, 'helper', [])` (the
+pattern the SAME codegen correctly uses to call `helper` from outside the class). Throws
+`ReferenceError: helper is not defined`. Tried `this.helper` as a workaround — worse, not better:
+the emitted call site is `_dispatch(/* unsupported: Term.This */, 'helper', [])`, a syntax error,
+meaning `this` is not supported by this backend in this position at all. `int`/`native`/`run-jvm`
+all resolve the identical source correctly. No workaround found; `HLLAgg` keeps the sibling-`def`
+shape (needed regardless, to work around the `int`-lane class-body-`val` bug in
+`v1/runtime/backend/interpreter/BUGS.md`) and stays known-red on `js`.
+
+## js-val-tuple-destructuring-does-not-escape-a-reserved-word-component-name — `val (a, in) = pair` emits `in` literally, a JS reserved word, while the SAME name in a lambda parameter's destructuring is correctly escaped
+
+<!-- status: open
+     lane: js
+     kind: bug
+     area: codegen
+     gate: tests/conformance/std-aggregator.ssc, tests/conformance/std-aggregator-approx.ssc
+     reported-by: claude-code
+     reported-at: 2026-08-30
+     confirmed: yes -->
+
+Found landing §6 (approximate aggregators) — `groupByAgg`'s `val (k, in) = kv` (landed with §8,
+2026-08-30's predecessor claim) transpiles to `const [k, in] = kv;`, a JS `SyntaxError: Unexpected
+token 'in'` (`in` is reserved). This was masking a DIFFERENT, already-diagnosed JS bug
+(`js-codegen-drops-generic-typeclass-resolution-when-multiple-instances-exist`, below) in every
+conformance case landed since §8 that happened to fail EARLIER in the file (at a `MinAgg`/`summon`
+call) than it reached `groupByAgg`'s code — `node --check` on the emitted JS shows the syntax error
+regardless of whether the buggy line is ever reached at runtime, but the OLDER diagnosis was written
+by reading the harness's runtime `ReferenceError`, without independently re-verifying the emitted
+JS actually parsed. It does not; the two defects coexisted, undetected, since §8 landed.
+
+**The codegen defect is real and NOT fixed**: the identical shape in a LAMBDA parameter's own
+destructuring (`(a, in) => ...`) IS correctly escaped, emitting `const [a, in_p] = ...` — confirmed
+in the same file, `runAggregator`'s own lambda. Only the `val (a, b) = tuple` STATEMENT form fails
+to apply the same escaping. `groupByAgg` was fixed by renaming `in` to `item`, which is a workaround
+in `std/aggregator.ssc`, not a fix to the codegen — any other `.ssc` file using `in` (or another JS
+reserved word: `class`, `function`, `new`, `typeof`, `default`, `let`, `yield`, `await`, …) as a
+`val`-tuple-destructured name will hit the identical syntax error.
+
 ## js-codegen-drops-generic-typeclass-resolution-when-multiple-instances-exist
 
 <!-- status: open
@@ -17,6 +78,14 @@ Newest first.
      reported-by: claude-code
      reported-at: 2026-08-29
      confirmed: yes -->
+
+**Corrected 2026-08-30**: the `ReferenceError` this entry describes was, from §8 onward, masked
+BY a separate `SyntaxError` (`js-val-tuple-destructuring-does-not-escape-a-reserved-word
+-component-name`, above) that made the whole emitted file fail to parse before this one's runtime
+error was ever reached — `node --check` on the emitted JS was never re-run after that entry's
+defect was introduced, so this was carried forward as the sole diagnosis across three more
+landings without being re-verified. Both defects are real and independent; this entry's own repro
+and root cause, below, are unchanged and still accurate for what they describe.
 
 Found landing `std/aggregator.ssc`'s `min`/`max` (needs `std/order.ssc`'s `Order[A]` typeclass) and
 writing its first real conformance coverage — `std/order.ssc` shipped with zero tests before this,
