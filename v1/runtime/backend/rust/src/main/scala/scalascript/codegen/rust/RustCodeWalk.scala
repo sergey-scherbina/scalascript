@@ -7317,6 +7317,44 @@ object RustCodeWalk:
       val n = a.lhs.asInstanceOf[m.Term.Name].value
       renderTerm(a.rhs, ctx).map(r => s"${ctx.moduleMutFields(n)}.with(|c| *c.borrow_mut() = $r)")
 
+    // `out = out :+ x` — SELF-APPEND, lowered to an in-place `push` instead of the immutable
+    // `[&(out)[..], &[x][..]].concat()` the general `:+` arm below produces.
+    //
+    // THIS IS A COMPLEXITY FIX, not a tidy-up, and it is the difference between usable and not.
+    // `concat()` allocates a WHOLE NEW Vec and clones EVERY element already in it — so a parser
+    // that appends one token at a time (`out = out :+ VmToken(…)`, `uniml/markdown`'s
+    // `MarkdownBlocks.scala`'s `emit`) pays O(n) per token and O(n²) over the file. Measured on
+    // the emitted crate before this fix: 2 KB 0.015 s, 4 KB 0.050 s, 8 KB 0.188 s, 16 KB 0.714 s,
+    // 32 KB 2.768 s — ~3.8× per doubling, and a `sample` profile that is nothing but
+    // `String::clone` / `Vec::clone` / malloc / free. rozum's own 505 KB `SPRINT.md` extrapolates
+    // to ~7 HOURS, which is why its RAG indexer had to cap the syntactic path at 16 KB
+    // (rozum's `rag-uniml-parser-quadratic`); the cap is what this fix exists to remove.
+    //
+    // Sound because Scala's `xs = xs :+ x` DISCARDS the old vector at the same instant it builds
+    // the new one: nothing can observe the difference between "copy then rebind" and "push". A
+    // snapshot taken first (`val old = xs; xs = xs :+ x`) is unaffected — `old` is bound by this
+    // lane's own clone-on-multi-use rule, so it owns a copy; had it been lowered as a borrow
+    // instead, rustc would refuse the mutation rather than let it read through.
+    //
+    // Three guards, each closing a way the rewrite could be wrong rather than merely slower:
+    //   - the appended element must not READ the collection (`xs = xs :+ f(xs)`): `push`'s
+    //     argument would borrow `xs` while `push` itself borrows it mutably (E0502), and the
+    //     concat form has no such problem — so that shape keeps the old lowering.
+    //   - the receiver must be a KNOWN Vec. Scala's `:+` is also defined on `String`
+    //     (`"ab" :+ 'c'`), which lowers to something with no `push` of this shape at all.
+    //   - `moduleMutFields` names are taken by the case just above (a thread-local `RefCell`,
+    //     not a plain local), so they never reach here.
+    case m.Term.Assign(lhs @ m.Term.Name(n), m.Term.ApplyInfix.After_4_6_0(m.Term.Name(n2), m.Term.Name(":+"), _, rargs))
+        if n == n2 && rargs.values.nonEmpty && isKnownVecReceiver(lhs, ctx) &&
+           !rargs.values.exists(readsName(_, n)) =>
+      val appended = if rargs.values.sizeIs == 1 then rargs.values.head else m.Term.Tuple(rargs.values)
+      for
+        l  <- renderTerm(lhs, ctx)
+        r0 <- renderTerm(appended, ctx)
+      // `cloneIfMoved` for the same reason the general `:+` arm needs it: the pushed element is
+      // MOVED into the vector, and a name read again afterward would be `error[E0382]`.
+      yield s"$l.push(${cloneIfMoved(appended, r0, ctx)})"
+
     // `lhs = rhs` — Rust reassignment of a previously declared `var`.
     case a: m.Term.Assign =>
       // A `seq(i) = v` store must keep the index target BARE (`seq[(i) as usize] = v`),

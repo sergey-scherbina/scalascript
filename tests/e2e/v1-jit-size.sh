@@ -1124,10 +1124,23 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # (The three genExpr entries above landed on main in parallel with this branch's renderTerm work —
 # merged here by UNION: both sides' comment histories kept, FROZEN takes each side's own method's
 # final value — genExpr 25540 from main, renderTerm 41960 from feature/uniml-dialect-modules.)
+# renderTerm 41960 -> 42564 (+604), from the SELF-APPEND lowering: `xs = xs :+ x` now emits
+# `xs.push(x)` instead of `[&(xs)[..], &[x][..]].concat()`. This is the one entry here bought with
+# a COMPLEXITY measurement rather than an error message: the concat form allocates a new Vec and
+# clones every element already in it on EVERY append, so a parser appending one token at a time
+# (uniml/markdown's `MarkdownBlocks.parse`) paid O(n) per token and O(n²) per file — 2 KB 0.015 s
+# → 32 KB 2.768 s, ~3.8× per doubling, with a `sample` profile that was nothing but String/Vec
+# clone + malloc/free. 96 of the emitted crate's 117 concat sites became pushes. The arm is inline
+# in renderTerm's own match because it has to see BOTH sides of the assignment (the lhs name and
+# the `:+` receiver must be the same); its two guards — the appended element must not read the
+# collection (E0502), and the receiver must be a known Vec (Scala's `:+` is also defined on
+# String) — are what keep it a rewrite of one shape rather than of every `:+`. RAISED, NOT
+# REVERTED, on the same terms as every entry above: renderTerm is 5.25× a limit it has not been
+# under for a long time, and this is a real asymptotic fix, not a restructuring candidate.
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25540 scalascript.codegen.JsGen::genExpr
-41960 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+42564 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

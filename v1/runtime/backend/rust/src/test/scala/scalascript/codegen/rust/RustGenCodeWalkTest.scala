@@ -1732,7 +1732,53 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |```
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
-    assert(g.contains("&[attribute.clone()][..]"), s"the appended element must be cloned:\n$g")
+    // TWO spellings, and the clone is what is actually under test in both. `attributes =
+    // attributes :+ attribute` is a SELF-APPEND, so it now lowers to `attributes.push(…)` (the
+    // O(n²)→O(n) fix — see `renderTerm`'s self-append case); the trailing `attributes :+ (…)`,
+    // which is not an assignment at all, keeps the immutable concat form. Either way the
+    // multi-use element must arrive cloned, which is this test's subject — pinning one SPELLING
+    // would make it a golden of the lowering rather than a check of the move-safety rule.
+    assert(g.contains("&[attribute.clone()][..]") || g.contains("push(attribute.clone())"),
+      s"the appended element must be cloned:\n$g")
+
+  test("`xs = xs :+ x` (SELF-append) pushes in place — the O(n²) parser fix — while every other `:+` keeps the immutable concat"):
+    // `out = out :+ VmToken(…)` in a per-token loop (`uniml/markdown`'s `MarkdownBlocks.scala`'s
+    // `emit`) lowered to `[&(out)[..], &[…][..]].concat()` — a WHOLE-VECTOR copy, cloning every
+    // element already accumulated, on EVERY append: O(n) per token, O(n²) per file. Measured on
+    // the emitted crate before the fix: 2 KB 0.015 s → 32 KB 2.768 s (~3.8× per doubling), with a
+    // `sample` profile that was nothing but String/Vec clone + malloc/free. rozum's own 505 KB
+    // SPRINT.md extrapolated to ~7 hours, forcing its RAG indexer to cap the syntactic path at
+    // 16 KB (rozum's `rag-uniml-parser-quadratic`).
+    //
+    // Both guards are asserted here, not just the happy path, because each is a way the rewrite
+    // would be WRONG rather than merely slower: an appended element that READS the collection
+    // would make `push`'s argument borrow what `push` mutably borrows (E0502), and a `:+` that is
+    // not a self-assignment has an old vector that genuinely outlives the new one.
+    val src =
+      """```scalascript
+        |def collect(n: Int): Vector[String] =
+        |  var out: Vector[String] = Vector.empty
+        |  var i = 0
+        |  while i < n do
+        |    out = out :+ "tok"
+        |    i += 1
+        |  out
+        |
+        |def selfReferential(): Vector[Int] =
+        |  var xs: Vector[Int] = Vector.empty
+        |  xs = xs :+ xs.length
+        |  xs
+        |
+        |def other(a: Vector[Int], b: Int): Vector[Int] = a :+ b
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("""out.push("tok".to_string())"""),
+      s"a self-append must push in place, not rebuild the whole vector:\n$g")
+    assert(g.contains("""xs = [&(xs)[..], &[(xs.len() as i64)][..]].concat()"""),
+      s"an appended element that reads the collection must keep the concat form (E0502):\n$g")
+    assert(g.contains("""[&(a)[..], &[b][..]].concat()"""),
+      s"a non-self `:+` must keep the immutable concat form:\n$g")
 
   test("an implicit-receiver self-method call clones a multi-use argument"):
     // `readContent(name)` inside another method of the SAME mutable class (`uniml/xml`'s
