@@ -168,32 +168,49 @@ int-width names no BUGS slug — it cannot be tracked back").
 
 ## js-val-tuple-destructuring-does-not-escape-a-reserved-word-component-name — `val (a, in) = pair` emits `in` literally, a JS reserved word, while the SAME name in a lambda parameter's destructuring is correctly escaped
 
-<!-- status: open
+<!-- status: fixed
      lane: js
      kind: bug
      area: codegen
      gate: tests/conformance/std-aggregator.ssc, tests/conformance/std-aggregator-approx.ssc
      reported-by: claude-code
      reported-at: 2026-08-30
+     fixed-in: 3cf7f1ba5
      confirmed: yes -->
 
 Found landing §6 (approximate aggregators) — `groupByAgg`'s `val (k, in) = kv` (landed with §8,
-2026-08-30's predecessor claim) transpiles to `const [k, in] = kv;`, a JS `SyntaxError: Unexpected
+2026-08-30's predecessor claim) transpiled to `const [k, in] = kv;`, a JS `SyntaxError: Unexpected
 token 'in'` (`in` is reserved). This was masking a DIFFERENT, already-diagnosed JS bug
 (`js-codegen-drops-generic-typeclass-resolution-when-multiple-instances-exist`, below) in every
 conformance case landed since §8 that happened to fail EARLIER in the file (at a `MinAgg`/`summon`
 call) than it reached `groupByAgg`'s code — `node --check` on the emitted JS shows the syntax error
 regardless of whether the buggy line is ever reached at runtime, but the OLDER diagnosis was written
 by reading the harness's runtime `ReferenceError`, without independently re-verifying the emitted
-JS actually parsed. It does not; the two defects coexisted, undetected, since §8 landed.
+JS actually parsed. It did not; the two defects coexisted, undetected, since §8 landed.
 
-**The codegen defect is real and NOT fixed**: the identical shape in a LAMBDA parameter's own
-destructuring (`(a, in) => ...`) IS correctly escaped, emitting `const [a, in_p] = ...` — confirmed
-in the same file, `runAggregator`'s own lambda. Only the `val (a, b) = tuple` STATEMENT form fails
-to apply the same escaping. `groupByAgg` was fixed by renaming `in` to `item`, which is a workaround
-in `std/aggregator.ssc`, not a fix to the codegen — any other `.ssc` file using `in` (or another JS
-reserved word: `class`, `function`, `new`, `typeof`, `default`, `let`, `yield`, `await`, …) as a
-`val`-tuple-destructured name will hit the identical syntax error.
+**FIXED**: the identical shape in a LAMBDA parameter's own destructuring (`(a, in) => ...`) was
+already correctly escaped, emitting `const [a, in_p] = ...` (that path threads through
+`withParamRenames` around the lambda body) — only the `val (a, b) = tuple` STATEMENT form, compiled
+by `genPatDestructure`, missed it: its `Pat.Var(n) => n.value` case emitted the bare name with no
+escaping at all. Fixed by routing that case (and the top-level `Pat.Var` case, for a bare
+non-tuple destructuring pattern) through a new `escapeDestructuredName` helper: when the bound name
+is a JS reserved word, it emits `safeJsParam`'s escaped form AND registers the same mapping into
+`paramRenames` so every LATER bare reference to that name in the rest of the module resolves to the
+escaped identifier too — unlike a lambda/method parameter's scoped `withParamRenames`, a
+destructuring statement has no enclosing-body scope available at this call site to thread a rename
+through, but the mapping is a fixed, deterministic function of the reserved word alone, so
+registering it permanently (never restored) is safe: every future mention of that exact reserved
+word anywhere in the module needs the identical escape regardless of which statement introduced it.
+
+`groupByAgg`'s `in` (renamed to `item` as the workaround) reverted to `in`, as originally designed.
+Verified beyond the filed repro: multiple reserved-word components in one tuple, nested tuple
+destructuring, a destructuring inside a function body (not just at module top level), and a
+wildcard discard alongside a reserved-word binding — all match the `int` lane's output exactly.
+Landing this let both `std-aggregator.ssc` and `std-aggregator-approx.ssc` progress past the
+`SyntaxError` on `js`, exposing (not introducing) the two ALREADY-FILED defects each case's own
+`known-red` already names — `js-codegen-drops-generic-typeclass-resolution-when-multiple-instances-
+exist` and `js-codegen-array-fill-and-tabulate-reject-a-bigint-count` respectively — so both
+conformance cases stay known-red on `js`, now genuinely against only the bug each already cites.
 
 ## js-codegen-drops-generic-typeclass-resolution-when-multiple-instances-exist
 
