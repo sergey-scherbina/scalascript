@@ -3461,6 +3461,23 @@ class RustGenCodeWalkTest extends AnyFunSuite:
       && g.contains("if !lexeme.is_empty()"),
       s"a captured var's tuple-string positions must flow through a bare-name alias and a .foreach destructure:\n$g")
 
+  test("`s.lastIndexOf(charExpr)` on a String lowers the same way `.indexOf` already does, via `str::rfind`"):
+    // `lex.lastIndexOf(']')` (`uniml/markdown`'s `MarkdownInlines.scala`'s `linkOrImage`) —
+    // `String.lastIndexOf` had NO lowering at all anywhere in this backend, even though its forward
+    // twin `indexOf` already did: `error[E0599]: no method named lastIndexOf found for struct
+    // String`. Fixed by mirroring `indexOf`'s own Unicode-safe find-then-UTF-16-count shape, using
+    // `str::rfind` in place of `str::find` — the prefix up to wherever the match starts is still a
+    // correct UTF-16 count regardless of which direction found it.
+    val src =
+      """```scalascript
+        |def lastBracket(lex: String): Long =
+        |  lex.lastIndexOf(']')
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("__h.rfind(__n).map(|__b| __h[..__b].encode_utf16().count() as i64).unwrap_or(-1)"),
+      s"String.lastIndexOf must lower via the Unicode-safe rfind()+UTF-16-count path:\n$g")
+
   test("a no-paren zero-arg method call on a `Some(x)`-bound name resolves its specific struct via paramCtorNames, not just paramTypes"):
     // `scanRefDef(lines, i) match { case Some(defn) => … defn.label … }` (`uniml/markdown`'s
     // `MarkdownBlocks.scala`) — `defn` is bound by a `Some(x)` match pattern; `renderMatch`'s own

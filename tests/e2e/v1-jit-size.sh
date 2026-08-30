@@ -946,10 +946,17 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # words to also be genuine fields elsewhere in this corpus). Widened the existing guard's lookup to
 # `ctx.paramTypes.get(n).orElse(ctx.paramCtorNames.get(n))` — inline in this arm's own case, the
 # growth. Re-verified uniml/xml, uniml/json, and uniml/yaml all still build clean (0 errors).
+#
+# renderTerm 39524 -> 39668 (+144), continuing the same backlog, 55 -> 54. `lex.lastIndexOf(']')`
+# (`MarkdownInlines.scala`'s `linkOrImage`) — `String.lastIndexOf` had NO lowering at all anywhere
+# in this backend (unlike `indexOf`, its forward twin): `error[E0599]: no method named lastIndexOf
+# found for struct String`. A NEW `renderTerm` arm mirroring the one-arg `indexOf` case exactly
+# (same Unicode-safe find-then-UTF-16-count technique, `str::rfind` in place of `str::find`) is the
+# growth. Re-verified uniml/xml, uniml/json, and uniml/yaml all still build clean (0 errors).
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-39524 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+39668 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

@@ -8659,6 +8659,35 @@ object RustCodeWalk:
       yield s"{ let __h: &str = &$q; let __n: &str = &$v; " +
             "__h.find(__n).map(|__b| __h[..__b].encode_utf16().count() as i64).unwrap_or(-1) }"
 
+    // `lex.lastIndexOf(']')` (`uniml/markdown`'s `MarkdownInlines.scala`'s `linkOrImage`) — had NO
+    // lowering at all anywhere in this backend (unlike `indexOf`, its forward twin, a few lines up).
+    // The exact SAME shape and fix, `str::rfind` in place of `str::find`: Scala's `lastIndexOf`
+    // answers a UTF-16 code-unit index for the LAST match, same as `indexOf` does for the first, and
+    // `__h[..__b].encode_utf16().count()` over the PREFIX up to wherever the match starts is correct
+    // regardless of which direction found it.
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(qual, m.Term.Name("lastIndexOf")), args
+    ) if args.values.size == 1 && !isRangeExpr(qual) && {
+          def strOp(t: m.Term) = isStringExpr(t) || (t match
+            case m.Term.Name(n) => ctx.localStrings.contains(n)
+            case _              => false)
+          strOp(qual)
+        } =>
+      val needleArg = args.values.head
+      val needleIsChar = needleArg.isInstanceOf[m.Lit.Char] || isConceptuallyChar(needleArg, ctx)
+      def renderNeedle: Either[List[Diagnostic], String] =
+        if needleIsChar then
+          renderTerm(needleArg, ctx).map { n0 =>
+            val n = if yieldsSscChar(needleArg, ctx) then s"($n0).0" else n0
+            s"char::from_u32(($n) as u32).unwrap_or('\\u{FFFD}').to_string()"
+          }
+        else renderTerm(needleArg, ctx)
+      for
+        q <- renderTerm(qual, ctx)
+        v <- renderNeedle
+      yield s"{ let __h: &str = &$q; let __n: &str = &$v; " +
+            "__h.rfind(__n).map(|__b| __h[..__b].encode_utf16().count() as i64).unwrap_or(-1) }"
+
     // `s.indexOf(needle, fromIndex)` — the two-arg overload (`input.indexOf("?>", index + 5)`,
     // `input.indexOf(';', cursor + 1)`, `uniml/xml`'s `Doc.scala`) — routed to a dedicated runtime
     // helper for the same Unicode-safety reason `_str_starts_with_at` was. The needle is either a
