@@ -3461,6 +3461,23 @@ class RustGenCodeWalkTest extends AnyFunSuite:
       && g.contains("if !lexeme.is_empty()"),
       s"a captured var's tuple-string positions must flow through a bare-name alias and a .foreach destructure:\n$g")
 
+  test("`s.stripSuffix(suffix)` on a String lowers the same way `.stripPrefix` already does"):
+    // `inner.stripSuffix(">")` (`uniml/markdown`'s `MarkdownInlines.scala`'s `autolinkFor`, chained
+    // after a `.stripPrefix("<")`) — `String.stripSuffix` had NO lowering at all anywhere in this
+    // backend (`stripPrefix`, its prefix twin, already did): a call reached rustc as a literal
+    // camelCase method name, `error[E0599]: no method named stripSuffix found for struct String`.
+    // Fixed by mirroring `stripPrefix`'s own shape exactly — Scala's contract returns the ORIGINAL
+    // string unchanged on no match; Rust's `str::strip_suffix` answers `Option<&str>` instead.
+    val src =
+      """```scalascript
+        |def stripAngle(x: String): String =
+        |  x.stripPrefix("<").stripSuffix(">")
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".strip_suffix((\">\".to_string()).as_str()).map(|__r| __r.to_string()).unwrap_or_else(|| ("),
+      s"String.stripSuffix must lower the same way stripPrefix already does:\n$g")
+
   test("`opt.isDefined` on a known Option lowers to `.is_some()`, the same as `.nonEmpty`"):
     // `startsFence(trimmed).isDefined` (`uniml/markdown`'s `MarkdownBlocks.scala`'s `parse` — 8
     // instances in the corpus) — `isDefined` is Scala's own SYNONYM for `nonEmpty` on an `Option`

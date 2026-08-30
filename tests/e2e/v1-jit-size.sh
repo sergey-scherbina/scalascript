@@ -898,10 +898,19 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # Vec convention, already used for a Set-typed PARAMETER); inline in the SAME pre-existing `Term.
 # Apply` case as `List`/`Vector`/`Array`, so no separate arm, no separate growth. Re-verified
 # uniml/xml, uniml/json, and uniml/yaml all still build clean (0 errors).
+#
+# renderTerm 39320 -> 39368 (+48), part of the post-emailLocalBackscan uniml/markdown real-
+# cargo-build backlog (--print-only diagnostics were already at 0; this is fixing SILENT codegen
+# bugs a real `cargo build` of the full corpus surfaced, 155 errors down to 79 across several
+# commits). `inner.stripSuffix(">")` (`MarkdownInlines.scala`'s `autolinkFor`) — `String.
+# stripSuffix` had NO lowering at all (`stripPrefix`, its prefix twin two arms up, already did);
+# a NEW `renderTerm` arm mirroring `stripPrefix`'s own shape exactly (`.strip_suffix(...).map(...)
+# .unwrap_or_else(...)`) is the growth. Re-verified uniml/xml, uniml/json, and uniml/yaml all still
+# build clean (0 errors).
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-39320 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+39368 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

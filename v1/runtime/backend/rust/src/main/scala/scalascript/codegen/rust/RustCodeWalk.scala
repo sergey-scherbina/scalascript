@@ -7038,6 +7038,16 @@ object RustCodeWalk:
         q <- renderTerm(qual, ctx)
         p <- renderTerm(args.values.head, ctx)
       yield s"($q).strip_prefix(($p).as_str()).map(|__r| __r.to_string()).unwrap_or_else(|| ($q).clone())"
+    // `inner.stripSuffix(">")` (`uniml/markdown`'s `MarkdownInlines.scala`'s `autolinkFor`) — the
+    // SUFFIX twin of `stripPrefix` just above, same contract (original string unchanged on no
+    // match) and same gap (no case existed at all, so it reached rustc as a literal camelCase method
+    // call): `error[E0599]: no method named stripSuffix found for struct String`.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("stripSuffix")), args)
+        if args.values.size == 1 =>
+      for
+        q <- renderTerm(qual, ctx)
+        p <- renderTerm(args.values.head, ctx)
+      yield s"($q).strip_suffix(($p).as_str()).map(|__r| __r.to_string()).unwrap_or_else(|| ($q).clone())"
     // `body.indexWhere(c => isWs(c))` (`uniml/yaml`'s `YamlLexer.scala`) — Scala's `StringOps`
     // extension, absent from Rust's `String` under any spelling; `.chars().position(pred)` is the
     // direct equivalent, reusing this lane's own SscChar (`as u32 as i64`) code-point convention
