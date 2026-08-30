@@ -1,0 +1,11 @@
+slug: v2-higher-kinded-arity
+branch: feature/v2-higher-kinded-arity
+agent: claude-code
+started: 2026-08-30T21:57:27Z
+heartbeat: 2026-08-30T21:57:27Z
+status: claimed-before-planning
+items: higher-kinded-generic-field-corrupts-arity-of-an-unrelated-val-class-elsewhere-in-scope
+paths: file:specs/v2.2-p6.5-fsub.ssc file:v2/BUGS.md file:BACKLOG.md file:std/aggregator.ssc file:specs/aggregation-algebra.md file:tests/conformance/std-aggregator.ssc
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
