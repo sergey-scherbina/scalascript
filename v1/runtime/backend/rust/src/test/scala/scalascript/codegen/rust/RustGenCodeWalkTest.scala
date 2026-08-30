@@ -3461,6 +3461,27 @@ class RustGenCodeWalkTest extends AnyFunSuite:
       && g.contains("if !lexeme.is_empty()"),
       s"a captured var's tuple-string positions must flow through a bare-name alias and a .foreach destructure:\n$g")
 
+  test("`.forall`/`.exists` on a case-class field bound via a method's own self-clone preamble is recognized as a known String"):
+    // `content.forall(c => …)` inside `case class MdLine(content: String, …): def isBlank =
+    // content.forall(…)` (`uniml/markdown`'s `MarkdownBlocks.scala`) — `content` is a case-class
+    // FIELD, bound to a local by the method's own preamble (`let content = self.content.clone();`,
+    // `selfMethod`'s clone-alias mechanism), so it was never in `ctx.localStrings` (that set only
+    // ever collects LOCAL `val`s a method's own body itself declares) — the existing `.forall`/
+    // `.exists`-on-String case's guard missed it and it fell to the generic Vec-shaped `.iter()`
+    // case: `error[E0599]: no method named iter found for struct String`. Fixed by widening that
+    // guard's bare-name disjunct to also check `ctx.paramTypes` (which already carries every field
+    // name -> Rust type) — the SAME fix shape `titleLex.isEmpty`'s own earlier history already used
+    // for `.nonEmpty`/`.isEmpty`.
+    val src =
+      """```scalascript
+        |case class MdLine(content: String, ending: String):
+        |  def isBlank: Boolean = content.forall(c => c == ' ' || c == '\t')
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("content.chars().all("),
+      s".forall on a case-class String field bound via a self-clone preamble must lower through .chars(), not .iter():\n$g")
+
   test("`s.stripSuffix(suffix)` on a String lowers the same way `.stripPrefix` already does"):
     // `inner.stripSuffix(">")` (`uniml/markdown`'s `MarkdownInlines.scala`'s `autolinkFor`, chained
     // after a `.stripPrefix("<")`) — `String.stripSuffix` had NO lowering at all anywhere in this

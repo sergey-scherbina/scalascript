@@ -8290,7 +8290,20 @@ object RustCodeWalk:
     case m.Term.Apply.After_4_6_0(
         m.Term.Select(qual, m.Term.Name(meth @ ("exists" | "forall"))), args
     ) if args.values.size == 1 &&
-        (isStringExpr(qual) || (qual match { case m.Term.Name(n) => ctx.localStrings.contains(n); case _ => false })) =>
+        (isStringExpr(qual) || (qual match {
+          case m.Term.Name(n) =>
+            // `content.forall(c => …)` inside `case class MdLine(content: String, …): def isBlank
+            // = content.forall(…)` (`uniml/markdown`'s `MarkdownBlocks.scala`) — `content` here is
+            // a case-class FIELD, bound to a local by the method's own preamble (`let content =
+            // self.content.clone();`, `selfMethod`'s clone-alias mechanism), so it is never in
+            // `ctx.localStrings` (that set only ever collects LOCAL `val`s a method's own body
+            // itself declares) — but `ctx.paramTypes` already carries every field name -> Rust type
+            // (`renderDef`'s own `ownFieldTypes`, folded in at `Ctx`-construction time), the SAME
+            // gap and the SAME fix `titleLex.isEmpty`'s own jit-size history entry already applied
+            // to the `.nonEmpty`/`.isEmpty`-on-String guard.
+            ctx.localStrings.contains(n) || ctx.paramTypes.get(n).contains("String")
+          case _ => false
+        })) =>
       val rustMeth = if meth == "forall" then "all" else "any"
       for
         q    <- renderTerm(qual, ctx)

@@ -907,10 +907,21 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # a NEW `renderTerm` arm mirroring `stripPrefix`'s own shape exactly (`.strip_suffix(...).map(...)
 # .unwrap_or_else(...)`) is the growth. Re-verified uniml/xml, uniml/json, and uniml/yaml all still
 # build clean (0 errors).
+#
+# renderTerm 39368 -> 39400 (+32), continuing the same real-cargo-build backlog, 79 -> 78.
+# `content.forall(c => …)` inside `case class MdLine(content: String, …): def isBlank = content.
+# forall(…)` (`MarkdownBlocks.scala`) — `content` is a case-class FIELD bound to a local by the
+# method's own preamble (`let content = self.content.clone();`), never in `ctx.localStrings` (LOCAL
+# `val`s only), so the existing `.forall`/`.exists`-on-String case's guard missed it and it fell to
+# the generic Vec-shaped `.iter()` case: `error[E0599]: no method named iter found for struct
+# String`. Widened the existing guard's bare-name disjunct to also check `ctx.paramTypes` — inline
+# in this arm's own case, the growth (the SAME fix shape `titleLex.isEmpty`'s own earlier entry
+# already used for `.nonEmpty`/`.isEmpty`). Re-verified uniml/xml, uniml/json, and uniml/yaml all
+# still build clean (0 errors).
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-39368 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+39400 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF
