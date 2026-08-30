@@ -297,6 +297,54 @@ against a different, later bug.
 
 ## js-codegen-map-dot-empty-has-no-companion-handling — `Map.empty` dispatches `'empty'` on the raw JS-native `Map` class and throws `Method not found: empty on <function>`
 
+<!-- status: fixed
+     lane: js
+     kind: bug
+     area: codegen
+     gate: tests/conformance/std-aggregator.ssc (known-red js)
+     reported-by: claude-code
+     reported-at: 2026-08-30
+     fixed-in: 22834a015
+     confirmed: yes -->
+
+Found landing the fix for `js-codegen-drops-generic-typeclass-resolution-when-multiple-instances-
+exist` (above): with `MinAgg`/`summon` fixed, `std-aggregator.ssc`'s conformance case progressed
+on `js` far enough to reach `groupByAgg`, whose `MapMonoid.empty = Map.empty` (restored to the
+original design when the `int` lane's own, mechanically different `Map.empty` bug —
+`v1/runtime/backend/interpreter/BUGS.md`
+`map-dot-empty-reads-empty-as-a-literal-key-not-the-companion-accessor` — was fixed the same day)
+hit this SEPARATE, pre-existing JS-backend gap, previously unreachable behind the summon
+`ReferenceError`. Minimal repro, no aggregator code involved:
+
+```scalascript
+val m: Map[String, Int] = Map.empty
+println(m)
+```
+
+threw `Error: Method not found: empty on <function>` from `_dispatch`. The codegen only
+special-cased `Map` in CALL position (`Term.Apply` with fun `Map`/`Map[K,V]` → `_Map(...)`); a
+bare `Map` in RECEIVER position (`Map.empty` is `Term.Select(Term.Name("Map"), ...)`) got no
+handling, so the emitted `_dispatch(Map, 'empty', [])` reached JavaScript's own built-in `Map`
+CLASS (a function), which the dispatcher has no `'empty'` case for. The `int` lane's bug with the
+same user-facing symptom had a different mechanism (a heuristic auto-calling the constructor and
+then reading `'empty'` as a string key on the resulting empty map); this one never got that far —
+there is no ScalaScript `Map` companion binding in the emitted module at all, only the accidental
+capture of the JS global.
+
+**FIXED**, exactly as this entry's own sketch proposed: a new
+`Term.Select(Term.Name("Map"), Term.Name("empty"))` case in `genExpr` lowers to `_Map()` directly,
+the same way call-position `Map(...)` already does; `Map.empty[K, V]` arrives as a `Term.ApplyType`
+whose default arm recurses into the Select, so both spellings take the case. `List.empty` and
+`Set.empty` needed no such case — those companions ARE real runtime objects with an `empty` member
+(measured, not assumed). Verified beyond the filed repro: `Map.empty` with a declared type,
+`Map.empty[K, V]`, in default-parameter position, and `.updated`/`.isEmpty` on the result — all
+match the `int` lane exactly. Landing this let `std-aggregator.ssc`'s `js` lane progress past
+`groupByAgg` to a FOURTH pre-existing defect, in `runEffAggregator` — see
+`js-codegen-method-reference-in-argument-position-is-invoked-not-eta-expanded` — so that case stays
+known-red on `js` against the newer bug.
+
+## js-codegen-method-reference-in-argument-position-is-invoked-not-eta-expanded — `b.flatMap(w.double)` calls `w.double` with ZERO args and passes the RESULT, instead of passing the method as a function
+
 <!-- status: open
      lane: js
      kind: bug
@@ -306,33 +354,35 @@ against a different, later bug.
      reported-at: 2026-08-30
      confirmed: yes -->
 
-Found landing the fix for `js-codegen-drops-generic-typeclass-resolution-when-multiple-instances-
-exist` (above): with `MinAgg`/`summon` fixed, `std-aggregator.ssc`'s conformance case progressed
-on `js` far enough to reach `groupByAgg`, whose `MapMonoid.empty = Map.empty` (restored to the
-original design when the `int` lane's own, mechanically different `Map.empty` bug —
-`v1/runtime/backend/interpreter/BUGS.md`
-`map-dot-empty-reads-empty-as-a-literal-key-not-the-companion-accessor` — was fixed the same day)
-hits this SEPARATE, pre-existing JS-backend gap, previously unreachable behind the summon
-`ReferenceError`. Minimal repro, no aggregator code involved:
+Found landing the `Map.empty` fix (above): with it in place, `std-aggregator.ssc`'s `js` lane
+progressed past `groupByAgg` to `runEffAggregator`, whose final line `accF.flatMap(agg.present)`
+passes a METHOD REFERENCE (`agg.present`, no parens, no argument — Scala eta-expansion) as
+`flatMap`'s function argument. The JS backend emits `_dispatch(accF, 'flatMap',
+[_dispatch(agg, 'present', [])])` — `agg.present` is INVOKED with zero arguments and its result
+passed, instead of being wrapped as `(x) => _dispatch(agg, 'present', [x])`. `flatMap` then throws
+`TypeError: args[0] is not a function`. Minimal repro, no aggregator code involved:
 
 ```scalascript
-val m: Map[String, Int] = Map.empty
-println(m)
+class Box(v: Int):
+  def flatMap(f: Int => Box): Box = f(v)
+  def get: Int = v
+
+class Wrap():
+  def double(x: Int): Box = Box(x * 2)
+
+val w = Wrap()
+val b = Box(21)
+println(b.flatMap(w.double).get)
 ```
 
-throws `Error: Method not found: empty on <function>` from `_dispatch`. The codegen only
-special-cases `Map` in CALL position (`Term.Apply` with fun `Map`/`Map[K,V]` → `_Map(...)`); a
-bare `Map` in RECEIVER position (`Map.empty` is `Term.Select(Term.Name("Map"), ...)`) gets no
-handling, so the emitted `_dispatch(Map, 'empty', [])` reaches JavaScript's own built-in `Map`
-CLASS (a function), which the dispatcher has no `'empty'` case for. The `int` lane's bug with the
-same user-facing symptom had a different mechanism (a heuristic auto-calling the constructor and
-then reading `'empty'` as a string key on the resulting empty map); this one never gets that far —
-there is no ScalaScript `Map` companion binding in the emitted module at all, only the accidental
-capture of the JS global. A fix would special-case `Term.Select(Term.Name("Map"),
-Term.Name("empty"))` (and plausibly `Map.empty[K, V]`) to emit `_Map()` directly, the same way
-call-position `Map(...)` already lowers. `int`/`native`/`run-jvm` all resolve the identical source
-correctly. `std-aggregator.ssc`'s conformance case stays known-red on `js` against this bug (its
-declaration updated from the fixed summon bug to this one).
+`int` prints `42`; `js` invokes `w.double` with no args (producing `Box(NaN)`) and then throws
+`Error: not callable: Box(NaN)` trying to call the result. The same shape with a TOP-LEVEL def
+reference (`xs.map(topLevelFn)`) works — the gap is specifically a method reference THROUGH A
+RECEIVER (`recv.method`) in argument position, which is indistinguishable, at the `Term.Select`
+node itself, from a zero-arg method CALL; disambiguating needs the enclosing context (argument
+position + the parameter's expected function type, or at least the target method's arity).
+`int`/`native` resolve the identical source correctly. `std-aggregator.ssc` stays known-red on
+`js` against this bug (its declaration updated from the fixed `Map.empty` bug to this one).
 
 ## agent-mcp-toolsource-js-mcpconnect-times-out-against-a-server-that-answers
 
