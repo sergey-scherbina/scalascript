@@ -1,0 +1,11 @@
+slug: v2-anonymous-given
+branch: feature/v2-anonymous-given
+agent: claude-code
+started: 2026-08-30T14:03:39Z
+heartbeat: 2026-08-30T14:03:39Z
+status: claimed-before-planning
+items: anonymous-given-instance-unresolvable-by-summon-or-using
+paths: file:specs/v2.2-p6.5-fsub.ssc file:v2/BUGS.md file:BACKLOG.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
