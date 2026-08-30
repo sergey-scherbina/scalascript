@@ -1,2 +1,3 @@
-# generation: 3145
+# generation: 3146
 #slug	agent	started	items	paths
+js-val-tuple-reserved-word	claude-code	2026-08-30T11:55:22Z	js-val-tuple-destructuring-does-not-escape-a-reserved-word-component-name	file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/ file:v1/runtime/backend/js/BUGS.md file:specs/aggregation-algebra.md file:BACKLOG.md file:std/aggregator.ssc
