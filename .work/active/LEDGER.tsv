@@ -1,5 +1,4 @@
-# generation: 3182
+# generation: 3183
 #slug	agent	started	items	paths
 run-gated-by-check	claude-code	2026-08-30T20:13:19Z	run-gated-by-check	file:v1/tools/cli/ file:v1/lang/core/src/main/scala/scalascript/typer/Typer.scala file:BACKLOG.md
-v3-lexer-annotations	claude-code	2026-08-30T21:18:52Z	v3-lexer-annotations	mod:v3
 v2-higher-kinded-arity	claude-code	2026-08-30T21:57:27Z	higher-kinded-generic-field-corrupts-arity-of-an-unrelated-val-class-elsewhere-in-scope	file:specs/v2.2-p6.5-fsub.ssc file:v2/BUGS.md file:BACKLOG.md file:std/aggregator.ssc file:specs/aggregation-algebra.md file:tests/conformance/std-aggregator.ssc
