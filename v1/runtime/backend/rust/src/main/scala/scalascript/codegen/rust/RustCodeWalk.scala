@@ -13148,6 +13148,32 @@ object RustCodeWalk:
                 // already gate on `ec.isStruct`/`!ec.isStruct` themselves — this table only needs
                 // to say WHICH ctor, not which kind.
                 .filter(sn => ctx.ctorMap.contains(sn))
+            // `refs.get(normalizeLabel(labelText)) match { case Some(defn) => (defn.destination,
+            // defn.title); … }` (`uniml/markdown`'s `MarkdownProjection.scala`'s `linkOrImage`,
+            // `refs: Map[String, MarkdownBlock.LinkDefinition]` a def parameter) — a `Map.get`
+            // call, a shape the case above never matches (it only recognises a BARE `fn(args)`
+            // call, keyed by `_returnTypes`, which has no notion of "one Map's own value type").
+            // `_returnTypes`/`ctx.paramTypes` couldn't answer this anyway even if this case DID
+            // fire: `mapType` collapses a variant type argument to its owning ENUM name (the SAME
+            // fact the `Right`/`Left` case just below already works around for `Either`), so the
+            // already-mapped Rust string would say `MarkdownBlock`, never the specific variant
+            // `LinkDefinition`. Reads the RAW, unmapped Scala type instead — `refs`'s own
+            // parameter declaration off `_defBodies` (keyed by `ctx.defName`, the CURRENT def) —
+            // the same "read the AST, not the collapsed Rust string" fix `eitherSideCtorName`
+            // already established for the identical class of problem. Without this: `error
+            // [E0609]: no field destination on type MarkdownBlock` (the enum, not the variant).
+            case m.Term.Apply.After_4_6_0(m.Term.Select(m.Term.Name(mapName), m.Term.Name("get")), _) =>
+              _defBodies.get(ctx.defName)
+                .flatMap(_.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
+                  .find(_.name.value == mapName))
+                .flatMap(_.decltpe)
+                .collect { case m.Type.Apply.After_4_6_0(m.Type.Name("Map"), args) if args.values.sizeIs == 2 => args.values(1) }
+                .flatMap {
+                  case m.Type.Select(_, m.Type.Name(n)) => Some(n)
+                  case m.Type.Name(n)                    => Some(n)
+                  case _                                 => None
+                }
+                .filter(sn => ctx.ctorMap.contains(sn))
             case _ => None
           (bound, structName) match
             case (Some(n), Some(sn)) => ctx.copy(paramCtorNames = ctx.paramCtorNames + (n -> sn))

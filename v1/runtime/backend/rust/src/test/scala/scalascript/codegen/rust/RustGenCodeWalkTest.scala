@@ -4042,6 +4042,35 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(expected.findFirstIn(g).isDefined,
       s"a Vec-typed field destructured through a fixed-arity Vector sub-pattern must rewrite to an if-let + slice match, not refuse as an unknown ctor:\n$g")
 
+  test("`case Some(x) => x.field` over a `Map[K, Enum.Variant].get(...)` subject resolves the SPECIFIC variant, not the collapsed enum"):
+    // `refs.get(normalizeLabel(labelText)) match { case Some(defn) => (defn.destination, defn.
+    // title); … }` (`uniml/markdown`'s `MarkdownProjection.scala`'s `linkOrImage`, `refs: Map[
+    // String, MarkdownBlock.LinkDefinition]` a def parameter) — the existing `Some(x)`-bound
+    // struct-name resolution only recognised a BARE `fn(args)` call subject (keyed through
+    // `_returnTypes`); a `Map.get(...)` call fell through entirely, so `defn` never got a ctor
+    // name. Even if it had: `mapType` collapses a variant type argument to its owning ENUM name,
+    // so `ctx.paramTypes`/`_returnTypes` could only ever say `MarkdownBlock`, never the specific
+    // `LinkDefinition` — `error[E0609]: no field destination on type MarkdownBlock`. Fixed by
+    // reading `refs`'s OWN raw, unmapped parameter type off `_defBodies` instead (the same
+    // "read the AST, not the collapsed Rust string" fix `eitherSideCtorName` already established
+    // for `Either`'s identical problem).
+    val src =
+      """```scalascript
+        |enum MarkdownBlock:
+        |  case LinkDefinition(label: String, destination: String, title: Option[String])
+        |  case Paragraph(text: String)
+        |
+        |def linkOrImage(refs: Map[String, MarkdownBlock.LinkDefinition], labelText: String): (String, Option[String]) =
+        |  refs.get(labelText) match
+        |    case Some(defn) => (defn.destination, defn.title)
+        |    case None       => ("", None)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("MarkdownBlock::LinkDefinition { destination, .. } => destination.clone()") &&
+           g.contains("MarkdownBlock::LinkDefinition { title, .. } => title.clone()"),
+      s"defn.destination/defn.title must resolve against the specific LinkDefinition variant, not the collapsed enum:\n$g")
+
   test("a local val bound to a MATCH EXPRESSION over a known-seq subject is itself recorded as a seq"):
     // `val withoutTrailingBreak = is match { case rest :+ MarkdownInline.SoftBreak => rest; …
     // case _ => is }` (`uniml/markdown`'s `MarkdownProjection.scala`'s `trimBlockInlines`, `is` the
