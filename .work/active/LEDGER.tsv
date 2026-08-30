@@ -1,2 +1,3 @@
-# generation: 3135
+# generation: 3136
 #slug	agent	started	items	paths
+interp-array-tabulate-cross-module	claude-code	2026-08-30T07:49:18Z	array-tabulate-lambda-loses-a-sibling-top-level-def-cross-module	file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/ file:v1/runtime/backend/interpreter/BUGS.md file:specs/aggregation-algebra.md file:BACKLOG.md file:std/aggregator.ssc
