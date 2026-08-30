@@ -3,9 +3,9 @@ branch: feature/interp-math-log-and-sortby
 agent: claude-code
 started: 2026-08-30T06:28:24Z
 heartbeat: 2026-08-30T06:28:24Z
-status: claimed-before-planning
+status: in-progress
 items: math-object-is-missing-log-and-other-transcendental-functions sortby-on-a-non-int-key-sorts-lexicographically-not-numerically
 paths: file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/intrinsics/Core.scala file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/BuiltinsRuntime.scala file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/DispatchRuntime.scala file:v1/runtime/backend/interpreter/BUGS.md file:tests/conformance/std-aggregator-approx.ssc file:tests/conformance/corpus-baseline.tsv file:tests/conformance/contract-roster.tsv file:specs/aggregation-algebra.md file:BACKLOG.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+next: add math.log/exp, fix sortBy to sort numerically for Double keys, remove stale known-red, rebuild via sbt, test

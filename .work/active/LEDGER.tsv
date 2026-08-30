@@ -1,3 +1,3 @@
-# generation: 3130
+# generation: 3131
 #slug	agent	started	items	paths
 interp-math-log-and-sortby	claude-code	2026-08-30T06:28:24Z	math-object-is-missing-log-and-other-transcendental-functions sortby-on-a-non-int-key-sorts-lexicographically-not-numerically	file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/intrinsics/Core.scala file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/BuiltinsRuntime.scala file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/DispatchRuntime.scala file:v1/runtime/backend/interpreter/BUGS.md file:tests/conformance/std-aggregator-approx.ssc file:tests/conformance/corpus-baseline.tsv file:tests/conformance/contract-roster.tsv file:specs/aggregation-algebra.md file:BACKLOG.md
