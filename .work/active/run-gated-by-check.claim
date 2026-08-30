@@ -5,7 +5,7 @@ started: 2026-08-30T20:13:19Z
 heartbeat: 2026-08-30T20:13:19Z
 status: claimed-before-planning
 items: run-gated-by-check
-paths: file:v1/tools/cli/ file:BACKLOG.md
+paths: file:v1/tools/cli/ file:v1/lang/core/src/main/scala/scalascript/typer/Typer.scala file:BACKLOG.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+next: gate RunCmd through checkOneFile; effect-verifier advisories become isWarning=true per their own asErrors=false intent
