@@ -1,0 +1,11 @@
+slug: js-sibling-zeroarg-def
+branch: feature/js-sibling-zeroarg-def
+agent: claude-code
+started: 2026-08-30T10:09:32Z
+heartbeat: 2026-08-30T10:09:32Z
+status: claimed-before-planning
+items: js-codegen-does-not-resolve-a-sibling-zero-arg-def-from-another-method
+paths: file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/ file:v1/runtime/backend/js/BUGS.md file:specs/aggregation-algebra.md file:BACKLOG.md file:std/aggregator.ssc
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
