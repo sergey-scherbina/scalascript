@@ -11408,6 +11408,16 @@ object RustCodeWalk:
           case "find"     => s"$q.iter().cloned().find(|__f| { let $p0 = __f.clone(); $b })"
           // `any`/`all` take the item BY VALUE from a `cloned()` iterator, so the parameter binds
           // directly — unlike `find`, whose predicate gets a reference.
+          // `items.iterator.zipWithIndex.exists { (item, idx) => … idx … }` (`uniml/markdown`'s
+          // `MarkdownProjection.scala`'s `listLoose`) — the SAME genuine two-param-closure-over-a-
+          // tuple shape `"map"`'s own case just above already destructures (`params.sizeIs == 2`,
+          // its own comment explains why Scala only ever reaches a 2-param function literal here
+          // via `.zipWithIndex`'s tupled element auto-unpacking); `exists`/`forall` never got the
+          // matching guard and always bound the single-param `|$p0|` to the WHOLE tuple, so `idx`
+          // read as `error[E0425]: cannot find value idx in this scope` (unbound) whenever the body
+          // referenced it. Same destructuring pattern, applied here too.
+          case "exists" if params.sizeIs == 2 => s"$q.iter().cloned().any(|($p0, $p1)| { $b })"
+          case "forall" if params.sizeIs == 2 => s"$q.iter().cloned().all(|($p0, $p1)| { $b })"
           case "exists"   => s"$q.iter().cloned().any(|$p0| { $b })"
           case "forall"   => s"$q.iter().cloned().all(|$p0| { $b })"
           // `filter` hands the predicate a REFERENCE too, exactly like `find` three lines above —

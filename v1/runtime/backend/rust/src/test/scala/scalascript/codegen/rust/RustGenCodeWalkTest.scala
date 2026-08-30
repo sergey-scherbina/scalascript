@@ -4042,6 +4042,27 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(expected.findFirstIn(g).isDefined,
       s"a Vec-typed field destructured through a fixed-arity Vector sub-pattern must rewrite to an if-let + slice match, not refuse as an unknown ctor:\n$g")
 
+  test("`xs.zipWithIndex.exists { (item, idx) => … }` destructures the tuple param, not just `xs.zipWithIndex.map`"):
+    // `items.iterator.zipWithIndex.exists { (item, idx) => … idx … }` (`uniml/markdown`'s
+    // `MarkdownProjection.scala`'s `listLoose`) — the genuine two-param-closure-over-a-tuple shape
+    // `renderVecIterBody`'s own `"map"` case already destructures (`params.sizeIs == 2`, reachable
+    // ONLY via `.zipWithIndex`'s tupled-element auto-unpacking); `"exists"`/`"forall"` never had the
+    // matching guard and always bound the single-param `|item|` to the WHOLE tuple, so a body
+    // referencing `idx` read as `error[E0425]: cannot find value idx in this scope`.
+    val src =
+      """```scalascript
+        |def listLoose(items: Vector[Int]): Boolean =
+        |  items.iterator.zipWithIndex.exists { (item, idx) =>
+        |    if item < 0 then false
+        |    else if idx < items.size - 1 then true
+        |    else item > 0
+        |  }
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".any(|(item, idx)| {"),
+      s"a two-param closure passed to .exists over a zipWithIndex tuple must destructure both names:\n$g")
+
   test("`Integer.parseInt(s)` (one-arg, radix-10) and `Character.toLowerCase(c)` lower as Java-interop static calls, unwrapping an SscChar argument"):
     // `Integer.parseInt(body.substring(1))` (`uniml/markdown`'s `MarkdownProjection.scala`'s
     // `resolveEntity`) — only the TWO-arg (radix) overload had a case; the bare one-arg overload
