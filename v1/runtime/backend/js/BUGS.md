@@ -9,13 +9,14 @@ Newest first.
 
 ## js-codegen-does-not-resolve-a-sibling-zero-arg-def-from-another-method — a class method referencing another zero-arg `def` by its bare name emits a free-standing identifier instead of a dispatch on the receiver
 
-<!-- status: open
+<!-- status: fixed
      lane: js
      kind: bug
      area: codegen
      gate: tests/conformance/std-aggregator-approx.ssc (known-red js)
      reported-by: claude-code
      reported-at: 2026-08-30
+     fixed-in: d57374a33
      confirmed: yes -->
 
 Found landing `std/aggregator.ssc`'s `HLLAgg` (`specs/aggregation-algebra.md` §6.1), whose `monoid`
@@ -29,15 +30,35 @@ class Thing(precision: Int):
 println(Thing(4).get)
 ```
 
-emits `_registerExt('get', (_self) => { const {precision} = _self; return helper; }, 'Thing');` —
-`helper` is left as a bare, unbound identifier instead of `_dispatch(_self, 'helper', [])` (the
-pattern the SAME codegen correctly uses to call `helper` from outside the class). Throws
-`ReferenceError: helper is not defined`. Tried `this.helper` as a workaround — worse, not better:
-the emitted call site is `_dispatch(/* unsupported: Term.This */, 'helper', [])`, a syntax error,
-meaning `this` is not supported by this backend in this position at all. `int`/`native`/`run-jvm`
-all resolve the identical source correctly. No workaround found; `HLLAgg` keeps the sibling-`def`
-shape (needed regardless, to work around the `int`-lane class-body-`val` bug in
-`v1/runtime/backend/interpreter/BUGS.md`) and stays known-red on `js`.
+gave `_registerExt('get', (_self) => { const {precision} = _self; return helper; }, 'Thing');` —
+`helper` was left as a bare, unbound identifier instead of `_dispatch(_self, 'helper', [])` (the
+pattern the SAME codegen correctly uses to call `helper` from outside the class), throwing
+`ReferenceError: helper is not defined`. Tried `this.helper` as a workaround at the time — worse,
+not better: the emitted call site was `_dispatch(/* unsupported: Term.This */, 'helper', [])`, a
+syntax error, meaning `this` is not supported by this backend in this position at all. `int`/
+`native`/`run-jvm` all resolved the identical source correctly.
+
+**FIXED**: `JsGen.genExpr`'s `Term.Name` handling already had a mechanism for exactly this shape at
+top level — `zeroParamFns`, a set of top-level parenless `def` names, auto-invoked on bare
+reference (`f` → `f()`) — but it deliberately excludes class-body methods (a class method isn't a
+JS-scope-visible function; it's reachable only via `_dispatch`, so `f()` would be a
+`ReferenceError` too, just a different one). `caseClassBodyMethodRegistrations` (which compiles
+EVERY class's own body methods, `case class` or plain `class` alike — the "case class" in its name
+predates it handling both) never told `genExpr` which names were its own siblings, so a bare
+reference to one fell through to the generic "just emit the identifier" case. Fixed by a new
+`siblingZeroArgMethods` scoped set (mirroring `paramRenames`'s save/restore pattern) populated with
+the enclosing class's own parenless def names (minus the current method's own parameters, which
+shadow a same-named sibling), active only while generating that class's own method bodies; a new
+`genExpr` case checked *before* `zeroParamFns` (a class member shadows an outer top-level def of
+the same name, matching Scala's own scoping) emits `_dispatch(_self, 'name', [])` instead.
+
+Verified beyond the filed repro: multiple siblings referenced from different methods, a method
+parameter correctly shadowing a same-named sibling def, and simple self/mutual reference through
+another sibling — all match the `int` lane's output exactly. Landing this surfaced a second,
+distinct JS-backend gap while re-testing the original `HLLAgg` use case (its `hllMonoid` is now a
+class-body `val`, not a `def`, following the `int`-lane class-body-val fix that landed earlier the
+same day) — filed separately, see
+`js-codegen-never-computes-or-attaches-a-class-body-val-field`.
 
 ## js-codegen-never-computes-or-attaches-a-class-body-val-field — a class-body `val` (not a constructor parameter) is never evaluated, stored, or destructured; reading it throws `ReferenceError`, even from outside the class
 
