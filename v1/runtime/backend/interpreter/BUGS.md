@@ -53,6 +53,48 @@ is computed by an inline fold, with a comment citing this slug) so the laws gate
 `int` while this is open — `gate: none` until a fix lands and the case can switch back to
 `runAggregator` for the tuple-accumulator comparisons.
 
+### Investigation 2026-08-31 — BOTH named suspects REFUTED, and the "imported vs local" framing is wrong
+
+Measured, not reasoned. Every claim below is a control that was actually run.
+
+**The two suspects in the report above are both eliminated.**
+
+- *The fused/JIT foldLeft path:* the bug reproduces IDENTICALLY under `SSC_JIT=off`. Whatever
+  truncates the tuple is not the JIT. (Reading agrees: `JitRuntime` never mentions `TupleV` at all,
+  and `marshalAndRun` accepts only `InstanceV`/`FunV`/`StringV`/`MapV` as ref params — a tuple makes
+  it DECLINE cleanly rather than corrupt. `VmCompiler`'s own foldLeft loop is likewise guarded to a
+  `List[Int]` receiver with an Int/Double accumulator.)
+- *The `jit-foldleft-tc` memo:* refuted by its own kill-switch — `SSC_JIT_FOLDTC=0` changes nothing.
+  Reading agrees again: the memo only engages for `summon[M].member` shapes, and `runAggregator`
+  writes `agg.monoid.empty`, which is not one.
+
+**"Imported vs local" is not the axis.** With the report's own two-call file, whichever generic fold
+runs FIRST returns `2` and the second returns `(4, 2)` — reverse the two `println`s and the wrong
+answer moves with the position, not with the module boundary. The local/imported control that
+opened this entry was reading an ordering effect.
+
+**Nor is it call count, or caching.** Three IDENTICAL consecutive `runAggregator` calls are all
+wrong (`2`, `2`, `2`), while the SAME call alone in a file is right — so it is not "first call cold,
+later calls warm". And the answer is fully DETERMINISTIC per file: the same file gives the same
+result on every one of three runs.
+
+**What it actually tracks is the surrounding file, and no smaller rule survived.** Four candidate
+triggers were each isolated and each then falsified by a counter-example in the same session:
+inline-vs-`val`-bound aggregator (a minimal pair showed `(4, 2)` inline vs `2` when bound — then a
+one-file version of that same pair printed `(4, 2)` BOTH ways); result bound to a `val` vs consumed
+inline; a preceding scalar `runAggregator` call (does not poison); and `callFun`'s auto-tupling arm
+(`case List(Value.TupleV(elems)) if f.params.length > 1 && elems.length == f.params.length` spreads
+a single tuple argument across parameters — a real hazard of exactly this shape, but `agg.present`
+called DIRECTLY with a tuple returns `(4, 2)`, so that arm is not firing here).
+
+So: small, semantically irrelevant edits flip the outcome deterministically, which says a
+COMPILE-TIME/whole-file analysis selects the path, not runtime state — but which one is not
+established, and this entry will not guess a fifth time. **The next step is instrumentation, not
+more permutation**: dump what the interpreter actually builds for the two members of a minimal
+flipping pair and compare, per this repo's own `when-no-external-probe-can-differ-dump-the-ir`
+lesson. Status stays `open`; the damage is confirmed and unchanged, the cause is still unknown, and
+the two suspicions the original entry offered are now known to be wrong rather than merely unproven.
+
 ## sortby-on-a-non-int-key-sorts-lexicographically-not-numerically — `List.sortBy` on a `Double` key sorts as if the keys were strings
 
 <!-- status: fixed
