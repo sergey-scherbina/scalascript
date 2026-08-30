@@ -225,6 +225,27 @@ is fixed there), so this is v3's own gap rather than a compatibility question.
 
 ## `extension` belongs in `Lower`'s dispatch, and the projection CANNOT do it — measured 2026-08-09
 
+**✓ SUPERSEDED — THIS WAS BUILT, and the entry outlived it by three weeks.** Landed under claim
+`v3-extension-dispatch` as `10024d732` (feature) + `9040b520f` (entry), released `afd0b8d6e`.
+`v3/src/Lower.scala:1657` carries exactly what this section prescribes: `v.m(args)` becomes
+`m(v, args)`, guarded by the built-in vocabulary that `v3/extension-gate.sh` DERIVES from
+`Exec.invoke` (it caught 28 names missing from the first hand-written copy — the reason it derives),
+plus a typed arm for an extension whose name a built-in also has. Design: `specs/ssc3-extensions.md`.
+
+**MEASURED, on one tree, before and after: N = 171/368 → 194/368, plus 23.**
+
+The rule that made it sound is a NARROWING of §51's conclusion rather than a contradiction of it —
+worth keeping, because the two read as opposites at a glance. §51's finding stands: which method a
+receiver has is a fact about its runtime VALUE, not its syntax. That rules out choosing BETWEEN
+candidates. It does not rule out observing that there are NONE BUT ONE: if `m` is a top-level def,
+no class in the merged program declares it, and it is not a built-in, then no receiver value can
+answer to it and the rewrite is the absence of alternatives rather than a guess about a type. Every
+condition can only PREVENT a rewrite, so no call that works today can stop working.
+
+Kept below, unedited, because the reasoning that ruled out the projection-only approach is still the
+reason the implementation lives where it does — and because the blocked-on note at the end is how a
+stale entry looks from the inside: it names claims that finished long ago.
+
 Tier 2 was un-deferred and the plan's first stage was "`extension`, projection-only" — on the
 reading that it resolves by NAME and therefore needs no types. The name part is right. Doing it in
 the projection is not, and two measurements say so.
