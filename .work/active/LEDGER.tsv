@@ -1,3 +1,2 @@
-# generation: 3142
+# generation: 3143
 #slug	agent	started	items	paths
-js-sibling-zeroarg-def	claude-code	2026-08-30T10:09:32Z	js-codegen-does-not-resolve-a-sibling-zero-arg-def-from-another-method	file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/ file:v1/runtime/backend/js/BUGS.md file:specs/aggregation-algebra.md file:BACKLOG.md file:std/aggregator.ssc file:tests/e2e/v1-jit-size.sh file:tests/conformance/std-aggregator-approx.ssc
