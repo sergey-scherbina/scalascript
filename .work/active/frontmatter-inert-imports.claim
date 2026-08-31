@@ -1,0 +1,11 @@
+slug: frontmatter-inert-imports
+branch: feature/frontmatter-inert-imports
+agent: claude-code
+started: 2026-08-31T19:17:36Z
+heartbeat: 2026-08-31T19:17:36Z
+status: claimed-before-planning
+items: frontmatter-imports-is-not-an-import-on-any-front
+paths: file:v1/tools/scripts/validate-frontmatter.scala file:v2/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
