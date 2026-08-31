@@ -3498,7 +3498,7 @@ still alive. `scripts/smoke-ci` 111/111.
      lane: native
      area: codegen
      kind: bug
-     gate: -
+     gate: tests/e2e/json-parse-either-gate.sh
      fixed-in: -
      reported-by: claude-code
      reported-at: 2026-08-16
@@ -3629,6 +3629,15 @@ BADRUST.
 Not gated: no gate is filed with an open entry here. The gate that closes this asserts a
 `jsonValue` program BUILDS and answers `isNull` for `""` — a compile-only row would pass on a
 binary that then panics.
+### THE GATE ALREADY EXISTED — it just was not named here, 2026-08-31
+
+`tests/e2e/json-parse-either-gate.sh` names **this slug in its own header** and exercises the rust
+lane through `build-rust`, alongside `bin/ssc run`, `--v1`, `run-jvm` and `run-js`. Its header says
+the rust lane matters most precisely because of this defect.
+
+**One-directional linking, again: the gate cited the bug and the bug did not cite the gate**, so
+`--no-gate` reported this as unprotected while a gate was covering it. Naming it is the fix.
+
 ## rust-mkstring-on-a-non-string-list-emits-join — `List(1,2,3).mkString(",")` does not build, in five lines
 
 <!-- status: fixed

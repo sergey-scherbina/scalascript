@@ -270,7 +270,7 @@ is separate and unfiled until someone reduces it away from this file.
      lane: native
      kind: bug
      area: front
-     gate: none
+     gate: v1/tools/cli/src/test/scala/scalascript/cli/RunCheckGateTest.scala
      reported-by: claude-code
      reported-at: 2026-08-29
      confirmed: yes -->
@@ -386,6 +386,24 @@ the "not front work" conclusion is retracted as a *long-term* judgement.
 
 What is still true and unchanged: the run-path defect itself, and that F today accepts
 `needsDog(Cat())`. Retention is a prerequisite for the check, not the check.
+
+### THE GATE ALREADY EXISTED — it just was not named here, 2026-08-31
+
+`RunCheckGateTest.scala` carries this exact reproducer and asserts the refusal, naming the
+mismatch: *"the Dog/Cat soundness repro is refused, naming the mismatch"*, checking for
+`expected Dog, found Cat`. Verified live as well — `ssc-tools check` answers
+`13:17: error: Type mismatch: expected Dog, found Cat`.
+
+**The link was one-directional: the gate knew about the bug, the bug did not know about the gate.**
+So `--no-gate` counted this as unprotected while a test was guarding it on every run. Naming it is
+the whole fix; no code was needed.
+
+**The entry stays OPEN, and for a reason the gate's existence does not touch.** What is covered is
+the `check`/`run` path through the v1 Typer. The FRONTS still accept the program — `bin/ssc` is
+deliberately ungated and runs it to a runtime failure — and the cross-module case is not covered at
+all. F is being given its own nominal machinery for exactly this (`f-nominal-parent-table`,
+`77d444c15`); until that lands, this entry describes a real gap that `RunCheckGateTest` does not
+close.
 
 ## anonymous-given-instance-unresolvable-by-summon-or-using — a lone UNNAMED `given TC[T] with` is unresolvable by `summon` or a `using` parameter, on both self-hosted fronts
 
