@@ -1,2 +1,3 @@
-# generation: 3234
+# generation: 3235
 #slug	agent	started	items	paths
+bugs-report-commented-none	claude-code	2026-08-31T11:53:07Z	bugs-report-no-gate-misses-a-none-with-a-trailing-comment	file:scripts/bugs-report file:scripts/BUGS.md
