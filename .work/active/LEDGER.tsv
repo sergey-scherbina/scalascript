@@ -1,3 +1,2 @@
-# generation: 3257
+# generation: 3258
 #slug	agent	started	items	paths
-setsid-portability-guard	claude-code	2026-08-31T18:34:28Z	setsid-is-not-on-macos-so-a-detached-gate-never-starts	file:tests/e2e/no-gnu-only-shell-constructs.sh file:BUGS.md
