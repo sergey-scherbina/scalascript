@@ -391,6 +391,24 @@ object RustCodeWalk:
           case other => other.flatMap(ty => mapType(ty, d.name.value, userTypeNames).toOption).getOrElse("")
       }
     }.toMap
+    // SCOPED TO CLASS METHODS, and the scoping is what makes this affordable. The measured hot
+    // spots (`scanRefDef`, `isTableStart`, `refDefAt`, 93% of a 128 KB parse's allocations) are all
+    // methods called through `self`, which is ONE call path to teach. Widening it to every
+    // top-level def was tried and reverted in the same sitting: the ordinary call path, the
+    // qualified-call path and the intrinsic path would each need the same treatment, and the four
+    // uniml corpora came back with 63 errors between them. Narrow, measured, and one call site.
+    _refParamPos = defs.filter(d => methodOwnerByPos.contains(d.pos.start)).map { d =>
+      val ps = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).toList
+      val written = collectDirectWrites(d.body, ps.map(_.name.value).toSet)
+      d.name.value -> ps.zipWithIndex.collect {
+        case (p, i)
+          if p.decltpe.flatMap(t => mapType(t, d.name.value, userTypeNames).toOption)
+               .exists(_.startsWith("Vec<")) &&
+             !written.contains(p.name.value) &&
+             !returnsNameDirectly(d.body, p.name.value) => i
+      }.toSet
+    }.toMap.filter(_._2.nonEmpty)
+
     // Populated BEFORE `_returnTypes`, because a return type may name a variant.
     _variantOwner = ctorMap.collect {
       case (ctor, ec) if !ec.isStruct && ec.enumName != ctor => ctor -> ec.enumName
@@ -1533,6 +1551,20 @@ object RustCodeWalk:
   private var _ctorDefaults: Map[String, List[Option[m.Term]]] = Map.empty
 
   private var _paramTypes: Map[String, List[String]] = Map.empty
+
+  /** Parameter POSITIONS a user def takes by shared reference: a `Vec` parameter its body neither
+   *  writes nor returns. Kept apart from `_paramTypes` on purpose — that table drives TYPE
+   *  INFERENCE (`startsWith("Vec<")` decides Vec-vs-String dispatch all over this file), so
+   *  marking the reference in it would change how the body is rendered, not just how the
+   *  signature prints.
+   *
+   *  Why it exists, measured: a sampling allocator attributes **93%** of a 128 KB markdown parse's
+   *  70 M allocations to two functions, `MarkdownBlocks::parse::dispatchLeaf` and
+   *  `MarkdownBlocks::scanRefDef`, and both grow ×16 when the input grows ×4 — quadratic, while
+   *  `tokenize` next to them grows ×3.8 and is fine. The cause is the same one already fixed for
+   *  lifted defs one level down: the whole document's `Vec<MdLine>` is a BY-VALUE parameter, so
+   *  `__self.scanRefDef((*lines).clone(), …)` copies it once per LINE. */
+  private var _refParamPos: Map[String, Set[Int]] = Map.empty
   private var _returnTypes: Map[String, String] = Map.empty
 
   /** `(ownerName, memberName) -> mapped Rust return type` — the OWNER-QUALIFIED twin of
@@ -4025,6 +4057,12 @@ object RustCodeWalk:
                         // destructures itself directly at its OWN statement (`renderLetBinding`'s new
                         // case), never via a preamble; only the FIELD-READ resolution this table
                         // drives needs to see it.
+                        // A `Vec` parameter now taken by shared reference (`_refParamPos`) reads
+                        // exactly like a read-only `&mut` capture does — through the same
+                        // deref-on-read path — so it joins the same set rather than needing a new
+                        // one. `byRefMutWrite` is deliberately NOT extended: these are `&T`.
+                        byRefMut = _refParamPos.getOrElse(name, Set.empty)
+                          .flatMap(i => extractParamNames(d).lift(i)).toSet,
                         destructuredCtorNames = paramVariantDestructures ++ collectAsInstanceOfCtorNames(d.body, ctorMap),
                         asInstanceOfBindings = collectAsInstanceOfCtorNames(d.body, ctorMap).keySet,
                         destructuredFieldRenames = fieldRenames,
@@ -5991,7 +6029,14 @@ object RustCodeWalk:
     if errs.nonEmpty then Left(errs.flatten)
     else
       val effParam = effName.map(n => s"_eff: &mut impl ${n}Effect").toList
-      Right((ok ++ effParam).mkString(", "))
+      // A `Vec` parameter this def only READS is taken by SHARED REFERENCE — see `_refParamPos`
+      // for the measurement that motivates it. Applied to the finished text, by NAME, so every
+      // per-parameter shape above (type params, StringBuilder, closures) keeps its own path and
+      // only the one type spelling changes. The body sees these names in `ctx.byRefMut` so a bare
+      // read derefs; call sites read `_refParamPos` and pass a reference instead of a clone.
+      val refNames = _refParamPos.getOrElse(d.name.value, Set.empty).flatMap(k => params.lift(k).map(_.name.value))
+      val ok2 = refNames.foldLeft(ok)((acc, nm) => acc.map(_.replace(nm + ": Vec<", nm + ": &Vec<")))
+      Right((ok2 ++ effParam).mkString(", "))
 
   /** Extract the effect name from a def's return type if it has `T ! E` form.
    *  Returns `Some("Logger")` for `Int ! Logger`, `None` for plain types. */
@@ -7239,7 +7284,16 @@ object RustCodeWalk:
         // exists only to prepend `self.` and fill defaults) and so never applied `cloneIfMoved`
         // either: `error[E0382]: borrow of moved value: name`. Same fix as the ordinary path's own
         // `cloneIfMoved` call, applied here too.
-        val ok0 = argTerms0.zip(ok0raw).map((arg, r) => cloneIfMoved(arg, r, ctx))
+        // A parameter the callee declared `&Vec<…>` takes a borrow — the whole point of
+        // `_refParamPos` (`__self.scanRefDef((*lines).clone(), …)` copied the document's line
+        // vector once per LINE). A name that is ALREADY a reference here forwards bare.
+        val refPos0 = _refParamPos.getOrElse(n, Set.empty)
+        val ok0 = argTerms0.zip(ok0raw).zipWithIndex.map { case ((arg, r), i) =>
+          if refPos0.contains(i) then arg match
+            case m.Term.Name(an) if ctx.byRefMut.contains(an) => an
+            case _                                            => s"&$r"
+          else cloneIfMoved(arg, r, ctx)
+        }
         // `self.isXmlSpace(self.cur())` (`uniml/xml`'s `Doc.scala`'s `Parser`) — `cur`'s OWN
         // `SscChar` result needed `.0` to become the plain `i64` `isXmlSpace(c: i64)` declares,
         // exactly the coercion the ORDINARY call path already applies via `_paramTypes` a few
@@ -10521,6 +10575,16 @@ object RustCodeWalk:
             // those, and a filled default needs no coercion: it was rendered from the declaration.
             renderedArgs.zipWithIndex.map { case (rendered, i) =>
               (argTerms.lift(i), want.lift(i)) match
+                // A `Vec` parameter the callee takes by SHARED REFERENCE (`_refParamPos`) — the
+                // implicit-receiver twin of the `self.`-prefixed call arm's own case. `preflight(
+                // stack.clone(), …)` (`uniml/core`'s `TreeVm`) reaches this path rather than that
+                // one: a sibling method called WITHOUT `self.`. A name already a reference here
+                // forwards bare; anything else is borrowed. Checked FIRST, since a borrow needs
+                // none of the coercions below.
+                case (Some(argTerm), _) if _refParamPos.getOrElse(calleeName, Set.empty).contains(i) =>
+                  argTerm match
+                    case m.Term.Name(an) if ctx.byRefMut.contains(an) => an
+                    case _                                            => s"&$rendered"
                 case (Some(argTerm), Some(target))
                     if target.nonEmpty && needsAnyCoercion(argTerm, target, ctx) =>
                   if target == "crate::value::Value" then s"crate::value::Value::from($rendered)"

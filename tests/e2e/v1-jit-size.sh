@@ -1160,7 +1160,17 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25540 scalascript.codegen.JsGen::genExpr
-42828 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+# renderTerm 42828 -> 42864 (+36), from taking a class method's read-only `Vec` parameter by
+# SHARED REFERENCE. Measured with a sampling allocator, which is the instrument this needed — a
+# leaf profile cannot see clones inlined into generated code: 93% of a 128 KB markdown parse's
+# 70 M allocations came from `MarkdownBlocks::parse::dispatchLeaf` and `MarkdownBlocks::scanRefDef`,
+# and both grew x16 when the input grew x4 (quadratic), while `tokenize` beside them grew x3.8.
+# The cause was `__self.scanRefDef((*lines).clone(), …)`: the whole document's line vector copied
+# once per LINE. Allocations 69.6M -> 26.7M, bytes 3.1 GB -> 1.15 GB, time 2.11 s -> 1.41 s.
+# The +36 here is the implicit-receiver call arm learning to pass a borrow; the rest of the change
+# lives in renderParams, the def's own ctx and the `self.`-prefixed call arm (separate methods, no
+# cost here). RAISED, NOT REVERTED, same terms as every entry above.
+42864 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF
