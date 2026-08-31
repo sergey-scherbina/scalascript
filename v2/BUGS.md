@@ -959,14 +959,15 @@ the agreement table before and after.
 
 ## frontmatter-imports-is-not-an-import-on-any-front — the `imports:` key loads nothing, anywhere
 
-<!-- status: open
+<!-- status: fixed
      lane: multi
      kind: bug
      area: docs
-     gate: none
+     gate: v1/tools/scripts/validate-frontmatter.scala
      reported-by: claude-code
      reported-at: 2026-08-27
-     confirmed: yes -->
+     confirmed: yes
+     fixed-in: PENDING_SHA -->
 
 ### 2026-08-27, corrected — THE ENTRY BELOW WAS WRONG, and I was one commit from building on it
 
@@ -1043,6 +1044,25 @@ lowers to `(global mk)` and the file passes; only a constructor pattern consults
 only a constructor pattern notices the module was never read. That observation stands — it is why
 the tower says `unknown constructor` rather than `unbound global`. What does not stand is the
 conclusion drawn from it about v1.
+
+### GATED AND CLOSED 2026-08-31 — the key is now REFUSED, not merely inert
+
+`validate-frontmatter.scala` rejects `imports:` outright, with the reason and a pointer here. A
+warning would not have been enough: the whole defect is that a file carrying the key **believes it
+is importing and is not**, and nothing says so.
+
+**Prevention, not repair — measured, and the measurement was validated before it was believed.**
+Zero tracked `.ssc` files carry the key today. The same scan finds 1003 files with `name:` and 301
+with `backends:`, so it does read front-matter; a zero from an unvalidated instrument would have
+been worth nothing, which is the mistake this entry's own first version made in the other
+direction.
+
+It lands in the existing validator rather than in a new gate on purpose: that script already walks
+every `.ssc` and is already in smoke, and a second front-matter walker would be the duplication
+this repository keeps paying for.
+
+Verified in the failing direction: a planted file carrying the key is refused by name with the full
+explanation. 1432 files validate clean without it.
 
 ## ref-front-stack-overflows-on-the-four-scljet-examples
 

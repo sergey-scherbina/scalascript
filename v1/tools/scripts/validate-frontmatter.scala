@@ -61,6 +61,28 @@ def extractFrontmatter(file: os.Path): Option[Either[String, Map[String, Any]]] 
 def validateSchema(data: Map[String, Any]): List[String] =
   val errors = collection.mutable.ListBuffer[String]()
 
+  // `imports:` LOADS NOTHING, ON EVERY FRONT — refuse it rather than let a file believe otherwise.
+  //
+  // v2/BUGS.md `frontmatter-imports-is-not-an-import-on-any-front` is itself a CORRECTION: the
+  // entry first said the key "is followed by v1 and by nothing in the tower" and proposed teaching
+  // the tower to read it. v1 does not read it either. What settled it was a control the first
+  // probe could not run — the first subject's `KV` is supplied AMBIENTLY by a plugin, so it
+  // resolved with or without any import and could not discriminate. Only a name that NO plugin
+  // supplies asks the question, and there the answer is `[ERROR] Undefined: mk`.
+  //
+  // So the key is metadata everywhere; `[names](path.ssc)` is the import spelling and there is no
+  // other. A file carrying `imports:` believes it is importing and is not, and nothing says so —
+  // which is why this is a refusal and not a warning.
+  //
+  // PREVENTION, NOT REPAIR: measured 2026-08-31, ZERO tracked `.ssc` files carry the key. The probe
+  // was validated before that zero was believed — the same scan finds 1003 files with `name:` and
+  // 301 with `backends:`, so it does read front-matter, and a zero from an unvalidated instrument
+  // would have been worth nothing.
+  if data.contains("imports") then
+    errors += "'imports' is not an import: no front reads this key, on any lane. Use the " +
+              "[names](path.ssc) spelling in the body instead — a file carrying this key believes " +
+              "it is importing and is not (v2/BUGS.md frontmatter-imports-is-not-an-import-on-any-front)"
+
   // Validate 'name' field — must be a string; no pattern enforced
   data.get("name").foreach {
     case _: String => // any string value is fine
