@@ -2658,7 +2658,26 @@ def parseParams(ts, env) = if isTok(hd(ts), 2, 22) then (env, tl(ts)) else parse
 // Type SKIPPING is unchanged (parseParamSkip runs on the same tl(ts)); only the pushed name gains a type.
 def parseParam(ts, env) = parseParamSkip(tl(ts), pushParam(snd(hd(ts)), tl(ts)) :: env)
 def pushParam(nm, rest) = if isColonTok(hd(rest)) then pushParamTy(nm, tl(rest)) else nm
-def pushParamTy(nm, tts) = if simpleKnownTy(tts) then nm ++ ":" ++ snd(hd(tts)) else nm
+// F5b/1b. The single-token shape test is gone: the type is now consumed by `typeText` (:3992), the
+// SAME depth-aware reader `collectField1` and `parseUsingParam1` already use, so `Foo[X]`, `(A, B)`
+// and `A => B` all retain instead of degrading to the bare head name. No new parser: reusing this
+// one is why the slice is small. `=>` is punct code 30 and `isTypeEnd` stops only at `,`(27),
+// `)`(22), `=`(20), so an arrow is consumed, not truncated -- and `(A, B) => C` works because the
+// parens open and close depth before the arrow is reached.
+//
+// `tyClean` is the guard that keeps a WRONG spelling from ever being pushed. `punctStr` (:476) maps
+// only ( ) , [ ] => : and renders every other punct as "" -- deliberately, since :3752 RELIES on `*`
+// erasing to detect varargs. So a type containing an unmapped punct would render lossily: `Foo.Bar`
+// would become "FooBar", a confident wrong answer. Rather than special-casing `.` (code 31), reject
+// any run containing a token that renders empty. That is general -- it degrades qualified types,
+// vararg stars, and any punct a future lexer adds -- and degrading is always safe: the bare name
+// stays "?" in `tyToTag`, exactly today's behaviour. Adding `.` to `punctStr` would be the wrong
+// fix: that function's omissions are load-bearing at :3752.
+def pushParamTy(nm, tts) = if fst(hd(tts)) == 3 then pushParamTyG(nm, tts) else nm
+def pushParamTyG(nm, tts) = if tyClean(tts, 0) then (typeText(tts, 0, "") match { case (ty, r) => pushParamTyE(nm, ty, r) }) else nm
+def pushParamTyE(nm, ty, r) = if isEmpty(r) then nm else (if paramEndTok(hd(r)) then nm ++ ":" ++ ty else nm)
+def tyClean(ts, d) = if isEmpty(ts) then true else (if isTypeEnd(hd(ts), d) then true else (if tokLossy(hd(ts)) then false else tyClean(tl(ts), typeDepth(hd(ts), d))))
+def tokLossy(t) = if fst(t) == 2 then tokStr(t) == "" else false
 def simpleKnownTy(tts) = if fst(hd(tts)) == 3 then (if knownTyName(snd(hd(tts))) then paramEndTok(hd(tl(tts))) else false) else false
 def paramEndTok(t) = if isTok(t, 2, 27) then true else isTok(t, 2, 22)
 // WIDENED (f-erases-parameter-types-at-parse-time): ANY declared nominal type is retained, not just
