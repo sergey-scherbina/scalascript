@@ -1,0 +1,11 @@
+slug: f-front-diagnostic-channel
+branch: feature/f-front-diagnostic-channel
+agent: claude-code
+started: 2026-08-31T05:31:51Z
+heartbeat: 2026-08-31T05:31:51Z
+status: claimed-before-planning
+items: f-front-exit-reason
+paths: file:v1/runtime/Main.scala file:v2/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
