@@ -3249,6 +3249,11 @@ object RustCodeWalk:
       // avoid for String — reported by rozum, `isHighSurrogate(char)` where `char` is exactly such
       // a binding).
       localSscChars: Set[String] = Set.empty,
+      /** Locals bound to `<string>.toVector` — a `Vec<i64>` whose elements are CODE UNITS, i.e.
+       *  conceptually `Char`. The element type alone cannot say this (a real `Vector[Int]` lowers
+       *  the same way), so the binding's SYNTAX is what records it; `mkString` reads this set to
+       *  print characters instead of their decimal code points. */
+      localCharSeqs: Set[String] = Set.empty,
       // Local val/var names known to hold an Option. Without this the Option-shape was known
       // while the expression was WHOLE and lost the moment it passed through a binding:
       // `xs.find(p).map(f).getOrElse(d)` compiled, and the same chain over `val hit = xs.find(p)`
@@ -4018,6 +4023,9 @@ object RustCodeWalk:
       val selfMapFields = ownFieldTypes.collect { case (f, t) if t.startsWith("std::collections::HashMap<") => f }.toSet
       val ctx     = Ctx(intrinsics, userDefs, ctorMap, topVals, name, effectfulDefs, lseqs ++ paramSeqs ++ selfSeqFields, larrays, lstrings,
                         localSscChars = collectLocalSscChars(d.body),
+                        // See `Ctx.localCharSeqs`: `val chars = text.toVector` makes `chars` a
+                        // sequence of CODE UNITS, which `mkString` must print as text.
+                        localCharSeqs = collectLocalCharSeqs(d.body, lstrings),
                         localStringBuilders = collectLocalStringBuilders(d.body) ++ stringBuilderParams,
                         localSets = collectLocalSets(d.body),
                         mapFields = collectMapFields(d, ctorMap),
@@ -7122,8 +7130,14 @@ object RustCodeWalk:
         pre  <- (if vs.size == 3 then renderTerm(vs(0), ctx) else Right(""))
         post <- (if vs.size == 3 then renderTerm(vs(2), ctx) else Right(""))
       yield
+        // A sequence of CODE UNITS (`ctx.localCharSeqs`, or a slice/take/drop rooted in one)
+        // prints as TEXT, not as decimal code points — see the `Char.toString` case for the same
+        // defect in its scalar form. `SscChar`'s `Display` is the single place that knows how.
+        val elemFmt =
+          if isCharSeqExpr(qual, ctx) then "crate::runtime::SscChar(*__e).to_string()"
+          else "format!(\"{}\", __e)"
         val joined =
-          s"($q).iter().map(|__e| format!(\"{}\", __e)).collect::<Vec<String>>().join(($sep).as_str())"
+          s"($q).iter().map(|__e| $elemFmt).collect::<Vec<String>>().join(($sep).as_str())"
         if vs.size == 3 then s"format!(\"{}{}{}\", $pre, $joined, $post)" else joined
 
   /** `Ctor(field = v, …)` rewritten as a POSITIONAL call in declaration order, with every field the
@@ -7915,6 +7929,20 @@ object RustCodeWalk:
         else if isNumericExpr(qual, ctx) then s"($q as f64)"
         else s"crate::runtime::_to_double(&$q)"
       }
+    // `char.toString` on a value that is conceptually a `Char` — this lane carries a Char as a
+    // bare `i64` code unit, so the generic `format!("{}", …)` printed the NUMBER: `'a'.toString`
+    // came out as `"97"`, and `Vector[Char].mkString` as `"9798233"` for `"abé"`. Silent and
+    // always wrong, on every lane user who stringifies a character. `SscChar`'s own `Display`
+    // already knows how to render one (and how to handle an unpaired surrogate), so this routes
+    // through it rather than inventing a second answer.
+    case m.Term.Select(qual, m.Term.Name("toString")) if isConceptuallyChar(qual, ctx) =>
+      // The two halves of `isConceptuallyChar` need DIFFERENT text, which is the distinction that
+      // predicate's own doc comment draws: a `yieldsSscChar` value IS already the newtype (it came
+      // from `charAt`), so wrapping it again is `expected i64, found SscChar`; everything else is a
+      // bare `i64` code unit and needs the wrapper to reach `SscChar`'s `Display`.
+      renderTerm(qual, ctx).map(q =>
+        if yieldsSscChar(qual, ctx) then s"($q).to_string()"
+        else s"crate::runtime::SscChar($q).to_string()")
     case m.Term.Select(qual, m.Term.Name("toString")) =>
       renderTerm(qual, ctx).map(q => s"format!(\"{}\", $q)")
     // `xs.zipWithIndex` — a Select, not a call. Scala pairs (element, index); Rust's `enumerate`
@@ -8244,7 +8272,13 @@ object RustCodeWalk:
           // it (`uniml/xml`'s `Doc.scala`'s `parseMarkup`: `...map(_.lexeme).mkString`). `String`
           // has a real `Vec<String>::join`, so this joins with the EMPTY separator — the same
           // answer `renderMkString(qual, Nil, ctx)` gives a zero-arg call.
-          case "mkString" => s"($q).iter().map(|__e| format!(\"{}\", __e)).collect::<Vec<String>>().join(\"\")"
+          // The PARENLESS `xs.mkString` (a `Term.Select`, so it never reaches `renderMkString`'s
+          // `Term.Apply` case). Same code-unit rule as there: a sequence of CHARS prints as text,
+          // not as decimal code points — see `Ctx.localCharSeqs`.
+          case "mkString" =>
+            val ef = if isCharSeqExpr(qual, ctx) then "crate::runtime::SscChar(*__e).to_string()"
+                     else "format!(\"{}\", __e)"
+            s"($q).iter().map(|__e| $ef).collect::<Vec<String>>().join(\"\")"
           case _          => s"($q.len() as i64)"   // size / length
       }
     // `digits.nonEmpty` where `digits` is a bare NAME known only through `ctx.localStrings`
@@ -13221,8 +13255,39 @@ object RustCodeWalk:
    *  freshly-built `Type.Name("Char")`) — scalameta `Tree` equality is position-sensitive, so a
    *  literal built here never equals the one the parser produced and `.contains` silently answered
    *  `false` for every def, always. */
+  /** Is this expression a sequence of CODE UNITS — a local bound to `<string>.toVector`, or a
+   *  sequence-preserving slice of one? `.slice`/`.take`/`.drop`/`.reverse` keep the element type,
+   *  which is the only property this needs. */
+  private def isCharSeqExpr(t: m.Term, ctx: Ctx): Boolean = t match
+    case m.Term.Name(n) => ctx.localCharSeqs.contains(n)
+    case m.Term.Apply.After_4_6_0(m.Term.Select(q, m.Term.Name("slice" | "take" | "drop" | "takeRight" | "dropRight")), _) =>
+      isCharSeqExpr(q, ctx)
+    case m.Term.Select(q, m.Term.Name("reverse")) => isCharSeqExpr(q, ctx)
+    case _ => false
+
+  /** Locals bound to `<string>.toVector` — see `Ctx.localCharSeqs`. Syntactic on purpose: the
+   *  emitted element type (`i64`) is indistinguishable from a real `Vector[Int]`. */
+  private def collectLocalCharSeqs(body: m.Term, knownStrings: Set[String]): Set[String] =
+    val found = scala.collection.mutable.Set.empty[String]
+    def walk(t: m.Tree): Unit =
+      t match
+        case v: m.Defn.Val =>
+          v.rhs match
+            case m.Term.Select(q, m.Term.Name("toVector" | "toList" | "toSeq" | "toIndexedSeq"))
+                if isStringExpr(q) || (q match { case m.Term.Name(n) => knownStrings.contains(n); case _ => false }) =>
+              found ++= v.pats.collect { case m.Pat.Var(m.Term.Name(n)) => n }
+            case _ => ()
+        case _ => ()
+      t.children.foreach(walk)
+    walk(body)
+    found.toSet
+
   private def isConceptuallyChar(t: m.Term, ctx: Ctx): Boolean =
     yieldsSscChar(t, ctx) || (t match
+      // `chars(i)` where `chars` came from `<string>.toVector` — indexing a sequence of CODE UNITS
+      // yields one, so `chars(i).toString` must render the CHARACTER. Without this it printed the
+      // decimal code point, the scalar twin of the `mkString` defect (`Ctx.localCharSeqs`).
+      case m.Term.Apply.After_4_6_0(base, args) if args.values.sizeIs == 1 && isCharSeqExpr(base, ctx) => true
       // `record.indexOf(controlChar.toInt)` (`uniml/markdown`'s `MarkdownEntitiesGenerated.scala`'s
       // `table`) — Java/Scala's `String.indexOf(ch: Int)` overload searches for the CHARACTER whose
       // CODE POINT equals the given int, so `controlChar.toInt` is semantically identical to the bare

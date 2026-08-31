@@ -5131,6 +5131,35 @@ class RustGenCodeWalkTest extends AnyFunSuite:
       && g.contains("if digits.is_empty() { None } else { digits.parse::<i64>().ok() }"),
       s"an Option-closure's own param must seed as a String, an object-qualified predicate reference must not gain a spurious call, and toLongOption must lower to parse().ok():\n$g")
 
+  test("stringifying a Char renders the CHARACTER, not its decimal code point"):
+    // A CORRECTNESS bug, and a loud one once seen: this lane carries a `Char` as a bare `i64`
+    // code unit, so the generic `format!("{}", …)` printed the NUMBER. Verified by RUNNING the
+    // emitted code on `"abé"` — `chars.mkString` came out as `"9798233"`, `chars.slice(1,3)
+    // .mkString` as `"98233"`, and `chars(0).toString` as `"97"`. Silent on every lane user who
+    // stringifies a character.
+    //
+    // `SscChar`'s own `Display` already renders one correctly (unpaired surrogates included), so
+    // all three routes go through it rather than inventing a second answer. Two spellings of
+    // `mkString` had to learn it separately: `xs.mkString` is a `Term.Select` and never reaches
+    // `renderMkString`'s `Term.Apply` case — found by running the probe, not by reading the arm.
+    //
+    // The wrapper is applied only to a BARE code unit: a value that already IS the newtype
+    // (`charAt`'s result) would be `expected i64, found SscChar` if wrapped again — which is what
+    // the four uniml corpora reported when this first landed without that distinction.
+    val src =
+      """```scalascript
+        |def probe(): String =
+        |  val chars = "abc".toVector
+        |  chars(0).toString + chars.mkString + chars.slice(1, 3).mkString
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("crate::runtime::SscChar(chars[(0i64) as usize].clone()).to_string()")
+        || g.contains("crate::runtime::SscChar(chars[(0i64) as usize]).to_string()"),
+      s"indexing a code-unit vector and stringifying it must render the character:\n$g")
+    assert(g.contains("crate::runtime::SscChar(*__e).to_string()"),
+      s"mkString over a code-unit vector must render characters, not code points:\n$g")
+
   test("`.length` on a String taken out of a LOCAL `Vector[String]` is code units, not bytes"):
     // A CORRECTNESS bug, found while building the Rust dialect for RAG phase 2 and reported
     // rather than worked around. `vecStringParams` — the set that tells `collectLocalStrings`

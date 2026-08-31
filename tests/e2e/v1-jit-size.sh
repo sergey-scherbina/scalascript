@@ -1167,10 +1167,20 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # The +36 here is the implicit-receiver call arm learning to pass a borrow; the rest of the change
 # lives in renderParams, the def's own ctx and the `self.`-prefixed call arm (separate methods, no
 # cost here). RAISED, NOT REVERTED, same terms as every entry above.
+# renderTerm 42864 -> 42908 (+44), from making a stringified Char render the CHARACTER rather
+# than its decimal code point. This lane carries a Char as a bare i64 code unit, so the generic
+# `format!("{}", …)` printed the NUMBER: measured by RUNNING the emitted code on "abé",
+# `chars(0).toString` gave "97", `chars.mkString` gave "9798233". Silent, and wrong for every lane
+# user who stringifies a character. The arm routes through SscChar's own Display, and must
+# distinguish a value that ALREADY is the newtype (charAt's result — wrapping it again is
+# `expected i64, found SscChar`, which is what the four uniml corpora reported when this first
+# landed without the distinction) from a bare code unit. The parenless `xs.mkString` spelling
+# needed the same treatment in its own arm, and the collector and predicate that back both live
+# in separate methods and cost nothing here. RAISED, NOT REVERTED, same terms as every entry above.
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25540 scalascript.codegen.JsGen::genExpr
-42864 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+42908 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF
