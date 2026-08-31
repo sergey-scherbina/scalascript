@@ -1,0 +1,11 @@
+slug: v3-g2-parent-box
+branch: feature/v3-g2-parent-box
+agent: claude-code
+started: 2026-08-31T07:34:40Z
+heartbeat: 2026-08-31T07:34:40Z
+status: claimed-before-planning
+items: g2-parent-box-open-while-all-five-children-are-done
+paths: v3/SPRINT.md v3/BACKLOG.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
