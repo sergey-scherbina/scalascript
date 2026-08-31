@@ -3650,7 +3650,24 @@ objection only because it REFUSES ambiguity instead of guessing; anything that g
       v3 later in the lowering with `unknown name 'summon'` — and `given` had been masking that by
       refusing the file first. `summon[T]` now refuses in v3's parser too, same position, same
       words, tied to the `[` so a value named `summon` keeps working.
-- [ ] **G2 — the type checker. MANDATORY, not opportunistic.** Sergiy's words: every feature is to
+- [x] **G2 — the type checker. DONE 2026-08-31 by its own acceptance criterion.** All five sub-boxes
+      below are `[x]`, the last of them recording that the acceptance set is complete — but this
+      parent stayed `[ ]`, and `v3/BACKLOG.md` stage 6 went on calling G2 "the largest piece of real
+      work left in the queue" on the strength of it. A parent box that outlives its children is the
+      same failure as a board that outlives its work, and it is worse in one way: every child said
+      done, so the only thing still claiming otherwise was the summary.
+
+      RE-MEASURED before flipping, rather than read off the sub-boxes. The five acceptance rows on
+      `v3/ssc3` today: `tagless-resolution`, `tagless-context-bounds`, `tagless-multi-file` and
+      `tagless-program` match their checked-in `.expected` byte for byte; `typeclass-fold` is a
+      `bench/corpus` workload carrying no `println`, so exit 0 with empty output is its pass — it
+      used to be REFUSED, and running clean is the change.
+
+      (Method note, since it nearly produced a false alarm: the first comparison ran `tail -3` on the
+      output and diffed it against the WHOLE expected file, so four of five reported DIFFER with the
+      missing lines being the ones truncated. The instrument was wrong, not the compiler.)
+
+      Sergiy's words: every feature is to
       exist in the end, and **`tagless-*` is a goal in its own right**, not a side effect worth
       having only if cheap. So this is queued as work, not as a decision to revisit. What it has to
       answer is `summon[T]` where `T` mentions a function's own type parameter — that is the whole

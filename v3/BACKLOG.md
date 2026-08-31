@@ -23,6 +23,17 @@ claim(s), landed wave by wave; a stage does not start before the previous one's 
 > the next agent to reimplement something that already runs.** Probe the code before taking a queued
 > v3 task — every agent who did found the answer in minutes.
 >
+> **A fifth, 2026-08-31: stage 6, and it is a DIFFERENT failure — do not fold it into the count.**
+> The headline above counts stages that were already built WHEN THE QUEUE WAS WRITTEN. Stage 6 was
+> not: G2 was legitimately open on 2026-08-30, and its last piece landed on 2026-08-31
+> (`cc1348361`). So the six stays six. What went wrong is narrower and cheaper to prevent: all five
+> G2 sub-boxes in the SPRINT reached `[x]`, **the parent box was never flipped**, and stage 6 here
+> was derived from the parent. The entry then went on calling finished work "the largest piece of
+> real work left in the queue", with a corpus figure six times the real one.
+> **A summary that outlives its own children is the cheapest of these to prevent and the most
+> expensive to believe** — when every child says done and only the heading disagrees, the heading is
+> the thing to check.
+>
 > **A fourth, 2026-08-31: stage 8's step 3.** The headline count above is unchanged — stage 8 was
 > already inside the six, as one of the two "substantially done" — but it has now moved from
 > substantially done to DONE, so the six are five finished and one substantially done. Found the same
@@ -66,10 +77,27 @@ claim(s), landed wave by wave; a stage does not start before the previous one's 
    implemented on this lane`. That one is an INTEGRATION (run the self-hosted structural pass,
    decode `NativeContentModule` values, pass them through the door `V2Fleet` currently calls without
    arguments), not a hand-over; the entry sizes it end to end.
-6. **← THE REAL NEXT STAGE. The type checker.** `v3-given-syntax` G1 is `[x]` (`given name: T with`
-   parses as a named value); **G2 is genuinely `[ ]`** — the checker itself, MANDATORY per the
-   2026-08-09 decision, plus `given`/`using` stage-2 in `Lower`. ~24 typing-bucket corpus cases.
-   This is the largest piece of real work left in the queue.
+6. **✓ DONE 2026-08-31 — and this entry was wrong on all three of its numbers.** `v3-given-syntax`
+   G1 is `[x]`; **G2 is now `[x]` too**, by its own acceptance criterion. What this entry said, and
+   what is actually true:
+
+   - *"G2 is genuinely `[ ]` — the checker itself"* — the five acceptance rows §52 sets all pass,
+     re-measured on `v3/ssc3` the day this was corrected: `tagless-resolution`,
+     `tagless-context-bounds`, `tagless-multi-file` and `tagless-program` match their checked-in
+     `.expected` byte for byte, and `typeclass-fold` (a `bench/corpus` workload with no `println`)
+     runs clean at exit 0 where it used to be refused. G2's last piece was ONE keying defect, fixed
+     under `v3-trait-typed-receiver-dispatch` (`cc1348361`, N 276 → 277).
+   - *"plus `given`/`using` stage-2 in `Lower`"* — that is G2 stage 2a, `[x]` since 2026-08-09.
+   - *"~24 typing-bucket corpus cases"* — **4**, re-measured 2026-08-31. `extension` 9 → 0,
+     `given … with` 5 → 0, abstract `val` 2 → 0, non-`def` trait member 8 → 4. What UNSUPPORTED is
+     actually blocked on is library surface, not typing: 44 `unknown name`, 16 `unknown function`,
+     10 host-fn-not-on-this-lane — 70 of ~99.
+
+   *"This is the largest piece of real work left in the queue"* was therefore pointing the next
+   agent at finished work, with a figure six times the real one. The failure was not that the code
+   outran the board — the SPRINT sub-boxes were all `[x]` — it was that **the parent box was never
+   flipped**, and this entry was derived from the parent. A summary that outlives its own children
+   is the cheapest of these to prevent and the most expensive to believe.
 7. **✓ DONE** — `v3-jvm-interop` released `a0e9dd99e`: a JVM package is importable from OUTSIDE the
    kernel (landed `df8992fa5..8d3067169`, entry closed `24fe007a2`). Invariant I-1 holds — the
    kernel gains no dependency, it gains the ability to ASK, through two new SPI doors
