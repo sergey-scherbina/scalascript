@@ -273,6 +273,31 @@ uniml-only row and would raise the front-diff ceiling — the same trade
 `abstract-val-in-an-extern-class-is-a-field-declaration` records refusing, a weakened guard bought
 to place a test. The entry stays OPEN for the uniml half.
 
+### RE-MEASURED 2026-08-31 — THE v3 HALF IS FIXED, THE REMAINING HALF IS DESCRIBED WRONG
+
+`v3/ssc3 run` on the reproducer prints **42 / 42**: `Box(40) add 2` reaches the declared method.
+That is the half `92e90e34e` landed.
+
+**What remains does not match this entry's account of it.** The entry says the other front "refuses
+with `unknown name` at the FRONT". Measured today it refuses at the PARSER, before any name is
+looked up: `ssc3 ast … uniml` gives `expected ')' to close call [spike.expected]` at the infix
+position. A parse gap and a resolution gap are different repairs, so the distinction matters to
+whoever picks this up.
+
+**AND IT HAS NO GATE BECAUSE THE HARNESS CANNOT HOLD ONE — measured, not assumed.** A fixture was
+written and withdrawn:
+
+* `v3/tests/front/*.ssc` **with** an `.expected` is run by `exec-gate.sh`, which invokes
+  `ssc3 exec` — and `exec` routes through the SPIKE front, the same one that cannot parse the
+  construct. The fixture turned exec-gate RED with the parse error, i.e. the gate refuses the case
+  for exactly the reason the case exists to record.
+* A fixture **without** an `.expected` is skipped by both `exec-gate.sh` and `front-diff.sh`
+  ("printing its Ast is not meaningful"), so it checks nothing.
+
+So v3's fixture harness has no "this must be refused, and that is the defect" slot. Adding one is
+the prerequisite for gating this entry; pointing `gate:` at a gate that does not cover it would be
+worse than leaving it empty, because it would read as covered.
+
 ## v3-front-diff-ceiling-is-derived-by-word-counting-and-a-comment-changes-it — 23, 76 or 83 for one list
 
 <!-- status: fixed
@@ -1998,6 +2023,18 @@ a plain function — two namespaces. v3 has one.
 library encoding is what made `md` a twelve-line function this week. It is an argument for deciding
 where an interpolator's name lives — an owner decision, recorded before anyone writes `def html`,
 because writing it is what makes the collision permanent.
+
+### RE-MEASURED 2026-08-31 — IT REPRODUCES, AND IT HAS NO GATEABLE SLOT EITHER
+
+Two `def raw` at different arities, one used as an interpolator prefix and one as a call:
+`ssc3` refuses with `call to 'raw' passes 1 argument(s), it takes 2` — the first `def` wins,
+exactly as recorded. The uniml front PARSES the same file (`ssc3 ast … uniml` exits 0), so the
+refusal is at lowering, not at parse.
+
+**No gate, for the same harness reason as `infix-application-does-not-reach-a-declared-class-method`
+above.** The defect is a REFUSAL, and a `v3/tests/front` fixture without an `.expected` is skipped
+by both `exec-gate.sh` and `front-diff.sh`. There is no slot that says "this must be refused today
+and the refusal is the bug". Gating either entry needs that slot first.
 
 ## v3-an-optic-cannot-print-itself-because-no-lane-renders-a-value-by-its-own-rule — it can now
 
