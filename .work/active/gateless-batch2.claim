@@ -1,0 +1,11 @@
+slug: gateless-batch2
+branch: feature/gateless-batch2
+agent: claude-code
+started: 2026-08-31T13:15:57Z
+heartbeat: 2026-08-31T13:15:57Z
+status: claimed-before-planning
+items: interp-summon-over-an-anonymous-given mixed-concat-operands-mean-three-things-on-three-lanes
+paths: file:BUGS.md file:v2/BUGS.md file:tests/conformance/contract-roster.tsv file:tests/conformance/corpus-baseline.tsv file:tests/conformance/kr-summon-anonymous-given.ssc file:tests/conformance/expected/kr-summon-anonymous-given.txt file:tests/conformance/kr-mixed-concat-operands.ssc file:tests/conformance/expected/kr-mixed-concat-operands.txt
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
