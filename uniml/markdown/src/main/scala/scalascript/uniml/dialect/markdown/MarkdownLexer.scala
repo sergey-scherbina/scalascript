@@ -84,30 +84,44 @@ private[markdown] object MdLine:
     * trailing newline yields no synthetic empty final line; a missing trailing
     * newline yields a final line with `ending == ""`. */
   def split(text: String): Vector[MdLine] =
+    // INDEX THE CODE UNITS, NOT THE STRING, and it is a complexity fix rather than a style
+    // preference. `charAt`/`substring` are O(1) on the JVM but NOT on every backend: the
+    // ScalaScript Rust backend stores a String as UTF-8 and emulates JVM code-unit indexing
+    // over it, which costs O(i) per index — so this scan, written the ordinary way, was
+    // O(n²) there and made a 505 KB document take hours (rozum's `rag-uniml-parser-quadratic`;
+    // profiling put 90% of a whole markdown parse inside this one function). `text.toVector`
+    // pays that conversion ONCE, and every index after it is a vector index. Identical
+    // semantics on both lanes: `Vector[Char]` is code UNITS, exactly what `charAt` yields, so
+    // surrogate pairs still arrive as two elements and `chars.length == text.length`.
+    val chars = text.toVector
     var lines: Vector[MdLine] = Vector.empty
-    var content: Vector[String] = Vector.empty
+    var lineStart = 0
     var index = 0
-    while index < text.length do
-      val char = text.charAt(index)
+    while index < chars.length do
+      val char = chars(index)
       char match
         case '\n' =>
-          lines = lines :+ MdLine(content.mkString, "\n")
-          content = Vector.empty
+          lines = lines :+ MdLine(text.substring(lineStart, index), "\n")
           index += 1
+          lineStart = index
         case '\r' =>
-          if index + 1 < text.length && text.charAt(index + 1) == '\n' then
-            lines = lines :+ MdLine(content.mkString, "\r\n")
+          if index + 1 < chars.length && chars(index + 1) == '\n' then
+            lines = lines :+ MdLine(text.substring(lineStart, index), "\r\n")
             index += 2
           else
-            lines = lines :+ MdLine(content.mkString, "\r")
+            lines = lines :+ MdLine(text.substring(lineStart, index), "\r")
             index += 1
-          content = Vector.empty
+          lineStart = index
         case _ =>
-          // v2 has no Char box — slice the source rather than stringifying the
-          // matched char (which would render the code point's decimal digits).
-          content = content :+ text.substring(index, index + 1)
           index += 1
-    if content.nonEmpty then lines = lines :+ MdLine(content.mkString, "")
+    // ONE slice per LINE, not one per character. The previous shape accumulated
+    // `content :+ text.substring(index, index + 1)` — a fresh single-character String per
+    // character — because "v2 has no Char box" and stringifying the matched char would render
+    // the code point's decimal digits. Slicing from the line's start keeps that property (the
+    // text still comes from the source, never from a Char) while calling `substring` once per
+    // line, which is what takes the total from O(n²) to O(n) on a backend whose `substring` is
+    // not O(1). It also drops the per-line `mkString` and the `Vector[String]` accumulator.
+    if lineStart < chars.length then lines = lines :+ MdLine(text.substring(lineStart), "")
     lines
 
 /** Shared character classification following CommonMark 0.31.2 §2.1. */

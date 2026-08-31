@@ -1137,10 +1137,19 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # String) — are what keep it a rewrite of one shape rather than of every `:+`. RAISED, NOT
 # REVERTED, on the same terms as every entry above: renderTerm is 5.25× a limit it has not been
 # under for a long time, and this is a real asymptotic fix, not a restructuring candidate.
+# renderTerm 42564 -> 42576 (+12), from giving `(s: String).toVector` a lowering that COMPILES.
+# The pre-existing String arm emitted `Vec<char>` (code POINTS, disagreeing with `charAt`'s code
+# UNITS on every surrogate) and its receiver test was purely syntactic, so a parameter declared
+# `String` — the shape the arm exists for — missed it and fell to the generic branch, which
+# emitted `String::into_iter()`: a method that does not exist. Now `encode_utf16()` collected as
+# `Vec<i64>`, matching how a char value travels everywhere else on this lane. Twelve bytes: the
+# arm was already there, this widens its guard by one disjunct (`isDeclaredStringName`, a new
+# top-level helper that costs nothing here) and changes the emitted string. RAISED, NOT REVERTED,
+# same terms as every entry above.
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25540 scalascript.codegen.JsGen::genExpr
-42564 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+42576 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

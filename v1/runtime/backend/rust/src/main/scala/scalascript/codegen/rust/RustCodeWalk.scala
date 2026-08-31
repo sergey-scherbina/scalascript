@@ -7487,11 +7487,40 @@ object RustCodeWalk:
     // `.toList` / `.toSeq` / `.toVector` → a Vec.  `clone().into_iter().collect()` is
     // type-agnostic: identity for a Vec, and turns a HashMap into a `Vec<(K, V)>`.
     // (Range/iterator forms collect to a Vec via the `isRangeExpr`-guarded cases below.)
-    // `(s: String).toList` → `Vec<char>` via `.chars()` (String is not IntoIterator,
-    // so the generic `.into_iter()` form below would not compile).
+    // `(s: String).toVector` → `Vec<i64>` of CODE UNITS, and every word of that was measured.
+    //
+    // NOT `Vec<char>`: `char` is a code POINT, while this lane's `charAt` yields a UTF-16 CODE
+    // UNIT (see `_str_code_at`) — the two disagree on every surrogate pair, and `Vector[Char]`
+    // on the JVM is code units, so `chars.length == text.length` must hold.
+    //
+    // NOT `Vec<SscChar>` either, which was tried first and reverted: a char LITERAL renders as a
+    // bare `i64` in both expression and pattern position, so `chars(i) match { case '\n' => … }`
+    // came out as `SscChar` matched against `10i64` — `error[E0308]`. The `SscChar` newtype exists
+    // so `charAt`'s own result DISPLAYS as a character rather than a number; everywhere else on
+    // this lane a char VALUE already travels as a plain `i64` (a `Char` parameter lowers to `i64`,
+    // and so does every char literal). Elements of this vector are compared, matched and indexed —
+    // never printed — so `i64` is both the consistent choice and the one that needs no new
+    // unwrapping machinery. Nothing regresses by picking it: `String.toVector` had no working
+    // lowering at all before (the generic branch below emitted `String::into_iter()`, which does
+    // not exist), so there is no existing behaviour to preserve.
+    //
+    // WHY THIS SHAPE IS WORTH HAVING AT ALL: it is the cheap escape from the O(n²) that
+    // `rag-uniml-parser-quadratic` is about. Emulating JVM code-unit indexing over UTF-8 costs
+    // O(i) per `charAt`, so the ordinary `while i < s.length do s.charAt(i)` scan is quadratic no
+    // matter how fast the constant gets. Hoisting ONE `val chars = text.toVector` in front of such
+    // a loop pays O(n) once and makes every subsequent index O(1) — `Vec` indexing — with no
+    // change to the type system and no change to the semantics.
+    //
+    // The RECEIVER TEST is `isStringExpr(qual) || a declared-String name`: `isStringExpr` only
+    // knows syntactic shapes (a literal, `.trim`, `.substring`, …) and does NOT know that a
+    // PARAMETER declared `String` is one, so `def split(text: String) = … text.toVector …` — the
+    // exact shape this exists for — fell through to the generic `clone().into_iter()` branch
+    // below and emitted `String::into_iter()`, which does not exist: `error[E0599]: the method
+    // into_iter exists for struct String, but its trait bounds were not satisfied`. Found by
+    // compiling the emitted crate, not by reading the arm.
     case m.Term.Select(qual, m.Term.Name("toList" | "toSeq" | "toVector" | "toIndexedSeq"))
-        if !isRangeExpr(qual) && isStringExpr(qual) =>
-      renderTerm(qual, ctx).map(q => s"$q.chars().collect::<Vec<char>>()")
+        if !isRangeExpr(qual) && (isStringExpr(qual) || isDeclaredStringName(qual, ctx)) =>
+      renderTerm(qual, ctx).map(q => s"$q.encode_utf16().map(|__u| __u as i64).collect::<Vec<i64>>()")
     case m.Term.Select(qual, m.Term.Name("toList" | "toSeq" | "toVector" | "toIndexedSeq"))
         if !isRangeExpr(qual) =>
       renderTerm(qual, ctx).map(q => s"$q.clone().into_iter().collect::<Vec<_>>()")
@@ -10924,6 +10953,16 @@ object RustCodeWalk:
         m.Term.Select(_, m.Term.Name("toString" | "trim")),
         args
       ) if args.values.isEmpty => true
+    case _ => false
+
+  /** A bare NAME whose declared type this def already knows to be `String` — the one thing
+   *  `isStringExpr` (purely syntactic: literals, `.trim`, `.substring`, …) structurally cannot
+   *  answer, because a parameter's type lives in the signature rather than in the expression.
+   *  Reads the same three tables every other declared-type question on this lane reads, so it
+   *  inherits their scoping and needs no new bookkeeping. */
+  private def isDeclaredStringName(term: m.Term, ctx: Ctx): Boolean = term match
+    case m.Term.Name(n) =>
+      ctx.localStrings.contains(n) || ctx.paramTypes.get(n).contains("String")
     case _ => false
 
   private def isStringExpr(term: m.Term): Boolean = term match
