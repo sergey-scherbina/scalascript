@@ -1,0 +1,11 @@
+slug: v3-effects-board-correction
+branch: feature/v3-effects-board-correction
+agent: claude-code
+started: 2026-08-31T06:47:53Z
+heartbeat: 2026-08-31T06:47:53Z
+status: claimed-before-planning
+items: ssc3-7b-step3-is-done-and-the-box-is-stale
+paths: v3/SPRINT.md v3/BACKLOG.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
