@@ -209,6 +209,17 @@ object RustCodeWalk:
     }.toMap ++ enumCaseDefaults.map { c =>
       c.name.value -> c.ctor.paramClauses.flatMap(_.values).map(_.default).toList
     }.toMap
+    _qualifiedCtorDefaults =
+      traitEnums.flatMap { case SealedTraitEnum(t, caseClasses) =>
+        caseClasses.map { c =>
+          (t.name.value, c.name.value) -> c.ctor.paramClauses.flatMap(_.values).map(_.default).toList
+        }
+      }.toMap ++
+      enums.flatMap { e =>
+        e.templ.body.stats.collect { case c: m.Defn.EnumCase =>
+          (e.name.value, c.name.value) -> c.ctor.paramClauses.flatMap(_.values).map(_.default).toList
+        }
+      }.toMap
     // A method in a `case class` body — `case class P(x: Int): def shifted(d: Int) = P(x + d)` —
     // reached the emitter as an ORDINARY TOP-LEVEL DEF, because `contentDefs` collects defs with a
     // DEEP `.collect` and a class body is just more tree. It came out as a free `pub fn shifted`
@@ -1549,6 +1560,17 @@ object RustCodeWalk:
    * defaulted `inheritEnv`, which rustc rejects (E0063, "missing field"). Reported by a user whose
    * live server uses exactly that three-argument form. */
   private var _ctorDefaults: Map[String, List[Option[m.Term]]] = Map.empty
+
+  /** `(enumName, ctorName) -> per-field defaults`, the qualified twin of `_ctorDefaults`.
+   *
+   *  `_ctorDefaults` is keyed by the BARE ctor name, so when two enums in one compilation unit
+   *  share a case name the last one written wins — exactly the collapse `_qualifiedCtors` exists
+   *  to undo for `ctorMap`. Merging uniML's markdown and rust dialects into one corpus made that
+   *  real: `VmInstruction.Close(expectedKind = None, role = None)` (all defaulted) and
+   *  `InlinePiece.Close(branch, kind, lexeme, role)` (none defaulted) collide, and the qualified
+   *  call `VmInstruction.Close()` was refused with "not every field of `Close` has a default" —
+   *  reading the WRONG constructor's fields. */
+  private var _qualifiedCtorDefaults: Map[(String, String), List[Option[m.Term]]] = Map.empty
 
   private var _paramTypes: Map[String, List[String]] = Map.empty
 
@@ -3282,6 +3304,11 @@ object RustCodeWalk:
       // `cloneIfMoved`'s own `inWhileLoop` clause, whose comment asked for exactly this
       // distinction and settled for `defParams` without it.
       loopExempt: Set[String] = Set.empty,
+      // Constructor DEFAULTS for a ctor name resolved through a QUALIFIER, overriding the
+      // module-level bare-name table. Same role — and set by the same delegation — as the
+      // `ctorMap` patch a few fields up: two enums in one unit may share a case NAME, and the
+      // bare table keeps only the last one written. See `_qualifiedCtorDefaults`.
+      ctorDefaults: Map[String, List[Option[m.Term]]] = Map.empty,
       // Names whose CURRENT value is provably dead: the very next statement in this block
       // reassigns them without reading them. `cloneIfMoved` skips those — see `deadBeforeReassign`.
       deadNames: Set[String] = Set.empty,
@@ -7110,7 +7137,7 @@ object RustCodeWalk:
       if byName.size != args.size then None
       else if !byName.keySet.subsetOf(ec.fieldNames.toSet) then None
       else
-        val defaults = _ctorDefaults.getOrElse(ctor, Nil)
+        val defaults = ctx.ctorDefaults.getOrElse(ctor, _ctorDefaults.getOrElse(ctor, Nil))
         val slots = ec.fieldNames.zipWithIndex.map { (f, i) =>
           byName.get(f).orElse(defaults.lift(i).flatten)
         }
@@ -12100,9 +12127,14 @@ object RustCodeWalk:
           // while pointing it at the RIGHT `EnumCtor` when the qualifier resolved one.
           case m.Term.Select(m.Term.Name(enumName), m.Term.Name(ctorName))
               if _qualifiedCtors.contains((enumName, ctorName)) || ctx.ctorMap.contains(ctorName) =>
-            val delegateCtx = _qualifiedCtors.get((enumName, ctorName)) match
+            // The ctor's DEFAULTS travel with its fields: patching only `ctorMap` left the
+            // delegatee reading a same-named ctor's defaults out of the bare table.
+            val delegateCtx0 = _qualifiedCtors.get((enumName, ctorName)) match
               case Some(ec) => ctx.copy(ctorMap = ctx.ctorMap.updated(ctorName, ec))
               case None     => ctx
+            val delegateCtx = _qualifiedCtorDefaults.get((enumName, ctorName)) match
+              case Some(ds) => delegateCtx0.copy(ctorDefaults = delegateCtx0.ctorDefaults.updated(ctorName, ds))
+              case None     => delegateCtx0
             renderTerm(m.Term.Apply.After_4_6_0(m.Term.Name(ctorName), m.Term.ArgClause(argTerms)), delegateCtx)
           case m.Term.Select(qual, m.Term.Name(meth)) =>
             renderTerm(qual, ctx).map { q =>
@@ -12137,7 +12169,7 @@ object RustCodeWalk:
                 // has a default to render — otherwise the arity is simply wrong and rustc's
                 // "missing field" is the honest message, rather than a struct literal we invented.
                 val ctorArgs =
-                  val defaults = _ctorDefaults.getOrElse(n, Nil)
+                  val defaults = ctx.ctorDefaults.getOrElse(n, _ctorDefaults.getOrElse(n, Nil))
                   val missing  = defaults.drop(renderedArgs.size)
                   if renderedArgs.size < ec.fieldNames.size && missing.nonEmpty && missing.forall(_.isDefined)
                   then
