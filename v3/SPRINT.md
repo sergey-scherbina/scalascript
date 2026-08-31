@@ -825,7 +825,12 @@ one symptom bucket turned out to be a different construct than the obvious readi
       The LAST binder is the continuation and the ones before it are the operation's arguments.
       Nothing else could state that, so the code does.
 
-- [ ] **SSC3-7b — `multi effect X:` and continuation capture.** DESIGN DECIDED 2026-08-08, written
+- [x] **SSC3-7b — `multi effect X:` and continuation capture.** DONE — all five steps' acceptance
+      met, confirmed by measurement 2026-08-31 (see "STEP 3'S ACCEPTANCE IS MET" below; the box was
+      stale, the work had landed in `Exec`/`BridgeV2` rather than in `Cps` where the plan put it).
+      The one thing that did NOT land is step 3's *prescribed* shape — one mechanism in the lowering
+      instead of the two that now exist — carried to `v3/BACKLOG.md` as design debt so closing this
+      box does not bury it. DESIGN DECIDED 2026-08-08, written
       into `10-ssc-ir.md` §3 "Capturing a continuation"; implementation is the open part.
 
       **`k` is a closure the LOWERING builds, not a machine the executor reifies.** The alternative
@@ -927,6 +932,48 @@ one symptom bucket turned out to be a different construct than the obvious readi
       (2) CPS-convert a performing function with no loop; (3) loops to recursive functions;
       (4) `Perform` builds the `VClos` and `Resume` calls it; (5) drop the tail-resumptive refusal
       for the cases CPS now covers, and let `effect-multishot` run.
+
+      **STEP 3'S ACCEPTANCE IS MET — measured 2026-08-31, and the box above was stale.** A perform
+      inside a region runs correctly on BOTH lanes: `effects-gate.sh` is OK over 34 fixtures with
+      executor and v2 bridge agreeing, and the population includes `perform-in-loop`,
+      `perform-in-if`, `cross-frame-in-loop` and `perform-in-region-in-handle-body`.
+      `perform-in-loop` is the one that settles it — its arm is `k(i * 10) + 1`, which is NOT
+      tail-resumptive, inside a `while`, and both lanes give 12.
+
+      **But the prescribed implementation was NOT taken, and that is the part to carry forward.**
+      Step 3 as written is "loops to recursive functions" in the LOWERING — one mechanism. What
+      exists instead is two, one per lane, and `Cps.scala`'s own header says so and says why nobody
+      minded: `Exec` hands the perform the rest of its instruction list as a `PendingFrame`
+      (`Exec.scala:344`, `performRest` at `:355`), while `BridgeV2` REBUILDS the remainder into one
+      function (`cutAt` at `BridgeV2.scala:619`), because `MkClos` captures registers by value and a
+      continuation split across two closures would lose every write the first one made.
+
+      So this is DESIGN DEBT — two mechanisms for one notion, the trap this repository keeps paying
+      for — not an open feature. `Cps.scala`'s header states the remaining argument in one line:
+      "LOWERING COULD STILL TAKE IT… the argument for doing it is exactly that: one mechanism
+      instead of two."
+
+      VERIFIED BY A PROBE THAT DISCRIMINATES, not by reading the header. `ssc3 cps` on each fixture,
+      counting `mkclos` (the continuation build site the pass introduces):
+
+      | fixture | funcs | `mkclos` | split by `Cps`? |
+      |---|---|---|---|
+      | `multi-shot` | 5 | 2 | yes |
+      | `two-performs-multi-shot` | 7 | 4 | yes |
+      | `cross-frame-in-loop` | 6 | 2 | its top-level perform only |
+      | `perform-in-loop` | 3 | **0** | **no** |
+      | `perform-in-if` | 3 | **0** | **no** |
+
+      The first probe I wrote counted `$k` and answered 0 for every fixture INCLUDING the ones that
+      do split — an answer that discriminates nothing reads exactly like "the pass never fires".
+      `mkclos` is the member that differs between the hypotheses.
+
+      **Step 5 is met too, and the residual refusal is not its leftover.** `Exec.scala:1601` still
+      throws on `!arm.tailResumptive`, and its own comment names the only way to reach it: a perform
+      not reached through the frame-recording walker, which is `Compile`'s specialised JIT lane.
+      Everything a `handle` can reach takes one of the two paths above. `bench/corpus/effect-multishot.ssc`
+      runs on `v3/ssc3` at exit 0 (it carries no `println`, so empty output is the correct result,
+      not a silent refusal).
 
 - [x] **SSC3-7c — `!` effect types in a signature.** DONE 2026-08-08. `skipType` continues past `!`
       exactly as it already did past `=>`, with the same safety argument: every caller is a

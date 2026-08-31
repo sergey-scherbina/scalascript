@@ -22,6 +22,15 @@ claim(s), landed wave by wave; a stage does not start before the previous one's 
 > The rule this keeps re-teaching, now three incidents deep: **a board that outlives its work sends
 > the next agent to reimplement something that already runs.** Probe the code before taking a queued
 > v3 task — every agent who did found the answer in minutes.
+>
+> **A fourth, 2026-08-31: stage 8's step 3.** The headline count above is unchanged — stage 8 was
+> already inside the six, as one of the two "substantially done" — but it has now moved from
+> substantially done to DONE, so the six are five finished and one substantially done. Found the same
+> way, in minutes, by running `effects-gate.sh` instead of reading the box. Note what made this one
+> different and harder to spot: the code did not merely outrun the board, it landed in a DIFFERENT
+> PLACE than the plan named — the plan put step 3 in `Cps`, and both lanes answered it themselves.
+> `Cps.scala`'s header says so in as many words. **So "is the file the plan named unchanged?" is not
+> the question; "does the acceptance hold?" is.**
 
 1. **✓ DONE** — the four cheap slices of 2026-08-30: abstract `val` in `extern class` (landed),
    `finally` (landed `0b2a48749`, SSC3-16), lexer `@` (landed `b5872f835`, SSC3-17), `extension` in
@@ -77,6 +86,27 @@ claim(s), landed wave by wave; a stage does not start before the previous one's 
    establish whether step 3 and the acceptance criteria are complete — that is a SPRINT read plus a
    probe, half an hour, and it should happen before anyone sizes this as remaining work. The owner's
    ordering stands: effects complete the language before perf is touched.
+
+   > **ANSWERED 2026-08-31 — that probe was run. STAGE 8 IS DONE; nothing here is remaining work.**
+   > `effects-gate.sh` OK over 34 fixtures with executor and v2 bridge agreeing, and the population
+   > includes `perform-in-loop`, `perform-in-if`, `cross-frame-in-loop` and
+   > `perform-in-region-in-handle-body`. `perform-in-loop` settles step 3: a NON-tail-resumptive arm
+   > (`k(i * 10) + 1`) inside a `while`, 12 on both lanes.
+   >
+   > **What is left is not a feature but DESIGN DEBT**, and it is the reason the box read as open:
+   > step 3's prescribed shape was "loops to recursive functions" in the LOWERING — ONE mechanism —
+   > and what exists is TWO, one per lane. `Exec` hands the perform the rest of its instruction list
+   > as a `PendingFrame` (`Exec.scala:344`); `BridgeV2` rebuilds the remainder into one function
+   > (`cutAt`, `BridgeV2.scala:619`), because `MkClos` captures registers by value and a continuation
+   > split across two closures loses every write the first made. Tracked below under
+   > "Two mechanisms for a perform inside a region". Step 5 is met too, and the surviving
+   > `!arm.tailResumptive` throw at `Exec.scala:1601` is NOT its leftover: its own comment names the
+   > only route to it, `Compile`'s specialised JIT lane.
+   >
+   > Method note, because it nearly went the other way: the first probe counted `$k` in `ssc3 cps`
+   > output and answered 0 for EVERY fixture, including the ones that do split — an answer that
+   > discriminates nothing reads exactly like "the pass never fires". Counting `mkclos` separates
+   > them (`multi-shot` 2, `two-performs-multi-shot` 4, `perform-in-loop` 0, `perform-in-if` 0).
 9. **Performance, LAST and THOROUGH — but the ladder is PART-CLIMBED, so re-baseline before
    planning.** ("перф на последнее место — но уже потом основательно".) Still owed: SSC3-3c-rest
    cells-frame (measured 1.27–1.74× on hand-written IR, not yet built). Already landed on the
@@ -259,6 +289,42 @@ front feature to design, and the largest single group of the five.
 **CHEAPEST OF THE REST:** `finally` and the abstract `val` were three cases between them and neither
 needed a rewrite — both have since landed (abstract `val`, then `finally` in SSC3-16). `html"…"` is deliberately NOT proposed for Tier 0 — the interpolator design covers
 it without putting markup into the language.
+
+## Two mechanisms for a perform inside a region — one notion, two implementations
+
+Parked 2026-08-31, split out of stage 8 so that closing SSC3-7b does not bury it. **This is debt,
+not a missing feature**: a perform inside a `Loop`/`If`/`Switch` runs correctly on both lanes today
+(`effects-gate.sh` OK, 34 fixtures, executor and bridge agreeing, `perform-in-loop` giving 12 from a
+non-tail-resumptive arm inside a `while`).
+
+The plan said step 3 would be **one** mechanism — "a `Loop` containing a `Perform` becomes a
+recursive function", in the lowering, per `v3/specs/10-ssc-ir.md` §3. What shipped is two:
+
+- **`Exec`** hands the perform the rest of its own instruction list as a `PendingFrame`
+  (`Exec.scala:344`, `performRest` at `:355`). Cheap there, because a region does not open a frame,
+  so both remainders share one register array and there is nothing to thread.
+- **`BridgeV2`** REBUILDS the remainder into a single function (`cutAt`, `BridgeV2.scala:619`;
+  `splitRegionPerforms`). It cannot copy `Exec`'s trick: `MkClos` captures registers **by value**,
+  so a continuation split across two closures would lose every write the first one made.
+
+`Cps.scala`'s header already records this and states the whole argument for closing it in one line —
+*"LOWERING COULD STILL TAKE IT … the argument for doing it is exactly that: one mechanism instead of
+two."* `Cps` leaves these cases alone by design; measured, `perform-in-loop` and `perform-in-if`
+emit **0** `mkclos` while `multi-shot` emits 2 and `two-performs-multi-shot` 4.
+
+**Why it is parked rather than scheduled.** Two implementations of one notion is the trap this
+repository keeps paying for, and the differential gate is the only thing currently holding them
+together — two lanes agreeing is what makes a wrong answer visible, and it is also what makes the
+duplication survivable. But both are correct today, the gate covers them, and the owner's ordering
+puts effects behind and perf last. The cost of the debt is paid by the next person who changes
+region handling and has to change it twice.
+
+**What closing it would look like**, if someone takes it: convert a `Loop` containing a `Perform`
+into a recursive function in the lowering, which makes the remainder a suffix of an instruction list
+again and lets `Cps.split` handle it with the rule it already has. Then `BridgeV2.cutAt`'s region
+arms and `Exec`'s `PendingFrame` path both become dead for this case — and **deleting them is the
+proof it worked**, since a rewrite that leaves both in place has added a third mechanism rather than
+removing one. `effects-gate.sh`'s 34 fixtures on both lanes are the acceptance, unchanged.
 
 ## v3's own front cannot lex `@` — two fixtures are uniml-only because of it
 
