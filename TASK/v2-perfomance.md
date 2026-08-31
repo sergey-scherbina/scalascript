@@ -52,7 +52,7 @@ refuted list, the measurement rules — is hand-written and never touched by the
 | entry | board | status | gate |
 |---|---|---|---|
 | `renderTerm-is-two-and-a-half-times-the-jit-limit` | `tests/BUGS.md` | open | `tests/e2e/v1-jit-size.sh` |
-| `int-a-double-in-a-signature-falls-off-the-jit` | `v1/runtime/backend/interpreter/BUGS.md` | open | — |
+| `int-a-double-in-a-signature-falls-off-the-jit` | `v1/runtime/backend/interpreter/BUGS.md` | open | `tests/e2e/jit-double-signature-gate.sh` |
 | `jsgen-genexpr-is-three-times-the-jit-limit` | `v1/runtime/backend/js/BUGS.md` | open | `tests/e2e/v1-jit-size.sh` |
 | `v2-backend-gap-matrix` | `v2/BACKLOG.md` | open | — |
 | `v2-perf-array-update-unanalysed` | `v2/BACKLOG.md` | open | `bench/corpus/array-update.ssc` |

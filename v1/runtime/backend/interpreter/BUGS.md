@@ -563,7 +563,7 @@ and `backendInterpreter/testFast` — 1615 tests, 0 failures.
      reported-by: claude-code
      reported-at: 2026-08-15
      confirmed: yes
-     gate: none -->
+     gate: tests/e2e/jit-double-signature-gate.sh -->
 
 **A user function whose signature mentions `Double` is not JIT-compiled, and the call costs
 microseconds where the identical `Long` function costs nanoseconds.** Two programs that differ in
@@ -612,6 +612,30 @@ v1's own JIT: v2 runs the same `Double -> Double` call in about 48 ns, twenty ti
 `Long/Double` × `param/return`, which localises the trigger to the signature and no further. A gate
 for this should assert the SHAPE — the `Double` twin within a small factor of the `Long` one — not a
 time, so a loaded host can still read it.
+
+### GATED 2026-08-31 — and the first draft of the gate would have LIED
+
+`tests/e2e/jit-double-signature-gate.sh` asserts the RATIO between the two twins, not an absolute
+time, so host speed and load largely cancel. It is still the only perf assertion in smoke, and it
+earned its place only after the variance was measured.
+
+**The first draft used a single pair and a 50x floor.** One measurement had given Long 0.0014 ms
+against Double 0.8675 ms — ~620x — which looked unmissable. Five back-to-back pairs on the same host
+then gave 44.3x, 153.8x, 2270.0x, 301.0x, 37.2x, with the CONTROL alone spanning 185x
+(0.0010–0.1854 ms). **Two of the five fall below 50x**, so that gate would have reported *"the defect
+is FIXED"* on a defect that is still here — the false green a timing assertion invites, in the worst
+direction.
+
+It now takes three pairs and reads the one whose CONTROL was fastest — contention only slows a run
+down, so that is the least contended observation rather than the luckiest. The pairs are kept
+together: taking `min(long)` and `min(double)` independently could pair the quietest control with
+the noisiest subject and inflate the ratio. The floor is 10x against a worst observed run of 37x and
+an expected 1–3x once the JIT covers the signature.
+
+Three consecutive runs of the final gate: 887x, 641x, 712x. Both failing directions are exercised —
+a floor above the observed ratio reports the defect fixed, and a ceiling below the observed control
+refuses to form a ratio at all.
+
 
 ## int-no-paren-sibling-method-is-undefined — `Undefined: twice` for a sibling declared without parens
 

@@ -913,6 +913,14 @@ val suite = List(
   // spelling apart prints 1 — the second is what makes the first about spellings rather than
   // about a malformed sandbox. ~30 s (copies std/ and runs two programs).
   Check("tests", "import-spelling-double-load", "tests/e2e/import-spelling-double-load-gate.sh", List(), 300000),
+  // A PERF gate, which this suite otherwise avoids — justified because it asserts a RATIO between
+  // two programs differing only in a type, not an absolute time, and because its floor was set from
+  // measured VARIANCE rather than from one lucky run. Five back-to-back pairs spanned 37x-2270x with
+  // the control alone spanning 185x, so the first draft's 50x floor would have reported "fixed" on a
+  // live defect twice in five. It now takes 3 pairs and reads the one whose CONTROL was fastest.
+  // ~60 s (six bench runs). v1/runtime/backend/interpreter/BUGS.md int-a-double-in-a-signature-
+  // falls-off-the-jit.
+  Check("v1/runtime/backend/interpreter", "jit-double-signature", "tests/e2e/jit-double-signature-gate.sh", List(), 600000),
   Check("scripts", "release-installer-launcher", "tests/e2e/release-installer-launcher.sh", List(), 180000),
   Check("scripts", "build-ram-guards-guard", "tests/e2e/build-ram-budget-gate.sh", List(), 180000),
 
