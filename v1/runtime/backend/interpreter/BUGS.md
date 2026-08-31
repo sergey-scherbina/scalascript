@@ -9,14 +9,15 @@ Newest first.
 
 ## imported-generic-fold-with-a-tuple-accumulator-presents-one-component — a cross-module generic fold+present over a tuple accumulator returns ONE tuple component instead of the tuple
 
-<!-- status: open
+<!-- status: fixed
      lane: int
      kind: bug
      area: runtime
-     gate: none
+     gate: tests/conformance/kr-imported-generic-fold-tuple-acc.ssc
      reported-by: claude-code
      reported-at: 2026-08-30
-     confirmed: yes -->
+     confirmed: yes
+     fixed-in: 5610197c4 -->
 
 Found writing `tests/conformance/std-aggregator-properties.ssc` (the aggregation-algebra laws
 case): `runAggregator(xs, ZipAgg(SumAgg(), CountAgg[Double]()))` — whose accumulator is a
@@ -94,6 +95,22 @@ more permutation**: dump what the interpreter actually builds for the two member
 flipping pair and compare, per this repo's own `when-no-external-probe-can-differ-dump-the-ir`
 lesson. Status stays `open`; the damage is confirmed and unchanged, the cause is still unknown, and
 the two suspicions the original entry offered are now known to be wrong rather than merely unproven.
+
+### RE-MEASURED 2026-08-31 — IT NO LONGER REPRODUCES
+
+Both the local fold and the imported `runAggregator` answer `(4, 2)` on int and js.
+
+**Checked in the order this entry's own diagnosis said mattered.** That diagnosis found the failure
+follows POSITION rather than the module boundary — whichever generic fold runs FIRST is the
+truncated one, and three identical calls were all wrong while one alone was right. So this was run
+imported-first, local-first, and with three imported calls in a row. All correct. A single
+arrangement would have been the weakest possible evidence for "no longer reproduces".
+
+`fixed-in: 5610197c4` is the VERIFICATION commit; the repair is unattributed.
+
+The case's `jvm` known-red is NOT this defect: `std/aggregator.ssc` carries `fmix64`, whose 64-bit
+Long literals run-jvm transpiles into a 32-bit Int context — the pre-existing `int-width`
+non-conformance already declared on `std-aggregator`.
 
 ## sortby-on-a-non-int-key-sorts-lexicographically-not-numerically — `List.sortBy` on a `Double` key sorts as if the keys were strings
 

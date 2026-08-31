@@ -1337,14 +1337,15 @@ learn to ignore, so these five stay frozen with this entry named as the reason.
 
 ## ref-front-injects-the-first-given-for-an-explicit-using-clause — the interpreter disagrees
 
-<!-- status: open
+<!-- status: fixed
      kind: bug
      lane: native
      area: front
      reported-by: claude-code
      reported-at: 2026-08-16
      confirmed: yes
-     gate: none — open defect -->
+     gate: tests/conformance/kr-using-clause-picks-first-given.ssc
+     fixed-in: 5610197c4 -->
 
 **The REFERENCE front is the wrong one here. F used to inherit it by agreeing; since 2026-08-16 it
 does not** — see the update at the end of this entry.
@@ -1375,6 +1376,19 @@ is invisible to a two-front comparison; only a three-lane probe finds it.
 Filed against the reference front rather than F. Whoever implements context bounds on F should
 decide deliberately whether to match the reference (wrong, gate-green) or the interpreter (right, and
 scored as "reference contradicted", which the gate counts but does not fail on).
+### RE-MEASURED 2026-08-31 — IT NO LONGER REPRODUCES
+
+`z(List("a","b"))` resolves `M[String]` correctly on INT, JS, JS/v2, JVM, JVM/v2 and V2, and on the
+default front **and** `SSC_FRONT=F`. This entry names the REFERENCE front specifically, so both
+fronts were run explicitly rather than inferred from lane coverage.
+
+`fixed-in: 5610197c4` is the commit that VERIFIED and gated this, not the one that repaired it —
+the repair is unattributed and no sha was guessed.
+
+The regression case calls `z` at BOTH types, in the order that makes a first-declaration pick
+observable. With one call site the defect is invisible whenever the first `given` happens to be the
+right one, so a single-call case would have been a gate that could not fail.
+
 ## orphan-detector-scans-one-directory-and-misses-real-gates — 217 subjects became 291, and it got 7× faster
 
 <!-- status: fixed
