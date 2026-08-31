@@ -80,6 +80,55 @@ for f in v3/tests/bridge/*.ssir; do
 done
 
 echo
+echo "── fixtures that must be REFUSED, and the refusal is the defect ─────────"
+#
+# WHY THIS SLOT EXISTS. Until now a `v3/tests/front` fixture could only say "this runs and prints
+# X". A fixture with no `.expected` was SKIPPED by this gate and by front-diff ("printing its Ast is
+# not meaningful"), so it checked nothing. That left a whole class of BUGS entries ungateable: the
+# ones whose defect IS a refusal. Measured 2026-08-31 while trying to gate
+# `v3-an-interpolator-prefix-and-an-ordinary-function-share-one-namespace` — there was nowhere to
+# put it, and pointing its `gate:` at something that did not cover it would have been worse than
+# leaving it empty, because the entry would read as covered.
+#
+# THE CONTRACT: `<name>.refuses` holds one line, the message fragment `ssc3 run` must print while
+# exiting NON-ZERO. Both halves are asserted, and each rules out a different way of being fooled:
+#
+#   * a non-zero exit alone would be satisfied by ANY breakage — a typo in the fixture, a missing
+#     file, a build that cannot start;
+#   * the fragment alone would be satisfied by a program that prints the message and then succeeds.
+#
+# LIKE A known-red, THIS GOES RED WHEN THE DEFECT IS FIXED, ON PURPOSE. A fixture here that starts
+# RUNNING is the improvement its BUGS entry asks for, and this gate failing is how whoever made it
+# finds the entry. The failure message says so rather than leaving someone to guess whether to
+# relax it.
+#
+# `ssc3 run` and NOT `ssc3 exec`: they are different lanes. `run` goes through v3's own front,
+# `exec` through the spike front — measured, on the infix-method fixture, which `run` executes to
+# 42/42 while `exec` cannot parse it. A refusal recorded against the wrong lane would pin a
+# different defect from the one the entry describes.
+for f in v3/tests/front/*.ssc; do
+  name="$(basename "$f" .ssc)"
+  want_file="v3/tests/front/$name.refuses"
+  [ -f "$want_file" ] || continue
+  want="$(head -1 "$want_file")"
+  ran=$((ran + 1))
+  out="$(v3/ssc3 run "$f" 2>&1)"; rc=$?
+  if [ "$rc" -eq 0 ]; then
+    echo "  FAIL $name — it RUNS now, but this fixture records a refusal."
+    echo "       That is the improvement its BUGS entry asks for. Close the entry and replace"
+    echo "       this fixture with an .expected one; do not delete the .refuses to get green."
+    fail=1
+  elif ! grep -qF -- "$want" <<<"$out"; then
+    echo "  FAIL $name — refused, but not with the recorded reason."
+    echo "       want: $want"
+    echo "       got:  $(grep -v '^\s*$' <<<"$out" | tail -1)"
+    fail=1
+  else
+    echo "  ok   $name refused: $want"
+  fi
+done
+
+echo
 echo "── differential: the same, on real .ssc source ─────────────────────────"
 # This is where the differential earns its keep. The IR fixtures above are hand-written and small;
 # these go through the whole front, so a disagreement here indicts the lowering, the bridge or the

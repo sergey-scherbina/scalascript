@@ -1,0 +1,5 @@
+def raw(parts: List[String], args: List[String]): String = "I:" + args.head
+def raw(value: String): String = "R:" + value
+
+println(raw"a${"b"}c")
+println(raw("z"))

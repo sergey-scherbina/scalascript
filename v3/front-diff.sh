@@ -233,9 +233,22 @@ if [ "${SSC3_FRONT_DIFF_CORPUS:-1}" = 1 ] && [ "$nfronts" -ge 2 ]; then
   #                               siblings belong to which class, so reattaching them here would be
   #                               a guess. `uniml-extern-class-members-hoist-to-top-level`.
   #
+  #   kr-summon-anonymous-given   NEITHER front handles an ANONYMOUS `given T with`, and they fail
+  #                               DIFFERENTLY, which is why it lands here rather than in the
+  #                               one-front bucket. v3's own front does not recognise the form at
+  #                               all and emits the tokens as three stray statements —
+  #                               `(do (name "given")) (do (name "Combiner")) (do (name "with"))`;
+  #                               uniml emits two of the three. So this row records a defect in
+  #                               v3's OWN front, not a dialect gap, and the disagreement is a
+  #                               second-order symptom of it. `v3-front-does-not-parse-an-
+  #                               anonymous-given`. NOTE the conformance case itself is GREEN on
+  #                               every ssc lane — this is v3's front reading it, not the program
+  #                               being wrong.
+  #
   # Closing either gap makes this gate RED with the row named — drop it in the same commit.
   declare -a KNOWN_CONF_DISAGREE=(
     curried-def-member-methods
+    kr-summon-anonymous-given
     mcp-client-invoke
   )
   cdactual="$(cut -f1 "$cdiffs" | sort | tr '\n' ' ')"

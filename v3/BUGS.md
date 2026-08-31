@@ -6,6 +6,43 @@ belong in the repository-root `BUGS.md` instead, not here.
 
 Query: `scripts/bugs-report --module v3`.
 
+## v3-front-does-not-parse-an-anonymous-given — `given T with` becomes three stray name statements
+
+<!-- status: open
+     lane: v3
+     area: front
+     kind: bug
+     gate: v3/front-diff.sh
+     reported-by: claude-code
+     reported-at: 2026-08-31
+     confirmed: yes -->
+
+v3's own front does not recognise the ANONYMOUS `given` form. `given Combiner[Int] with` is emitted
+as three unrelated statements:
+
+```
+(do (name "given"))
+(do (name "Combiner"))
+(do (name "with"))
+```
+
+The named form (`given intCombiner: Combiner[Int] with`) is handled. So the gap is the anonymous
+spelling — the idiomatic Scala 3 one, and the one every typeclass module in `std/` uses.
+
+**It fails SILENTLY, which is the worse half.** There is no refusal and no diagnostic: the tokens
+become name expressions and the declaration simply is not there. A program relying on it would be
+lowered without its instance rather than told.
+
+**Found by a differential, not by a probe.** `tests/conformance/kr-summon-anonymous-given.ssc` was
+added as a regression case for the *ssc* fronts, where it is GREEN on every lane. Running v3's
+front-diff over the conformance corpus then showed the two v3 fronts disagreeing on it — uniml
+emits two of the three stray statements, v3's own front all three. **Neither is right**; the
+disagreement is a second-order symptom, and it is what made the primary defect visible at all.
+
+Declared in `front-diff.sh`'s `KNOWN_CONF_DISAGREE` with that reasoning, so the row is a tracked
+red rather than a silent one. Closing this defect makes that gate red with the row named — remove
+it in the same commit.
+
 ## point-free-class-method-reference-never-eta-expands — a bare selection on a class instance always dynamic-Invoked with zero args
 
 <!-- status: fixed
@@ -623,6 +660,20 @@ feature and why `front-diff` runs it on both fronts:
 
 **WHAT REMAINS FOR THE SIX CASES:** somebody writes `def html(parts, args)` and `def md(parts, args)`
 in `std`. That is a library task with no front or kernel change behind it.
+### NOW GATED — the missing harness slot was built, 2026-08-31
+
+The blocker recorded above was real and is gone. `v3/exec-gate.sh` gained a `<name>.refuses`
+fixture kind: the file holds the message fragment `ssc3 run` must print **while exiting non-zero**,
+and both halves are asserted — a non-zero exit alone would be satisfied by any breakage, a fragment
+alone by a program that prints it and then succeeds.
+
+`v3/tests/front/refuses-interpolator-name-collision.ssc` records this defect as
+`call to 'raw' passes 1 argument(s), it takes 2`. Like a known-red it goes RED when the defect is
+fixed, on purpose: the fixture starting to RUN is the improvement this entry asks for, and the
+gate's failure message says to close the entry and convert the fixture rather than delete the
+`.refuses` to get green.
+
+
 ## v3-a-plugin-global-that-is-a-plain-value-cannot-answer-a-zero-arg-extern — it can now
 
 <!-- status: fixed
@@ -1978,7 +2029,9 @@ in step.
      kind: bug
      area: front
      found-by: claude-code
-     found-at: 2026-08-21 -->
+     found-at: 2026-08-21
+     gate: v3/exec-gate.sh
+    -->
 
 **`pfx"…"` lowers to `pfx(parts, args)`, so an interpolator's prefix IS an ordinary global name** —
 which is what made interpolators definable in a library (`v3-an-interpolator-prefix-is-hardcoded-in-
