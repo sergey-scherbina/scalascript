@@ -1,3 +1,2 @@
-# generation: 3243
+# generation: 3244
 #slug	agent	started	items	paths
-gateless-batch3	claude-code	2026-08-31T15:03:03Z	imported-generic-fold-with-a-tuple-accumulator-presents-one-component ref-front-injects-the-first-given-for-an-explicit-using-clause	file:v1/runtime/backend/interpreter/BUGS.md file:tests/BUGS.md file:tests/conformance/contract-roster.tsv file:tests/conformance/corpus-baseline.tsv file:tests/conformance/kr-imported-generic-fold-tuple-acc.ssc file:tests/conformance/expected/kr-imported-generic-fold-tuple-acc.txt file:tests/conformance/kr-using-clause-picks-first-given.ssc file:tests/conformance/expected/kr-using-clause-picks-first-given.txt
