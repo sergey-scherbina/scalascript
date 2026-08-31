@@ -3276,6 +3276,12 @@ object RustCodeWalk:
       // declared INSIDE the loop body is freshly bound each iteration and never has this problem.
       inWhileLoop: Boolean = false,
       multiUse: Set[String] = Set.empty,
+      // Names EXEMPT from the in-loop clone rule below: those a `while` body declares itself
+      // (fresh every iteration) or reassigns (a fresh value every iteration). Supplied at the
+      // loop site, because that is the only place that knows which is which — see
+      // `cloneIfMoved`'s own `inWhileLoop` clause, whose comment asked for exactly this
+      // distinction and settled for `defParams` without it.
+      loopExempt: Set[String] = Set.empty,
       // Names whose CURRENT value is provably dead: the very next statement in this block
       // reassigns them without reading them. `cloneIfMoved` skips those — see `deadBeforeReassign`.
       deadNames: Set[String] = Set.empty,
@@ -4650,7 +4656,17 @@ object RustCodeWalk:
           // different shape entirely and is handled by `cloneIfMoved`'s own `Term.Select` case,
           // now reachable from a plain assignment's RHS too — see that case, and the plain-
           // assignment call site below, for the actual fix for that one).
-          || (ctx.inWhileLoop && ctx.defParams.contains(r)))
+          // WIDENED beyond `defParams`, now that the loop site supplies `loopExempt`. A local
+          // `val`/`var` declared OUTSIDE the loop and read BY VALUE inside it is moved on the
+          // first iteration and gone on the second — `SourceSpan { source: source, … }` in
+          // `uniml/rust`'s own `stop`, `error[E0382]: use of moved value: source`. The two
+          // exemptions are precisely the ones the comment above could not express before: a name
+          // the body DECLARES is fresh each pass, and a name the body REASSIGNS (`cursor =
+          // consume(value, cursor)`, the golden that defeated the first attempt) gets a fresh
+          // value each pass. Neither needs cloning; anything else bound outside does.
+          || (ctx.inWhileLoop &&
+                (ctx.defParams.contains(r) ||
+                 (looksLikeBinding(r) && !ctx.loopExempt.contains(r)))))
     arg match
       case m.Term.Name(n)
           if needs(n) && !rendered.matches(raw"-?\d+i64|-?\d+\.\d+f64|true|false") =>
@@ -4701,6 +4717,41 @@ object RustCodeWalk:
    *  enough signal to widen the check to every local, not just params, without reopening the
    *  original bug: `error: expected pattern, found =` from `let - = -.clone(); let Vector =
    *  Vector.clone(); …`. */
+  /** Names a `while` body makes fresh on every iteration: the ones it DECLARES, plus the ones it
+   *  REASSIGNS. Both are exempt from the in-loop clone rule — a declared name is rebound each
+   *  pass, and a reassigned one is overwritten each pass, so neither can be a value moved out on
+   *  iteration one and read again on iteration two. Everything else the body reads by value was
+   *  bound outside the loop and does need the clone. */
+  private def loopExemptNames(body: m.Term): Set[String] =
+    var declared = Set.empty[String]
+    def walk(t: m.Tree): Unit =
+      t match
+        case v: m.Defn.Val => declared = declared ++ v.pats.collect { case m.Pat.Var(m.Term.Name(n)) => n }
+        case v: m.Defn.Var => declared = declared ++ v.pats.collect { case m.Pat.Var(m.Term.Name(n)) => n }
+        // A CLOSURE PARAMETER is as fresh as a declared local — `xs.foreach(x => … inc(x) …)`
+        // inside a `while` binds `x` per invocation, so cloning it is pure waste. Missing this
+        // was caught by an existing golden (`single-use foreach params should not be cloned`),
+        // which is exactly the class of over-cloning the first attempt at this widening died on.
+        case f: m.Term.Function => declared = declared ++ f.paramClause.values.map(_.name.value)
+        // A match-arm binder, likewise bound per arm.
+        case c: m.Case          => declared = declared ++ patBoundNames(c.pat)
+        case _                  => ()
+      t.children.foreach(walk)
+    walk(body)
+    declared ++ collectDirectWrites(body, allBareNames(body))
+
+  /** Every bare `Term.Name` in `t` — the candidate set `collectDirectWrites` filters down to the
+   *  ones actually written. */
+  private def allBareNames(t: m.Tree): Set[String] =
+    var out = Set.empty[String]
+    def walk(x: m.Tree): Unit =
+      x match
+        case m.Term.Name(n) => out = out + n
+        case _              => ()
+      x.children.foreach(walk)
+    walk(t)
+    out
+
   private def looksLikeBinding(n: String): Boolean =
     n.nonEmpty && n.head.isLower && n.forall(c => c.isLetterOrDigit || c == '_')
 
@@ -7528,7 +7579,7 @@ object RustCodeWalk:
         // Body is Unit-typed by construction. `inWhileLoop = true` — see `cloneIfMoved`'s own
         // comment on the field: a call inside a loop body runs once PER ITERATION, so a def
         // param it reads needs cloning even though it appears only ONCE syntactically.
-        b <- renderBody(w.body, ctx.copy(inWhileLoop = true), isUnit = true)
+        b <- renderBody(w.body, ctx.copy(inWhileLoop = true, loopExempt = ctx.loopExempt ++ loopExemptNames(w.body)), isUnit = true)
       yield
         s"while $c {\n${indent(b)}\n}"
 
