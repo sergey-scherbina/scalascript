@@ -1,0 +1,36 @@
+#!/usr/bin/env ssc
+---
+name: kr-imported-generic-fold-tuple-acc
+backends: [int, js, jvm, v2]
+known-red: "jvm — NOT this case's subject. std/aggregator.ssc carries fmix64, whose 64-bit Long literals run-jvm transpiles into a 32-bit Int context; that is the pre-existing int-width non-conformance already declared on std-aggregator and std-aggregator-approx. The fold this case is about is GREEN on int and js. Remove when int-width is fixed."
+---
+
+# An imported generic fold over a TUPLE accumulator
+
+Executable record of BUGS.md `imported-generic-fold-with-a-tuple-accumulator-presents-one-component`,
+which had no gate.
+
+`ZipAgg` accumulates a pair. A locally-written fold over it produces both components; the same
+fold reached through the imported `runAggregator` presents only one. The case runs BOTH so the
+contrast is the assertion — a case with only the imported call would not show that the
+aggregator itself is fine.
+
+**RE-MEASURED 2026-08-31: the reported defect no longer reproduces.** Both calls answer `(4, 2)`
+on int and js. The entry's diagnosis said the failure follows POSITION rather than the module
+boundary — whichever generic fold runs first is the truncated one — so this was checked in the
+order that mattered: imported-first, local-first, and three imported calls in a row. All correct.
+The case is kept as the regression gate the entry never had.
+
+```scalascript
+[Aggregator, runAggregator, ZipAgg, SumAgg, CountAgg](std/aggregator.ssc)
+
+def runLocal[In, Acc, Out](xs: List[In], agg: Aggregator[In, Acc, Out]): Out =
+  val acc = xs.foldLeft(agg.monoid.empty)((a, in) => agg.monoid.combine(a, agg.prepare(in)))
+  agg.present(acc)
+
+def main(): Unit =
+  val xs = List(3.0, 1.0)
+  val agg = ZipAgg(SumAgg(), CountAgg[Double]())
+  println(runLocal(xs, agg).toString)
+  println(runAggregator(xs, agg).toString)
+```

@@ -1,0 +1,35 @@
+#!/usr/bin/env ssc
+---
+name: kr-using-clause-picks-first-given
+backends: [int, js, jvm, v2]
+also-codegen: v2
+---
+
+# An explicit `using` clause must resolve by TYPE, not by declaration order
+
+Executable record of BUGS.md `ref-front-injects-the-first-given-for-an-explicit-using-clause`,
+which had no gate.
+
+Two `given`s for the same trait at different type arguments. `z(List("a", "b"))` needs
+`M[String]`; picking the FIRST declared `given` instead of the matching one is the defect, and
+it is invisible whenever the first declaration happens to be the right one — so the case calls
+`z` at BOTH types, in the order that makes the wrong choice observable.
+
+```scalascript
+trait M[A]:
+  def empty: A
+
+given intM: M[Int] with
+  def empty: Int = 0
+
+given strM: M[String] with
+  def empty: String = "x"
+
+def z[A](xs: List[A])(using m: M[A]): A = m.empty
+
+def main(): Unit =
+  println(z(List("a", "b")))
+  println(z(List(1, 2)))
+
+main()
+```
