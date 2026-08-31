@@ -5,7 +5,7 @@ started: 2026-08-31T12:26:09Z
 heartbeat: 2026-08-31T12:26:09Z
 status: claimed-before-planning
 items: case-class-array-field-cannot-be-indexed-directly given-with-method-cannot-close-over-a-top-level-val js-v2-lane-has-no-Char-at-all
-paths: file:v2/BUGS.md file:tests/conformance/contract-roster.tsv file:tests/conformance/corpus-baseline.tsv file:tests/conformance/kr-case-class-array-field.ssc file:tests/conformance/kr-given-with-closes-over-top-level-val.ssc file:tests/conformance/kr-js-v2-char.ssc
+paths: file:v2/BUGS.md file:tests/conformance/contract-roster.tsv file:tests/conformance/corpus-baseline.tsv file:tests/conformance/kr-case-class-array-field.ssc file:tests/conformance/kr-given-with-closes-over-top-level-val.ssc file:tests/conformance/kr-js-v2-char.ssc file:tests/conformance/expected/kr-case-class-array-field.txt file:tests/conformance/expected/kr-given-with-closes-over-top-level-val.txt file:tests/conformance/expected/kr-js-v2-char.txt
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+next: full corpus, then land
