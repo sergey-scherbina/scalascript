@@ -97,6 +97,25 @@ lazy val unimlJsonCross =
     .jsConfigure(_.withId("unimlJsonJs"))
     .jsSettings(Test / fork := false)
 
+lazy val unimlRustCross =
+  crossProject(JVMPlatform, JSPlatform)
+    .crossType(CrossType.Pure)
+    .in(file("rust"))
+    .dependsOn(unimlCross)
+    .settings(
+      name := "scalascript-uniml-rust",
+      libraryDependencies ++= Seq("org.scalatest" %%% "scalatest" % scalatestV % Test),
+      Compile / scalacOptions ++= sharedScalacOptionsStrict,
+      Test    / scalacOptions ++= sharedScalacOptions,
+    )
+    .settings(standaloneTargetSettings)
+    .jvmConfigure(_.withId("unimlRust"))
+    .jvmSettings(
+      Test / unmanagedSourceDirectories += baseDirectory.value.getParentFile / "src" / "test-jvm" / "scala",
+    )
+    .jsConfigure(_.withId("unimlRustJs"))
+    .jsSettings(Test / fork := false)
+
 lazy val unimlYamlCross =
   crossProject(JVMPlatform, JSPlatform)
     .crossType(CrossType.Pure)
@@ -249,6 +268,7 @@ lazy val root = project
   .aggregate(
     unimlCross.jvm, unimlCross.js,
     unimlJsonCross.jvm, unimlJsonCross.js,
+    unimlRustCross.jvm, unimlRustCross.js,
     unimlYamlCross.jvm, unimlYamlCross.js,
     unimlMarkdownCross.jvm, unimlMarkdownCross.js,
     unimlScalaCross.jvm, unimlScalaCross.js,
@@ -265,6 +285,8 @@ lazy val root = project
         "unimlJs"         -> (unimlCross.js / target).value,
         "unimlJson"       -> (unimlJsonCross.jvm / target).value,
         "unimlJsonJs"     -> (unimlJsonCross.js / target).value,
+        "unimlRust"       -> (unimlRustCross.jvm / target).value,
+        "unimlRustJs"     -> (unimlRustCross.js / target).value,
         "unimlYaml"       -> (unimlYamlCross.jvm / target).value,
         "unimlYamlJs"     -> (unimlYamlCross.js / target).value,
         "unimlMarkdown"   -> (unimlMarkdownCross.jvm / target).value,
