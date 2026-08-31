@@ -2642,11 +2642,12 @@ failures pre-existing on a clean `origin/main` (`v1-jit-size`, a frozen Rust cod
 
 ## f-nested-constructor-pattern-falls-through-to-the-default — `Some(SqlInteger(v))` matches nothing
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: front
      kind: bug
-     gate: examples/scljet-readonly.ssc -->
+     gate: examples/scljet-readonly.ssc
+     fixed-in: unrecorded -->
 
 **Found 2026-08-12 by the agreement census**, as the single remaining file where F is contradicted by
 BOTH other lanes once the object-scan, `|` and parenthesised-alternative fixes are applied.
@@ -2740,6 +2741,30 @@ against the refusal or split it; what must not survive is the sentence saying `S
 matches nothing, because a reader deciding what to ship would read that as a silent wrong answer on
 the default lane — which is exactly why it was re-measured. The 32-file scan above is also dated by
 the same amount and should be re-run before it is quoted.
+
+### RE-MEASURED 2026-08-31 — IT NO LONGER REPRODUCES, on the entry's own subject
+
+`examples/scljet-readonly.ssc` — this entry's `gate:` — prints
+`List(integer:-2, text:List(72, 105), blob:2)`, which is exactly the answer the entry records for
+the reference front and the interpreter, and exactly what F was answering as
+`List(other, other, other)`.
+
+**Checked where the entry said the damage was, not only on a reduction.** All four heavily-affected
+modules it names are taken by F today: `std/scljet/write.ssc` (20 occurrences),
+`std/content-core.ssc` (13), `std/scljet/sql.ssc` (11) and the example itself all report front `F`.
+That matters because a reduction passing proves less than the real files passing — my first probe
+was a two-line `Some(Wrapped(v))` and it was already green, which on its own would have been weak
+evidence: the entry's shape is a nested pattern inside a FOUR-field constructor with wildcards, and
+that was tried separately before concluding anything.
+
+**This was the most serious open entry in the ledger by its own description** — a silent wrong
+answer on the DEFAULT native front, in the shape most of `std/scljet` is written in. It is worth
+recording that it closed without anyone noticing, which is the argument for the gate work that has
+been going on around it: nothing was watching this, so nothing said when it stopped.
+
+`fixed-in: unrecorded` rather than a guessed sha — the repair is not attributed and I did not bisect
+for it.
+
 
 ## f-lowers-user-defined-pipe-as-integer-or — every parser built with a choice was a bitwise or
 
