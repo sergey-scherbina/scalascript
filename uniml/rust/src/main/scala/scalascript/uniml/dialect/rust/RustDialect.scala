@@ -6,8 +6,12 @@ import scalascript.uniml.*
   *
   * `start` is the first token of the item's HEAD — its doc comments and attributes, not the
   * keyword — so a chunk carries the prose that explains it. `name` is best-effort and is used
-  * only to build a citation id; a wrong name is a worse label, never a wrong boundary. */
-private final case class ItemSpan(start: Int, end: Int, kind: String, name: String)
+  * only to build a citation id; a wrong name is a worse label, never a wrong boundary.
+  *
+  * `bodyOpen` is the index of the `{` that opens the item's body, or -1 for a body-less
+  * declaration. It is what separates the head — kept token by token, because the chunker reads
+  * the item's name back out of it — from the body, which is emitted as one token. */
+private final case class ItemSpan(start: Int, end: Int, kind: String, name: String, bodyOpen: Int)
 
 /** Structural item finder: a brace-depth machine over the lexed token stream.
   *
@@ -182,11 +186,11 @@ private object RustStructure:
           i = if skipTo >= headStart then skipTo + 1 else headStart + 1
         else
           val end = itemEnd(tokens, kw, until)
-          out = out :+ ItemSpan(headStart, end, kind, itemName(tokens, kw, until))
+          val bs = bodyStart(tokens, kw, end)
+          out = out :+ ItemSpan(headStart, end, kind, itemName(tokens, kw, until), if bs < 0 then -1 else bs - 1)
           // One nesting level, per the spec: an `impl` or `mod` body holds items a reader cites
           // directly, deeper nesting produces chunks too small to rank.
           if depth == 0 && (kind == "rust.impl" || kind == "rust.mod") then
-            val bs = bodyStart(tokens, kw, end)
             if bs >= 0 && bs < end then out = out ++ collect(tokens, bs, end, depth + 1)
           i = end + 1
     out
@@ -216,40 +220,82 @@ private final case class RustProcessor(source: SourceId) extends Processor[Strin
   def stop(text: String): ProcessBatch[VmToken] =
     val lexed = RustLexer.lex(text)
     val items = RustStructure.collect(lexed, 0, lexed.length, 0)
+    // Which token indices must reach the VM ON THEIR OWN. Everything else is run together into
+    // one token per stretch, and the reason is a hard cost, not tidiness: `TreeVm.addTop` rebuilds
+    // the open frame on every token, so on the ScalaScript Rust backend — where a `Vector` is a
+    // plain vector and `edges :+ edge` copies it, deeply, because an edge owns its subtree — a
+    // frame holding k tokens costs O(k²). A markdown block holds a handful of tokens and never
+    // notices; a Rust function body holds thousands. MEASURED at ~18 KB of source: 400 small
+    // functions 1.57 s, eight large ones 3.60 s, ONE function 40.85 s — same bytes, and the only
+    // variable is how many tokens sit in one frame.
+    //
+    // A structural chunker does not need a node per token inside a body: it slices the source by
+    // the item's span. So the HEAD is kept token by token — the chunker reads the item's name back
+    // out of those tokens, and a signature is worth keeping legible — while the BODY becomes a
+    // single token. That is what makes the token stream proportional to the STRUCTURE rather than
+    // to the source, and it leaves losslessness untouched: the runs are concatenated, never
+    // summarised, so the lexemes still reproduce the file byte for byte.
     var out: Vector[VmToken] = Vector.empty
     var position = SourcePosition.Start
     var nextTokenId = 0L
     var nextItem = 0
-    // Ends of the items currently open, innermost last. `collect` returns parents immediately
-    // before the items nested in them and every child closes before its parent, so a plain stack
-    // is enough — no lookup structure and no second pass.
+    // The items currently open, innermost last: `open` holds their end indices and `openBody` the
+    // matching `{` positions. `collect` returns parents immediately before the items nested in
+    // them and every child closes before its parent, so plain stacks are enough — no lookup
+    // structure and no second pass.
     var open: Vector[Int] = Vector.empty
+    var openBody: Vector[Int] = Vector.empty
     var i = 0
     while i < lexed.length do
-      val lex = lexed(i)
-      val start = position
-      val end = Unicode.advance(start, lex.lexeme)
-      position = end
-      val channel =
-        if lex.kind == "rust.ws" then TokenChannel.Trivia
-        else if lex.kind == "rust.line-comment" || lex.kind == "rust.block-comment" then TokenChannel.Comment
-        else TokenChannel.Syntax
-      val token = SourceToken(
-        id = nextTokenId,
-        kind = lex.kind,
-        lexeme = lex.lexeme,
-        span = SourceSpan(source, start, end),
-        channel = channel,
-      )
-      nextTokenId += 1
+      var lexeme = lexed(i).lexeme
+      var kind = lexed(i).kind
       var instruction: VmInstruction = VmInstruction.Emit()
       if nextItem < items.length && items(nextItem).start == i then
         instruction = VmInstruction.Open(items(nextItem).kind)
         open = open :+ items(nextItem).end
+        openBody = openBody :+ items(nextItem).bodyOpen
         nextItem += 1
+        i += 1
       else if open.nonEmpty && open.last == i then
         instruction = VmInstruction.Close()
         open = open.dropRight(1)
+        openBody = openBody.dropRight(1)
+        i += 1
+      else if open.nonEmpty && openBody.last >= 0 && i <= openBody.last then
+        // Still in the item's HEAD — its doc comments, attributes and signature, through the `{`.
+        i += 1
+      else
+        // A BODY, or the gap between two items: one token for the whole run. It ends where the
+        // next item begins or where the enclosing item closes, whichever comes first, so no
+        // boundary token is ever swallowed.
+        var limit = lexed.length
+        if nextItem < items.length && items(nextItem).start < limit then limit = items(nextItem).start
+        if open.nonEmpty && open.last < limit then limit = open.last
+        if limit <= i then i += 1
+        else
+          // Accumulated as pieces and joined once: `s = s + piece` in a loop would copy the whole
+          // string every time, which is the same shape of quadratic this coalescing exists to
+          // remove.
+          var pieces: Vector[String] = Vector.empty
+          while i < limit do
+            pieces = pieces :+ lexed(i).lexeme
+            i += 1
+          kind = "rust.span"
+          lexeme = pieces.mkString
+      val start = position
+      val end = Unicode.advance(start, lexeme)
+      position = end
+      val channel =
+        if kind == "rust.ws" then TokenChannel.Trivia
+        else if kind == "rust.line-comment" || kind == "rust.block-comment" then TokenChannel.Comment
+        else TokenChannel.Syntax
+      val token = SourceToken(
+        id = nextTokenId,
+        kind = kind,
+        lexeme = lexeme,
+        span = SourceSpan(source, start, end),
+        channel = channel,
+      )
+      nextTokenId += 1
       out = out :+ VmToken(token, instruction)
-      i += 1
     ProcessBatch(out, Vector.empty)

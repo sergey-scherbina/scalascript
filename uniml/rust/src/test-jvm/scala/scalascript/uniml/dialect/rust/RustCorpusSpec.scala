@@ -3,6 +3,7 @@ package scalascript.uniml.dialect.rust
 import java.nio.file.{Files, Path, Paths}
 import org.scalatest.funsuite.AnyFunSuite
 import scala.jdk.CollectionConverters.*
+import scalascript.uniml.*
 
 /** Losslessness over a REAL corpus of Rust, which is the property the chunker's byte-exact
   * slicing depends on: if the lexer ever dropped or normalised a byte, every span after it would
@@ -37,6 +38,22 @@ final class RustCorpusSpec extends AnyFunSuite:
       bytes += text.length.toLong
     }
     info(s"lossless over $checked files, $bytes chars")
+
+  test("every .rs file in the corpus survives the DIALECT losslessly, not just the lexer"):
+    // The lexer test above is not enough on its own: the processor runs whole item bodies together
+    // into one token, so this is the check that the stream the VM actually receives — and that the
+    // chunker's spans are computed from — still reproduces the file byte for byte.
+    val files = corpusFiles
+    assume(files.nonEmpty, "set UNIML_RUST_CORPUS to a directory of .rs files")
+    var checked = 0
+    files.foreach { p =>
+      val text = Files.readString(p)
+      val processor = RustDialect.instructions(SourceInput.fromString(SourceId(p.toString), text))
+      val rebuilt = processor.stop(text).values.map(_.token.lexeme).mkString
+      assert(rebuilt == text, s"the dialect is not lossless for $p")
+      checked += 1
+    }
+    info(s"dialect-lossless over $checked files")
 
   test("every .rs file in the corpus produces items without hanging"):
     val files = corpusFiles

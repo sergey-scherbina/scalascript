@@ -129,6 +129,66 @@ final class RustDialectSpec extends AnyFunSuite:
     assert(topKinds(commentsOnly).isEmpty, topKinds(commentsOnly).toString)
     assert(RustLexer.lex(commentsOnly).map(_.lexeme).mkString == commentsOnly)
 
+  /** The lexemes the DIALECT hands the VM, in order. Distinct from `RustLexer.lex` because the
+    * processor runs whole item bodies together into one token. */
+  private def vmLexemes(text: String): Vector[String] =
+    val processor = RustDialect.instructions(SourceInput.fromString(SourceId("t.rs"), text))
+    processor.stop(text).values.map(_.token.lexeme)
+
+  test("coalescing bodies keeps the token stream lossless and the item heads intact"):
+    // Bodies reach the VM as ONE token so that a frame holds a handful of edges instead of
+    // thousands (see RustDialect.stop). The two things that must survive that: the lexemes still
+    // reproduce the source exactly, and the head — which is where the chunker reads the item's
+    // name — is still token by token.
+    val src =
+      """/// Doc.
+        |pub fn parse_header(line: &str) -> Option<u8> {
+        |    let x = 1;
+        |    if x > 0 { return None; }
+        |    Some(0)
+        |}
+        |struct S { a: u8 }
+        |""".stripMargin
+    assert(vmLexemes(src).mkString == src, "the VM token stream must still reproduce the source")
+    // The head survives as separate tokens: `fn` and the name are individually findable.
+    val lexemes = vmLexemes(src)
+    assert(lexemes.contains("fn"), lexemes.toString)
+    assert(lexemes.contains("parse_header"), lexemes.toString)
+    // The body did NOT survive as separate tokens — that is the whole point.
+    assert(!lexemes.contains("Some"), "the body should have been run together into one token")
+    // And the branch span is unchanged by any of it.
+    assert(topKinds(src) == Vector("rust.fn", "rust.struct"), topKinds(src).toString)
+    assert(topSlices(src).head.startsWith("/// Doc."), topSlices(src).head)
+    assert(topSlices(src).head.trim.endsWith("}"), topSlices(src).head)
+
+  test("windowing is invisible: tokens that straddle or exceed a window are still whole"):
+    // The lexer works in 1024-code-unit windows so that slicing a lexeme costs O(window) rather
+    // than O(offset) — see RustLexer.lex. Every sample above is shorter than one window, so this
+    // is the test that actually exercises it. What must hold is that the seams leave no trace:
+    // the token stream is exactly what an unwindowed lex would produce.
+    val filler = "fn f() { let x = 1; }\n" * 400 // ~8 KB: several windows
+    assert(RustLexer.lex(filler).map(_.lexeme).mkString == filler, "lossless across window seams")
+    // Every `fn` survived: a seam inside an identifier must not split it into two idents.
+    assert(RustLexer.lex(filler).count(t => t.kind == "rust.ident" && t.lexeme == "fn") == 400)
+
+    // A SINGLE token far longer than a window — the case that forces the retry-at-double-size
+    // path. If the window were not grown, this comment would be chopped into fragments and the
+    // `}` inside it would close `f` early.
+    val bigComment = "/* " + ("pad } { " * 900) + " */" // ~7 KB, one token
+    val src = "fn f() {\n" + bigComment + "\nlet y = 2;\n}\nfn g() {}\n"
+    val toks = RustLexer.lex(src)
+    assert(toks.map(_.lexeme).mkString == src, "lossless with an over-long token")
+    val comments = toks.filter(_.kind == "rust.block-comment")
+    assert(comments.length == 1, s"expected one block comment, got ${comments.length}")
+    assert(comments.head.lexeme == bigComment, "the comment must be one whole token")
+    assert(topKinds(src) == Vector("rust.fn", "rust.fn"), topKinds(src).toString)
+
+    // Same for an over-long string literal, whose closing quote is what the retry must reach.
+    val bigString = "\"" + ("}{" * 900) + "\""
+    val strSrc = "fn f() { let s = " + bigString + "; }\nfn g() {}\n"
+    assert(RustLexer.lex(strSrc).map(_.lexeme).mkString == strSrc)
+    assert(topKinds(strSrc) == Vector("rust.fn", "rust.fn"), topKinds(strSrc).toString)
+
   test("an unbalanced file does not hang and stays lossless"):
     val src = "fn f() { let a = \"unterminated;\nfn g() {}\n"
     assert(RustLexer.lex(src).map(_.lexeme).mkString == src)
