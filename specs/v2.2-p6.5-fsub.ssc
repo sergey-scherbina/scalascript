@@ -444,9 +444,29 @@ def skipSemisF(ts) = if isTok(hd(ts), 2, 52) then skipSemisF(tl(ts)) else ts
 // F5b: a param declared Int/String/BigInt is stored as `name:Type` (parseParam). Resolve `nm` against
 // the bare name AND the three embedded forms via STRUCTURAL `==` (total on ANY value — some env slots
 // are non-string placeholders, and `.length`/split would be strict on them). Forms are built once.
+//
+// F5b 1b-3 (f-erases-parameter-types-at-parse-time): a slot may now carry ANY declared nominal type
+// (`d:Dog`), not only the three the numeric classifier reads, so this fixed three-suffix list can no
+// longer decide a match ON ITS OWN. `envNmEq` is the general fallback: strip at the colon, compare
+// the NAME. It is tried LAST so the three pre-built forms keep their fast structural `==` and the
+// hot path is unchanged.
+//
+// WHY THIS IS THE LOAD-BEARING HALF OF THE FIX, not an afterthought: without it, widening the
+// capture pushes `d:Dog` into the slot and `lookup("d", env)` MISSES it — the parameter then falls
+// through `calleeOf1` to `(global d)`, a silently wrong emission rather than a refusal. Retaining a
+// type and resolving a name are one change, not two.
 def lookup(nm, env) = lookupAt(nm, nm ++ ":Int", nm ++ ":String", nm ++ ":BigInt", env, 0)
 def lookupAt(nm, ni, ns, nb, env, i) = env match { case Nil => 0 - 1 case h :: t => if matchN(h, nm, ni, ns, nb) then i else lookupAt(nm, ni, ns, nb, t, i + 1) }
-def matchN(h, nm, ni, ns, nb) = if h == nm then true else (if h == ni then true else (if h == ns then true else h == nb))
+def matchN(h, nm, ni, ns, nb) = if h == nm then true else (if h == ni then true else (if h == ns then true else (if h == nb then true else envNmEq(h, nm))))
+// Same non-string guard as `envTy` below, and for the same reason: a placeholder slot is not a
+// string, and `.charAt`/`.substring` are strict. A colon in an env slot ALWAYS means a type suffix —
+// `pushValTy` and `pushParamTy` are the only two sites that write one, both as `nm ++ ":" ++ Type`,
+// and an identifier token can never contain `:` — so splitting there cannot misread a real name.
+def envNmEq(h, nm) = h match { case Nil => false case Cons(a, b) => false case Pair(a, b) => false case Some(a) => false case None => false case Left(a) => false case Right(a) => false case _ => envNmOf(h) == nm }
+def envNmOf(h) = envNmF(h, envColonAt(h, 0, h.length))
+// No colon -> return `h` itself, so the comparison degenerates to the `h == nm` already tried above:
+// redundant, never wrong. (Returning "" would make an empty `nm` match every untyped slot.)
+def envNmF(h, c) = if c < 0 then h else h.substring(0, c)
 def dlen(env) = env match { case Nil => 0 case h :: t => dlen(t) + 1 }
 
 // -- token text (for Mirror type names) ---------------------------------------------------------
@@ -2625,19 +2645,35 @@ def nestA3(nm, arity, armScope, obs, failScope, menv, bodyPr, cx) = bodyPr match
 def nestA4(nm, arity, armBodyStr, restTs, menv, cx) = parseGenArms(restTs, menv, cx) match { case (deflt, r) => (genCtorMatch(nm, arity, armBodyStr, deflt, menv), r) }
 
 // -- declarations -----------------------------------------------------------------------------
-// `def name(p1: T, p2: T): T = body`. Types are ERASED by the reference lowerer (measured: `def
-// g(a: String, b: String)` -> `(lam 2 ...)`), so skipping them is byte-faithful.
+// `def name(p1: T, p2: T): T = body`. Types are ERASED FROM THE EMITTED FORM by the reference lowerer
+// (measured: `def g(a: String, b: String)` -> `(lam 2 ...)`), so skipping them in the OUTPUT is
+// byte-faithful — and that is still true. What is no longer true, and was the bug, is that F also
+// FORGOT them: the declared type reached no other pass either, so nothing downstream could ever ask
+// what a parameter was declared as. The type now survives in the env slot (a side channel that emits
+// no bytes); the emitted form is unchanged. (f-erases-parameter-types-at-parse-time.)
 def parseParams(ts, env) = if isTok(hd(ts), 2, 22) then (env, tl(ts)) else parseParam(ts, env)
-// F5b Stage 1b: capture a SIMPLE declared param type (`p: Int`/`String`/`BigInt`, immediately closed by
-// `,` or `)`) by embedding it in the env name as `name:Type` (localTyOf reads it back). Generic/tuple/
-// arrow/vararg/defaulted types don't match knownTyName+paramEndTok so they push the bare name (stays "?").
+// F5b Stage 1b: capture a SIMPLE declared param type (immediately closed by `,` or `)`) by embedding
+// it in the env name as `name:Type` (localTyOf reads it back). Generic/tuple/arrow/vararg/defaulted
+// types still don't match paramEndTok, so they push the bare name and stay "?".
 // Type SKIPPING is unchanged (parseParamSkip runs on the same tl(ts)); only the pushed name gains a type.
 def parseParam(ts, env) = parseParamSkip(tl(ts), pushParam(snd(hd(ts)), tl(ts)) :: env)
 def pushParam(nm, rest) = if isColonTok(hd(rest)) then pushParamTy(nm, tl(rest)) else nm
 def pushParamTy(nm, tts) = if simpleKnownTy(tts) then nm ++ ":" ++ snd(hd(tts)) else nm
 def simpleKnownTy(tts) = if fst(hd(tts)) == 3 then (if knownTyName(snd(hd(tts))) then paramEndTok(hd(tl(tts))) else false) else false
 def paramEndTok(t) = if isTok(t, 2, 27) then true else isTok(t, 2, 22)
-def knownTyName(tn) = if tn == "Int" then true else (if tn == "String" then true else tn == "BigInt")
+// WIDENED (f-erases-parameter-types-at-parse-time): ANY declared nominal type is retained, not just
+// the three the F5b numeric classifier happens to consume. Every caller already gates on `fst == 3`,
+// which the lexer defines as an uppercase-initial word — a type name — so this filter was a pure
+// narrowing on top of an already-correct test, and dropping it retains `Dog` exactly as it retained
+// `Int`. The SHAPE restrictions are deliberately kept: `simpleKnownTy`/`simpleValTy`/`simpleRetTy`
+// still require a single type token closed by `,`/`)`/`=`, so `Foo.Bar`, `Foo[X]`, tuple and arrow
+// types keep pushing the bare name. Widening those needs a type PARSER, not a predicate, and buys
+// nothing until something consumes structured types.
+//
+// SAFE BY CONSTRUCTION for existing consumers: `tyToTag` maps everything outside Int/String/BigInt
+// to "?", which is exactly what an untyped slot already yielded, and `isStrLocal` tests `== "String"`.
+// So no existing reader's answer can change — only `lookup` had to learn the wider spelling, above.
+def knownTyName(tn) = true
 // Type skipping must track PAREN **and BRACKET** depth: a tuple type `p: (Int, Int)` contains a `,`
 // and a `)`, and a generic type `m: Map[String, Int]` contains a `,` -- none of which end the
 // parameter list. Both were real bugs the oracle caught: `def g(p: (Int, Int))` came out `(lam 2)`
