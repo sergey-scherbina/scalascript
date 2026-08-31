@@ -1,0 +1,11 @@
+slug: plugin-manifest-consistency
+branch: feature/plugin-manifest-consistency
+agent: claude-code
+started: 2026-08-31T18:56:52Z
+heartbeat: 2026-08-31T18:56:52Z
+status: claimed-before-planning
+items: four-skills-have-no-plugin-manifest-and-nothing-notices
+paths: file:tests/e2e/plugin-manifest-consistency-gate.sh file:tests/BUGS.md file:scripts/smoke-ci.ssc
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
