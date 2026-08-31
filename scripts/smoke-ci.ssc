@@ -898,6 +898,14 @@ val suite = List(
   // does nothing, and "run fails" alone would pass on a program broken for an unrelated reason, so
   // the runtime MESSAGE is asserted too. ~40 s (two `check` runs on the tools tier).
   Check("tests", "check-accepts-what-the-runtime-rejects", "tests/e2e/check-accepts-what-the-runtime-rejects-gate.sh", List("--self-test"), 300000),
+  // Pins an INCONSISTENCY without deciding it: six of the ten marketplace plugins carry a
+  // per-plugin manifest and four do not, and nothing measured says which way that should go
+  // (tests/BUGS.md four-skills-have-no-plugin-manifest-and-nothing-notices). So the gate compares
+  // the manifest-less SET against a declared one in both directions — a count is blind to a swap,
+  // one plugin gaining a manifest while another loses it leaves it at four. SKIPS LOUDLY when the
+  // .agents/plugins submodule is not checked out, rather than finding zero problems in zero
+  // plugins. <1 s.
+  Check("tests", "plugin-manifest-consistency", "tests/e2e/plugin-manifest-consistency-gate.sh", List("--self-test"), 60000),
   Check("scripts", "release-installer-launcher", "tests/e2e/release-installer-launcher.sh", List(), 180000),
   Check("scripts", "build-ram-guards-guard", "tests/e2e/build-ram-budget-gate.sh", List(), 180000),
 

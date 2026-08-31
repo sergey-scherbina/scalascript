@@ -6138,7 +6138,7 @@ the other six do. Filed as `four-skills-have-no-plugin-manifest-and-nothing-noti
      reported-by: claude-code
      reported-at: 2026-08-15
      confirmed: no
-     gate: none -->
+     gate: tests/e2e/plugin-manifest-consistency-gate.sh-->
 
 Found while closing `a-reduction-predicate-naming-an-unbound-name-will-just-delete-its-declaration`,
 and deliberately left open rather than fixed blind, because I have measured an inconsistency and
@@ -6168,6 +6168,27 @@ no `plugin.json`. If all ten resolve, the manifest is decorative — then delete
 the submodule's README that it is optional, and still freeze whichever rule was chosen. Either way
 the outcome is a stated rule plus something that notices when it is broken; "add four files so the
 column looks even" without running that probe would be a guess.
+
+### GATED 2026-08-31 — pinned WITHOUT deciding the question
+
+Re-measured and unchanged: ten listed, six with a manifest, the same four without (`isolate`,
+`multi-repo`, `rozum`, `spec-dev`).
+
+`tests/e2e/plugin-manifest-consistency-gate.sh` deliberately does NOT assert "every plugin must
+have one". That would be red today and would be **asserting the answer to the question this entry
+says nobody has answered**. It compares the manifest-less SET against a declared one, in both
+directions: a new name is a regression, and a name that DISAPPEARS means the split is closing and
+must come out of the list in the same commit — so the gate and this entry cannot drift apart.
+
+A set rather than a count, for the reason v3's `KNOWN_CONF_DISAGREE` uses one: a count is blind to
+a swap. One plugin gaining a manifest while another loses it leaves the number at four and says
+nothing.
+
+It SKIPS LOUDLY where `.agents/plugins` is not checked out — a submodule-less checkout has no
+marketplace, and a check reporting OK on zero plugins would be the exact failure this repository
+keeps paying for. Verified in both directions: the real tree is green on ten, and a tree where one
+of the four gains a manifest fails with the name and the instruction.
+
 
 ## f-parser-gap-reduced-but-not-solved
 
