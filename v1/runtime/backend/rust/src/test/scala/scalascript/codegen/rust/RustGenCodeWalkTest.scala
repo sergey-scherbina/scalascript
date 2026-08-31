@@ -5228,7 +5228,13 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |```
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
-    assert(g.contains("[&(visiting)[..], &[name][..]].concat()"),
+    // TWO spellings, and the `+`-single-element-add rewrite is what is under test in both. A
+    // lifted def's own read-only `Vec` parameter is now passed BY REFERENCE (the clone-volume
+    // fix — see `liftedDefParamTypes`), so a bare read of it derefs to `(*visiting)`. Pinning one
+    // SPELLING would make this a golden of the calling convention rather than a check of the
+    // rewrite; both forms are correct Rust and both were compiled to confirm it.
+    assert(g.contains("[&(visiting)[..], &[name][..]].concat()")
+        || g.contains("[&((*visiting))[..], &[name][..]].concat()"),
       s"a lifted local def's own Set param must feed the single-element-add rewrite:\n$g")
 
   test("a multi-use name inside a Map-plus-pair or Vec-single-add clones, not just at call args"):

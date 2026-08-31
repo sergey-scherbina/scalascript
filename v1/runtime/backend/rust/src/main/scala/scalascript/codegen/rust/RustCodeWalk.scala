@@ -951,6 +951,25 @@ object RustCodeWalk:
    *  and self-append rewrites are guarded on exactly this question, so the false positive silently
    *  cost them the sites they most wanted — `UniML_parse`'s own per-token accumulators. Only the
    *  QUALIFIER of a `Select` is walked here; everything else defers to `readsName`. */
+  /** Does `body` RETURN `name` directly — i.e. is the bare name one of its tail expressions?
+   *
+   *  A `Vec` parameter passed by reference cannot be returned by value: `(*entries)` in tail
+   *  position is `error[E0507]: cannot move out of *entries, which is behind a shared reference`
+   *  (`uniml/yaml`'s `YamlPropertySyntax`, caught by the corpus re-check, not by the unit tests).
+   *  Reading the parameter, slicing it, or building something NEW from it are all fine behind a
+   *  reference — only handing the value itself back out is not, so that is exactly what this
+   *  excludes, rather than giving up on the whole rewrite.
+   *
+   *  Follows the tails a Scala expression can have (a block's last statement, both branches of an
+   *  `if`, every arm of a `match`) and asks only whether the tail IS the bare name. */
+  private def returnsNameDirectly(body: m.Term, name: String): Boolean =
+    def tails(t: m.Term): List[m.Term] = t match
+      case b: m.Term.Block            => b.stats.lastOption.collect { case e: m.Term => e }.toList.flatMap(tails)
+      case i: m.Term.If               => tails(i.thenp) ++ tails(i.elsep)
+      case mt: m.Term.Match           => mt.casesBlock.cases.toList.flatMap(c => tails(c.body))
+      case other                      => List(other)
+    tails(body).exists { case m.Term.Name(n) => n == name; case _ => false }
+
   private def readsNameAsValue(t: m.Tree, name: String): Boolean =
     t match
       case m.Term.Name(n)          => n == name
@@ -6606,9 +6625,27 @@ object RustCodeWalk:
         liftedDefDefaults     = ctx.liftedDefDefaults ++ localDefs.map { d =>
           d.name.value -> d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.default)
         }.toMap,
+        // A lifted def's OWN `Vec` parameter that its body never writes is recorded here as
+        // `&Vec<…>`, and that `&` is the single source of truth for the whole rewrite: the
+        // SIGNATURE reads it (`refParamNames` below), the BODY reads it (`childCtx.byRefMut`, so a
+        // bare read derefs), and the CALL SITE reads it (passing `&arg` instead of a clone).
+        //
+        // Why it matters, measured: a counting global allocator says parsing a 128 KB markdown
+        // document performs 134 MILLION allocations totalling 6 GB, growing ×3.85 per doubling —
+        // the same curve as the wall clock. The cause is here: `lines` (the whole document's
+        // `Vec<MdLine>`, two `String`s per element) is a by-value parameter of the per-line
+        // pipeline (`processLine`, `dispatchLeaf`, `handleHtmlBlock`, `emitTable`, …), so every
+        // call clones the entire vector — 16 such sites, each O(n) allocations, run once per LINE.
+        //
+        // A `val` capture already got this treatment (`liftedRefCaptures`); this is the same fix
+        // one step over, for a parameter rather than a capture. Scoped identically: `Vec` only
+        // (unambiguously non-Copy, and the measured case), and only when the body never writes it.
         liftedDefParamTypes   = ctx.liftedDefParamTypes ++ localDefs.map { d =>
+          val myW = writes.getOrElse(d.name.value, Set.empty)
           d.name.value -> d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).toList.map { p =>
-            p.decltpe.flatMap(t => mapType(t, d.name.value, ctx.enumNames).toOption).getOrElse("")
+            val t = p.decltpe.flatMap(tt => mapType(tt, d.name.value, ctx.enumNames).toOption).getOrElse("")
+            if t.startsWith("Vec<") && !myW.contains(p.name.value) &&
+               !returnsNameDirectly(d.body, p.name.value) then s"&$t" else t
           }
         }.toMap,
         liftedDefMutWrites    = ctx.liftedDefMutWrites ++ localDefs.map { d =>
@@ -6798,10 +6835,25 @@ object RustCodeWalk:
             // body) specifically, and merged so a capture that WAS visible outside still is too.
             localSscChars = baseCtx.localSscChars ++ collectLocalSscChars(d.body)
           )
+          // The by-ref subset of THIS def's own params, read back off the table built above so the
+          // signature, the body and the call site cannot disagree.
+          val refParamNames: Set[String] =
+            d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).toList.zipWithIndex.collect {
+              case (p, i) if baseCtx.liftedDefParamTypes.get(d.name.value)
+                                     .flatMap(_.lift(i)).exists(_.startsWith("&Vec<")) => p.name.value
+            }.toSet
+          val childCtx2 = if refParamNames.isEmpty then childCtx
+                          else childCtx.copy(byRefMut = childCtx.byRefMut ++ refParamNames)
           for
-            ownParams <- renderParams(d, childCtx, None)
-            ret       <- renderReturnType(d, childCtx)
-            bodyRs    <- renderBody(d.body, childCtx, isUnit = ret.isEmpty)
+            ownParams0 <- renderParams(d, childCtx2, None)
+            // `renderParams` is the SHARED renderer for every def in the language, so the `&` is
+            // applied here rather than inside it — this rewrite is scoped to LIFTED defs, whose
+            // call sites all live inside the one function being emitted and are all rewritten
+            // together a few hundred lines down.
+            ownParams = refParamNames.foldLeft(ownParams0) { (acc, nm) =>
+                          acc.replace(s"$nm: Vec<", s"$nm: &Vec<") }
+            ret       <- renderReturnType(d, childCtx2)
+            bodyRs    <- renderBody(d.body, childCtx2, isUnit = ret.isEmpty)
           yield
             // `Ctx.liftedDefNeedsSelf`'s own comment: `d`'s OWN new parameter, typed off
             // `ctx.selfTypeName` (set only when THIS whole lift originates from a genuinely mutable
@@ -7224,7 +7276,20 @@ object RustCodeWalk:
           // call machinery's `.0` unwrap for an `SscChar` argument going into a declared-`Int`
           // parameter, applied here since this arm bypasses that machinery entirely.
           val r1 = if wantParams.lift(i).contains("i64") && yieldsSscChar(arg, ctx) then s"($r0).0" else r0
-          val r = cloneIfMoved(arg, r1, ctx)
+          // A parameter the callee declared `&Vec<…>` takes a borrow, not a clone — the whole
+          // point of the rewrite (see `liftedDefParamTypes`' own comment for the allocation
+          // measurement). A name that is ALREADY a reference in this scope forwards bare.
+          val wantsRef = wantParams.lift(i).exists(_.startsWith("&Vec<"))
+          // Forwarding a name that is ALREADY a reference here (this lifted def's own `&Vec`
+          // parameter passed on to another one) must send the REFERENCE, i.e. the bare name —
+          // `r1` has been through `renderTerm`, which derefs a `byRefMut` read to `(*lines)`, and
+          // `(*lines)` is a `Vec`, not a `&Vec`: `error[E0308]: expected &Vec<_>, found Vec<_>`.
+          val alreadyRefName = arg match
+            case m.Term.Name(an) if ctx.byRefMut.contains(an) => Some(an)
+            case _                                            => None
+          val r =
+            if wantsRef then alreadyRefName.getOrElse(s"&$r1")
+            else cloneIfMoved(arg, r1, ctx)
           val isClosureArg = arg match
             case _: m.Term.Function | _: m.Term.AnonymousFunction => true
             case m.Term.Block(List(_: m.Term.Function))           => true
