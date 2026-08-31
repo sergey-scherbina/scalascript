@@ -1,4 +1,3 @@
-# generation: 3275
+# generation: 3276
 #slug	agent	started	items	paths
 gateless-hk-arity	claude-code	2026-08-31T18:40:15Z	higher-kinded-generic-field-corrupts-arity-of-an-unrelated-val-class-elsewhere-in-scope	file:v2/BUGS.md file:tests/conformance/contract-roster.tsv file:tests/conformance/corpus-baseline.tsv file:tests/conformance/kr-hk-field-arity.ssc file:tests/conformance/expected/kr-hk-field-arity.txt file:tests/conformance/kr-hk-field-arity-lib.ssc
-close-nested-ctor-pattern	claude-code	2026-08-31T21:08:21Z	f-nested-constructor-pattern-falls-through-to-the-default	file:v2/BUGS.md
