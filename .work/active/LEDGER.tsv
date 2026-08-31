@@ -1,4 +1,3 @@
-# generation: 3215
+# generation: 3216
 #slug	agent	started	items	paths
-v3-plain-class-branch	claude-code	2026-08-30T23:27:19Z	v3-own-front-has-no-extern-class v3-front-cannot-parse-a-curried-member-method	v3/src/Parser.scala v3/uniml/UniFront.scala v3/BUGS.md v3/front-capability-gate.sh v3/front-diff.sh
 f-param-type-parser	claude-code	2026-08-31T00:35:42Z	trait-typed-parameter-accepts-a-non-conforming-argument	file:specs/v2.2-p6.5-fsub.ssc
