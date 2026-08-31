@@ -5990,16 +5990,17 @@ re-imposing the manifest-derived skip brings back `E0425: cannot find value Tool
 
 ## setsid-is-not-on-macos-so-a-detached-gate-never-starts — and I read the empty log as "the gate died"
 
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: build
      kind: bug
-     gate: none
+     gate: tests/e2e/no-gnu-only-shell-constructs.sh
      found-by: claude-code
      found-at: 2026-08-15
      ssc-version: febd37e88
      repro: `setsid nohup bash tests/e2e/rust-std-survey-gate.sh`
-     confirmed: yes -->
+     confirmed: yes
+     fixed-in: PENDING -->
 
 **A CORRECTION TO A CLAIM ALREADY LANDED.** The release note for `rust-mcp-resources-prompts` and the
 message of `58bb272f4` both say the std survey "could not be run — three attempts died after 1-3
@@ -6025,6 +6026,29 @@ that it is unrunnable here.
 **Practical residue:** long gates on this host need `nohup` (not `setsid`) and a wait keyed on
 `ps aux | grep` for the script, not a fixed sleep — the survey takes ~45 minutes under load, well
 past any timeout I had been giving it.
+
+### GATED AND CLOSED 2026-08-31 — as prevention, because nothing in the tree was broken
+
+`git grep setsid` over tracked files returns **nothing**: the command was typed at a shell, never
+committed, so there was no defect in the repository to repair. What was missing was anything to stop
+the next one.
+
+`tests/e2e/no-gnu-only-shell-constructs.sh` gains it as rule 4 — the gate whose header says its job
+is "the FOURTH one". It fits there better than the three constructs already in it, and the entry's
+own lesson is why: those three silently CHANGE behaviour on the other host, while this one **does
+not run at all**, leaving a one-line log and an empty result. That is the worse failure, because
+**absence and failure look alike in a detached launch** — which is exactly how a limitation of the
+host got asserted in a durable release note from a run whose output said, in plain text, what had
+happened.
+
+The rule carries the gate's `prove` discipline: it enforces only where `command -v` finds nothing,
+so it is active on macOS and silently inapplicable on a Linux runner rather than wrong there. The
+binary's name is assembled from fragments in the source, because this gate scans itself and a
+literal would make it flag its own rule.
+
+Verified in the failing direction, not just the passing one: a planted script invoking it is caught
+by name, line and the portable replacement — `nohup` alone, waiting on the PROCESS rather than a
+fixed timer, which is the entry's practical residue now enforced instead of remembered.
 
 ## rust-anonymous-given-emits-one-name-for-all-of-them — two anonymous `given` instances are both `UnknownGiven`, which is E0428
 

@@ -104,6 +104,28 @@ if prove 'grep-perl' "printf 'a\n' | grep $PERL 'a'"; then
        "use grep -E, or perl/python for real PCRE"
 fi
 
+# 4. A util-linux-only BINARY rather than a flag, and it is the FOURTH case this gate was written
+#    for. Proof: `command -v` prints a path where the binary exists and nothing where it does not,
+#    so the rule enforces itself exactly on the hosts that lack it.
+#
+#    WHY IT BELONGS HERE. The other three rules are constructs that silently CHANGE behaviour. This
+#    one does not run at all — and the failure is worse for it, because the log then contains one
+#    line, `command not found`, and an empty result. Measured 2026-08-15
+#    (BUGS.md `setsid-is-not-on-macos-so-a-detached-gate-never-starts`): two of three launches of a
+#    long survey never started, the single-line log was read as "the run died", and a limitation of
+#    the HOST was asserted in a durable release note from a run whose output said in plain text what
+#    had actually happened. The survey was fine — 45 minutes, REFUSED 78 / COMPILES 54.
+#
+#    So the thing being guarded is not the missing binary; it is that ABSENCE AND FAILURE LOOK ALIKE
+#    in a detached launch. `nohup` alone is the portable form, and a wait keyed on the process
+#    rather than on a fixed timer.
+SESS="set""sid"   # assembled, never literal: this file is scanned by its own rules
+if prove 'detached-session-binary' "command -v $SESS"; then
+  scan "a util-linux-only session binary (absent on macOS, so the command never starts)" \
+       "(^|[^a-z-])${SESS}[[:space:]]" \
+       "use nohup alone, and wait on the PROCESS (ps aux | grep) rather than a fixed sleep"
+fi
+
 echo
 if [ "$fail" -ne 0 ]; then
   echo "    Each of these silently changes behaviour on the other host rather than erroring, which is"
