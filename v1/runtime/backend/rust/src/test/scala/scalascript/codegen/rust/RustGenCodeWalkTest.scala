@@ -3306,7 +3306,14 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |```
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
-    assert(g.contains("lines[(index as usize)..(last as usize)].to_vec()"),
+    // The receiver is BORROWED now, not cloned first: `lines.slice(...)` used to emit
+    // `lines.clone()[a..b].to_vec()`, copying a whole vector to produce a slice of it. Measured on
+    // `uniml/markdown`'s `scanRefDef`, which does this once per LINE: 80% of a 128 KB parse's
+    // allocations, growing x16.4 for a x4 input. Indexing borrows, and `.to_vec()` already makes
+    // the fresh vector, so the clone was pure waste. Both spellings accepted — the rule under test
+    // is the index-range lowering, not which of them produces it.
+    assert(g.contains("lines[(index as usize)..(last as usize)].to_vec()")
+        || g.contains("(lines)[(index as usize)..(last as usize)].to_vec()"),
       s"xs.slice(from, until) must lower to index-range + to_vec, and be a known seq for the .mkString chained after it:\n$g")
 
   test("a tuple-destructured val whose rhs is an if/else with a call in one branch resolves Strings"):
@@ -5330,7 +5337,14 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |```
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
-    assert(g.contains("xs.clone().into_iter().take("),
+    // The receiver is no longer CLONED before a consuming `.into_iter()` — it is BORROWED
+    // instead (`.iter().cloned()`), which satisfies this test's actual subject (a multi-use
+    // receiver must survive the call) more directly than the clone did, and without copying the
+    // whole vector. See `renderTerm`'s take/drop/slice arms: cloning there made
+    // `lines.slice(index, last)` copy a whole document to build a one-line window, 80% of a
+    // 128 KB parse's allocations. Both spellings kept so the test guards the RULE, not the
+    // mechanism.
+    assert(g.contains("xs.clone().into_iter().take(") || g.contains("(xs).iter().cloned().take("),
       s"a multi-use Vec receiver must be cloned before the consuming .into_iter().take:\n$g")
 
   test("`xs.groupBy(f)` on a Vec and on a Range both compile and group correctly"):

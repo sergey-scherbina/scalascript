@@ -7988,11 +7988,20 @@ object RustCodeWalk:
     case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("take")), a)
         if !isRangeExpr(qual) && a.values.size == 1 =>
       for q0 <- renderTerm(qual, ctx); k <- renderTerm(a.values.head, ctx)
-      yield s"${cloneIfMoved(qual, q0, ctx)}.into_iter().take($k as usize).collect::<Vec<_>>()"
+      // NO `cloneIfMoved` ON THE RECEIVER, and this is a complexity fix rather than a tidy-up.
+      // These three all BORROW their receiver and build a fresh `Vec` — `[a..b].to_vec()` indexes,
+      // `.iter().cloned()` copies element by element — so the receiver never needs to be owned.
+      // Cloning it first meant `lines.slice(index, last)` emitted `(*lines).clone()[a..b].to_vec()`:
+      // a copy of the WHOLE document's line vector to produce a one-line window.
+      // `MarkdownBlocks::scanRefDef` does exactly that once per LINE, which a sampling allocator
+      // put at 80% of a 128 KB parse's allocations, growing x16.4 for a x4 input while `tokenize`
+      // beside it grew x4.0. `.into_iter()` was likewise replaced by `.iter().cloned()` for `take`
+      // and `drop`, which consumed the receiver and so forced the same clone.
+      yield s"($q0).iter().cloned().take($k as usize).collect::<Vec<_>>()"
     case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("drop")), a)
         if !isRangeExpr(qual) && a.values.size == 1 =>
       for q0 <- renderTerm(qual, ctx); k <- renderTerm(a.values.head, ctx)
-      yield s"${cloneIfMoved(qual, q0, ctx)}.into_iter().skip($k as usize).collect::<Vec<_>>()"
+      yield s"($q0).iter().cloned().skip($k as usize).collect::<Vec<_>>()"
     // `lines.slice(index, last)` (`uniml/markdown`'s `MarkdownBlocks.scala`'s `scanRefDef`) — a
     // sub-range read (does NOT consume the receiver, matching `.take`/`.drop`'s own reasoning two
     // cases up), lowered via ordinary slice indexing + `.to_vec()`, this lane's established
@@ -8004,7 +8013,7 @@ object RustCodeWalk:
         q0    <- renderTerm(qual, ctx)
         from  <- renderTerm(a.values.head, ctx)
         until <- renderTerm(a.values(1), ctx)
-      yield s"${cloneIfMoved(qual, q0, ctx)}[($from as usize)..($until as usize)].to_vec()"
+      yield s"($q0)[($from as usize)..($until as usize)].to_vec()"
     // Vec `.takeRight(n)` / `.dropRight(n)` → slice from the end (clones the kept tail).
     case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name(tr @ ("takeRight" | "dropRight"))), a)
         if a.values.size == 1 =>
