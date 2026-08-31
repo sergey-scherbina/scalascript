@@ -1,0 +1,7 @@
+---
+name: kr-hk-field-arity-lib
+---
+
+```scalascript
+class Unused(val n: Int)
+```

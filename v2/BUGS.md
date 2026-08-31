@@ -109,7 +109,7 @@ Newest first.
      lane: native
      kind: bug
      area: front
-     gate: none
+     gate: tests/conformance/kr-hk-field-arity.ssc
      reported-by: claude-code
      reported-at: 2026-08-30
      confirmed: yes -->
@@ -263,6 +263,21 @@ before F can lower it, and this entry only covers the first. The int lane's own 
 defect was fixed earlier the same day
 (`v1/runtime/backend/interpreter/BUGS.md class-body-val-field-undefined-in-a-sibling-method`); F's
 is separate and unfiled until someone reduces it away from this file.
+
+### GATED 2026-08-31, with the control inside the gate
+
+`tests/conformance/kr-hk-field-arity.ssc` + its `-lib` companion reproduce it: `[V2 ]` gives
+`arity: 0 expected, 1 given` while INT, JS and JVM all print `Some(42)`. Declared known-red on v2.
+
+**The control was run before declaring, and it is what makes the case mean anything.** The identical
+program with the `Unused` import REMOVED prints `Some(42)` on that same v2 lane. So the trigger is a
+`val` constructor parameter merely being DECLARED in a transitively imported module — not anything
+this program does with it, and not the higher-kinded field on its own.
+
+Both halves are in the fixture on purpose. Without the import the case is green and proves nothing;
+`Unused` being unreferenced is the whole point, because a defect that needs only the DECLARATION in
+scope is a different bug from one that needs the value.
+
 
 ## trait-typed-parameter-accepts-a-non-conforming-argument — a function whose parameter requires trait `T` accepts a value whose static type only extends `T`'s SUPERTRAIT, and the mismatch surfaces at first method dispatch, not at the call site
 

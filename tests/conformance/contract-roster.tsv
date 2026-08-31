@@ -1,4 +1,4 @@
-# corpus-contract-roster-v1	baseline-sha256=87945f2d88825a8b9c9815f0db76a00164246abb3dad774079bbd06bcb6dfda0	roster-sha256=a47fa7131309797261fb752d77e2d61c02796a43d40d758e8360fa0e730cc3cf
+# corpus-contract-roster-v1	baseline-sha256=f73cd90882f7eb0cbfe1ac4c8b2b8fc6c49841b4f90716c9a5e6b6dcd4f6bfdc	roster-sha256=e2d6396431468a34514e1e64b35a1237f58f922ddee936259bed1b52d0ce7ac6
 _bug1_httpclient
 _bug1b
 _bug1c
@@ -214,6 +214,8 @@ json-value
 jvm-string-s-literal
 kr-case-class-array-field
 kr-given-with-closes-over-top-level-val
+kr-hk-field-arity
+kr-hk-field-arity-lib
 kr-imported-generic-fold-tuple-acc
 kr-js-v2-char
 kr-mixed-concat-operands

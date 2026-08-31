@@ -1,0 +1,32 @@
+#!/usr/bin/env ssc
+---
+name: kr-hk-field-arity
+backends: [int, js, jvm, v2]
+known-red: "v2 — `arity: 0 expected, 1 given`. CONTROLLED: the identical program with the `Unused` import removed prints Some(42) on this same lane, so the trigger is a `val` constructor parameter merely being DECLARED in a transitively imported module, not anything this program does with it. Remove when BUGS.md higher-kinded-generic-field-corrupts-arity-of-an-unrelated-val-class-elsewhere-in-scope is fixed — the suite fails until you do."
+---
+
+# A higher-kinded field, and a `val` ctor parameter in another module
+
+Executable record of BUGS.md
+`higher-kinded-generic-field-corrupts-arity-of-an-unrelated-val-class-elsewhere-in-scope`,
+which had no gate.
+
+`Wrapper[F[_]]` holds an `Applicative[F]` and is otherwise ordinary. It compiles on its own.
+It stops compiling once ANY class with a `val` constructor parameter exists in a transitively
+imported module — `Unused` here, which nothing in this program references.
+
+Both halves are present on purpose. Removing the import makes the case pass, so a fixture
+without it would be green and prove nothing; `Unused` being unreferenced is the whole point,
+since a defect that needs only the DECLARATION to be in scope is a different bug from one that
+needs the value.
+
+```scalascript
+[Applicative, optionMonad](std/functor-applicative-monad.ssc)
+[Unused](./kr-hk-field-arity-lib.ssc)
+
+class Wrapper[F[_]](app: Applicative[F]):
+  def make(): F[Int] = app.pure(42)
+
+def main(): Unit =
+  println(Wrapper(optionMonad).make())
+```
