@@ -255,6 +255,30 @@ of the shared lowering contract, not an F-specific checking gap:
 Status stays `open`: the entry's defect (run-path acceptance) is real and unfixed; the actionable
 fix is CLI gating on the existing typer plus the typer's cross-module gap, not front work.
 
+**Updated 2026-08-31** (claim `f-param-type-retention`) — point 1 above is now PARTLY STALE, and
+the "not front work" conclusion is retracted as a *long-term* judgement.
+
+- **F no longer forgets the type.** `knownTyName`'s three-name allowlist is gone; a parameter's
+  declared nominal type now survives as `name:Type` in the env slot, so a trait name like `Dog` IS
+  recorded. The quoted `parseParams` comment was conflating two things: erasure from the *emitted
+  form* (still true — `(lam 2 ...)` has nowhere to put a type) with F *forgetting* the type, which
+  was the actual blocker. Retention is a side channel and emits no bytes: output verified
+  byte-identical, corpus 378/378, tower rebuilds itself.
+- **Still degrades to `"?"`**: `Foo.Bar`, `Foo[X]`, tuple and arrow types. The first three are a
+  parser slice (`f-param-type-parser`). The arrow case is NOT merely unimplemented — `A => B` has
+  no closing token, so it cannot be consumed by depth counting and would have to cross the very
+  terminator set (`,`, `)`, `=`) that ends a parameter. Resolving it needs a decision about that
+  terminator convention, not more parser code.
+- **"The v1 Typer already does it" is no longer a reason to leave the gap in F.** Owner decision
+  2026-08-31: v1 will eventually be removed entirely, so point 2 above describes a TRANSITIONAL
+  arrangement. Run-gating on the v1 typer remains the right near-term fix; F growing its own
+  static conformance check is the destination, and is scoped separately (planning stage, not
+  started — it needs a class/trait→parents registry, a static type for an argument *expression*,
+  and a refusal that stays permissive on `"?"`).
+
+What is still true and unchanged: the run-path defect itself, and that F today accepts
+`needsDog(Cat())`. Retention is a prerequisite for the check, not the check.
+
 ## anonymous-given-instance-unresolvable-by-summon-or-using — a lone UNNAMED `given TC[T] with` is unresolvable by `summon` or a `using` parameter, on both self-hosted fronts
 
 <!-- status: fixed
