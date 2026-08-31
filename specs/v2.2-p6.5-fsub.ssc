@@ -3563,10 +3563,61 @@ def caseNamesL(cases) = cases match { case Nil => Nil case h :: t => Cons(fst(h)
 // source order (ssc1-front PREPENDS per case class :2251-2258, subtypeChildren preserves cell order). Only
 // the FIRST named parent; enums contribute via enumAllReg. enumAllReg = [Pair(enumName, [allCaseNames])]
 // (declaration order, incl. parametrized cases) so `case _: Color` expands over every Color case.
-def collectSubReg(ts) = collectSubRegAcc(ts, Nil)
-def collectSubRegAcc(ts, acc) = if isEmpty(ts) then acc else (if isCCHead(ts) then collectSubRegAcc(tl(ts), collectSRadd(ts, acc)) else collectSubRegAcc(tl(ts), acc))
-def collectSRadd(ts, acc) = collectFields(skipNameGenParen(tl(tl(ts))), Nil) match { case (fs, r) => collectSRext(snd(hd(tl(tl(ts)))), r, acc) }
-def collectSRext(child, r, acc) = if isWord(hd(r), "extends") then Cons((snd(hd(tl(r))), child), acc) else acc
+// `collectSubReg`/`collectSubRegAcc`/`collectSRadd`/`collectSRext` were HERE and are gone: the
+// nominal walk below subsumes them and `mkCxE` now builds subReg as `nomToSubReg(collectNomReg(ts))`.
+// They are deleted rather than kept beside it — two walks over the same declarations is the shape
+// this compiler keeps paying for, and a dead one drifts silently because nothing runs it.
+
+// ── NOMINAL PARENT TABLE — every declared supertype, not just the pattern-matching one ────────────
+//
+// nomReg = [Pair(child, [parentNames])], the DECLARED `extends`/`with`/`,` chain of every case class
+// and trait. It is a DIFFERENT question from subReg above and must stay a different table.
+//
+// WHY NOT WIDEN subReg. subReg feeds `subtypeChildren`, which expands a typed pattern `case _: T`
+// over T's children. Adding trait edges or later parents there would change WHICH PATTERNS EXPAND
+// OVER WHAT — a byte-affecting change to pattern matching, from a change that is supposed to be
+// about conformance. subReg deliberately keeps only the FIRST named parent of a CASE CLASS, and
+// that narrowness is load-bearing rather than an oversight.
+//
+// WHY IT IS SAFE TO ASK FOR MORE HERE. Nothing in this file consults nomReg yet; it exists so a
+// conformance check can be built on it (the owner's decision 2026-08-31: F gets its own static
+// nominal check, because v1 is scheduled for removal and "the v1 Typer already does it" stops being
+// an argument). Recording is the half that can go silently wrong — a mis-indexed accessor returns
+// plausible wrong data with no error — so it lands first, ALONE, and with something that can catch it.
+//
+// HOW THE CORPUS GATES IT, which is the point of the shape below. `collectSubReg` is now DERIVED
+// from nomReg by projection: case-class children only, first parent only, same reverse order. So the
+// old table is a view of the new one, the 378-case corpus and the byte-identity harness both run
+// through it, and a defect in the walk shows up as changed pattern matching rather than as silence.
+// What that proves and what it does not: it proves the case-class/first-parent rows exactly, and it
+// exercises the SAME walk that produces the trait rows and the later parents — it does not
+// independently pin those, because nothing reads them yet.
+def collectNomReg(ts) = collectNomRegAcc(ts, Nil)
+def collectNomRegAcc(ts, acc) =
+  if isEmpty(ts) then acc
+  else (if isCCHead(ts) then collectNomRegAcc(tl(ts), nomAddCC(ts, acc))
+   else (if isTraitHead(ts) then collectNomRegAcc(tl(ts), nomAddTrait(ts, acc))
+    else collectNomRegAcc(tl(ts), acc)))
+// The case-class name and the position of `extends` are read exactly as collectSRadd reads them, so
+// the two tables cannot disagree about where the declaration is.
+def nomAddCC(ts, acc) = collectFields(skipNameGenParen(tl(tl(ts))), Nil) match { case (fs, r) => nomAddEntry(snd(hd(tl(tl(ts)))), "c", r, acc) }
+// `trait X` and `sealed trait X`: skipTraitKw drops the keyword(s), the name is then at the head, and
+// skipTypeRef steps past the name and its `[gen]` — the same route skipTraitDecl takes.
+def nomAddTrait(ts, acc) = nomAddEntry(snd(hd(skipTraitKw(ts))), "t", skipTypeRef(skipTraitKw(ts)), acc)
+// The KIND is carried because the projection below needs it: subReg is case-class rows only, and a
+// row that cannot say what it came from cannot be filtered back down to that.
+def nomAddEntry(child, kind, r, acc) = if isWord(hd(r), "extends") then Cons((child, (kind, nomChain(tl(r), Nil))), acc) else acc
+// Mirrors skipWithChain EXACTLY — `with` (a word) and `,` (punct 27) both continue the chain — but
+// accumulates the head name instead of discarding it. Written next to it on purpose: if one learns a
+// new separator and the other does not, F would skip a parent it failed to record, or record one it
+// then failed to skip, and the second of those corrupts the token stream.
+def nomChain(ts, acc) = nomChainAfter(skipTypeRef(ts), Cons(snd(hd(ts)), acc))
+def nomChainAfter(ts, acc) = if isWord(hd(ts), "with") then nomChain(tl(ts), acc) else (if isTok(hd(ts), 2, 27) then nomChain(tl(ts), acc) else acc)
+// The projection that makes the corpus a gate on the walk above: case classes only, first declared
+// parent only. `nomChain` prepends, so the chain is REVERSED and the first-declared parent is LAST.
+def nomToSubReg(reg) = reg match { case Nil => Nil case h :: t => nomSubRow(h, nomToSubReg(t)) }
+def nomSubRow(row, rest) = row match { case (child, kp) => kp match { case (kind, parents) => if kind == "c" then (if isEmpty(parents) then rest else Cons((nomLast(parents), child), rest)) else rest } }
+def nomLast(xs) = xs match { case Nil => "" case h :: t => if isEmpty(t) then h else nomLast(t) }
 def collectEnumAllReg(ts) = if isEmpty(ts) then Nil else (if isEnumHead(ts) then collectEAR1(ts) else collectEnumAllReg(tl(ts)))
 def collectEAR1(ts) = collectEAR2(snd(hd(tl(ts))), enumCasesFrom(ts))
 def collectEAR2(ename, pr) = pr match { case (cases, r) => Cons((ename, caseNamesL(cases)), collectEnumAllReg(r)) }
@@ -4337,7 +4388,7 @@ def isUserPfx(w) = if isInterpPfx(w) then false else (if w == "s" then false els
 // is (you cannot declare `case object A` and `object A` in one file). The FIELD list is untouched:
 // only the name list grows, so nothing starts believing this tag has fields.
 def caseObjNamesF(ts) = if isEmpty(ts) then Nil else (if isCaseObjectHead(ts) then Cons(snd(hd(tl(tl(ts)))), caseObjNamesF(tl(tl(tl(ts))))) else caseObjNamesF(tl(ts)))
-def mkCxE(cs, tcs, ts, dq, vals, vars, bs, pless) = mkCx(dq, appEnv(ccNamesL(cs), caseObjNamesF(ts)), allFieldNames(tcs), vals, collectEnumCaseNames(ts), collectEnumReg(ts), vars, bs, pless, (collectSubReg(ts), collectEnumAllReg(ts)), collectObjReg(ts), appEnv(collectFuncDflts(ts), collectObjDflts(ts)), (collectGivenTable(ts), (collectUsingSig(ts), (collectExtMethods(ts), (mangleExtMethods(ts), (collectObjVarargs(ts), (collectRetTab(ts), (("", Nil), (collectCurried(ts), collectPolyGivenTable(ts))))))))))
+def mkCxE(cs, tcs, ts, dq, vals, vars, bs, pless) = mkCx(dq, appEnv(ccNamesL(cs), caseObjNamesF(ts)), allFieldNames(tcs), vals, collectEnumCaseNames(ts), collectEnumReg(ts), vars, bs, pless, (nomToSubReg(collectNomReg(ts)), collectEnumAllReg(ts)), collectObjReg(ts), appEnv(collectFuncDflts(ts), collectObjDflts(ts)), (collectGivenTable(ts), (collectUsingSig(ts), (collectExtMethods(ts), (mangleExtMethods(ts), (collectObjVarargs(ts), (collectRetTab(ts), (("", Nil), (collectCurried(ts), collectPolyGivenTable(ts))))))))))
 def compile2(ts, cs, tcs, dq, bs) = compile2b(ts, cs, tcs, dq, bs, mkCxE(cs, tcs, ts, dq, Nil, Nil, bs, Nil))
 def compile2b(ts, cs, tcs, dq, bs, base) = compile3(ts, cs, tcs, dq, mkCxE(cs, tcs, ts, dq, collectTopVals(ts, base), collectTopVars(ts, base), bs, collectPlessDefs(ts, base)))
 def compile3(ts, cs, tcs, dq, cx) = walkTop(ts, cx) match { case (strs, nDoc) => compile4(strs, nDoc, ts, tcs, dq, cx) }
