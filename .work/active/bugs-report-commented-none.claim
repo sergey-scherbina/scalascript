@@ -5,7 +5,7 @@ started: 2026-08-31T11:53:07Z
 heartbeat: 2026-08-31T11:53:07Z
 status: claimed-before-planning
 items: bugs-report-no-gate-misses-a-none-with-a-trailing-comment
-paths: file:scripts/bugs-report file:scripts/BUGS.md
+paths: file:scripts/bugs-report file:scripts/BUGS.md file:scripts/smoke-ci.ssc
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+next: wire the self-test into smoke, then land
