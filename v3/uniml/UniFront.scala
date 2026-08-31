@@ -243,7 +243,7 @@ object UniFront:
 
     // A `trait` — it used to VANISH into `NoOpDecl`, invisible to every measurement UniML makes
     // about itself. `keyword` distinguishes `trait` from the other things the dialect routes here.
-    case U.TraitDecl(_, n, parents, ms, s) =>
+    case U.TraitDecl(kw, n, parents, ms, s) =>
       val defs = ms.toList.flatMap { m => m match
         case dd: U.Def =>
           // An ABSTRACT signature — no `=`, no body — arrives with `NotImplemented` as its body
@@ -275,7 +275,21 @@ object UniFront:
                     pos(d.span), d.tparams.toList, boundParams(d), retText(d.ret)))
         case other => no("a `trait` member that is not a `def`", other.span)
       }
-      Sorted.T(TraitDef(n, defs, parents.toList, pos(s)))
+      // THE `keyword` WAS CARRIED HERE AND THEN DISCARDED. `SpikeAst.TraitDecl` holds it because
+      // "v3 has a separate node for each", and this arm bound it to `_` and answered `TraitDef` for
+      // both — so every plain `class` the dialect routes here projected as a TRAIT: no fields slot,
+      // and its methods lifted to top level by the caller's fold. Invisible while v3's own front
+      // REFUSED plain `class` outright, because a file only one front can read is a capability gap
+      // rather than a disagreement, and nothing compares the two. Teaching v3's parser the
+      // construct is what made these files comparable, and the differential answered on the first
+      // run: four corpus cases, `class` against `trait`.
+      //
+      // The constructor's parameters are NOT recoverable here — `TraitDecl` carries no parameter
+      // list, so `class Box(n: Int)` reaches this arm with `n` already gone. That is a gap in the
+      // dialect rather than in this projection, filed as `uniml-traitdecl-drops-class-parameters`,
+      // and it is why one of the four stays declared instead of closing.
+      if kw == "class" then Sorted.C(List(ClassDef(n, Nil, defs, parents.toList, pos(s))))
+      else Sorted.T(TraitDef(n, defs, parents.toList, pos(s)))
 
     // `val id: String` with no `=` — A DECLARATION, NOT A DEFINITION, so there is nothing to emit
     // and Skip is the whole of it. The owner admitted this on 2026-08-19.

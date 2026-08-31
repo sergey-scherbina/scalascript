@@ -1599,11 +1599,27 @@ object Parser:
   /** `case class Name(f: T, …)`. A BODY (`… ):` followed by an indented block of methods) is
     * refused by name rather than skipped: skipping would silently drop methods the author wrote and
     * the program would fail later, somewhere else, as an unknown name. */
-  private def parseCaseClass(ts0: List[Tok], p: Pos): (ClassDef, List[Tok]) =
+  /** `case class C(f: T): …` and — with `requireParams = false` — a plain `class C: …`.
+    *
+    * ONE PARSER FOR BOTH, because at Tier 0 they differ only in what a `case class` gets
+    * SYNTHESISED on top (equals, toString, copy, a companion `apply`), none of which is decided
+    * here. Everything this reads — `val`/`var` field modifiers, parents, `derives`, an indented or
+    * braced body — a plain class needs identically, and a second copy would drift from this one.
+    *
+    * The parameter clause is the only real difference in the SYNTAX: `case class C()` must write
+    * its parens, while `class C:` and `extern class C:` have none. Hence the flag, rather than
+    * making the clause optional for everyone — `case class C` without parens is not Scala, and
+    * accepting it here would turn a refusal into a silent misparse.
+    */
+  private def parseCaseClass(ts0: List[Tok], p: Pos, requireParams: Boolean = true,
+                             isExtern: Boolean = false): (ClassDef, List[Tok]) =
     val (name, _, t0) = expectName(ts0)
-    var ts = expectPunct(skipBrackets(t0), "(")
+    val afterName = skipBrackets(t0)
+    val hasParams = isPunct(peek(afterName), "(")
+    if requireParams && !hasParams then expectPunct(afterName, "(")   // the usual error, unchanged
+    var ts = if hasParams then afterName.tail else afterName
     var fields: List[Param] = Nil
-    if !isPunct(peek(ts), ")") then
+    if hasParams && !isPunct(peek(ts), ")") then
       var go = true
       while go do
         // `val`/`var` before a field name is ordinary and carries no meaning at Tier 0.
@@ -1614,7 +1630,7 @@ object Parser:
         ts = tD
         fields = Param(fn, fp, dflt) :: fields
         if isPunct(peek(ts), ",") then ts = ts.tail else go = false
-    ts = expectPunct(ts, ")")
+    if hasParams then ts = expectPunct(ts, ")")
     val (parents, tp) = parseParents(ts)
     ts = tp
     // `derives Tagged, Labelled` — CONSUMED AND DROPPED, as UniML already does.
@@ -1634,7 +1650,10 @@ object Parser:
     // A BODY. It used to be refused by name, which was the honest thing while methods could not be
     // lowered; they can now, so the refusal would be the dishonest one.
     if isPunct(peek(ts), ":") then
-      val (members, vs, t2) = parseMembers(ts.tail, "class")
+      // `what` carries the extern-ness because `parseMembers` is where an abstract `val` is
+      // decided, and that arm needs to tell a HOST FIELD DECLARATION from a trait's abstract
+      // state. Passing the string the message already prints keeps one vocabulary.
+      val (members, vs, t2) = parseMembers(ts.tail, if isExtern then "extern class" else "class")
       if vs.nonEmpty then throw ParseFail(p, "a `case class` member that is not a `def` is outside SSC3 core Tier 0")
       (ClassDef(name, fields.reverse, members, parents, p), t2)
     else (ClassDef(name, fields.reverse, Nil, parents, p), ts)
@@ -1798,12 +1817,20 @@ object Parser:
         // trait's non-`def` member and dropped it SILENTLY" and was fixed. The `absval` probe —
         // `trait T:` / `val id: String` — went red the moment I re-introduced it here, one gate run
         // after the change, which is what that probe is for.
-        if sts.isEmpty then
+        // …EXCEPT in an `extern class`, where a declaration is the POINT. `val name: String` with
+        // no `=` inside one describes a field of a HOST type — the same fact `registerFieldNames`
+        // carries on the plugin side — and emits nothing, which is what
+        // `abstract-val-in-an-extern-class-is-a-field-declaration` settled for the other front.
+        // A trait's abstract state stays refused by the line below, which is the distinction that
+        // entry drew and this one keeps: the empty parse is admitted for exactly one `what`.
+        if sts.isEmpty && what == "extern class" then ()
+        else if sts.isEmpty then
           throw ParseFail(p0, "a member of a " + what + " that is not a `def` is outside SSC3 core Tier 0")
-        sts.foreach { st => st match
-          case v: Stmt.Val => vals = vals :+ v
-          case _           => throw ParseFail(p0, "a member of a " + what + " must be a definition")
-        }
+        else
+          sts.foreach { st => st match
+            case v: Stmt.Val => vals = vals :+ v
+            case _           => throw ParseFail(p0, "a member of a " + what + " must be a definition")
+          }
         ts = t
       // AN `extension` BLOCK INSIDE THE BODY — how the std typeclass tower declares every one of
       // its operations (`Foldable`, `Functor`, `Applicative`, `Traversable`). `parseExtension`
@@ -2226,6 +2253,35 @@ object Parser:
           ts = t
       else if isId(peek(ts), "case") && ts.tail.nonEmpty && isId(peek(ts.tail), "class") then
         val (c, t) = parseCaseClass(ts.tail.tail, posOf(ts))
+        classes = c :: classes
+        ts = t
+      // A PLAIN `class`, and `extern class` — the SAME branch, because the difference is what the
+      // declaration MEANS to the host, not how it reads.
+      //
+      // Neither existed. The dispatch had `case class`, `case object`, `object`, `trait` and
+      // `enum`, so a bare `class` fell through to the expression parser and every one of them
+      // refused with `expected an expression, found class` at the declaration's own line. That one
+      // absence was filed TWICE — as `v3-own-front-has-no-extern-class` and as
+      // `v3-front-cannot-parse-a-curried-member-method`, whose title names a construct that was
+      // never involved: a single-clause member failed identically, measured on 2026-08-31.
+      //
+      // `extern` marks a type the HOST provides. Its members are declarations — an abstract `val`
+      // or a body-less `def` — which `parseMembers` already reads and which emit nothing, exactly
+      // as `abstract-val-in-an-extern-class-is-a-field-declaration` settled. So the keyword is
+      // consumed and the rest is an ordinary class; nothing downstream needs to know, which is why
+      // this is one branch and not two. Same shape as `extern def` a few lines above, admitted the
+      // same way for the same reason.
+      //
+      // `requireParams = false`: `class Foo:` and `extern class UploadedFile:` have no parameter
+      // clause, while `case class C()` must write its parens — so the flag rather than making the
+      // clause optional everywhere, which would turn an honest `case class` refusal into a silent
+      // misparse.
+      else if isId(peek(ts), "class") ||
+              (isId(peek(ts), "extern") && ts.tail.nonEmpty && isId(peek(ts.tail), "class")) then
+        val cp = posOf(ts)
+        val extern = isId(peek(ts), "extern")
+        val afterKw = if extern then ts.tail.tail else ts.tail
+        val (c, t) = parseCaseClass(afterKw, cp, requireParams = false, isExtern = extern)
         classes = c :: classes
         ts = t
       else if isId(peek(ts), "object") then

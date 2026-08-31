@@ -208,9 +208,50 @@ if [ "${SSC3_FRONT_DIFF_CORPUS:-1}" = 1 ] && [ "$nfronts" -ge 2 ]; then
   #
   # So: two numbers, two directions, both non-regressing. This is the same rule the corpus N
   # carries (I-5) applied to the thing the differential actually measures.
-  CCEIL="${SSC3_FRONT_CORPUS_DIFF_CEILING:-0}"
-  if [ "$cdiff" -gt "$CCEIL" ]; then
-    echo "  FAIL corpus DISAGREEMENTS rose to $cdiff, above the ceiling $CCEIL"
+  # AND THE CEILING IS NOW A LIST OF NAMES, for the reason the one-sided ceiling already learnt:
+  # a number cannot say WHICH file, so a bug that closes and a bug that opens in the same commit
+  # leave it unmoved and silent. The list lives HERE, next to the check, because the reader in
+  # `front-capability-count.sh` exists only to bridge a list that sits in a different file.
+  #
+  # BOTH ROWS ARE OWNED BY THE UNIML DIALECT, NOT BY v3, and that is the whole reason they are
+  # declared rather than fixed. They became visible on 2026-08-31 when v3's own front learnt plain
+  # `class`: before that v3 REFUSED both files, so each was a one-sided capability gap that nothing
+  # compared. Two other files surfaced with them and were v3's own defect — `UniFront.scala` bound
+  # `U.TraitDecl`'s `keyword` to `_` and answered `TraitDef` for a `class` — and those are fixed,
+  # not declared. Agreement 347 -> 349.
+  #
+  #   curried-def-member-methods  `SpikeAst.TraitDecl` carries no parameter list, so `class Box(n:
+  #                               Int)` reaches the projection with `n` ALREADY GONE. v3 prints
+  #                               `(fields (p "n"))`, uniml prints none. Not recoverable in the
+  #                               projection: the information is destroyed upstream of it.
+  #                               `uniml-traitdecl-drops-class-parameters`.
+  #   mcp-client-invoke           reaches `std/mcp/client.ssc:45`, `extern class McpClient:`,
+  #                               through the import closure. The dialect has no `extern` handling,
+  #                               so the class arrives with EMPTY members and its twelve `def`s
+  #                               arrive as top-level SIBLINGS. The projection maps one declaration
+  #                               at a time and has no cross-declaration context to tell which
+  #                               siblings belong to which class, so reattaching them here would be
+  #                               a guess. `uniml-extern-class-members-hoist-to-top-level`.
+  #
+  # Closing either gap makes this gate RED with the row named — drop it in the same commit.
+  declare -a KNOWN_CONF_DISAGREE=(
+    curried-def-member-methods
+    mcp-client-invoke
+  )
+  cdactual="$(cut -f1 "$cdiffs" | sort | tr '\n' ' ')"
+  cddecl="$(printf '%s\n' "${KNOWN_CONF_DISAGREE[@]}" | sort | tr '\n' ' ')"
+  if [ -n "${SSC3_FRONT_CORPUS_DIFF_CEILING:-}" ]; then
+    # The numeric override stays, for bisecting a tree where the names are in flux.
+    if [ "$cdiff" -gt "$SSC3_FRONT_CORPUS_DIFF_CEILING" ]; then
+      echo "  FAIL corpus DISAGREEMENTS rose to $cdiff, above the ceiling $SSC3_FRONT_CORPUS_DIFF_CEILING"
+      fail=1
+    fi
+  elif [ "$cdactual" != "$cddecl" ]; then
+    echo "  FAIL corpus DISAGREEMENTS are not the declared set"
+    echo "       declared: ${cddecl:-(none)}"
+    echo "       actual:   ${cdactual:-(none)}"
+    echo "       A NEW name is a regression. A name that DISAPPEARED means the gap closed and its"
+    echo "       row must come out of KNOWN_CONF_DISAGREE in the same commit."
     fail=1
   fi
 
