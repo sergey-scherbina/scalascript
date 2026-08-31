@@ -1,0 +1,11 @@
+slug: gateless-batch4
+branch: feature/gateless-batch4
+agent: claude-code
+started: 2026-08-31T15:39:19Z
+heartbeat: 2026-08-31T15:39:19Z
+status: claimed-before-planning
+items: a-flat-def-passed-where-a-curried-type-is-declared check-accepts-names-the-v1-runtime-does-not-have
+paths: file:tests/BUGS.md file:tests/conformance/contract-roster.tsv file:tests/conformance/corpus-baseline.tsv file:tests/conformance/kr-flat-def-for-curried-type.ssc file:tests/conformance/expected/kr-flat-def-for-curried-type.txt file:tests/conformance/kr-check-accepts-missing-runtime-name.ssc file:tests/conformance/expected/kr-check-accepts-missing-runtime-name.txt
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
