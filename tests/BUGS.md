@@ -1,3 +1,63 @@
+## smoke-baseline-harvest-deletes-optional-check-rows — a wholesale table replace dropped the rows CI structurally cannot measure
+
+<!-- status: fixed
+     lane: apparatus
+     area: build
+     kind: bug
+     gate: tests/smoke-baseline-harvest.sh --self-test
+     reported-by: claude-code
+     reported-at: 2026-08-31
+     confirmed: yes
+     fixed-in: 26b120034 -->
+
+`tests/smoke-baseline-harvest.sh` ended in `mv "$work/out.tsv" "$OUT"` — a wholesale replacement.
+`smoke.yml` runs the suite **without** `SSC_SMOKE_OPTIONAL=1`, so every check marked
+`optional = true` is absent from every harvested log: not because it got cheap, but because it was
+never run. Replacing the table therefore **deleted** those rows instead of refreshing them.
+
+Measured on a real dry-run before the fix: **14 rows gained and nine lost** — `f-at-bind-pattern`,
+`f-bodyless-object`, `f-cons-nil-tail`, `f-cons2-no-arm`, `f-effects`, `f-foldable-grade`,
+`f-front-exit-reason`, `f-gap-tail`, `f-handler-param`, every one `optional = true`. Two are among
+the most expensive checks in the suite (98.0s and 81.0s, `scripts/smoke-ci.ssc:384`); the nine
+together are 580.4s.
+
+**The loss is silent in both directions, which is why it survived.** A check with no baseline row is
+CHARGED its measured time and cannot fail the budget — so nothing goes red, and the headroom the
+table exists to compute quietly becomes fictional. The tool's own docs describe the opposite
+failure (a table too thin to trust) and refuse on it; this one it performed without a word.
+
+**FIXED** by merging rather than replacing, keyed on **"still registered in `scripts/smoke-ci.ssc`"**
+and not on "was optional". Keying on `optional` would carry rows for checks somebody deleted, and
+stale rows are the other way this table rots. A check absent from the harvest *and* absent from the
+suite is correctly dropped. Carried rows keep their numbers and gain a fourth column, `carried`;
+both readers tolerate it (`smoke-ci.ssc:1128` takes `row.length >= 3`,
+`smoke-guard-headroom.sh:143` takes `len(parts) >= 2`).
+
+The merge lives in its own `merge.py` so `--self-test` runs **the same code the real path runs** —
+inline, the self-test would restate the logic and pass against its own restatement. It asserts both
+directions, and the second is the load-bearing one: a registered check must be CARRIED, a
+de-registered one DROPPED. Only a merge that consults the suite can tell them apart, since both are
+absent from the fresh harvest identically. Proved by breaking it twice.
+
+Result: unbaselined checks **29 to 15**, nothing lost. The remaining 15 are structurally unreachable
+by this tool — optional checks never in the table, so there was nothing to carry. Closing that gap
+needs a CI run with `SSC_SMOKE_OPTIONAL=1`, which is a different change and is NOT done here.
+
+**The refresh immediately exposed a real defect, which is what a census does.**
+`v2-given-extension-typehead` got a baseline row for the first time and its 60s guard is 3.3x its
+18.1s cost — under `smoke-guard-headroom`'s 4x floor, where a guard fires on host load rather than
+on a hang. Invisible until now only because the check was unbaselined and therefore NOT JUDGED,
+never because it was adequately provisioned. Raised to 90s; the gate goes FAIL to OK, tightest now
+4.5x.
+
+Two pre-existing things found and deliberately NOT changed, recorded so they are not misattributed
+to this fix. The `# sum-seconds` header is approximate by ~0.4s and was before this change (1425.5
+against a 1425.9 column, on the pre-change table) because `parse.py` sums float medians then rounds
+each row; the re-total adds already-rounded tenths and so adds no error. And
+`smoke-guard-headroom.sh` reports a check whose baseline is `0` as "no row in the table yet", since
+it tests `base[name] > 0` — so its not-judged count (31) is larger than the true unbaselined count
+(15), and reads as missing data when the row is present and zero.
+
 ## install-sh-witness-is-inert-on-linux-because-stat-f-is-file-system-there
 
 <!-- status: fixed
