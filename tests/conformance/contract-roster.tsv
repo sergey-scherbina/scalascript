@@ -1,4 +1,4 @@
-# corpus-contract-roster-v1	baseline-sha256=dd21c9e23b907320896d22b71a6dbbee66f9e3342365ba4f5473ba1a6f096d76	roster-sha256=735d11bb9d4f8cb45d7f061e31049ae15968f80b04b1da565d8a656782bf2bbd
+# corpus-contract-roster-v1	baseline-sha256=791d227ba370b882606b180f28251a7b106953d23c7cde0a0796aeb7c3dbd6f6	roster-sha256=65b7d3987e77ab20c2a201fe4c1d5c40b246ffc1a7e3db2b226c67bcb37bbf3a
 _bug1_httpclient
 _bug1b
 _bug1c
@@ -212,6 +212,9 @@ json-read
 json-self-hosted-import
 json-value
 jvm-string-s-literal
+kr-case-class-array-field
+kr-given-with-closes-over-top-level-val
+kr-js-v2-char
 lang-split
 lenses
 list-apply-method

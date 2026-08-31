@@ -1,0 +1,28 @@
+#!/usr/bin/env ssc
+---
+name: kr-given-with-closes-over-top-level-val
+backends: [int, js, jvm, v2]
+known-red: "v2 — a `given … with` method body cannot close over a top-level `val` on the v2 front. Remove this declaration when BUGS.md given-with-method-cannot-close-over-a-top-level-val is fixed — the suite fails until you do."
+---
+
+# A `given … with` method closing over a top-level `val`
+
+Executable record of BUGS.md `given-with-method-cannot-close-over-a-top-level-val`, which
+carried no gate. `precision` is an ordinary top-level `val`; the `given`'s method body reads
+it. Declared `known-red` on the failing lanes so that fixing the defect turns the suite red
+and brings whoever fixed it back here to delete the declaration.
+
+```scalascript
+trait Sized[A]:
+  def size: Int
+
+val precision = 4
+
+given intSized: Sized[Int] with
+  def size: Int = 1 << precision
+
+def main(): Unit =
+  println(intSized.size)
+
+main()
+```

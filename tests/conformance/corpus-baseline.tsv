@@ -39,6 +39,9 @@ int-width	js	KNOWN-RED
 international-bank-rails	*	SKIP
 js-glue-component	js	FAIL
 js-glue-component	v2	FAIL
+kr-case-class-array-field	v2	KNOWN-RED
+kr-given-with-closes-over-top-level-val	v2	KNOWN-RED
+kr-js-v2-char	js-v2	KNOWN-RED
 markdown-toolkit-links	*	SKIP
 mcp-agent	js	FAIL
 mcp-client-discover	*	SKIP

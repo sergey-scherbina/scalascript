@@ -1,0 +1,29 @@
+#!/usr/bin/env ssc
+---
+name: kr-case-class-array-field
+backends: [int, js, jvm, v2]
+known-red: "v2 — the v2 front cannot index a case-class Array field read directly off the receiver; `Box.arr` reports as a method that does not exist. Binding it to a local first works, so the defect is the DIRECT form. Remove this declaration when BUGS.md case-class-array-field-cannot-be-indexed-directly is fixed — the suite fails until you do."
+---
+
+# A case-class `Array` field, indexed directly off the receiver
+
+Executable record of BUGS.md `case-class-array-field-cannot-be-indexed-directly`. The
+entry had NO gate, so nothing would have told anyone if it were fixed — or if it got
+worse. This case is that gate: it is declared `known-red` on the lanes that fail today,
+and the suite turns RED the moment the defect goes away, which is what forces whoever
+fixes it to come back here and delete the declaration.
+
+`b.arr(0)` is an index on a field read straight off the receiver. Binding the field to a
+local first works, so the defect is specifically the direct form.
+
+```scalascript
+case class Box(arr: Array[Int])
+
+def main(): Unit =
+  val b = Box(Array(1, 2, 3))
+  val a = b.arr
+  println(a(0))
+  println(b.arr(0))
+
+main()
+```

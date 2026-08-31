@@ -1,0 +1,26 @@
+#!/usr/bin/env ssc
+---
+name: kr-js-v2-char
+backends: [int, js, jvm, v2]
+also-codegen: v2
+known-red: "js-v2 — the v2 JS backend implements no char primitives: a char literal dies with `unimplemented primitive: char` and `charAt` with `scharAt`. The v1 JS lane passes both, which is why only js-v2 is declared. Remove this declaration when BUGS.md js-v2-lane-has-no-Char-at-all is fixed — the suite fails until you do."
+---
+
+# `Char` on the v2 JS lane
+
+Executable record of BUGS.md `js-v2-lane-has-no-Char-at-all` — the v2 JS backend implements
+no char primitives, so a char literal and `charAt` both die with `unimplemented primitive`.
+The entry carried no gate, so nothing connected the defect to a run.
+
+Both operations are here because the entry names both and they are separate primitives:
+a char literal (`char`) and a string index (`scharAt`). A case covering only one would go
+green on a half fix.
+
+```scalascript
+def main(): Unit =
+  println('a')
+  val s = "aBc"
+  println(s.charAt(1))
+
+main()
+```

@@ -682,7 +682,7 @@ does not touch.
      lane: native
      kind: bug
      area: front
-     gate: none
+     gate: tests/conformance/kr-given-with-closes-over-top-level-val.ssc
      reported-by: claude-code
      reported-at: 2026-08-29
      confirmed: yes
@@ -718,7 +718,7 @@ CAPTURE, not `given ... with` bodies in general.
      lane: native
      kind: bug
      area: front
-     gate: none
+     gate: tests/conformance/kr-case-class-array-field.ssc
      reported-by: claude-code
      reported-at: 2026-08-29
      confirmed: yes
@@ -1813,7 +1813,7 @@ three answers. That is the std/spec owner's call.
      reported-by: claude-code
      reported-at: 2026-08-16
      confirmed: yes
-     gate: none — two-line reproducers below -->
+     gate: tests/conformance/kr-js-v2-char.ssc -->
 
 The v2 JS backend implements no char primitives. Two one-line programs, both via
 `bin/ssc-tools run-js --v2`:
