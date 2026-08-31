@@ -1231,7 +1231,7 @@ paragraph first said about it). Neither touches the empty registry that entry is
      lane: native
      kind: bug
      area: front
-     gate: none
+     gate: tests/e2e/import-spelling-double-load-gate.sh
      reported-by: claude-code
      reported-at: 2026-08-26
      confirmed: yes -->
@@ -1274,6 +1274,29 @@ reducing it, kept apart from it.
 working tree's `std/` in a checkout (so both spellings name one file), or a relative path that
 escapes into `std/` should be refused with a diagnostic that says which root it reached. The first
 is the smaller change and the one worth measuring first.
+
+### GATED 2026-08-31 — reproduced, with the control that makes it mean something
+
+`tests/e2e/import-spelling-double-load-gate.sh` builds the layout and asserts BOTH halves:
+
+* with `[ByteSlice](../std/scljet/index.ssc)` the program fails — **`unbound global:
+  ByteSlice_fromList`**;
+* with the same import spelled `std/scljet/index.ssc` — the SAME FILE, one spelling apart — it
+  prints `1`.
+
+The second half is what turns "something is broken" into "the SPELLING is what breaks it", and it
+is not decoration: the first attempt at this sandbox copied only `std/scljet/index.ssc`, whose own
+transitive imports then failed with an unrelated message about `bytes.ssc`. Copying the whole tree
+is what makes the control valid.
+
+**The symptom has MOVED since this entry was written** — it recorded `unbound global: byteError`,
+and today the same setup gives `ByteSlice_fromList`. Same mechanism, different name shadowed, which
+is expected of a duplicate splice: which declaration loses depends on what is being spliced. The
+gate asserts the SHAPE (`unbound global`) rather than the exact name, so it does not go red on that
+drift, and says so.
+
+Like the other pinning gates, it goes red when the defect is FIXED and its message says to close
+this entry and convert the gate rather than delete the assertion.
 
 ## reference-front-drops-a-curried-methods-second-clause — `Box.add: expected 2 argument(s), got 1`
 

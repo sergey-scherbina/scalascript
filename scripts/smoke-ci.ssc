@@ -906,6 +906,13 @@ val suite = List(
   // .agents/plugins submodule is not checked out, rather than finding zero problems in zero
   // plugins. <1 s.
   Check("tests", "plugin-manifest-consistency", "tests/e2e/plugin-manifest-consistency-gate.sh", List("--self-test"), 60000),
+  // Another gate that PINS a defect and goes red when it is fixed. `std/x.ssc` and `../std/x.ssc`
+  // reach the same file by two roots, `seen` dedups on the canonical path and cannot notice, and
+  // the module is spliced TWICE (v2/BUGS.md a-module-reached-by-both-spellings-of-std-is-loaded-
+  // twice). Its two halves are ONE argument: the ../ spelling fails, and the SAME FILE one
+  // spelling apart prints 1 — the second is what makes the first about spellings rather than
+  // about a malformed sandbox. ~30 s (copies std/ and runs two programs).
+  Check("tests", "import-spelling-double-load", "tests/e2e/import-spelling-double-load-gate.sh", List(), 300000),
   Check("scripts", "release-installer-launcher", "tests/e2e/release-installer-launcher.sh", List(), 180000),
   Check("scripts", "build-ram-guards-guard", "tests/e2e/build-ram-budget-gate.sh", List(), 180000),
 
