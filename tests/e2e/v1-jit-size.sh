@@ -1157,9 +1157,6 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # most wanted; `readsNameAsValue` (a new top-level helper, no cost here) walks only a Select's
 # qualifier. RAISED, NOT REVERTED, same terms as every entry above: a real asymptotic fix on a
 # method already 5.35x a limit it has long been over.
-read -r -d '' FROZEN <<'EOF' || true
-28036 scalascript.interpreter.ActorScheduler::handleActorOp
-25540 scalascript.codegen.JsGen::genExpr
 # renderTerm 42828 -> 42864 (+36), from taking a class method's read-only `Vec` parameter by
 # SHARED REFERENCE. Measured with a sampling allocator, which is the instrument this needed — a
 # leaf profile cannot see clones inlined into generated code: 93% of a 128 KB markdown parse's
@@ -1170,6 +1167,9 @@ read -r -d '' FROZEN <<'EOF' || true
 # The +36 here is the implicit-receiver call arm learning to pass a borrow; the rest of the change
 # lives in renderParams, the def's own ctx and the `self.`-prefixed call arm (separate methods, no
 # cost here). RAISED, NOT REVERTED, same terms as every entry above.
+read -r -d '' FROZEN <<'EOF' || true
+28036 scalascript.interpreter.ActorScheduler::handleActorOp
+25540 scalascript.codegen.JsGen::genExpr
 42864 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
