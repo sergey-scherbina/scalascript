@@ -1,2 +1,3 @@
-# generation: 3228
+# generation: 3229
 #slug	agent	started	items	paths
+f-nominal-parent-table	claude-code	2026-08-31T08:51:24Z	f-records-no-supertype-for-a-declared-class-or-trait	file:specs/v2.2-p6.5-fsub.ssc file:v2/BUGS.md
