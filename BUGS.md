@@ -7093,16 +7093,17 @@ the free reader.
 
 ## interp-summon-over-an-anonymous-given — the reference lane answers `unbound global` where Scala 3 resolves
 
-<!-- status: open
+<!-- status: fixed
      lane: int
      area: runtime
      kind: bug
-     gate: none
+     gate: tests/conformance/kr-summon-anonymous-given.ssc
      found-by: claude-code
      found-at: 2026-08-16
      ssc-version: c77678ed6
      repro: the six-line program in the body
-     confirmed: yes -->
+     confirmed: yes
+     fixed-in: 5d665bb07 -->
 
     trait Combiner[A]:
       def combine(a: A, b: A): A
@@ -7139,6 +7140,27 @@ say so rather than to weaken the case or match the gap. The Rust gate therefore 
 output for this shape and explains why, and this entry is the other half of that explanation.
 
 Not investigated further — the interpreter is outside the claim this was found under.
+
+### RE-MEASURED 2026-08-31 — IT NO LONGER REPRODUCES, on any lane or either front
+
+The entry's own reproducer, run verbatim including the `val c = summon[…]` binding the error
+message pointed at: **`ab` / `5` / `5`**, correct on INT, JS, JVM and V2, and on the default front
+and `SSC_FRONT=F` alike. The anonymous spelling resolves.
+
+Verified in the shape that could have fooled me: the first probe INLINED the summon, which is a
+different expression from the one that failed (`unbound global: c` is about the local binding, not
+about resolution), so the `val`-bound form was re-run separately before concluding anything.
+
+**`fixed-in: 5d665bb07` is the commit that VERIFIED and closed this, not the one that repaired it.**
+The repair is unattributed: the 2026-08-19..23 attempt is recorded below as
+released-without-landing, so something later closed it, and `7561f9982` (real derivation for a
+parametric `given … (using …)`) is a plausible candidate that was NOT confirmed by bisect. The
+index gate requires a resolvable sha, so the verification commit is cited and the distinction is
+made here rather than a sha being guessed into the header.
+
+The regression case `tests/conformance/kr-summon-anonymous-given.ssc` carries BOTH spellings — the
+named one proves the machinery is present, the anonymous one is what regressed — so a future
+half-fix cannot go green on it.
 
 ## rust-summon-lowers-to-an-empty-expression — `val x = summon[T]` emits `let x = ;`
 

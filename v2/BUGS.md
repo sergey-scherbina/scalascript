@@ -1773,7 +1773,7 @@ the stack went into the provider.
      lane: multi
      area: runtime
      kind: bug
-     gate: none
+     gate: tests/conformance/kr-mixed-concat-operands.ssc
      found-by: claude-code
      found-at: 2026-08-17 -->
 
@@ -1803,6 +1803,23 @@ three answers. That is the std/spec owner's call.
 
 **What a fix would need beside it:** the matrix above as a gate row per cell, on the model of
 `tests/e2e/list-concat-chain-gate.sh`, so the day one lane moves the others are told.
+
+### CORRECTED 2026-08-31 — THE FRAMING WAS WRONG, and a third defect was hiding behind it
+
+**Two of the five cells are not legal Scala.** `"x" ++ 1` and `"x" ++ List(1)` are REJECTED by the
+JVM lane, which compiles real Scala: *"None of the overloaded alternatives of method ++"*. So
+"three lanes, three answers, pick one" is the wrong question — **no** answer is right, and every
+lane that accepts them is wrong to. Freezing any of the three values in a test would have pinned a
+behaviour the language does not have. The fix is a REFUSAL, not a choice.
+
+**And a row this entry calls agreed does not agree.** Its table covered the v1 JS emitter only. On
+`List(1) ++ "x"` the **js-v2** lane answers `List(1)x` where every other lane — including JVM, i.e.
+real Scala — answers `List(1, x)`. That is a plain wrong answer on a legal program, and it was
+invisible here because the lane was not in the table.
+
+`tests/conformance/kr-mixed-concat-operands.ssc` gates the legal rows and declares the js-v2
+divergence known-red. The two illegal rows are deliberately NOT in it, with the reason written into
+the case so they are not re-added.
 
 ## js-v2-lane-has-no-Char-at-all — `println('a')` dies on `unimplemented primitive: char`
 
