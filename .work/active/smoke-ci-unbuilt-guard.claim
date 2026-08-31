@@ -1,0 +1,11 @@
+slug: smoke-ci-unbuilt-guard
+branch: feature/smoke-ci-unbuilt-guard
+agent: claude-code
+started: 2026-08-31T00:40:25Z
+heartbeat: 2026-08-31T00:40:25Z
+status: claimed-before-planning
+items: smoke-ci-passes-its-precondition-on-an-unbuilt-worktree
+paths: scripts/smoke-ci BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
