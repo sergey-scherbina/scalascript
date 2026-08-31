@@ -1,3 +1,2 @@
-# generation: 3241
+# generation: 3242
 #slug	agent	started	items	paths
-gateless-batch2	claude-code	2026-08-31T13:15:57Z	interp-summon-over-an-anonymous-given mixed-concat-operands-mean-three-things-on-three-lanes	file:BUGS.md file:v2/BUGS.md file:tests/conformance/contract-roster.tsv file:tests/conformance/corpus-baseline.tsv file:tests/conformance/kr-summon-anonymous-given.ssc file:tests/conformance/expected/kr-summon-anonymous-given.txt file:tests/conformance/kr-mixed-concat-operands.ssc file:tests/conformance/expected/kr-mixed-concat-operands.txt
