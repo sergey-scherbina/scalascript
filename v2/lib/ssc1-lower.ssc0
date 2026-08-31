@@ -4118,13 +4118,38 @@ def hasTypedPat = (arms) =>
 -- All child tags of a nominal supertype: case classes that `extends` it
 -- (subtypeRegCell) plus, if it is an enum, every case name (enumCasesCell). An
 -- empty result ⇒ `typeHead` is a leaf tag, so the ascription stays an exact test.
+--
+-- THE MATCH IS TRANSITIVE, and it was not. `case _: Animal` saw only case classes naming
+-- Animal DIRECTLY, so `trait Mammal extends Animal` + `case class Dog extends Mammal` left
+-- Dog out — and because the short result is then read as "leaf" (above), the pattern
+-- degraded to an exact tag test against a tag no value carries. Silent wrong branch, no
+-- diagnostic. Both fronts had it; see BUGS.md typed-pattern-misses-a-subtype-reached-
+-- through-an-intermediate-trait.
+--
+-- BOTH HALVES ALREADY EXISTED and were simply not joined: `tcExtendsCell` records
+-- `trait Child extends Parent` for the given/context-bound resolver, and `tcAncestors`
+-- already walks it transitively, fuel-bounded at 16 against cycles. Reusing them means one
+-- hierarchy and one cycle rule rather than a second copy that can disagree with the first.
+--
+-- ORDER IS PRESERVED, which is what keeps this byte-identical where it changes nothing.
+-- The scan still walks subtypeRegCell in cell order and still emits matches in that order;
+-- only the PREDICATE widens, from `p == parent` to "p is parent, or parent is one of p's
+-- ancestors". A program with no indirect subtype has no pair where the second disjunct
+-- fires, so its emitted tag tests are unchanged, in content and in order.
 def subtypeChildren = (parent) =>
+  let rec anyIs = (xs, want) =>
+    match xs {
+      case Nil => false
+      case Cons(h, t) => if #seq(h, want) then true else anyIs(t, want)
+    } in
   let rec goReg = (xs) =>
     match xs {
       case Nil => Nil
       case Cons(e, t) =>
         match e { case Pair(p, child) =>
-          if #seq(p, parent) then Cons(child, goReg(t)) else goReg(t) }
+          if #seq(p, parent) then Cons(child, goReg(t))
+          else if anyIs(tcAncestors(p), parent) then Cons(child, goReg(t))
+          else goReg(t) }
     } in
   let rec goEnum = (cs) =>
     match cs {

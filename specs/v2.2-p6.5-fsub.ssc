@@ -3615,6 +3615,23 @@ def nomChain(ts, acc) = nomChainAfter(skipTypeRef(ts), Cons(snd(hd(ts)), acc))
 def nomChainAfter(ts, acc) = if isWord(hd(ts), "with") then nomChain(tl(ts), acc) else (if isTok(hd(ts), 2, 27) then nomChain(tl(ts), acc) else acc)
 // The projection that makes the corpus a gate on the walk above: case classes only, first declared
 // parent only. `nomChain` prepends, so the chain is REVERSED and the first-declared parent is LAST.
+// ── TRANSITIVE ANCESTORS, deliberately NARROWER than the table can answer ────────────────────────
+//
+// F records every parent of every case class and trait. The reference lowerer does not: its
+// `tcExtendsCell` is written only while parsing a TRAIT, and only with the FIRST named parent, and
+// `tcAncestors` walks that single-parent chain with fuel 16 against cycles. F must produce the same
+// tag tests, so it must ask the same narrower question of its richer table — trait rows only
+// (`kind == "t"`), first declared parent only, same fuel. Being able to answer more here would be a
+// byte-divergence, not a feature.
+def nomTraitParent(child, reg) = reg match { case Nil => "" case h :: t => nomTP1(h, child, reg, t) }
+def nomTP1(row, child, reg, rest) = row match { case (c, kp) => kp match { case (kind, ps) => if kind == "t" then (if c == child then nomLast(ps) else nomTraitParent(child, rest)) else nomTraitParent(child, rest) } }
+def nomAncestors(t, reg, fuel) = if fuel < 1 then Nil else nomAnc1(nomTraitParent(t, reg), reg, fuel)
+def nomAnc1(p, reg, fuel) = if p == "" then Nil else Cons(p, nomAncestors(p, reg, fuel - 1))
+def nomAnyIs(xs, want) = xs match { case Nil => false case h :: t => if h == want then true else nomAnyIs(t, want) }
+
+// Built once and shared: subReg is a PROJECTION of nomReg, so computing the table twice would be
+// two chances to disagree as well as twice the work.
+def mkSubInfo(nom, ear) = (nomToSubReg(nom), (ear, nom))
 def nomToSubReg(reg) = reg match { case Nil => Nil case h :: t => nomSubRow(h, nomToSubReg(t)) }
 def nomSubRow(row, rest) = row match { case (child, kp) => kp match { case (kind, parents) => if kind == "c" then (if isEmpty(parents) then rest else Cons((nomLast(parents), child), rest)) else rest } }
 def nomLast(xs) = xs match { case Nil => "" case h :: t => if isEmpty(t) then h else nomLast(t) }
@@ -3838,9 +3855,17 @@ def collectPDend(nm, dtoks, ts, acc) = if isTok(hd(ts), 2, 27) then collectPD(tl
 def captureDflt(ts, d, acc) = if isEmpty(ts) then (revL(acc), ts) else (if isSep0(hd(ts), d) then (revL(acc), ts) else captureDflt(tl(ts), typeDepth(hd(ts), d), Cons(hd(ts), acc)))
 // subtypeChildren(T) = case-class children of T ++ enum cases of T; Nil => leaf (exact test). typedTagTest:
 // leaf -> `(prim __isTag__ s (lit (str T)) (lit (int -1)))`; supertype -> OR-chain (ssc1-lower :3270-3316).
-def subRegChildren(parent, reg) = reg match { case Nil => Nil case h :: t => if fst(h) == parent then Cons(snd(h), subRegChildren(parent, t)) else subRegChildren(parent, t) }
+// The predicate widens from "p IS parent" to "p is parent, or parent is one of p's ancestors" —
+// matching ssc1-lower's `subtypeChildren` change exactly, including that the scan order is
+// untouched. Only the test changes, so a program with no indirect subtype emits the same tag tests
+// in the same order and stays byte-identical.
+def subRegChildren(parent, reg, nom) = reg match { case Nil => Nil case h :: t => if subRegHit(fst(h), parent, nom) then Cons(snd(h), subRegChildren(parent, t, nom)) else subRegChildren(parent, t, nom) }
+def subRegHit(p, parent, nom) = if p == parent then true else nomAnyIs(nomAncestors(p, nom, 16), parent)
 def enumAllOf(ename, reg) = reg match { case Nil => Nil case h :: t => if fst(h) == ename then snd(h) else enumAllOf(ename, t) }
-def subtypeChildren(th, cx) = appEnv(subRegChildren(th, fst(subInfoOf(cx))), enumAllOf(th, snd(subInfoOf(cx))))
+// subInfo is now (subReg, (enumAllReg, nomReg)). The FIRST component is untouched so its one other
+// reader keeps working; the nominal table rides in the second, which had a single consumer.
+def subtypeChildren(th, cx) = appEnv(subRegChildren(th, fst(subInfoOf(cx)), nomRegOf(cx)), enumAllOf(th, fst(snd(subInfoOf(cx)))))
+def nomRegOf(cx) = snd(snd(subInfoOf(cx)))
 def isTagExact(scrut, tag, cx) = "(prim __isTag__ " ++ scrut ++ " (lit (str " ++ dqOf(cx) ++ tag ++ dqOf(cx) ++ ")) (lit (int -1)))"
 def orTagTests(scrut, tags, cx) = tags match { case Nil => "(lit false)" case h :: t => t match { case Nil => isTagExact(scrut, h, cx) case _ => "(if " ++ isTagExact(scrut, h, cx) ++ " (lit true) " ++ orTagTests(scrut, t, cx) ++ ")" } }
 // NB: use isEmpty/helper (NOT `case Nil/case cs`) so F self-compiles this def (a bare-var arm after a
@@ -4388,7 +4413,7 @@ def isUserPfx(w) = if isInterpPfx(w) then false else (if w == "s" then false els
 // is (you cannot declare `case object A` and `object A` in one file). The FIELD list is untouched:
 // only the name list grows, so nothing starts believing this tag has fields.
 def caseObjNamesF(ts) = if isEmpty(ts) then Nil else (if isCaseObjectHead(ts) then Cons(snd(hd(tl(tl(ts)))), caseObjNamesF(tl(tl(tl(ts))))) else caseObjNamesF(tl(ts)))
-def mkCxE(cs, tcs, ts, dq, vals, vars, bs, pless) = mkCx(dq, appEnv(ccNamesL(cs), caseObjNamesF(ts)), allFieldNames(tcs), vals, collectEnumCaseNames(ts), collectEnumReg(ts), vars, bs, pless, (nomToSubReg(collectNomReg(ts)), collectEnumAllReg(ts)), collectObjReg(ts), appEnv(collectFuncDflts(ts), collectObjDflts(ts)), (collectGivenTable(ts), (collectUsingSig(ts), (collectExtMethods(ts), (mangleExtMethods(ts), (collectObjVarargs(ts), (collectRetTab(ts), (("", Nil), (collectCurried(ts), collectPolyGivenTable(ts))))))))))
+def mkCxE(cs, tcs, ts, dq, vals, vars, bs, pless) = mkCx(dq, appEnv(ccNamesL(cs), caseObjNamesF(ts)), allFieldNames(tcs), vals, collectEnumCaseNames(ts), collectEnumReg(ts), vars, bs, pless, mkSubInfo(collectNomReg(ts), collectEnumAllReg(ts)), collectObjReg(ts), appEnv(collectFuncDflts(ts), collectObjDflts(ts)), (collectGivenTable(ts), (collectUsingSig(ts), (collectExtMethods(ts), (mangleExtMethods(ts), (collectObjVarargs(ts), (collectRetTab(ts), (("", Nil), (collectCurried(ts), collectPolyGivenTable(ts))))))))))
 def compile2(ts, cs, tcs, dq, bs) = compile2b(ts, cs, tcs, dq, bs, mkCxE(cs, tcs, ts, dq, Nil, Nil, bs, Nil))
 def compile2b(ts, cs, tcs, dq, bs, base) = compile3(ts, cs, tcs, dq, mkCxE(cs, tcs, ts, dq, collectTopVals(ts, base), collectTopVars(ts, base), bs, collectPlessDefs(ts, base)))
 def compile3(ts, cs, tcs, dq, cx) = walkTop(ts, cx) match { case (strs, nDoc) => compile4(strs, nDoc, ts, tcs, dq, cx) }

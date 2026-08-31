@@ -1,0 +1,51 @@
+#!/usr/bin/env ssc
+---
+name: typed-pattern-transitive
+backends: [int, js, jvm, v2]
+---
+
+# A typed pattern matches through an intermediate trait
+
+Regression for BUGS.md `typed-pattern-misses-a-subtype-reached-through-an-intermediate-trait`.
+A typed pattern used to see only the case classes naming a type DIRECTLY, so one trait in
+between and the match silently took the wrong branch — no refusal, no diagnostic. Both
+fronts had it, and neither could be fixed alone: F is held byte-identical to the reference
+lowerer, so a transitive expansion in one would have changed its emitted tag tests.
+
+The case covers what the fix has to get right rather than only the headline:
+
+  - `Dog` reaches `Being` through TWO traits, so one hop is not enough;
+  - a direct child (`Snake extends Animal`) must still match, which is the byte-identity half;
+  - a MIDDLE type (`Mammal`) must match its own child, not just the root;
+  - a non-member (`7`) must still fall through — the widened predicate must not match everything.
+
+NO CYCLE CASE HERE, and the reason is worth keeping. The ancestor walk is fuel-bounded (16)
+rather than cycle-detecting, and a `trait A extends B` / `trait B extends A` pair was drafted
+to prove it terminates. It does — on INT and JS. But the JVM lane compiles real Scala, and
+**Scala rejects that program outright**: `Cyclic inheritance: trait A extends itself`. So the
+input is not legal in the language and cannot be a conformance case; asserting behaviour on it
+would be asserting behaviour on a program no user can write. The fuel bound stays as defence in
+depth for a malformed hierarchy reaching the lowerer past the checker, and it is documented at
+the walk itself in both fronts rather than pinned here.
+
+```scalascript
+trait Being
+trait Animal extends Being
+trait Mammal extends Animal
+case class Dog(n: Int) extends Mammal
+case class Snake(n: Int) extends Animal
+
+def being(x: Any): String = x match
+  case _: Being => "being"
+  case _ => "other"
+
+def mammal(x: Any): String = x match
+  case _: Mammal => "mammal"
+  case _ => "other"
+
+println(being(Dog(1)))
+println(being(Snake(2)))
+println(being(7))
+println(mammal(Dog(3)))
+println(mammal(Snake(4)))
+```

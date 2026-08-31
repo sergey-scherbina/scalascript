@@ -1,4 +1,4 @@
-# corpus-contract-roster-v1	baseline-sha256=dd21c9e23b907320896d22b71a6dbbee66f9e3342365ba4f5473ba1a6f096d76	roster-sha256=a505514d52ef0d1b7d8d0e497b9581640d1875acfac111833d2cf7de1b284636
+# corpus-contract-roster-v1	baseline-sha256=dd21c9e23b907320896d22b71a6dbbee66f9e3342365ba4f5473ba1a6f096d76	roster-sha256=735d11bb9d4f8cb45d7f061e31049ae15968f80b04b1da565d8a656782bf2bbd
 _bug1_httpclient
 _bug1b
 _bug1c
@@ -528,6 +528,7 @@ typeclass
 typeclass-extension
 typed-data
 typed-object-codec
+typed-pattern-transitive
 typed-sql-crud
 ui-fetch-json
 ui-remote-table
