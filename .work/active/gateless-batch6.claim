@@ -1,0 +1,11 @@
+slug: gateless-batch6
+branch: feature/gateless-batch6
+agent: claude-code
+started: 2026-08-31T16:49:22Z
+heartbeat: 2026-08-31T16:49:22Z
+status: claimed-before-planning
+items: infix-application-does-not-reach-a-declared-class-method v3-an-interpolator-prefix-and-an-ordinary-function-share-one-namespace
+paths: file:v3/BUGS.md file:v3/tests/front/kr-infix-class-method.ssc file:v3/tests/front/kr-infix-class-method.expected file:v3/tests/front/kr-interpolator-name-collision.ssc file:v3/tests/front/kr-interpolator-name-collision.expected
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
