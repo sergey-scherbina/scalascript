@@ -16,6 +16,74 @@ scripts/bugs-report --no-gate              # open entries with no regression gat
 
 Newest first.
 
+## typed-pattern-misses-a-subtype-reached-through-an-intermediate-trait — `case _: Animal` does not match a `Dog extends Mammal extends Animal`
+
+<!-- status: open
+     lane: multi
+     area: front
+     kind: bug
+     gate: none
+     reported-by: claude-code
+     reported-at: 2026-08-31
+     confirmed: no -->
+
+A typed pattern sees only the DIRECT case-class children of the type it names. One intermediate
+trait and the match silently falls through.
+
+```scalascript
+trait Animal
+trait Mammal extends Animal
+case class Dog(n: Int) extends Mammal
+case class Snake(n: Int) extends Animal
+
+def describe(a: Any): String = a match
+  case _: Animal => "animal"
+  case _ => "other"
+
+println(describe(Dog(1)))     // "other"  — WRONG, Dog IS an Animal
+println(describe(Snake(2)))   // "animal" — right, direct child
+println(describe(7))          // "other"  — right
+```
+
+**Both fronts, same answer**, measured 2026-08-31 on a freshly built toolchain (the first attempt
+hit the STALE BUILD guard and was rebuilt before being believed): reference and `SSC_FRONT=F` both
+print `other / animal / other`. The direct-parent control (`case class Dog extends Animal`) gives
+`animal / animal / other` on both, so the defect is specifically the indirect hop.
+
+**Mechanism, and it is the same shape in both implementations.** The subtype registry records only
+`case class C … extends P` — a trait's own parents are never entered — and the lookup is a direct
+scan with no transitive closure:
+
+- reference: `subtypeRegCell` filled by `collectSubtypeNodesAcc` (`v2/lib/ssc1-lower.ssc0:6683`),
+  read by `subtypeChildren` (`:4121`), which scans for `p == parent` one level deep.
+- F: the same, via the nominal table's `subReg` projection.
+
+So `subtypeChildren("Animal")` returns only `Snake`. **And the empty/short result is then read as
+"leaf"** — `:4118` says "An empty result ⇒ `typeHead` is a leaf tag, so the ascription stays an exact
+test" — so the pattern degrades to an exact tag test against `Animal`, which no value carries. The
+failure is silent: no refusal, no diagnostic, just the wrong branch.
+
+**Why this is a root entry rather than a module one:** the same defect is present in both fronts, so
+neither owns it, and — more importantly — **it cannot be fixed in one of them alone.** F is held
+byte-identical to the reference lowerer; a transitive expansion in F only would change F's emitted
+tag tests and break that equality. The fix has to land in both or in neither.
+
+**What a fix needs**, sized but not attempted:
+1. Record trait parents, not just case-class ones. F has this already as of `77d444c15` —
+   `collectNomReg` keeps the whole `extends A with B, C` chain for case classes AND traits. The
+   reference front has no equivalent and would need `ssc1-front` to emit `("subtype", …)` for
+   traits too.
+2. Take the transitive closure at lookup, so `subtypeChildren(T)` yields every case class reaching
+   T through any chain of traits.
+3. Preserve ORDER exactly. Both files warn that the child-tag test order is reproduced byte-for-byte
+   (`ssc1-front` prepends, `subtypeChildren` preserves cell order), so a closure that changes the
+   order changes the emitted tests even where it changes no semantics.
+
+**Not yet confirmed against Scala semantics by a third party** (`confirmed: no`): the reading here is
+that `Dog` conforms to `Animal` and the pattern should match, which is what Scala does. If SSC
+deliberately restricts typed patterns to one level under the Tier 0 erasure bargain, that decision is
+written down nowhere I could find — and the absence of a diagnostic would still be wrong.
+
 ## plugin-cli-two-disjoint-registries-and-a-blind-plugin-list — `ssc plugin list` said "(no plugins installed)" while plugins ran
 
 <!-- status: fixed
