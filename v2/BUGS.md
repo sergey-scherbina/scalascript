@@ -264,11 +264,23 @@ the "not front work" conclusion is retracted as a *long-term* judgement.
   form* (still true — `(lam 2 ...)` has nowhere to put a type) with F *forgetting* the type, which
   was the actual blocker. Retention is a side channel and emits no bytes: output verified
   byte-identical, corpus 378/378, tower rebuilds itself.
-- **Still degrades to `"?"`**: `Foo.Bar`, `Foo[X]`, tuple and arrow types. The first three are a
-  parser slice (`f-param-type-parser`). The arrow case is NOT merely unimplemented — `A => B` has
-  no closing token, so it cannot be consumed by depth counting and would have to cross the very
-  terminator set (`,`, `)`, `=`) that ends a parameter. Resolving it needs a decision about that
-  terminator convention, not more parser code.
+- ~~**Still degrades to `"?"`**: `Foo.Bar`, `Foo[X]`, tuple and arrow types … the arrow case is NOT
+  merely unimplemented — `A => B` has no closing token …~~ **WRONG, corrected 2026-08-31 by
+  `f-param-type-parser`.** The arrow claim was wrong on the mechanism, not merely incomplete: `=>`
+  is punct code 30 and `isTypeEnd` stops only at `,`(27), `)`(22), `=`(20), so an arrow was never
+  ambiguous and needed no convention decision. The claim reasoned about `=>` as if it were `=`.
+  `Foo[X]`, `(A, B)` and `A => B` now all retain, via the pre-existing depth-aware `typeText`
+  (`:3992`) — no new parser was written.
+
+  What DOES still degrade is the cell that looked easiest: **qualified types**. `punctStr` (`:476`)
+  maps only `( ) , [ ] => :` and renders every other punct as `""`, so `Foo.Bar` (dot = code 31)
+  would render `"FooBar"` — a confident WRONG spelling, worse than none, since a consumer comparing
+  type strings would be wrong rather than degraded. `tyClean` therefore rejects any type run
+  containing a token that renders empty, keying on "renders empty" rather than a dot list, so it
+  covers vararg stars and any future punct with no list to extend. Adding `.` to `punctStr` is the
+  obvious one-liner and is WRONG: `:3752` deliberately relies on `*` rendering empty to detect
+  varargs, so that function's omissions are load-bearing. Retaining qualified types needs a
+  renderer that does not share `punctStr`'s erasures — a separate decision.
 - **"The v1 Typer already does it" is no longer a reason to leave the gap in F.** Owner decision
   2026-08-31: v1 will eventually be removed entirely, so point 2 above describes a TRANSITIONAL
   arrangement. Run-gating on the v1 typer remains the right near-term fix; F growing its own
