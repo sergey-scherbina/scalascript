@@ -1,4 +1,3 @@
-# generation: 3273
+# generation: 3274
 #slug	agent	started	items	paths
 gateless-hk-arity	claude-code	2026-08-31T18:40:15Z	higher-kinded-generic-field-corrupts-arity-of-an-unrelated-val-class-elsewhere-in-scope	file:v2/BUGS.md file:tests/conformance/contract-roster.tsv file:tests/conformance/corpus-baseline.tsv file:tests/conformance/kr-hk-field-arity.ssc file:tests/conformance/expected/kr-hk-field-arity.txt file:tests/conformance/kr-hk-field-arity-lib.ssc
-v3-infix-two-state-gate	claude-code	2026-08-31T20:50:39Z	infix-application-does-not-reach-a-declared-class-method	file:v3/infix-front-split-gate.sh file:v3/BUGS.md file:scripts/smoke-ci.ssc
