@@ -1,4 +1,4 @@
-# generation: 3219
+# generation: 3220
 #slug	agent	started	items	paths
 harvest-optional-baselines	claude-code	2026-08-31T05:30:50Z	smoke-baseline-harvest-deletes-optional-check-rows	tests/smoke-baseline-harvest.sh tests/smoke-baseline.tsv tests/BUGS.md
-f-front-diagnostic-channel	claude-code	2026-08-31T05:31:51Z	f-front-exit-reason	file:v1/runtime/Main.scala file:v2/BUGS.md
+f-front-diagnostic-channel	claude-code	2026-08-31T05:31:51Z	f-front-exit-reason	file:v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala file:v2/BUGS.md
