@@ -1,3 +1,48 @@
+## bugs-report-no-gate-misses-a-none-with-a-trailing-comment — the gate gap was under-reported by a fifth
+
+<!-- status: fixed
+     lane: apparatus
+     area: build
+     kind: bug
+     gate: scripts/bugs-report --self-test
+     reported-by: claude-code
+     reported-at: 2026-08-31
+     confirmed: yes
+     fixed-in: 708886817 -->
+
+`names_no_gate` tested membership in `("", "none", "-")` — an EXACT match — so every entry that
+annotates its emptiness was invisible to `--no-gate`: `gate: none — open defect`,
+`gate: none — two-line reproducers below`, `gate: none yet`, `gate: - (nothing yet)`.
+
+**Measured 2026-08-31: the query answered 17 where the truth is 21.** The tool that measures the
+gate gap under-reported it by a fifth, in the direction that flatters — the one nobody re-checks.
+Found while acting on that very list, so the work would have been sized against a number 19% too
+small.
+
+**Second time in the same place, and the first fix is the reason.** The function's own docstring
+records that `gate: -` was once invisible for exactly this reason. That was repaired by
+**enumerating one more literal**, which fixed the five entries spelling it that way and left the
+shape untouched. Adding `none yet` to the tuple would have been a third instance of one mistake, so
+the predicate now asks the real question: does the value start with an empty marker **at a word
+boundary**.
+
+The boundary is load-bearing rather than tidiness: `startswith`, or a split on `-`, would call a
+real gate named `none-such/path.sh` gateless — trading an under-report for an over-report. An
+absent `gate:` field is tested first and separately, since it arrives as `""` and the marker
+pattern needs a marker.
+
+`--self-test` added and wired into smoke as `bugs-report-no-gate`. Its NEGATIVE cases are the
+load-bearing half: asserting only that empty forms are caught would be satisfied by `return True`,
+and a predicate calling every entry gateless is as useless as one calling none of them so. Verified
+by restoring the old predicate — the self-test fails on precisely the five invisible forms, and
+passes again on restore.
+
+**A correction in the other direction, recorded because both halves matter:** `bugs-report`'s open
+COUNT is right and a hand-rolled `grep -c 'status: open'` is wrong. The grep gives 106; five of
+those matches are `status: open` appearing in PROSE, discussing a header rather than being one.
+106 − 5 = 101, the report's number. The standing rule — ask the tool, never grep the prose — held.
+The tool was wrong about gates and right about status.
+
 ## smoke-ci-passes-its-precondition-on-an-unbuilt-worktree — the suite ran zero checks and exited 1, which reads exactly like a red
 
 <!-- status: fixed
