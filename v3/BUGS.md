@@ -310,6 +310,28 @@ uniml-only row and would raise the front-diff ceiling — the same trade
 `abstract-val-in-an-extern-class-is-a-field-declaration` records refusing, a weakened guard bought
 to place a test. The entry stays OPEN for the uniml half.
 
+### CORRECTED AGAIN, SAME DAY — the front is chosen by `uniml.cp`, not by `run` vs `exec`
+
+The paragraph above says the v3 half is fixed because `v3/ssc3 run` prints 42/42. **That measurement
+is conditional and I did not say on what.** Measured properly:
+
+| `v3/.jars/uniml.cp` | `ssc3 run` | `ssc3 exec` |
+|---|---|---|
+| absent | **42 / 42** | **42** |
+| present | REFUSED `[spike.expected]` | REFUSED `[spike.expected]` |
+
+So `run` and `exec` do NOT differ, and the front is selected by whether the uniml classpath is
+registered. Every "the v3 half is fixed" reading above was taken in a tree without it — true there,
+false in a built one, and stated as if unconditional.
+
+**Consequence for gating: this defect cannot be pinned by a `.refuses` fixture at all.** Its verdict
+flips with the classpath, so the fixture would be green in one tree and red in another and neither
+colour would be about the compiler. One was written and withdrawn; a lane-selecting extension to
+the `.refuses` slot was written and REVERTED with it, because the distinction it encoded does not
+exist.
+
+The entry stays open and ungated, now for an accurate reason.
+
 ### RE-MEASURED 2026-08-31 — THE v3 HALF IS FIXED, THE REMAINING HALF IS DESCRIBED WRONG
 
 `v3/ssc3 run` on the reproducer prints **42 / 42**: `Box(40) add 2` reaches the declared method.
@@ -324,10 +346,10 @@ whoever picks this up.
 **AND IT HAS NO GATE BECAUSE THE HARNESS CANNOT HOLD ONE — measured, not assumed.** A fixture was
 written and withdrawn:
 
-* `v3/tests/front/*.ssc` **with** an `.expected` is run by `exec-gate.sh`, which invokes
-  `ssc3 exec` — and `exec` routes through the SPIKE front, the same one that cannot parse the
-  construct. The fixture turned exec-gate RED with the parse error, i.e. the gate refuses the case
-  for exactly the reason the case exists to record.
+* `v3/tests/front/*.ssc` **with** an `.expected` is run by `exec-gate.sh`, and the fixture turned
+  exec-gate RED with the parse error — the gate refusing the case for exactly the reason the case
+  exists to record. (The explanation first given here, that `exec` routes through the spike front
+  while `run` uses v3's own, was WRONG; see the correction below.)
 * A fixture **without** an `.expected` is skipped by both `exec-gate.sh` and `front-diff.sh`
   ("printing its Ast is not meaningful"), so it checks nothing.
 

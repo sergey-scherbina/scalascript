@@ -102,10 +102,25 @@ echo "── fixtures that must be REFUSED, and the refusal is the defect ──
 # finds the entry. The failure message says so rather than leaving someone to guess whether to
 # relax it.
 #
-# `ssc3 run` and NOT `ssc3 exec`: they are different lanes. `run` goes through v3's own front,
-# `exec` through the spike front — measured, on the infix-method fixture, which `run` executes to
-# 42/42 while `exec` cannot parse it. A refusal recorded against the wrong lane would pin a
-# different defect from the one the entry describes.
+# `ssc3 run` rather than `ssc3 exec` — but NOT for the reason first written here, and the correction
+# matters more than the choice.
+#
+# THAT REASON WAS WRONG. It said `run` goes through v3's own front and `exec` through the spike
+# front, citing the infix-method program which `run` executed to 42/42 while `exec` could not parse.
+# Measured properly 2026-08-31, BOTH commands behave the same way, and what actually decides is
+# whether `v3/.jars/uniml.cp` EXISTS:
+#
+#     uniml.cp absent  ->  run: 42/42        exec: 42
+#     uniml.cp present ->  run: REFUSED      exec: REFUSED   (spike.expected)
+#
+# The same command, the same file, opposite answers. So a fixture whose verdict flips with the
+# classpath cannot live here at all: it would be green in a built tree and red in a fresh one, or
+# the reverse, and neither colour would be about the compiler. One was written for the infix method
+# and WITHDRAWN for exactly that.
+#
+# What a `.refuses` fixture must therefore be is STABLE ACROSS THAT SWITCH, and the one below is —
+# `refuses-interpolator-name-collision` gives the identical message with uniml registered and
+# without, checked both ways. Check that before adding another.
 for f in v3/tests/front/*.ssc; do
   name="$(basename "$f" .ssc)"
   want_file="v3/tests/front/$name.refuses"
