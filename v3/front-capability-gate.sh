@@ -263,24 +263,30 @@ declare -a KNOWN_CONF_UNIML_ONLY=(
   # `KNOWN_CONF_DISAGREE` in `front-diff.sh` with the module that owns each named. A file that
   # stopped being one-sided belongs out of this list either way — this list guards the capability
   # gap, and a disagreement is a different bucket with a different ceiling.
+  # SIX MORE CAME OUT THE SAME DAY AND ARE NOT RELATED TO THE FOUR ABOVE — `coroutine-native-lifecycle`,
+  # `dataset-agg`, `distributed-callback-user-throw`, `generator-callback-user-throw`, `mcp-types`,
+  # `try-catch-exception-delivery`. They were ALREADY stale on `origin/main`, and that was measured
+  # rather than assumed: from a checkout at the SAME base with no local change, all six read
+  # `v3=Y uniml=Y` — both fronts print them, so none is one-sided and none belongs in this list. The
+  # plain-`class` work turns exactly FOUR rows two-sided and touches none of these six.
+  #
+  # Which means this gate was RED on main before that branch existed, for the second time (the entry
+  # above this list records 2026-08-23). A declaration goes stale whenever a front gains a construct,
+  # and the commit that gains it has no reason to look here — so the staleness lands on whoever runs
+  # the gate next. Removing them is bookkeeping, not a capability change.
   curried-extern-import js-http-client-config
   actors-bounded-mailbox actors-process-info indent-block-statements
   actors-cluster-visibility
-  coroutine-native-lifecycle
   curried-def-clauses
-  dataset-agg
-  distributed-callback-user-throw
   fewer-braces-colon
   for-comprehensions
   for-yield-layout
   fs-confined
-  generator-callback-user-throw
   json-deep-import
   json-self-hosted-import
   literal-pattern-in-case-lambda
   mcp-server-resource
   mcp-server-tool
-  mcp-types
   predef-notimplemented
   scljet-byte-codec
   std-fs-failure
@@ -301,7 +307,6 @@ declare -a KNOWN_CONF_UNIML_ONLY=(
   tkv2-select-reactive
   tkv2-textfield-reactive-label
   tkv2-tri-state
-  try-catch-exception-delivery
   try-catch-io-failure
   type-ascription
   type-ascription-list
