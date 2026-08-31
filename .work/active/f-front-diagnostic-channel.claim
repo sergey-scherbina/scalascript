@@ -2,10 +2,10 @@ slug: f-front-diagnostic-channel
 branch: feature/f-front-diagnostic-channel
 agent: claude-code
 started: 2026-08-31T05:31:51Z
-heartbeat: 2026-08-31T05:31:51Z
+heartbeat: 2026-08-31T07:48:31Z
 status: claimed-before-planning
 items: f-front-exit-reason
 paths: file:v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala file:v2/BUGS.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: tee tower stderr into TowerResult; gate on a doc-module subject (pass-through + capture)
+next: coordinator took over the stranded claim; tee tower stderr into TowerResult, gate on a doc-module subject
