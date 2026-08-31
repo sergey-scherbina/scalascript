@@ -59,5 +59,5 @@ class RustGenCurriedDefsTest extends AnyFunSuite:
         |```
         |""".stripMargin
     val g = gen(src)
-    assert(g.contains("pub fn label(prefix: String, n: i64) -> String"), g)
-    assert(g.contains("""label("x".to_string(), 5i64)"""), g)
+    assert(g.contains("pub fn label(prefix: &String, n: i64) -> String"), g)
+    assert(g.contains("""label(&"x".to_string(), 5i64)"""), g)

@@ -1177,10 +1177,19 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # landed without the distinction) from a bare code unit. The parenless `xs.mkString` spelling
 # needed the same treatment in its own arm, and the collector and predicate that back both live
 # in separate methods and cost nothing here. RAISED, NOT REVERTED, same terms as every entry above.
+# renderTerm 42908 -> 43036 (+128), from taking read-only `Vec`/`String` parameters of EVERY def
+# by shared reference, not just class methods'. renderTerm's share is the two arms that decide what
+# an argument becomes: skipping `cloneIfMoved` at a position the callee borrows (without it the two
+# rewrites compose into `&xs.clone()` — copy, then borrow the copy) and copying a reference-valued
+# capture into a move-closure by rebinding rather than `.clone()`, which auto-derefs to
+# `String::clone` and silently turns a `&String` into an owned `String`. Measured: a match-arm guard
+# in `uniml/markdown`'s inline lexer was cloning the whole 48 KB line at every character — one
+# 64 KB line parsed in 35.203 s and now parses in 0.220 s, 160x, with the four corpora unchanged.
+# RAISED, NOT REVERTED, same terms as every entry above.
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25540 scalascript.codegen.JsGen::genExpr
-42908 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+43036 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

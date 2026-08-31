@@ -138,7 +138,7 @@ class RustGenR2Test extends AnyFunSuite:
         |```
         |""".stripMargin
     val g = gen(src)
-    assert(g.contains("""format!("Hi {} #{}", name, n)"""),
+    assert(g.contains("""format!("Hi {} #{}", (*name), n)"""),
       s"format-emit not found in:\n$g")
 
   test("""s"…" with braces in literal text escapes them as {{/}}"""):

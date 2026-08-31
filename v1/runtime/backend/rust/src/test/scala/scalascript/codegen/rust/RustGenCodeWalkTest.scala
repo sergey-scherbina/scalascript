@@ -1072,7 +1072,7 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |```
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
-    assert(g.contains("""panic!("{}", msg)"""), s"the throw should panic with just the message field:\n$g")
+    assert(g.contains("""panic!("{}", (*msg))"""), s"the throw should panic with just the message field:\n$g")
 
   test("catching into a multi-field exception TYPE reconstructs the struct, not a bare String"):
     // `try ... catch case e: ParseError => Left(e)` (`uniml/xml`'s `Doc.scala`'s `parse`) — this
@@ -1109,7 +1109,7 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(g.contains(".map_or("), s"Option.fold should lower to .map_or:\n$g")
-    assert(g.contains("localName.clone()"), s"the multi-use default should be cloned:\n$g")
+    assert(g.contains("(*localName).clone()"), s"the multi-use default should be cloned:\n$g")
 
   test("a struct-typed (non-variant) parameter needs no let-else destructure"):
     // `parentName: Markup.QName` (`uniml/xml`'s `Doc.scala`'s `readContent`) — `QName` is a plain
@@ -1327,7 +1327,7 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |```
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
-    assert(g.contains("parse(src, ") || g.contains("parse(src,"),
+    assert(g.contains("parse((*src).clone(), ") || g.contains("parse(src,"),
       s"the qualified call should get its default argument filled:\n$g")
 
   test("`opt.orElse(other)` renames to `.or_else(|| other)`"):
@@ -1592,7 +1592,7 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |```
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
-    assert(g.contains(".insert(prefix.clone())"), s"the Set.add argument must be cloned:\n$g")
+    assert(g.contains(".insert((*prefix).clone())"), s"the Set.add argument must be cloned:\n$g")
 
   test("a `Map(k -> v)` literal clones a multi-use key AND value"):
     // `Map(XmlNamespace -> XmlNamespaceUri)` then `XmlNamespaceUri` read again later in the same
@@ -1608,7 +1608,7 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |```
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
-    assert(g.contains("v.clone()"), s"the map literal's multi-use value must be cloned:\n$g")
+    assert(g.contains("(*v).clone()"), s"the map literal's multi-use value must be cloned:\n$g")
 
   test("`.collect{}`'s implicit `Some(...)` wrap clones a `byRefMut` arm body"):
     // `element.children.collect { case child: Markup.Element => child }` (`uniml/xml`'s
@@ -1738,7 +1738,7 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     // which is not an assignment at all, keeps the immutable concat form. Either way the
     // multi-use element must arrive cloned, which is this test's subject — pinning one SPELLING
     // would make it a golden of the lowering rather than a check of the move-safety rule.
-    assert(g.contains("&[attribute.clone()][..]") || g.contains("push(attribute.clone())"),
+    assert(g.contains("&[attribute.clone()][..]") || g.contains("push((*attribute).clone())"),
       s"the appended element must be cloned:\n$g")
 
   test("`xs = xs :+ x` (SELF-append) pushes in place — the O(n²) parser fix — while every other `:+` keeps the immutable concat"):
@@ -1777,7 +1777,7 @@ class RustGenCodeWalkTest extends AnyFunSuite:
       s"a self-append must push in place, not rebuild the whole vector:\n$g")
     assert(g.contains("""xs = [&(xs)[..], &[(xs.len() as i64)][..]].concat()"""),
       s"an appended element that reads the collection must keep the concat form (E0502):\n$g")
-    assert(g.contains("""[&(a)[..], &[b][..]].concat()"""),
+    assert(g.contains("""[&((*a))[..], &[b][..]].concat()"""),
       s"a non-self `:+` must keep the immutable concat form:\n$g")
 
   test("an implicit-receiver self-method call clones a multi-use argument"):
@@ -1799,7 +1799,7 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |```
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
-    assert(g.contains("self.helper(id.clone())"), s"the implicit self-method call must clone a multi-use argument:\n$g")
+    assert(g.contains("self.helper((*id).clone())"), s"the implicit self-method call must clone a multi-use argument:\n$g")
 
   test("`s.takeWhile(char => …)` on a String does not call a closure literal as an IIFE"):
     // `value.drop(2).takeWhile(char => !isXmlWhitespace(char) && char != '?')` (`uniml/xml`'s
@@ -1920,7 +1920,7 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |```
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
-    assert(g.contains("startsNumber(value.to_string())") || g.contains("startsNumber(value.to_string().clone())"),
+    assert(g.contains("startsNumber(&value.to_string())") || g.contains("startsNumber(value.to_string().clone())"),
       s"a string-pattern guard reading the bind-all name should coerce it to an owned String:\n$g")
 
   test("a `foldLeft` into `Map.empty[K, V]` knows its accumulator is a Map, not a Vec"):
@@ -2020,8 +2020,8 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |```
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
-    assert(g.contains("_str_char_at(&lexeme, 0i64)"), s".head on a String should read its first char:\n$g")
-    assert(g.contains("_str_length(&lexeme) - 1i64"), s".last on a String should read its last char:\n$g")
+    assert(g.contains("_str_char_at(&(*lexeme), 0i64)"), s".head on a String should read its first char:\n$g")
+    assert(g.contains("_str_length(&(*lexeme)) - 1i64)"), s".last on a String should read its last char:\n$g")
 
   test("`xs :+ (a, b)` appends a TUPLE literal element, not two positional infix args"):
     // `stack = stack :+ (token.charAt(0), token)` (`uniml/yaml`'s `YamlStructure.scala`'s
@@ -2035,7 +2035,7 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |```
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
-    assert(g.contains("[&(stack)[..], &[(c, token)][..]].concat()"), s":+ should append the tuple as one element:\n$g")
+    assert(g.contains("[&((*stack))[..], &[(c, (*token).clone())][..]].concat()"), s":+ should append the tuple as one element:\n$g")
 
   test("`x +: xs` prepends a single element, the mirror of `:+`"):
     // `0 +: documentStarts` (`uniml/yaml`'s `YamlStructure.scala`'s `streamAndDocuments`) — had no
@@ -2046,7 +2046,7 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |```
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
-    assert(g.contains("[&[0i64][..], &(xs)[..]].concat()"), s"+: should prepend the element:\n$g")
+    assert(g.contains("[&[0i64][..], &((*xs))[..]].concat()"), s"+: should prepend the element:\n$g")
 
   test("`xs.indices` lowers to a Range, and `.map`/`.foreach` on it don't call `.iter()`"):
     // `tokens.indices.map { index => … }` / `tokens.indices.foreach { index => … }` (`uniml/yaml`'s
@@ -2062,9 +2062,9 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |```
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
-    assert(g.contains("(0i64..(tokens).len() as i64)"), s".indices should lower to a Range:\n$g")
+    assert(g.contains("(0i64..((*tokens)).len() as i64)"), s".indices should lower to a Range:\n$g")
     assert(!g.contains(".indices).iter()"), s".indices chain must not call .iter() on a Range:\n$g")
-    assert(g.contains("for i in (0i64..(tokens).len() as i64)"), s".foreach on a Range should be a plain for-loop:\n$g")
+    assert(g.contains("for i in (0i64..((*tokens)).len() as i64)"), s".foreach on a Range should be a plain for-loop:\n$g")
 
   test("`x ||= y` / `x &&= y` desugar to plain reassignment (Rust has neither operator)"):
     val src =
@@ -2579,11 +2579,19 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     // them — but the loop BODY runs once per iteration, and each run needs its own owned copy for
     // a by-value callee parameter: the first iteration moves the value, and the second
     // iteration's read is `error[E0382]: use of moved value`.
+    // The parameter is a case class, NOT a `String`, and that is load-bearing: a read-only
+    // `String`/`Vec` parameter is taken by shared reference now (`_refParamPos`), so a `String`
+    // here would be `&String` at the callee and the call site would correctly pass a borrow with
+    // no clone at all — the fixture would compile, the assertion would fail, and nothing about
+    // loop-body cloning would have been tested. A struct still arrives by value, which is exactly
+    // the shape this test is about.
     val src =
       """```scalascript
-        |def consume(value: String, cursor: Int): Int = cursor + value.length
+        |case class Word(text: String)
         |
-        |def loop(value: String, end: Int): Int =
+        |def consume(value: Word, cursor: Int): Int = cursor + value.text.length
+        |
+        |def loop(value: Word, end: Int): Int =
         |  var cursor = 0
         |  while cursor < end do
         |    cursor = consume(value, cursor)
@@ -2738,7 +2746,7 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |```
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
-    assert(g.contains("""format!("{}{}{}", lexeme, line.raw, line.lineBreak)"""),
+    assert(g.contains("""format!("{}{}{}", (*lexeme), line.raw, line.lineBreak)"""),
       s"a chain of + over struct fields must flatten into ONE format!, not a nested or bare + :\n$g")
 
   test("a call to a function-typed PARAMETER unwraps an SscChar argument"):
@@ -2760,7 +2768,7 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |```
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
-    assert(g.contains("pred((crate::runtime::_str_char_at(&s, i)).0)"),
+    assert(g.contains("pred((crate::runtime::_str_char_at(&(*s), i)).0)"),
       s"a call to a function-typed parameter must unwrap an SscChar argument via .0:\n$g")
 
   test("`.head`/`.last` on a String yields SscChar, unwrapped in a tuple literal"):
@@ -2777,7 +2785,7 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |```
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
-    assert(g.contains("(crate::runtime::_str_char_at(&rest, 0i64)).0"),
+    assert(g.contains("(crate::runtime::_str_char_at(&(*rest), 0i64)).0"),
       s"a String's .head in a tuple literal must unwrap via .0, same as .charAt:\n$g")
 
   test("an Option-pipeline `.getOrElse(strLit)` is recognized as string-shaped in a + chain"):
@@ -2794,7 +2802,7 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |```
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
-    assert(g.contains("format!(\"{}{}\", withBreak") && g.contains(".unwrap_or(\"\".to_string()))"),
+    assert(g.contains("format!(\"{}{}\", (*withBreak)") && g.contains(".unwrap_or(\"\".to_string()))"),
       s"an Option-pipeline .getOrElse(strLit) chained with + must flatten into one format!, not a bare +:\n$g")
 
   test("a type-pattern match arm's bare-name body clones a ref-bound value"):
@@ -2914,7 +2922,7 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |```
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
-    assert(g.contains("match (kind).as_str() {")
+    assert(g.contains("match ((*kind)).as_str() {")
       && g.contains("\"markdown.heading\" => \"a heading\".to_string(),")
       && g.contains("\"markdown.paragraph\" => \"a paragraph\".to_string(),"),
       s"a stable-identifier pattern over a String-valued topval must match by its literal value:\n$g")
@@ -3313,7 +3321,7 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     // the fresh vector, so the clone was pure waste. Both spellings accepted — the rule under test
     // is the index-range lowering, not which of them produces it.
     assert(g.contains("lines[(index as usize)..(last as usize)].to_vec()")
-        || g.contains("(lines)[(index as usize)..(last as usize)].to_vec()"),
+        || g.contains("((*lines))[(index as usize)..(last as usize)].to_vec()"),
       s"xs.slice(from, until) must lower to index-range + to_vec, and be a known seq for the .mkString chained after it:\n$g")
 
   test("a tuple-destructured val whose rhs is an if/else with a call in one branch resolves Strings"):
@@ -3545,7 +3553,7 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |```
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
-    assert(g.contains("m2[(((out.len() as i64) - 1i64)) as usize] = VmToken { instruction: rewritten, ..(last).clone() };"),
+    assert(g.contains("m2[((((*out).len() as i64) - 1i64)) as usize] = VmToken { instruction: rewritten, ..(last).clone() };"),
       s"Vec.updated must replace at the given index, not fall to a Map-style .insert (which shifts elements):\n$g")
 
   test("a Vec closure param's element STRUCT type resolves through `.iterator` and through a captured var's own alias inside a lifted local def"):
@@ -3598,7 +3606,7 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |```
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
-    assert(g.contains("crate::runtime::_str_region_matches(&content, true, i, &(\"www.\".to_string()), 0i64, 4i64)"),
+    assert(g.contains("crate::runtime::_str_region_matches(&(*content), true, i, &(\"www.\".to_string()), 0i64, 4i64)"),
       s"String.regionMatches must route to the new _str_region_matches runtime helper:\n$g")
 
   test("`s.lastIndexOf(charExpr)` on a String lowers the same way `.indexOf` already does, via `str::rfind`"):
@@ -3895,7 +3903,7 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(g.contains("__n: &str = &char::from_u32((10i64) as u32).unwrap_or('\\u{FFFD}').to_string()") &&
              g.contains("__h.find(__n)"),
       s"a char needle on a String receiver must lower through the Unicode-safe find()+UTF-16-count path, not .iter():\n$g")
-    assert(g.contains("&char::from_u32(((crate::runtime::_str_char_at(&content, i)).0) as u32)"),
+    assert(g.contains("&char::from_u32(((crate::runtime::_str_char_at(&(*content), i)).0) as u32)"),
       s"a genuine SscChar needle must have its .0 unwrapped before the as u32 cast:\n$g")
 
   test("a bare `case None =>` must match Option's own None even when a sibling enum ALSO declares a nullary case named `None`"):
@@ -3969,9 +3977,9 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(g.contains("fn check(t: String, out: &mut Vec<String>, __self: &Scanner) {") &&
-             g.contains("if __self.isLong(t.clone())"),
+             g.contains("if __self.isLong(&t)"),
       s"a lifted def calling ANOTHER self-method must capture __self and call through it, not through a nonexistent self:\n$g")
-    assert(g.contains("check(text, &mut out, self);"),
+    assert(g.contains("check((*text).clone(), &mut out, self);"),
       s"the CALL SITE (still inside the enclosing self-aware method) must forward the real self:\n$g")
 
   test("a local def lifted out of a mutable class's own method, capturing a ctor param, must NOT read that capture as `self.field`"):
@@ -4016,7 +4024,7 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(g.contains("fn emit(lexeme: String, out: &mut Vec<Tok>, source: SourceId) {") &&
              g.contains("Tok { source: source, lexeme: lexeme }"),
       s"a lifted def's OWN body must read a captured self-field as its new plain parameter, not self.field:\n$g")
-    assert(g.contains("emit(text, &mut out, self.source.clone());"),
+    assert(g.contains("emit((*text).clone(), &mut out, self.source.clone());"),
       s"the CALL SITE (still inside the enclosing self-aware method) must pass the self-field as self.field:\n$g")
 
   test("`case WFixed(Vector(Tok(MdKind.Text, lexeme, _, _))) => …` — a Vec-typed field destructured through a fixed-arity sequence sub-pattern"):
@@ -4576,7 +4584,7 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |```
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
-    assert(g.contains("markers.iter().cloned().any(|__x| lc.contains(&__x))"),
+    assert(g.contains("(*markers).iter().cloned().any(|__x| (*lc).contains(&__x))"),
       s"a .contains method reference must borrow its owned closure argument:\n$g")
 
   test("a local val bound to an if/else of char-conceptual arms — even NESTED inside an if-block, not just at the def's own top level — and `.toInt` on a name (not just a literal), are both recognized as char-conceptual indexOf needles"):
@@ -4610,9 +4618,9 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |```
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
-    assert(g.contains("_str_index_of_from(&content, &(char::from_u32((close2) as u32).unwrap_or('\\u{FFFD}').to_string()), (i + 1i64))"),
+    assert(g.contains("_str_index_of_from(&(*content), &(char::from_u32((close2) as u32).unwrap_or('\\u{FFFD}').to_string()), (i + 1i64))"),
       s"close2 (an if/else-bound local nested inside an if-block, not a .charAt() call or literal) must be recognized as a char-conceptual needle:\n$g")
-    assert(g.contains("_str_index_of_from(&content, &(char::from_u32((crate::runtime::_to_int(&q)) as u32).unwrap_or('\\u{FFFD}').to_string()), (i + 1i64))"),
+    assert(g.contains("_str_index_of_from(&(*content), &(char::from_u32((crate::runtime::_to_int(&q)) as u32).unwrap_or('\\u{FFFD}').to_string()), (i + 1i64))"),
       s"q.toInt (a NAME's .toInt, not a literal's) must be recognized as a char-conceptual needle:\n$g")
 
   test("a multi-use name in a bare if/else branch tail position gets the SAME clone-on-move safety a call argument already gets"):
@@ -4756,7 +4764,7 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |```
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
-    assert(g.contains("namedEntities().get(&body).cloned().unwrap_or(lex.into())"),
+    assert(g.contains("namedEntities().get(&(*body)).cloned().unwrap_or((*lex).into())"),
       s"a bare zero-arg-def reference used as a Map receiver must insert the implicit () call:\n$g")
 
   test("`xs.exists { case p => … }` / `xs.forall { case p => … }` — a PartialFunction argument — rename to `.any`/`.all` the same way a Function argument already does"):
@@ -4777,7 +4785,7 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |```
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
-    assert(g.contains("edges.iter().cloned().any(|__pf| match __pf {"),
+    assert(g.contains("(*edges).iter().cloned().any(|__pf| match __pf {"),
       s"a PartialFunction argument to .exists must rename to .any, not emit the Scala method name verbatim:\n$g")
 
   test("`.filter`/`.map` on a String receiver lower via `.chars()`, and a String-typed local built from `.map` still resolves `.head`/`.last`"):
@@ -4938,7 +4946,7 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |```
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
-    assert(g.contains("i64::from_str_radix(&(s), 10u32).unwrap_or(0)"),
+    assert(g.contains("i64::from_str_radix(&((*s)), 10u32).unwrap_or(0)"),
       s"Integer.parseInt(s) (one-arg) must lower via from_str_radix with a literal radix-10:\n$g")
     assert(g.contains("crate::runtime::_char_to_lowercase((c).0)"),
       s"Character.toLowerCase(c) must route to the new runtime helper with c's SscChar unwrapped:\n$g")
@@ -5017,7 +5025,7 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |```
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
-    assert(g.contains("let lines = split(text);"),
+    assert(g.contains("let lines = split((*text).clone());"),
       s"MdLine.split(text) must resolve via the object-member call path, not the String.split lowering:\n$g")
     assert(!g.contains("MdLine.split"),
       s"the bare object reference must never be rendered as a String.split receiver:\n$g")
@@ -5244,7 +5252,7 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |```
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
-    assert(g.contains("[&(declared)[..], &[handle][..]].concat()"),
+    assert(g.contains("[&(declared)[..], &[(*handle).clone()][..]].concat()"),
       s"a Set/Vec + element must never take the string-concat lowering, even with a String RHS:\n$g")
 
   test("`Int.MaxValue`/`Int.MinValue` — Scala's boxed-numeric static constants"):
@@ -5313,9 +5321,9 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |```
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
-    assert(g.contains("m2.insert(handle.clone()"),
+    assert(g.contains("m2.insert((*handle).clone()"),
       s"the map-pair key, used again in a sibling arg, must be cloned:\n$g")
-    assert(g.contains("&[handle.clone()][..]") || g.contains("&[handle][..]"),
+    assert(g.contains("&[(*handle).clone()][..]") || g.contains("&[handle][..]"),
       s"the map-pair value must be present:\n$g")
 
   test("`tokens.indices.map { ... tokens ... }` then `tokens` again later clones at the move-capture"):
@@ -5398,7 +5406,7 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     // `lines.slice(index, last)` copy a whole document to build a one-line window, 80% of a
     // 128 KB parse's allocations. Both spellings kept so the test guards the RULE, not the
     // mechanism.
-    assert(g.contains("xs.clone().into_iter().take(") || g.contains("(xs).iter().cloned().take("),
+    assert(g.contains("xs.clone().into_iter().take(") || g.contains("((*xs)).iter().cloned().take("),
       s"a multi-use Vec receiver must be cloned before the consuming .into_iter().take:\n$g")
 
   test("`xs.groupBy(f)` on a Vec and on a Range both compile and group correctly"):
@@ -5420,7 +5428,7 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(g.contains("__groups: Vec<(_, Vec<_>)> = Vec::new()"),
       s"groupBy on either receiver must build a Vec<(K, Vec<V>)> group accumulator:\n$g")
     assert(g.contains("for index in (0i64.."), s"the Range receiver must iterate directly, not via .iter():\n$g")
-    assert(g.contains("for s in xs.iter().cloned()"), s"the Vec receiver must iterate via .iter().cloned():\n$g")
+    assert(g.contains("for s in (*xs).iter().cloned()"), s"the Vec receiver must iterate via .iter().cloned():\n$g")
 
   test("a tuple-destructured local from an if/else of `->`-pairs is known as a String"):
     // `val (handle, suffix) = if rawTag.startsWith("!!") then "!!" -> rawTag.drop(2) else …`

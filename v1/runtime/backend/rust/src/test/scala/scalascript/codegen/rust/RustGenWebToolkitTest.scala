@@ -81,7 +81,7 @@ class RustGenWebToolkitTest extends AnyFunSuite:
         |```
         |""".stripMargin
     val g = gen(src)
-    assert(g.contains("""format!("hi {}", who)"""),
+    assert(g.contains("""format!("hi {}", (*who))"""),
       s"expected the bare-name splice unchanged, got:\n$g")
 
   // ── S1: HTML/SSR binding of the std/ui View primitives ─────────────

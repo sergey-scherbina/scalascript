@@ -52,7 +52,7 @@ class RustGenR25Test extends AnyFunSuite:
         |```
         |""".stripMargin
     val g = gen(src)
-    assert(g.contains("xs.into_iter().map(move |x| { (x * 2i64) }).collect::<Vec<_>>()"),
+    assert(g.contains("(*xs).into_iter().map(move |x| { (x * 2i64) }).collect::<Vec<_>>()"),
       s"for-yield emit not found in:\n$g")
 
   test(".size / .length / .len on a Vec emit as .len() as i64"):
@@ -63,7 +63,7 @@ class RustGenR25Test extends AnyFunSuite:
         |```
         |""".stripMargin
     val g = gen(src)
-    assert(g.contains("(xs.len() as i64)"),
+    assert(g.contains("((*xs).len() as i64)"),
       s"len-emit not found in:\n$g")
 
   test("RustCapabilities declares ForComprehensions + ExtensionMethods + DefaultParameters"):

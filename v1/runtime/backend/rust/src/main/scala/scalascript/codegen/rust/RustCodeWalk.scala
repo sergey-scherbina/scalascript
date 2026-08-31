@@ -402,22 +402,61 @@ object RustCodeWalk:
           case other => other.flatMap(ty => mapType(ty, d.name.value, userTypeNames).toOption).getOrElse("")
       }
     }.toMap
-    // SCOPED TO CLASS METHODS, and the scoping is what makes this affordable. The measured hot
-    // spots (`scanRefDef`, `isTableStart`, `refDefAt`, 93% of a 128 KB parse's allocations) are all
-    // methods called through `self`, which is ONE call path to teach. Widening it to every
-    // top-level def was tried and reverted in the same sitting: the ordinary call path, the
-    // qualified-call path and the intrinsic path would each need the same treatment, and the four
-    // uniml corpora came back with 63 errors between them. Narrow, measured, and one call site.
-    _refParamPos = defs.filter(d => methodOwnerByPos.contains(d.pos.start)).map { d =>
-      val ps = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).toList
-      val written = collectDirectWrites(d.body, ps.map(_.name.value).toSet)
-      d.name.value -> ps.zipWithIndex.collect {
-        case (p, i)
-          if p.decltpe.flatMap(t => mapType(t, d.name.value, userTypeNames).toOption)
-               .exists(_.startsWith("Vec<")) &&
-             !written.contains(p.name.value) &&
-             !returnsNameDirectly(d.body, p.name.value) => i
-      }.toSet
+    // A read-only `Vec`/`String` parameter is taken by SHARED REFERENCE, so a call site borrows
+    // instead of copying. Was scoped to class methods; widened to EVERY def once the cost of not
+    // doing so was measured. `uniml/markdown`'s inline lexer has a match-arm guard
+    // `isExtendedAutolinkStart(content, i, pending)` evaluated at every character of a line, and
+    // `content` is the whole line: 48 KB memcpy per character, quadratic. Same bytes, one 16 KB
+    // line 2.076 s vs wrapped at 80 columns 0.068 s — 30×, and the profile is 100% memmove under
+    // that one guard.
+    //
+    // KEYED BY BARE NAME, which is only sound when the name resolves to ONE shape. Two unrelated
+    // defs can share a name (`step` belongs to every Processor in `uniml/core`), a flat `.toMap`
+    // keeps whichever came last, and the positions of one def then get applied to another — the
+    // caller borrows what the callee takes by value, or the body derefs what was never a
+    // reference. That is `error[E0614]: type VmState cannot be dereferenced`, 56 of the 160 errors
+    // the first widening produced, and it is the same trap `_returnTypes` documents a few lines
+    // below. So a name is kept only when EVERY def carrying it agrees on the position set; one
+    // disagreement drops the name entirely and it keeps passing by value. Conservative on purpose:
+    // this table is read by three separate call paths, and a wrong answer is a miscompile in all
+    // three, while a missing answer is only a copy.
+    // A def whose NAME is ever used as a VALUE — `cells.map(splitCells)`, or stored and passed on
+    // like `uniml/xml`'s `validateComment` — cannot take a parameter by reference here. The whole
+    // rewrite depends on a CALL SITE inserting the `&`, and an eta-expansion has no call site to
+    // teach: the signature changes under a `fn(&String) -> …` that the iterator then refuses
+    // (`error[E0631]: type mismatch in function arguments`, and its follow-on `Map<Cloned<Iter<'_,
+    // String>>, fn(&String) -> …> is not an iterator` — 7 of the 19 errors at this step).
+    // Function POSITION of an `Apply` is the one place a bare name is not a value, so that is the
+    // single spot the walk skips; everything else, arguments included, counts.
+    val defNamesForRef = defs.map(_.name.value).toSet
+    def namesUsedAsValues(t: m.Tree): Set[String] = t match
+      case m.Term.Apply.After_4_6_0(_: m.Term.Name, args) => args.values.flatMap(namesUsedAsValues).toSet
+      case m.Term.Name(n) if defNamesForRef.contains(n)   => Set(n)
+      case other                                          => other.children.flatMap(namesUsedAsValues).toSet
+    val etaExpanded = defs.flatMap(d => namesUsedAsValues(d.body)).toSet
+
+    _refParamPos = defs.groupBy(_.name.value).collect {
+      case (name, ds) if !etaExpanded.contains(name) =>
+        val perDef = ds.map { d =>
+          val ps = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).toList
+          val written = collectDirectWrites(d.body, ps.map(_.name.value).toSet)
+          ps.zipWithIndex.collect {
+            case (p, i)
+              if p.decltpe.flatMap(t => mapType(t, d.name.value, userTypeNames).toOption)
+                   .exists(t => t.startsWith("Vec<") || t == "String") &&
+                 // `StringBuilder` also maps to `String` — and it is the ONE `String` a body
+                 // mutates without an assignment, through `append`. `collectDirectWrites` looks for
+                 // writes to the NAME, so it sees nothing, and the parameter looked read-only:
+                 // `&String` for something the body then calls `.push_str` on, which rustc reports
+                 // against the deref as "no method named `push_str` found for type `str`"
+                 // (35 of 71 errors, `uniml/xml`'s `serializeNode(node, sb: StringBuilder, …)`).
+                 // Tested on the DECLARED type, the same way `renderParams` finds these params.
+                 !p.decltpe.exists { case m.Type.Name("StringBuilder") => true; case _ => false } &&
+                 !written.contains(p.name.value) &&
+                 !returnsNameDirectly(d.body, p.name.value) => i
+          }.toSet
+        }.distinct
+        name -> (if perDef.sizeIs == 1 then perDef.head else Set.empty[Int])
     }.toMap.filter(_._2.nonEmpty)
 
     // Populated BEFORE `_returnTypes`, because a return type may name a variant.
@@ -3445,6 +3484,17 @@ object RustCodeWalk:
       // every call, which is where `dispatchLeaf`'s per-line `refDefLines(lines.clone(), …)` came
       // from; see the signature site for the measurement.
       liftedRefCaptures: Set[String] = Set.empty,
+      // The subset of `byRefMut` that is there because of `_refParamPos` — a read-only `Vec`/
+      // `String` PARAMETER taken by shared reference — as opposed to a genuine `&mut` capture.
+      // Both are "already a reference in this scope", which is why they share `byRefMut`, but they
+      // differ where it counts: a `&mut` capture is one the lifted callee ALSO declares by
+      // reference, so it forwards bare, while one of these is a parameter of the ENCLOSING def and
+      // the lifted callee still declares it by value. Forwarding it bare hands `&String` to a
+      // `String` parameter — 21 of the 35 errors left at this step, all in `uniml/xml`'s
+      // `scan`, whose local defs capture its `input`. Kept as its own set rather than inferred at
+      // the call site: the call site cannot see WHY a name is a reference, and guessing wrong is a
+      // miscompile in either direction.
+      refValueParams: Set[String] = Set.empty,
       // Lifted-def NAMES (across every def lifted together in one pass) whose transitive call
       // subtree reaches a `self.method(...)` call — `fn isIndentedCode = ... self.
       // startsListOrQuote(trimmed) ...`, a local def lifted out of `MarkdownBlocks`'s own `parse`
@@ -4118,6 +4168,8 @@ object RustCodeWalk:
                         // deref-on-read path — so it joins the same set rather than needing a new
                         // one. `byRefMutWrite` is deliberately NOT extended: these are `&T`.
                         byRefMut = _refParamPos.getOrElse(name, Set.empty)
+                          .flatMap(i => extractParamNames(d).lift(i)).toSet,
+                        refValueParams = _refParamPos.getOrElse(name, Set.empty)
                           .flatMap(i => extractParamNames(d).lift(i)).toSet,
                         destructuredCtorNames = paramVariantDestructures ++ collectAsInstanceOfCtorNames(d.body, ctorMap),
                         asInstanceOfBindings = collectAsInstanceOfCtorNames(d.body, ctorMap).keySet,
@@ -6136,7 +6188,17 @@ object RustCodeWalk:
       // only the one type spelling changes. The body sees these names in `ctx.byRefMut` so a bare
       // read derefs; call sites read `_refParamPos` and pass a reference instead of a clone.
       val refNames = _refParamPos.getOrElse(d.name.value, Set.empty).flatMap(k => params.lift(k).map(_.name.value))
-      val ok2 = refNames.foldLeft(ok)((acc, nm) => acc.map(_.replace(nm + ": Vec<", nm + ": &Vec<")))
+      // Match the WHOLE rendered parameter, never a prefix of it. `nm + ": String"` is a prefix of
+      // `nm + ": StringBuilder"`, and a `.replace` on that turns a StringBuilder parameter into
+      // `&StringBuilder` — a type the body then cannot push to. `Vec<` is safe as a prefix because
+      // the rest is the element type, so the two shapes are tested differently on purpose.
+      val ok2 = refNames.foldLeft(ok)((acc, nm) =>
+        acc.map { p =>
+          if p == s"$nm: String" then s"$nm: &String"
+          else if p.startsWith(s"$nm: Vec<") then p.replace(s"$nm: Vec<", s"$nm: &Vec<")
+          else p
+        }
+      )
       Right((ok2 ++ effParam).mkString(", "))
 
   /** Extract the effect name from a def's return type if it has `T ! E` form.
@@ -6919,6 +6981,16 @@ object RustCodeWalk:
             defParams = ctx.defParams ++ ownParamNames ++ myCaptures.toSet,
             byRefMut  = myByRefMut ++ myRefCaptures,
             byRefMutWrite = myByRefMut.filter(myWrites.contains),
+            // RESET, not inherited. `byRefMut` just above is recomputed from scratch for this
+            // lifted def, and `refValueParams` has to follow it or the two describe different
+            // scopes. The enclosing def's `input: &String` arrives here as this def's OWN
+            // by-value `input: String` parameter, and an inherited entry made a plain read emit
+            // `(*input)` — which derefs `String` through its `Deref<Target = str>` and lands on
+            // `error[E0599]: no method named clone found for type str`. Nothing inside a lifted
+            // def is a `_refParamPos` shared reference: the lifted `&Vec<…>` parameters are a
+            // separate mechanism (`liftedDefParamTypes` -> `refParamNames`) and correctly forward
+            // bare, which is exactly the behaviour this set exists to NOT apply to.
+            refValueParams = Set.empty,
             // `def emit(...) = ... SourceSpan(source, start, pos) ...` lifted out of `MarkdownBlocks`'s
             // own `parse` (`uniml/markdown`'s `MarkdownBlocks.scala`) — `source` is a ctor param of the
             // ENCLOSING mutable class (`trueSelfFields`, since `parse` is a genuinely mutable class's
@@ -7526,7 +7598,11 @@ object RustCodeWalk:
         // the one place this arm ever turns a capture NAME into TEXT.
         val extra = ctx.liftedDefExtraArgs(n).map { c =>
           val selfPrefix = if ctx.trueSelfFields.contains(c) then "self." else ""
-          if ctx.byRefMut.contains(c) then s"$selfPrefix$c"
+          // Checked BEFORE `byRefMut`, which it is a subset of: see `Ctx.refValueParams`. The
+          // lifted callee declares this capture by value, so it needs an owned copy — the same
+          // `(*x).clone()` `cloneIfMoved` gives a reference read at any other by-value position.
+          if ctx.refValueParams.contains(c) then s"(*$selfPrefix$c).clone()"
+          else if ctx.byRefMut.contains(c) then s"$selfPrefix$c"
           else if ctx.liftedMutableCaptures.contains(c) then s"&mut $selfPrefix$c"
           // A read-only `Vec` capture takes `&` here instead of a whole-vector `.clone()` — see
           // `Ctx.liftedRefCaptures`. Checked AFTER `byRefMut`, which already means "this name is a
@@ -10633,8 +10709,20 @@ object RustCodeWalk:
           case RuntimeCall(target) => BorrowedArgIntrinsics.contains(target)
           case _                   => false
         }
+        // A parameter the CALLEE takes by shared reference (`_refParamPos`) is not moved either, so
+        // it must skip `cloneIfMoved` for the same reason `borrowsArgs` does. Without this the two
+        // rewrites compose into the worst of both: the arm below wraps the ALREADY-cloned text and
+        // emits `&xs.clone()` — a full copy, then a borrow of the copy. The signature says `&Vec`
+        // and the call still copies, so the whole optimisation reads as applied and measures as
+        // absent. The `self.`-prefixed twin above never had this because it borrows from the RAW
+        // rendered term and only calls `cloneIfMoved` on the other branch.
+        val calleeRefPos = fn match
+          case m.Term.Name(n) => _refParamPos.getOrElse(n, Set.empty)
+          case _              => Set.empty[Int]
         val renderedArgsBase = if borrowsArgs then renderedArgs0 else
-          argTerms.zip(renderedArgs0).map((arg, rendered) => cloneIfMoved(arg, rendered, ctx))
+          argTerms.zip(renderedArgs0).zipWithIndex.map { case ((arg, rendered), i) =>
+            if calleeRefPos.contains(i) then rendered else cloneIfMoved(arg, rendered, ctx)
+          }
         // Vararg call site (`f(a)(xs: T*)`): wrap the trailing args into one `vec![…]`
         // (the curried chain was flattened, so they arrive as plain trailing args).
         val renderedArgs = fn match
@@ -12872,7 +12960,16 @@ object RustCodeWalk:
         // is what is being decided, not anything `reborrowCtx` already widened) needs the `*`.
         val reborrows = liftedCallReborrows.map(n =>
           if ctx.byRefMut.contains(n) then s"let $n = &mut *$n;" else s"let $n = &mut $n;")
-        val clones = toClone.map(n => s"let ${rustIdent(n)} = ${rustIdent(n)}.clone();")
+        // A name that is ALREADY a shared reference here (`_refParamPos`) is captured by copying
+        // THE REFERENCE, never by cloning. `&String` is `Copy`, so a `move` closure takes it
+        // without consuming anything — and `.clone()` on one does not do what it reads like: method
+        // resolution auto-derefs to `String::clone`, so `let content = content.clone();` silently
+        // rebinds `content` as an OWNED `String` and every use inside the closure then fails
+        // against a `&String` parameter (`error[E0308]: expected &String, found String`, the last
+        // 2 errors of the 160 this widening started with, in `uniml/markdown`'s `tryReference`).
+        val clones = toClone.map(n =>
+          if ctx.refValueParams.contains(n) then s"let ${rustIdent(n)} = ${rustIdent(n)};"
+          else s"let ${rustIdent(n)} = ${rustIdent(n)}.clone();")
         val prelude = (reborrows ++ clones).mkString(" ")
         if prelude.isEmpty then closure else s"{ $prelude $closure }"
 
