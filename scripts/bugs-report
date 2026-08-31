@@ -31,8 +31,23 @@ def names_no_gate(row):
 
     The empty-ish values are spelled out rather than tested by truthiness: `0` and `false` would be
     legal gate paths.
+
+    AND THE EXACT-MATCH FIX WAS ITSELF ONE CELL OF THE MATRIX. Adding `-` to the tuple fixed the
+    five entries that spelled it that way and left every entry that ANNOTATES its emptiness still
+    invisible: `gate: none — open defect`, `gate: none — two-line reproducers below`,
+    `gate: none yet`. Measured 2026-08-31 — the query answered 17 where the truth was 21, so the
+    tool that measures the gate gap under-reported it by a fifth, again in the direction that
+    flatters. Enumerating one more literal would repeat the mistake a third time; the general
+    shape is "the value STARTS with an empty-ish token", so that is what this now asks. A real
+    gate path never begins with `none` or `-` followed by a separator.
     """
-    return (row.get("gate") or "").strip() in ("", "none", "-")
+    value = (row.get("gate") or "").strip()
+    # The marker must be the WHOLE value or be followed by whitespace. Splitting on `-` instead
+    # would call a real gate named `none-such/path.sh` gateless — the empty marker has to end at a
+    # word boundary, not merely start the string.
+    # An ABSENT `gate:` field arrives here as "" and is the most gateless state of all — it must be
+    # tested first, because the marker pattern below requires a marker to be present.
+    return value == "" or bool(re.match(r"(none|-)(\s|$)", value, re.I))
 
 
 # The bug files, in module order. Discovered rather than listed: a module gets a file when it has
@@ -207,7 +222,37 @@ def main():
                          "Exists so a consumer (scripts/next) reuses THIS parser instead of "
                          "growing a second one over the same headers.")
     ap.add_argument("--count", action="store_true")
+    ap.add_argument("--self-test", action="store_true",
+                    help="prove names_no_gate() can tell an annotated 'none' from a real path")
     a = ap.parse_args()
+
+    if a.self_test:
+        # WHY THIS EXISTS AT ALL. `names_no_gate` has now been wrong TWICE in the same direction —
+        # under-reporting the gate gap, which is the direction nobody re-checks because it flatters.
+        # First `gate: -` was invisible; the fix ENUMERATED one more literal, so `gate: none — why`
+        # was invisible next. Both times the query that answers "what is unprotected" answered too
+        # low: 17 where the truth was 21, measured 2026-08-31.
+        #
+        # The negative cases are the load-bearing half. Asserting only that the empty forms are
+        # caught would be satisfied by `return True`, and a predicate that calls every entry
+        # gateless is exactly as useless as one that calls none of them so. `none-such/path.sh` is
+        # the case a split-on-dash implementation gets wrong.
+        cases = [
+            ("", True), (None, True), ("none", True), ("-", True), ("None", True),
+            ("none — open defect", True), ("none — two-line reproducers below", True),
+            ("none yet", True), ("- (nothing yet)", True),
+            ("tests/e2e/foo.sh", False), ("tests/conformance/run.sh", False),
+            ("scripts/coord-claim --self-test", False), ("none-such/path.sh", False),
+        ]
+        bad = [(v, want, names_no_gate({"gate": v})) for v, want in cases
+               if names_no_gate({"gate": v}) != want]
+        if bad:
+            for v, want, got in bad:
+                print(f"bugs-report --self-test: FAIL gate={v!r} expected {want}, got {got}")
+            return 1
+        print(f"bugs-report --self-test: OK ({len(cases)} cases; an annotated 'none' counts as "
+              f"gateless, a path merely starting with 'none-' does not)")
+        return 0
 
     root = pathlib.Path(__file__).resolve().parent.parent
     names = ("BUGS.md",) if a.source == "bugs" else ("BUGS.md", "BACKLOG.md")

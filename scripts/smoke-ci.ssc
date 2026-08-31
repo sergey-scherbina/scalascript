@@ -883,6 +883,13 @@ val suite = List(
   // this keeps the DETECTOR alive (planted fixtures, not a frozen count, which every migration
   // would falsify). <1 s.
   Check("scripts", "bugs-status-drift", "tests/e2e/bugs-status-drift-gate.sh", List(), 60000),
+  // The same argument one step further in. `bugs-report` being the ONLY sanctioned query makes its
+  // blind spots expensive, and `--no-gate` has now been wrong TWICE in the same direction: first
+  // `gate: -` was invisible, then — after a fix that enumerated one more literal — every
+  // `gate: none — <why>` was. It answered 17 where the truth was 21 (2026-08-31), under-reporting
+  // the unprotected set, which is the direction nobody re-checks because it flatters. The self-test
+  // carries the negative cases too, so a predicate that simply returns True cannot pass it. <1 s.
+  Check("scripts", "bugs-report-no-gate", "scripts/bugs-report", List("--self-test"), 60000),
   Check("scripts", "release-installer-launcher", "tests/e2e/release-installer-launcher.sh", List(), 180000),
   Check("scripts", "build-ram-guards-guard", "tests/e2e/build-ram-budget-gate.sh", List(), 180000),
 
