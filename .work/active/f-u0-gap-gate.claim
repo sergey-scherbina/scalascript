@@ -1,0 +1,11 @@
+slug: f-u0-gap-gate
+branch: feature/f-u0-gap-gate
+agent: claude-code
+started: 2026-08-31T20:39:33Z
+heartbeat: 2026-08-31T20:39:33Z
+status: claimed-before-planning
+items: f-u0-reduction-2026-08-15
+paths: file:tests/e2e/f-u0-gap-gate.sh file:tests/BUGS.md file:scripts/smoke-ci.ssc
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
