@@ -1652,7 +1652,9 @@ one.
      kind: bug
      reported-by: claude-code
      reported-at: 2026-08-16
-     confirmed: yes -->
+     confirmed: yes
+     gate: tests/e2e/check-accepts-what-the-runtime-rejects-gate.sh
+    -->
 
 **This is the defect the whole `TYPES MUST BE RIGHT` programme exists to remove, pointing the other
 way — and I introduced it myself on 2026-08-16 while fixing the first direction.**
@@ -1825,7 +1827,9 @@ closed on a narrower question than it asked is how work disappears:**
      kind: bug
      reported-by: claude-code
      reported-at: 2026-08-16
-     confirmed: yes -->
+     confirmed: yes
+     gate: tests/e2e/check-accepts-what-the-runtime-rejects-gate.sh
+    -->
 
 **Found 2026-08-16 by a probe, not by a sweep** — the corpus has no case of this shape, which is why
 it has never been noticed.

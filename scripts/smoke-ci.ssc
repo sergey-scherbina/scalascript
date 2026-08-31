@@ -890,6 +890,14 @@ val suite = List(
   // the unprotected set, which is the direction nobody re-checks because it flatters. The self-test
   // carries the negative cases too, so a predicate that simply returns True cannot pass it. <1 s.
   Check("scripts", "bugs-report-no-gate", "scripts/bugs-report", List("--self-test"), 60000),
+  // A gate that PINS A DEFECT rather than asserting correctness, and goes red when the defect is
+  // fixed — on purpose. `check` says OK on two programs the runtime then rejects (tests/BUGS.md
+  // check-accepts-names-the-v1-runtime-does-not-have and
+  // a-flat-def-passed-where-a-curried-type-is-declared), both of which carried `gate: none`. The
+  // two assertions per subject are a pair: "check says OK" alone would pass on a build where check
+  // does nothing, and "run fails" alone would pass on a program broken for an unrelated reason, so
+  // the runtime MESSAGE is asserted too. ~40 s (two `check` runs on the tools tier).
+  Check("tests", "check-accepts-what-the-runtime-rejects", "tests/e2e/check-accepts-what-the-runtime-rejects-gate.sh", List("--self-test"), 300000),
   Check("scripts", "release-installer-launcher", "tests/e2e/release-installer-launcher.sh", List(), 180000),
   Check("scripts", "build-ram-guards-guard", "tests/e2e/build-ram-budget-gate.sh", List(), 180000),
 
