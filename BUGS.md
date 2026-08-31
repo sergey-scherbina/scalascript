@@ -6000,7 +6000,7 @@ re-imposing the manifest-derived skip brings back `E0425: cannot find value Tool
      ssc-version: febd37e88
      repro: `setsid nohup bash tests/e2e/rust-std-survey-gate.sh`
      confirmed: yes
-     fixed-in: PENDING -->
+     fixed-in: 7fa2d1899 -->
 
 **A CORRECTION TO A CLAIM ALREADY LANDED.** The release note for `rust-mcp-resources-prompts` and the
 message of `58bb272f4` both say the std survey "could not be run — three attempts died after 1-3
