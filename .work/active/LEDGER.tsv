@@ -1,2 +1,3 @@
-# generation: 3237
+# generation: 3238
 #slug	agent	started	items	paths
+v2-gateless-known-red	claude-code	2026-08-31T12:26:09Z	case-class-array-field-cannot-be-indexed-directly given-with-method-cannot-close-over-a-top-level-val js-v2-lane-has-no-Char-at-all	file:v2/BUGS.md file:tests/conformance/contract-roster.tsv file:tests/conformance/corpus-baseline.tsv file:tests/conformance/kr-case-class-array-field.ssc file:tests/conformance/kr-given-with-closes-over-top-level-val.ssc file:tests/conformance/kr-js-v2-char.ssc
