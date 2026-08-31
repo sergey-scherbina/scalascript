@@ -967,7 +967,7 @@ the agreement table before and after.
      reported-by: claude-code
      reported-at: 2026-08-27
      confirmed: yes
-     fixed-in: PENDING_SHA -->
+     fixed-in: 8fc32c98c -->
 
 ### 2026-08-27, corrected — THE ENTRY BELOW WAS WRONG, and I was one commit from building on it
 
