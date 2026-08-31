@@ -1,3 +1,2 @@
-# generation: 3253
+# generation: 3254
 #slug	agent	started	items	paths
-v3-refuses-fixture-slot	claude-code	2026-08-31T17:23:35Z	v3-fixture-harness-has-no-must-refuse-slot	file:v3/exec-gate.sh file:v3/BUGS.md file:v3/front-diff.sh file:v3/tests/front/refuses-interpolator-name-collision.ssc file:v3/tests/front/refuses-interpolator-name-collision.refuses
