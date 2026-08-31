@@ -1,3 +1,47 @@
+## smoke-ci-passes-its-precondition-on-an-unbuilt-worktree — the suite ran zero checks and exited 1, which reads exactly like a red
+
+<!-- status: fixed
+     lane: apparatus
+     area: build
+     kind: bug
+     reported-by: claude-code
+     reported-at: 2026-08-31
+     confirmed: yes
+     gate: tests/e2e/smoke-ci-precondition-gate.sh --self-test
+     fixed-in: d07b38b20 -->
+
+`bin/ssc` is TRACKED IN GIT; `bin/lib/` is a build product and is not. So a fresh
+`scripts/new-worktree` checkout has an executable launcher and no toolchain behind it, and both
+of smoke-ci's preconditions let it through:
+
+- `[[ -x bin/ssc ]]` passes — the launcher is a checked-in script.
+- the staleness check is **skipped, not failed**. Both branches are conditional on
+  `bin/lib/.build-digest` or `.build-stamp` being readable; an unbuilt tree has neither, so the
+  `if`/`elif` falls through with nothing to compare.
+
+The suite then started, failed to load `scalascript.cli.StandardMain`, and exited 1 having run
+ZERO checks — indistinguishable from a real failure.
+
+**The guard was careful about a STALE tower and blind to an ABSENT one**, which is the strictly
+worse case. A stale tower gives a verdict about the wrong code; an absent one gives a verdict
+about no code at all, while wearing a red's exit status.
+
+**Measured 2026-08-31: two agents hit it independently within minutes**, several cycles each.
+One was at that moment trying to establish whether the suite STALLS — where an instant exit 1 is
+the opposite failure mode, so the blindness cost an extra round just to tell the two apart. A
+second independent occurrence is data about the tool, not about the agent.
+
+**FIXED** by checking the artifact the launcher actually loads (`bin/ssc:106` puts
+`bin/lib/standard/ssc.jar` on the classpath and asks for `scalascript.cli.StandardMain`), not
+`bin/lib/` merely existing — a half-built tree with the directory and no jar fails identically.
+
+The gate's assertion is scoped to what the change introduced. Asserting smoke-ci "fails" on an
+unbuilt tree would have passed before the fix too; it always failed, just uselessly. So the
+load-bearing assertion is the NEGATIVE one — the output must not contain `Could not find or load
+main class`, which is present exactly when the launcher was reached. A second case with the jar
+present keeps the guard from being over-broad, and `--self-test` reconstructs the pre-fix script
+and requires the launcher to BE reached, so a green cannot mean the gate is not looking.
+
 ## claim-path-comma-separator-and-dir-prefix — a comma-joined `--paths` claimed nothing, and the refusal printed the paths it would not match
 
 <!-- status: fixed
