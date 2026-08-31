@@ -1,3 +1,51 @@
+## f-records-no-supertype-for-a-declared-class-or-trait — the parent direction was not answerable
+
+<!-- status: fixed
+     lane: v2-jvm
+     area: front
+     kind: bug
+     gate: tests/conformance/run.sh
+     reported-by: claude-code
+     reported-at: 2026-08-31
+     confirmed: yes
+     fixed-in: 77d444c15 -->
+
+F kept no usable record of what a type extends. `collectSubRegAcc` entered only `isCCHead`, so plain
+classes and traits were never seen; `collectSRext` took the FIRST token after `extends` and nothing
+more; `skipExtends` discarded the rest of the chain. "What does this type extend" therefore had no
+answer inside F — the prerequisite for the static nominal conformance check the owner decided F must
+have (2026-08-31, on the basis that **v1 is scheduled for removal**, so "the v1 Typer already does
+it" is not an argument for F not doing it — see [[project_v1_is_scheduled_for_removal]]).
+
+**FIXED** by `collectNomReg`, which records the whole declared chain — `extends A with B, C` — for
+every case class and trait. It mirrors `skipWithChain` exactly and is written beside it, because the
+walk that RECORDS a parent and the walk that SKIPS one must not learn different separators: if one
+grows a separator and the other does not, F either skips a parent it failed to record, or records
+one it then failed to skip — and the second corrupts the token stream.
+
+**`subReg` is deliberately NOT widened.** It feeds `subtypeChildren`, which expands a typed pattern
+over a type's children, so adding trait edges or later parents there would change which patterns
+match what — a byte-affecting change to pattern matching, from a change meant to be about
+conformance. Its narrowness is load-bearing.
+
+**How the slice is gated at all, which decided its shape.** F is PURE — its only intrinsic is
+`#coreir.encode` and it has no I/O — so a detector that prints findings is impossible inside it, and
+a table nothing reads is a table nothing checks. So the table was made load-bearing instead:
+`mkCxE` now builds subReg as `nomToSubReg(collectNomReg(ts))`, a projection to case-class children
+and first-declared parents. The old table is a VIEW of the new one, every corpus case and all
+typed-pattern lowering run through it, and a defect in the walk shows up as changed matching rather
+than as silence. The four superseded defs are deleted rather than left beside it.
+
+**What it proves and what it does not**, stated in the source as well: the projection pins the
+case-class/first-parent rows exactly; trait rows and later parents come from the SAME walk but are
+not independently pinned, because nothing reads them yet. The slice that reads them brings their gate.
+
+Measured: corpus 378 passed, 0 failed of 378 with zero truncation signatures; typed pattern over
+`extends` agrees across both fronts; a `with` chain keeps the FIRST-declared parent even though
+`nomChain` prepends; and the **negative control** — `nomLast` swapped for `hd`, rebuilt — made `Dog`
+print `other` instead of `animal`, the predicted failure, so the probe discriminates and the
+ordering is load-bearing. Tower rebuilt and re-staged itself with the change.
+
 ## f-front-exit-reason — the CLI reported an exit CODE where a diagnostic existed
 
 <!-- status: fixed
