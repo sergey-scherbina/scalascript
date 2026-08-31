@@ -1146,10 +1146,21 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # arm was already there, this widens its guard by one disjunct (`isDeclaredStringName`, a new
 # top-level helper that costs nothing here) and changes the emitted string. RAISED, NOT REVERTED,
 # same terms as every entry above.
+# renderTerm 42576 -> 42828 (+252), from the SELF-EXTEND lowering: `xs = xs ++ ys` now emits
+# `xs.extend(ys.iter().cloned())` instead of `[&(xs)[..], &(ys)[..]].concat()`. The `++` twin of
+# the self-append entry above, and the one that sat in `UniML_parse`'s OWN per-token loops — eight
+# sites on `tokens`, `roots` and `diagnostics`, each copying the whole accumulated vector once per
+# TOKEN of the document. Measured on a 256 KB markdown parse: 61.8 s -> 14.4 s. Inline for the same
+# reason the self-append arm is (it must see both sides of the assignment); the guard is shared and
+# was itself fixed here — `readsName` counted a FIELD spelled like the variable
+# (`stepped.batch.diagnostics`) as a read of it, so the guard silently refused the very sites it
+# most wanted; `readsNameAsValue` (a new top-level helper, no cost here) walks only a Select's
+# qualifier. RAISED, NOT REVERTED, same terms as every entry above: a real asymptotic fix on a
+# method already 5.35x a limit it has long been over.
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25540 scalascript.codegen.JsGen::genExpr
-42576 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+42828 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

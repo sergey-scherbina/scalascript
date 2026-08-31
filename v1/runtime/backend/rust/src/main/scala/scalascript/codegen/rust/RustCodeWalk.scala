@@ -942,6 +942,21 @@ object RustCodeWalk:
       case m.Term.Name(n) if n == name => true
       case _                           => t.children.exists(readsName(_, name))
 
+  /** `readsName`, but a FIELD NAME does not count as reading the variable it is spelled like.
+   *
+   *  `diagnostics = diagnostics ++ stepped.batch.diagnostics` (`uniml/core`'s `UniML.scala`) —
+   *  `readsName` walks `Term.Select`'s field half too, so it saw the `diagnostics` in
+   *  `.batch.diagnostics` and reported that the right-hand side reads the accumulator. It does
+   *  not: that is a projection out of `stepped`, and the variable is untouched. The self-extend
+   *  and self-append rewrites are guarded on exactly this question, so the false positive silently
+   *  cost them the sites they most wanted — `UniML_parse`'s own per-token accumulators. Only the
+   *  QUALIFIER of a `Select` is walked here; everything else defers to `readsName`. */
+  private def readsNameAsValue(t: m.Tree, name: String): Boolean =
+    t match
+      case m.Term.Name(n)          => n == name
+      case m.Term.Select(qual, _)  => readsNameAsValue(qual, name)
+      case _                       => t.children.exists(readsNameAsValue(_, name))
+
   private def collectExtensionMembers(module: ast.Module): List[(String, (String, m.Type))] =
     def fromSection(s: ast.Section): List[(String, (String, m.Type))] =
       s.content.flatMap {
@@ -7317,6 +7332,30 @@ object RustCodeWalk:
       val n = a.lhs.asInstanceOf[m.Term.Name].value
       renderTerm(a.rhs, ctx).map(r => s"${ctx.moduleMutFields(n)}.with(|c| *c.borrow_mut() = $r)")
 
+    // `tokens = tokens ++ batch.values` — SELF-EXTEND, the `++` twin of the self-append below,
+    // and between them they are what made this lane's parsers quadratic.
+    //
+    // THIS ONE SITS IN `UniML_parse`'s OWN PER-TOKEN LOOPS — eight of them, on `tokens`, `roots`
+    // and `diagnostics` — so the whole accumulated vector was copied, element by element, once per
+    // TOKEN of the document. A profile of a 128 KB markdown parse after every other fix in this
+    // series was still ~4× per doubling and had gone FLAT: no dominant leaf, just `String::clone`
+    // and malloc/free everywhere, which is exactly what a per-iteration whole-vector copy looks
+    // like from the outside. `Vec::extend` appends in place: O(|rhs|) per step instead of
+    // O(|lhs| + |rhs|).
+    //
+    // Same three guards as the self-append case, for the same reasons (see its comment): the
+    // right-hand side must not READ the collection, and the receiver must be a known Vec —
+    // `++` is also how Scala concatenates Strings and Maps, and neither takes this `extend`.
+    // `.iter().cloned()` rather than moving the rhs: the concat form it replaces borrowed and
+    // cloned too, so nothing regresses, and a rhs that is still live afterwards keeps working.
+    case m.Term.Assign(lhs @ m.Term.Name(n), m.Term.ApplyInfix.After_4_6_0(m.Term.Name(n2), m.Term.Name("++"), _, rargs))
+        if n == n2 && rargs.values.sizeIs == 1 && isKnownVecReceiver(lhs, ctx) &&
+           !rargs.values.exists(readsNameAsValue(_, n)) =>
+      for
+        l <- renderTerm(lhs, ctx)
+        r <- renderTerm(rargs.values.head, ctx)
+      yield s"$l.extend(($r).iter().cloned())"
+
     // `out = out :+ x` — SELF-APPEND, lowered to an in-place `push` instead of the immutable
     // `[&(out)[..], &[x][..]].concat()` the general `:+` arm below produces.
     //
@@ -7346,7 +7385,7 @@ object RustCodeWalk:
     //     not a plain local), so they never reach here.
     case m.Term.Assign(lhs @ m.Term.Name(n), m.Term.ApplyInfix.After_4_6_0(m.Term.Name(n2), m.Term.Name(":+"), _, rargs))
         if n == n2 && rargs.values.nonEmpty && isKnownVecReceiver(lhs, ctx) &&
-           !rargs.values.exists(readsName(_, n)) =>
+           !rargs.values.exists(readsNameAsValue(_, n)) =>
       val appended = if rargs.values.sizeIs == 1 then rargs.values.head else m.Term.Tuple(rargs.values)
       for
         l  <- renderTerm(lhs, ctx)
