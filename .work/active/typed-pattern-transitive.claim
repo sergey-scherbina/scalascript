@@ -1,0 +1,11 @@
+slug: typed-pattern-transitive
+branch: feature/typed-pattern-transitive
+agent: claude-code
+started: 2026-08-31T10:18:06Z
+heartbeat: 2026-08-31T10:18:06Z
+status: claimed-before-planning
+items: typed-pattern-misses-a-subtype-reached-through-an-intermediate-trait
+paths: file:BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
