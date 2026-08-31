@@ -116,13 +116,14 @@ newline `Int]` still parses.
 
 ## v3-own-front-has-no-extern-class — `expected an expression, found class`
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      kind: feature
      area: front
      gate: v3/front-diff.sh (curried-extern-import and js-http-client-config are declared uniml-only)
      found-by: claude-code
-     found-at: 2026-08-19 -->
+     found-at: 2026-08-19
+     fixed-in: 527f04988 -->
 
 **v3's own front knows `extern` only before a top-level `def`.** `extern class UploadedFile:` — the
 way `std/http.ssc:169` and `std/geo.ssc:101` describe a host type's fields — is refused with
@@ -147,6 +148,17 @@ So this entry and `v3-front-cannot-parse-a-curried-member-method` are one defect
 plain-`class` branch reusing `parseCaseClass` with an optional parameter clause, plus admitting
 `extern` before `class` as it already is before `def`. The fuller measurement, including the false
 discriminator in that other entry, is recorded there.
+
+**FIXED 2026-08-31 by `527f04988`**, exactly as scoped above: `parseCaseClass` takes
+`requireParams`, and the new branch admits `extern` before `class`. `extern class UploadedFile:` and
+`class Box(n: Int):` both parse on `SSC3_FRONT=v3`; the deliberate refusals are unchanged, checked
+rather than assumed — a `trait`'s abstract `val` is still refused, and a `case class` with no
+parameter list still demands one.
+
+**AND THE PARAGRAPH ABOVE ABOUT UNIML WAS RIGHT, WHICH IS NOW A SEPARATE FILING.** "Whatever v3's
+front does here should attach them" is what v3's branch does; the projection still hoists. That is
+`uniml-extern-class-members-hoist-to-top-level`, and it is the reason `mcp-client-invoke` is a
+declared corpus disagreement rather than an agreement.
 
 ## abstract-val-in-an-extern-class-is-a-field-declaration — a declaration emits nothing
 
@@ -2084,15 +2096,16 @@ So this lands the day the rendering question is answered, together with it. The 
 the claim rather than in the tree; re-deriving it is twenty lines in `Lower.copyFits` and the `copy`
 arm beside it.
 
-## v3-front-cannot-parse-a-curried-member-method — the projection parses it, v3's own front stops at the class
+## v3-front-cannot-parse-a-curried-member-method — v3's own front had NO plain-`class` branch (the title names the wrong construct)
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      kind: bug
      area: front
-     gate: v3/front-capability-gate.sh (curried-def-member-methods is declared uniml-only)
+     gate: v3/front-diff.sh (curried-def-member-methods is a declared corpus disagreement, uniml-side)
      found-by: claude-code
-     found-at: 2026-08-24 -->
+     found-at: 2026-08-24
+     fixed-in: 527f04988 -->
 
 **TWO LINES:**
 
@@ -2134,6 +2147,20 @@ before `def`.
 Not attempted here — this claim's scope was `Lower.scala`, and `Parser.scala` belongs to whoever
 takes the class branch. Recorded so the next agent starts from the cause rather than from currying.
 
+**FIXED 2026-08-31 by `527f04988`.** `Box(1).plus(2)(3)` answers 6 and `tri` answers 10 on
+`SSC3_FRONT=v3`, so currying at the member position works — but it was never the defect, and the
+title is left in place with the correction attached rather than rewritten away, because the entry's
+whole value now is that it names a way a board entry can be wrong. It was not stale: it described a
+real refusal, with a correct repro, and pointed at the wrong cause. A discriminator that was never
+run ("the file parses the moment the member takes a single clause") is what carried the error, and
+it survived from 2026-08-24 to 2026-08-31 because every reader took the repro's *message* at face
+value — the refusal says `found class`, which was the answer, printed at line 1, for a week.
+
+**THE FILE STILL DISAGREES BETWEEN THE FRONTS, FOR A REASON THAT IS NOT THIS ENTRY'S.** v3 now
+prints `(class "Box" (fields (p "n")) …)`; the projection prints the same class with NO fields,
+because `SpikeAst.TraitDecl` carries no parameter list. Filed as
+`uniml-traitdecl-drops-class-parameters` and declared in `front-diff.sh`.
+
 **FOUND WHILE MEASURING SOMETHING ELSE, and the way it surfaced is worth keeping.** `6fbafea93`
 (2026-08-23, a curried-def fix) added `tests/conformance/curried-def-member-methods.ssc` and declared
 nothing, so `front-capability-gate.sh` went red on `origin/main` — and with it the ceiling
@@ -2143,3 +2170,68 @@ a red you caused, and the only way to tell is to run the gate on main.**
 
 The row is declared uniml-only now so the number means something again. The declaration comes OUT the
 day this parses.
+
+## uniml-traitdecl-drops-class-parameters — `class Box(n: Int)` reaches the projection with `n` already gone
+
+<!-- status: open
+     lane: v3
+     kind: bug
+     area: front
+     gate: v3/front-diff.sh (curried-def-member-methods is a declared corpus disagreement)
+     found-by: claude-code
+     found-at: 2026-08-31 -->
+
+**THE DIALECT PARSES A PLAIN `class` AS A TRAIT AND KEEPS NO PARAMETER LIST.**
+`SpikeAst.TraitDecl(keyword, name, parents, members, span)` is what
+`class Box(n: Int):` becomes, and it has no field for the constructor clause. The `keyword` records
+which of `trait`/`class` was written — so the NODE KIND is recoverable and, since `527f04988`,
+recovered — but the parameters are not there to recover.
+
+    class Box(n: Int):
+      def plus(a: Int)(b: Int): Int = n + a + b
+
+    v3     (class "Box" (fields (p "n")) (parents) (methods …))
+    uniml  (class "Box" (fields)         (parents) (methods …))
+
+The method body still reads `(name "n")` on both fronts, so uniml's tree references a name its own
+class declaration no longer declares.
+
+**WHY IT IS FILED AGAINST THE DIALECT AND NOT AGAINST `UniFront`.** The projection maps one
+declaration at a time onto v3's AST; it cannot invent a field list that was discarded upstream of it.
+The fix belongs in `SpikeAst`/`SpikeTyped` — give `TraitDecl` a parameter clause (or route a
+parameterised `class` to `CaseClass`, which already carries `fields`) — and `UniFront`'s `kw ==
+"class"` branch then has something to pass through.
+
+**IT WAS INVISIBLE UNTIL v3's OWN FRONT LEARNT `class`.** Before `527f04988` v3 REFUSED this file,
+so it was a one-sided capability gap, and the differential compares only files BOTH fronts print. A
+capability that lands on one front is what makes the other front's defects reachable.
+
+## uniml-extern-class-members-hoist-to-top-level — an `extern class` arrives with empty members and its `def`s as siblings
+
+<!-- status: open
+     lane: v3
+     kind: bug
+     area: front
+     gate: v3/front-diff.sh (mcp-client-invoke is a declared corpus disagreement)
+     found-by: claude-code
+     found-at: 2026-08-31 -->
+
+**`extern class C: def f(): Int` PROJECTS AS AN EMPTY CLASS PLUS A TOP-LEVEL `def f`.** The dialect
+has no `extern` handling at all, so the members are lifted out of the declaration rather than
+attached to it. On `std/mcp/client.ssc:45`, `extern class McpClient:`, that is twelve `def`s:
+
+    v3     (class "McpClient" (fields) (parents) (methods (def "listTools" …) … ×12))
+    uniml  (class "McpClient" (fields) (parents) (methods))
+           + twelve top-level (def …) siblings
+
+**v3's SHAPE IS THE INTENDED ONE, and that was written down before this was filed.**
+`v3-own-front-has-no-extern-class` already said of the projection: "the members are LIFTED out of the
+class rather than attached to it … Whatever v3's front does here should attach them." v3's front now
+attaches them. This entry is the other half of that sentence.
+
+**NOT FIXABLE IN `UniFront`, which is why it is declared rather than patched.** The sorter sees one
+declaration at a time. By the time the twelve siblings arrive, nothing says which class they came
+from — reattaching by position or by adjacency would be a guess, and a wrong guess here silently
+moves a method onto the wrong type. The same shape is what makes an abstract `val` inside an extern
+class arrive at the top-level sorter with no context, which
+`abstract-val-in-an-extern-class-is-a-field-declaration` had to reason about separately.
