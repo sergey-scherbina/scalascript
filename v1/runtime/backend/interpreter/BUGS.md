@@ -431,15 +431,16 @@ applied right-arity call, a real nullary method, and the given-instance control)
 
 ## bugs-index-gate-reads-prose-for-a-stale-open-entry-not-the-header — 18 entries carry a fix sha and read as open
 
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: conformance
      kind: apparatus
-     gate: none
+     gate: tests/e2e/bugs-index-gate.sh --self-test
      found-by: claude-code
      found-at: 2026-08-17
      repro: the census in the body
-     confirmed: yes -->
+     confirmed: yes
+     fixed-in: 6dda05c1d -->
 
 The gate DOES look for an entry whose fix has landed while it still reads `open`. What it keys on is
 BODY PROSE: the `STALE_HINT` pattern in `tests/e2e/bugs-index-gate.sh` — read it there rather than
@@ -486,6 +487,29 @@ belongs with whoever owns the gate, and this is the measurement they need to siz
 
 **MOVED HERE FROM `tests/BUGS.md` 2026-08-18**, on `tests/e2e/area-map-gate.sh`'s verdict: the
 `fixed-in` commit touches code this board owns. Filed-on-board is where the module's fixers read.
+
+### FIXED 2026-08-31 — the gate now reads the header too
+
+`status: open` alongside a `fixed-in:`/`fixed-at:` naming a real commit is now a FAILURE, not a
+report. The difference from the prose heuristic is deliberate and written at the check: a sha in
+PROSE is at least as often the commit that reported the defect, so it can only be counted; a
+`fixed-in:` in the HEADER means "the commit that fixed this", so an entry claiming both contradicts
+itself in machine-readable metadata.
+
+`-` and `unrecorded` are not flagged — 20 open entries carry `fixed-in: -` today and every one is
+correct. Scoped to `open` exactly.
+
+**The live count was already ZERO when this landed.** The 18 entries described above were cleaned
+up in the meantime, so this is prevention rather than repair, and it is recorded that way instead of
+being presented as a fix for a live number.
+
+**And it exposed that this gate's self-test was not asserting what it claimed.** Planting the new
+defect and running `--self-test` printed "11 planted defects all caught" — and so did deleting the
+new check entirely. The headline number is a LABEL, not a count; what is asserted is a list of
+message fragments, one per check, and a planted entry with no fragment in that list is decoration.
+Found by running the negative control, which is the only thing that could have found it. Fixed by
+adding a fragment that can only appear if this check fires, and by saying at the list that a new
+planted defect must bring its own assertion.
 
 ## int-concat-nonlist-builds-a-tuple — `List(1,2) ++ 5` was a TUPLE here and a list everywhere else
 
