@@ -1,0 +1,38 @@
+#!/usr/bin/env ssc
+---
+name: kr-mixed-concat-operands
+backends: [int, js, jvm, v2]
+also-codegen: v2
+known-red: "js-v2 — `List(1) ++ \"x\"` answers `List(1)x` instead of `List(1, x)`. Real Scala (the JVM lane) agrees with the interpreter, so this lane is simply wrong. Remove when BUGS.md mixed-concat-operands-mean-three-things-on-three-lanes is fixed — the suite fails until you do."
+---
+
+# `++` with a string on the left and a non-string on the right
+
+Executable record of BUGS.md `mixed-concat-operands-mean-three-things-on-three-lanes`, which
+had no gate. The entry measured five cells; three agree across lanes and two do not, and the
+two that do not are exactly "a string on the left, a non-string on the right".
+
+The agreeing rows are included deliberately. Without them a lane that broke `"x" ++ "y"` or
+list concatenation would still pass, and the case would be pinning the divergence while
+missing a regression next to it.
+
+TWO OF THE ENTRY'S FIVE CELLS ARE NOT LEGAL SCALA, and that is why they are absent here.
+`"x" ++ 1` and `"x" ++ List(1)` are rejected by the JVM lane, which compiles real Scala:
+*"None of the overloaded alternatives of method ++"*. So the entry's framing — three lanes,
+three answers, pick one — is the wrong question: no answer is right, and every lane accepting
+them is wrong to. Asserting any of the three values here would have frozen a behaviour the
+language does not have.
+
+What remains is legal, and on it the JVM lane is the ORACLE rather than a fourth opinion:
+`List(1) ++ "x"` is `List(1, x)` in Scala, which is what the interpreter, v1 JS, JVM and V2 all
+answer. The **js-v2** lane answers `List(1)x` — a divergence the entry does not record, because
+its table covered the v1 emitter only.
+
+```scalascript
+def main(): Unit =
+  println("x" ++ "y")
+  println((1, 2) ++ (3, 4))
+  println(List(1) ++ "x")
+
+main()
+```

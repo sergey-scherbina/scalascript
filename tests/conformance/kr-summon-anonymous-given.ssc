@@ -1,0 +1,33 @@
+#!/usr/bin/env ssc
+---
+name: kr-summon-anonymous-given
+backends: [int, js, jvm, v2]
+---
+
+# `summon` over an ANONYMOUS `given`
+
+Executable record of BUGS.md `interp-summon-over-an-anonymous-given`, which had no gate.
+
+The named form — `given intCombiner: Combiner[Int] with` — has always worked. The gap is the
+ANONYMOUS spelling, which is the idiomatic Scala 3 one and the one every typeclass module in
+`std/` uses. Both spellings are in the case, so a fix that only reaches one of them cannot go
+green: the named line proves the machinery is present, the anonymous line is the defect.
+
+```scalascript
+trait Combiner[A]:
+  def combine(a: A, b: A): A
+
+given namedCombiner: Combiner[String] with
+  def combine(a: String, b: String): String = a + b
+
+given Combiner[Int] with
+  def combine(a: Int, b: Int): Int = a + b
+
+def main(): Unit =
+  println(summon[Combiner[String]].combine("a", "b"))
+  println(summon[Combiner[Int]].combine(2, 3))
+  val c = summon[Combiner[Int]]
+  println(c.combine(2, 3))
+
+main()
+```
