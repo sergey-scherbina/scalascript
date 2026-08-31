@@ -18,14 +18,15 @@ Newest first.
 
 ## typed-pattern-misses-a-subtype-reached-through-an-intermediate-trait — `case _: Animal` does not match a `Dog extends Mammal extends Animal`
 
-<!-- status: open
+<!-- status: fixed
      lane: multi
      area: front
      kind: bug
-     gate: none
+     gate: tests/conformance/typed-pattern-transitive.ssc
      reported-by: claude-code
      reported-at: 2026-08-31
-     confirmed: no -->
+     confirmed: yes
+     fixed-in: ec5e4be0f -->
 
 A typed pattern sees only the DIRECT case-class children of the type it names. One intermediate
 trait and the match silently falls through.
@@ -83,6 +84,31 @@ tag tests and break that equality. The fix has to land in both or in neither.
 that `Dog` conforms to `Animal` and the pattern should match, which is what Scala does. If SSC
 deliberately restricts typed patterns to one level under the Tier 0 erasure bargain, that decision is
 written down nowhere I could find — and the absence of a diagnostic would still be wrong.
+
+**FIXED** in `ec5e4be0f`, both fronts in one commit — and **the sizing above was twice the real
+work.** It said the reference front would need a new trait-parent registry. It already had one:
+`tcExtendsCell` records `trait Child extends Parent` for the given/context-bound resolver, and
+`tcAncestors` already walks it transitively, fuel-bounded at 16. Both halves existed and were
+simply not joined. Only the PREDICATE widened, from `p == parent` to "p is parent, or parent is
+among p's ancestors" — the scan order is untouched, so a program with no indirect subtype emits
+the same tag tests in the same order.
+
+F was deliberately NARROWED to match: its table knows every parent of every case class and trait,
+the reference's knows only a trait's FIRST parent, so F asks its richer table the poorer question
+(`kind == "t"` rows, first parent, same fuel). Answering more here would be a byte-divergence, not
+a feature.
+
+**The corpus caught a defect in the regression case itself.** It first carried
+`trait A extends B` / `trait B extends A` to show the fuel bound terminates. It does on INT and
+JS — but the JVM lane compiles real Scala, which rejects the program: *"Cyclic inheritance: trait
+A extends itself"*. The input is not legal in the language, so it cannot be a conformance case.
+Removed, with the reason written into the case. The fuel bound remains as defence in depth for a
+malformed hierarchy reaching the lowerer past the checker, documented at the walk in both fronts.
+
+**Not claimed:** byte-level IR equality between the fronts. `SSC_DUMP_DEFS` prints definition
+names only and is structurally blind to emitted tag tests, and the CLI exposes no IR dump. The
+agreement rests on matching behaviour across every probe and on the corpus (379 passed, 0 failed).
+
 
 ## plugin-cli-two-disjoint-registries-and-a-blind-plugin-list — `ssc plugin list` said "(no plugins installed)" while plugins ran
 
