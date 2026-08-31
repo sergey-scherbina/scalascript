@@ -1,2 +1,3 @@
-# generation: 3254
+# generation: 3255
 #slug	agent	started	items	paths
+bugs-index-header-stale	claude-code	2026-08-31T18:24:25Z	bugs-index-gate-reads-prose-for-a-stale-open-entry-not-the-header	file:tests/e2e/bugs-index-gate.sh file:v1/runtime/backend/interpreter/BUGS.md
