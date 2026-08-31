@@ -426,7 +426,15 @@ object RunNativeV2:
       "ssc-native-frontend",
       useFNestedBytecode = fsubSrc.nonEmpty)
     if result.exitCode != 0 then
-      throw new RuntimeException(s"native frontend exited with ${result.exitCode}")
+      // THE REASON COMES FROM STDERR, NEVER FROM `output`. On this path stdout is the IR, so
+      // appending `output` would attach unrelated text and present it as the cause — the mistake
+      // that got the previous attempt reverted, recorded in f-front-exit-reason-gate.sh. When the
+      // front said nothing, say THAT rather than inventing a reason: `ssc info --front-report`
+      // buckets on this string, and a bucket that names no mechanism cannot be ranked.
+      val reason = result.errOutput.linesIterator.map(_.trim).filter(_.nonEmpty).toList.lastOption
+      throw new RuntimeException(reason match
+        case Some(r) => s"native frontend exited with ${result.exitCode}: $r"
+        case None    => s"native frontend exited with ${result.exitCode} and printed no diagnostic")
     val value = result.value
     if value == null then throw new RuntimeException("native frontend emitted no structural result")
     NativeV2Structural.decode(value, canonicalFiles)
@@ -443,10 +451,20 @@ object RunNativeV2:
         fields.collectFirst { case ("main", NativeManifestString(v)) if v.nonEmpty => v }
     }.flatten
 
+  /** `output` is the tower's captured STDOUT, which on the front path carries the IR — so it is
+    * NOT a diagnostic and must never be reported as one. `errOutput` is the tower's STDERR, teed
+    * rather than swallowed (see `runTower`), and it is where `#io.eprint` diagnostics arrive.
+    *
+    * The distinction is the whole point of this field existing. A previous attempt to give
+    * `native frontend exited with N` a reason appended `output`, which pasted unrelated IR text in
+    * and called it the cause; it was reverted. The checker path can get away with reading `output`
+    * (it prints `TYPEERR:` to stdout and the caller uses `checked.output`), and the front path
+    * cannot copy that, because on the front path stdout is the IR. */
   private final case class TowerResult(
       output: String,
       exitCode: Int,
-      value: _root_.ssc.Value | Null)
+      value: _root_.ssc.Value | Null,
+      errOutput: String = "")
   private final class TowerExit(val code: Int) extends RuntimeException
 
   /** Stack for the tower thread — the COMPILER's stack, deliberately independent of
@@ -477,6 +495,21 @@ object RunNativeV2:
       useFNestedBytecode: Boolean = false): TowerResult =
     val irOut   = new java.io.ByteArrayOutputStream()
     val irPs    = new java.io.PrintStream(irOut, true, java.nio.charset.StandardCharsets.UTF_8)
+    // STDERR IS TEED, NOT CAPTURED. Capturing it would give the exit code a reason and silently
+    // cost every normal run its front diagnostics — `sscLoadMod`'s "this file has no code" note is
+    // printed on a run that SUCCEEDS (exit 0), so a capture-only channel would swallow the common
+    // case to serve the rare one. `f-front-exit-reason-gate.sh` asserts that note still reaches the
+    // console for exactly this reason.
+    val errOut  = new java.io.ByteArrayOutputStream()
+    val realErr = Console.err
+    val errTee  = new java.io.PrintStream(
+      new java.io.OutputStream:
+        override def write(b: Int): Unit =
+          errOut.write(b); realErr.write(b)
+        override def write(b: Array[Byte], off: Int, len: Int): Unit =
+          errOut.write(b, off, len); realErr.print(new String(b, off, len, java.nio.charset.StandardCharsets.UTF_8))
+        override def flush(): Unit = realErr.flush()
+      , true, java.nio.charset.StandardCharsets.UTF_8)
     val failure = new java.util.concurrent.atomic.AtomicReference[Throwable]()
     val exitCode = new java.util.concurrent.atomic.AtomicInteger(0)
     val resultValue = new java.util.concurrent.atomic.AtomicReference[_root_.ssc.Value | Null](null)
@@ -486,7 +519,7 @@ object RunNativeV2:
       def run(): Unit =
         try
           _root_.ssc.Runtime.argv = args
-          Console.withOut(irPs) {
+          Console.withOut(irPs) { Console.withErr(errTee) {
             val tower = _root_.ssc.Lower.module(_root_.ssc.Loader.load(runner.getCanonicalPath))
             // The TOWER is the compiler itself running on this VM. Its JIT units are discarded when
             // the compile ends, so a short run would pay ~187 ms for a tier-up it cannot amortise
@@ -505,7 +538,7 @@ object RunNativeV2:
                 _root_.ssc.Runtime.runManaged(
                   code, Array.empty[_root_.ssc.Value])
             resultValue.set(value)
-          }
+          } }
         catch
           case e: TowerExit => exitCode.set(e.code)
           case t: Throwable => failure.set(t)
@@ -518,10 +551,12 @@ object RunNativeV2:
       TowerResult(
         irOut.toString(java.nio.charset.StandardCharsets.UTF_8).stripTrailing(),
         exitCode.get(),
-        resultValue.get())
+        resultValue.get(),
+        errOut.toString(java.nio.charset.StandardCharsets.UTF_8).stripTrailing())
     finally
       _root_.ssc.Runtime.exitHandler = previousExitHandler
       irPs.close()
+      errTee.close()
 
   /** Keeps a nested bytecode failure out of F's broad coverage fallback. Once
     * install/entry begins, retrying through either F0's VM or the legacy front
