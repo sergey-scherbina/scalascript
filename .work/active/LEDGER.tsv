@@ -1,2 +1,3 @@
-# generation: 3247
+# generation: 3248
 #slug	agent	started	items	paths
+gateless-batch5	claude-code	2026-08-31T16:30:08Z	trait-typed-parameter-accepts-a-non-conforming-argument rust-lane-refuses-the-tolerant-json-parse-while-the-panicking-one-builds	file:v2/BUGS.md file:BUGS.md
