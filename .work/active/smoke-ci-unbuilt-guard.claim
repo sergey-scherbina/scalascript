@@ -5,7 +5,7 @@ started: 2026-08-31T00:40:25Z
 heartbeat: 2026-08-31T00:40:25Z
 status: claimed-before-planning
 items: smoke-ci-passes-its-precondition-on-an-unbuilt-worktree
-paths: scripts/smoke-ci scripts/smoke-ci.ssc tests/e2e/smoke-ci-precondition-gate.sh BUGS.md
+paths: scripts/smoke-ci scripts/smoke-ci.ssc scripts/BUGS.md tests/e2e/smoke-ci-precondition-gate.sh
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: add the precondition gate + selftest, then land
+next: BUGS entry in scripts/, run gates, land
