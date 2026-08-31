@@ -144,6 +144,31 @@ for head, body in entries:
         problems.append((slug, "no `kind:` — required since 2026-08-16; see specs/bugs-index.md"))
     elif fields["kind"] not in KIND:
         problems.append((slug, f"kind `{fields['kind']}` not in {sorted(KIND)} — see specs/bugs-index.md"))
+    # AND THE SAME CONTRADICTION FROM THE OTHER SIDE: `status: open` naming a fix commit.
+    #
+    # The staleness report further down keys on BODY PROSE and is deliberately only a report,
+    # because a sha cited in prose is at least as often the commit that REPORTED the defect. A
+    # `fixed-in:` in the HEADER carries no such ambiguity — the field means "the commit that fixed
+    # this" — so an entry claiming both is a self-contradiction in machine-readable metadata, and
+    # that is a FAILURE rather than a hint.
+    #
+    # This is the blind spot `bugs-index-gate-reads-prose-for-a-stale-open-entry-not-the-header`
+    # recorded: the gate never read the header at all, so an entry could name the very commit that
+    # fixed it and stay open with the gate green. Measured 2026-08-31 the symptom is currently
+    # ZERO — the entries that had it were cleaned up — so this lands as prevention, not as a repair
+    # of a live count.
+    #
+    # `-` and `unrecorded` are the deliberate "nothing here" markers and are NOT flagged: 20 open
+    # entries carry `fixed-in: -` today and every one of them is correct.
+    #
+    # Scoped to `open` exactly. `wontfix`/`duplicate` naming a sha is odd but not obviously wrong,
+    # and a gate that fails on a shape nobody has abused yet teaches people to work around it.
+    if st == "open":
+        osha = fields.get("fixed-in") or fields.get("fixed-at")
+        if osha and osha not in ("-", "unrecorded") and re.fullmatch(r"[0-9a-f]{7,40}", osha):
+            problems.append((slug, f"status: open but the header names a fix commit `{osha}` — "
+                                   "one of the two is wrong. Close it, or clear the field to `-`"))
+
     if st == "fixed":
         sha = fields.get("fixed-in")
         if not sha:
@@ -280,6 +305,13 @@ Prose starts here with no terminator above it. Before 2026-08-04 this PASSED: th
      lane: native
      area: front -->
 
+## bad-open-names-a-fix — status open while the header names a fix commit
+<!-- status: open
+     kind: bug
+     lane: int
+     area: runtime
+     fixed-in: 30484689408 -->
+
 ## bad-fixed-no-sha — fixed without fixed-in
 <!-- status: fixed
      kind: bug
@@ -358,7 +390,8 @@ STALE
   # one — only demanding a member of the enum in the output can. `v2` also gets its own hint, since
   # it is the value that actually keeps being written.
   for want in "no header comment" "not in" "requires" "not a commit sha" "not terminated" "no \`kind:\`" \
-              "v2-jvm" "conformance" "not a lane here" "appears more than once"; do
+              "v2-jvm" "conformance" "not a lane here" "appears more than once" \
+              "names a fix commit"; do
     if ! printf '%s' "$out" | grep -q "$want"; then
       echo "SELF-TEST FAILED: expected a problem mentioning '$want'"; exit 1
     fi
@@ -385,7 +418,12 @@ STALE
   elif ! printf '%s' "$out" | grep -q "STALE? \[stale-open-entry\]"; then
     echo "SELF-TEST FAILED: the stale-open report did not name an entry whose fix has landed"; exit 1
   fi
-  echo "--- self-test ok (10 planted defects all caught); checking ${#FILES[@]} file(s) ---"
+  # The number is a LABEL, not a count: what is asserted is the `want` list above, one string per
+  # check, chosen so it can only appear if that check fired. Discovered the hard way — removing a
+  # check entirely and re-running still printed "all caught", because nothing tied the planted
+  # entry to an assertion. A new planted defect MUST come with its own `want` string or it is
+  # decoration.
+  echo "--- self-test ok (11 planted defects, each asserted by its own message); checking ${#FILES[@]} file(s) ---"
 fi
 
 run_check "${FILES[@]}"
