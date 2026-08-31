@@ -1,4 +1,3 @@
-# generation: 3264
+# generation: 3265
 #slug	agent	started	items	paths
 gateless-hk-arity	claude-code	2026-08-31T18:40:15Z	higher-kinded-generic-field-corrupts-arity-of-an-unrelated-val-class-elsewhere-in-scope	file:v2/BUGS.md file:tests/conformance/contract-roster.tsv file:tests/conformance/corpus-baseline.tsv file:tests/conformance/kr-hk-field-arity.ssc file:tests/conformance/expected/kr-hk-field-arity.txt file:tests/conformance/kr-hk-field-arity-lib.ssc
-double-load-spelling-gate	claude-code	2026-08-31T19:28:27Z	a-module-reached-by-both-spellings-of-std-is-loaded-twice	file:tests/e2e/import-spelling-double-load-gate.sh file:v2/BUGS.md file:scripts/smoke-ci.ssc
