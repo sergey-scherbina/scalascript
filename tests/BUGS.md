@@ -1545,7 +1545,7 @@ push that does not touch `*BUGS.md`, and announces the skip when the tree differ
      reported-by: claude-code
      reported-at: 2026-08-15
      confirmed: yes
-     gate: none — open defect -->
+     gate: tests/e2e/f-u0-gap-gate.sh-->
 
 Work on the `__u0` bucket. **Not solved.** Three things were established that the next attempt
 should not have to rediscover, and one mistake of mine that is worth more than the reduction.
@@ -1595,6 +1595,35 @@ file is kept as a starting point, not as a reproducer.
   removing a trailing `def` also removes the fence, so the candidate always breaks and the last
   declarations look load-bearing when they are not. That flaw cost three declarations of a
   previous reduction, which came off by hand afterwards.
+
+### GATED 2026-08-31 — the GAP is guarded, the reduction is still unsolved
+
+Re-measured and unchanged: `std/ui/content.ssc`, `examples/markdown-toolkit-links.ssc` and
+`examples/content-live-rows.ssc` all report
+`GAP  unbound global: (global __u0) is neither a top-level def nor an @-cell`.
+
+`tests/e2e/f-u0-gap-gate.sh` guards it. **`scripts/f-gap-census` already reported this and is not a
+guard** — its own header says so: when F cannot lower a file it falls back to the reference front
+SILENTLY, the program runs, the exit code is 0 and every output gate stays green. Nothing failed
+when this bucket grew or moved, and an instrument you have to remember to run is not a guard.
+
+**The gate asserts this entry's own finding rather than a count.** The bucket reads as "3 files" and
+is ONE subject plus two casualties — `markdown-toolkit-links.ssc` is 38 lines with four calls and no
+placeholder at all. A gate on the number 3 would be satisfied by three unrelated failures; this one
+names the subject and requires the other two to carry the SAME reason, which is what makes them
+collateral. If one ever fails for its own reason the bucket has stopped being single-cause, and the
+gate reports that as a finding rather than passing.
+
+The reason STRING is asserted, not just the `GAP` verdict: a `GAP` for a different cause would leave
+the bucket looking unchanged while having become a different bug.
+
+Both failing directions were exercised — a changed reason string fails with want/got, and pointing
+the subject at a file F does lower reports "THE GAP IS CLOSED" with the instruction to close this
+entry and delete the gate.
+
+**The reduction itself is still unsolved**, and this changes nothing about that. What is now
+guarded is the gap; what remains open is reducing it.
+
 
 ## f-placeholder-in-constructor-application — a routing defect wearing a placeholder's clothes
 

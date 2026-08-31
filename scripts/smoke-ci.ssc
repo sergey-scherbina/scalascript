@@ -921,6 +921,13 @@ val suite = List(
   // ~60 s (six bench runs). v1/runtime/backend/interpreter/BUGS.md int-a-double-in-a-signature-
   // falls-off-the-jit.
   Check("v1/runtime/backend/interpreter", "jit-double-signature", "tests/e2e/jit-double-signature-gate.sh", List(), 600000),
+  // The `__u0` F gap, which `scripts/f-gap-census` reports and nothing GUARDS — that census says in
+  // its own header that it is an instrument, because F falls back to the reference front SILENTLY:
+  // exit 0, every output gate green, only F's coverage lost. So nothing failed when this bucket
+  // grew or moved. Asserts the STRUCTURE the entry established — one subject plus two casualties
+  // carrying the SAME reason, not "3 files" — and the reason STRING, since a GAP for a different
+  // cause would leave the bucket looking unchanged while being a different bug. ~15 s.
+  Check("tests", "f-u0-gap", "tests/e2e/f-u0-gap-gate.sh", List(), 300000),
   Check("scripts", "release-installer-launcher", "tests/e2e/release-installer-launcher.sh", List(), 180000),
   Check("scripts", "build-ram-guards-guard", "tests/e2e/build-ram-budget-gate.sh", List(), 180000),
 
