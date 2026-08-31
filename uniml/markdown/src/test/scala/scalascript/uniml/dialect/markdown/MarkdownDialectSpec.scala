@@ -384,6 +384,39 @@ final class MarkdownDialectSpec extends AnyFunSuite:
     assert(result.diagnostics.exists(_.code == "uniml.markdown.limit.source"))
   }
 
+  // `MarkdownLimits` documents itself as "finite bounds guarding every buffer, stack and delegated
+  // region so malformed or hostile input fails with structured diagnostics" — a promise that was
+  // only half kept. FOUR of the six fields were ACCEPTED and never read: a caller could set them,
+  // see a `Complete` parse over input that exceeded them, and reasonably conclude the document was
+  // within bounds. A limit that cannot be relied on is worse than one that is absent, because it
+  // is the one people build on. These two are now enforced; each test sets ONLY its own field, so
+  // it fails if that specific check is removed rather than passing on a sibling's diagnostic.
+  test("line code-point limit fails with a structured fatal diagnostic") {
+    val tiny = MarkdownLimits(maxLineCodePoints = 4)
+    val result = Markdown.parse(
+      SourceInput.fromString(source, "short\nthis line is far too long\n"),
+      MarkdownProfile.CommonMark, tiny)
+    assert(result.diagnostics.exists(_.code == "uniml.markdown.limit.line"))
+    assert(result.roots.isEmpty, "a limit hit must not also hand back a partial tree")
+  }
+
+  test("block limit fails with a structured fatal diagnostic") {
+    val tiny = MarkdownLimits(maxBlocks = 2)
+    val doc = (1 to 20).map(i => s"# Heading $i\n\nbody $i\n\n").mkString
+    val result = Markdown.parse(SourceInput.fromString(source, doc), MarkdownProfile.CommonMark, tiny)
+    assert(result.diagnostics.exists(_.code == "uniml.markdown.limit.blocks"))
+    assert(result.roots.isEmpty, "a limit hit must not also hand back a partial tree")
+  }
+
+  test("an ordinary document is unaffected by the default limits") {
+    val doc = "# Title\n\nA paragraph.\n\n- one\n- two\n\n```\ncode\n```\n"
+    val result = Markdown.parse(SourceInput.fromString(source, doc), MarkdownProfile.CommonMark,
+      MarkdownLimits.default)
+    assert(!result.diagnostics.exists(_.code.startsWith("uniml.markdown.limit.")),
+      s"defaults must not fire on ordinary input: ${result.diagnostics}")
+    assert(result.roots.nonEmpty)
+  }
+
   // ── CommonMark 0.31.2 example corpus (curated) ───────────────────────────
 
   test("curated CommonMark 0.31.2 examples are lossless and never throw") {

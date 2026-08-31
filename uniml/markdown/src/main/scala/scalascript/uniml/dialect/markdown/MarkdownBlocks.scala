@@ -66,6 +66,11 @@ private[markdown] final class MarkdownBlocks(
     var frames: Vector[String] = Vector.empty
     // ── block / container state ─────────────────────────────────────────────
     var diagnostics: Vector[Diagnostic] = Vector.empty
+    // `maxBlocks` counts BLOCK OPENINGS, which is what the limit's own doc promises to bound
+    // ("every buffer, stack and delegated region"): a block opening is one frame pushed and one
+    // branch in the tree, so it is the quantity that grows with a hostile document.
+    var blocksOpened = 0
+    var blockLimitHit: Option[Diagnostic] = None
     var refs: Map[String, LinkRef] = Map.empty
     var containers: Vector[Container] = Vector.empty
     // frames pending closure, to fold into the next emitted structural token
@@ -95,12 +100,21 @@ private[markdown] final class MarkdownBlocks(
         out = out :+ VmToken(token, instruction)
         track(instruction)
 
+    def countOpens(n: Int): Unit =
+      blocksOpened = blocksOpened + n
+      if blocksOpened > limits.maxBlocks && blockLimitHit.isEmpty then
+        blockLimitHit = Some(limitDiag("uniml.markdown.limit.blocks",
+          s"Markdown document exceeds the ${limits.maxBlocks} block limit"))
+
     def track(instruction: VmInstruction): Unit = instruction match
-      case VmInstruction.Open(k, _) => frames = frames :+ k
+      case VmInstruction.Open(k, _) =>
+        countOpens(1)
+        frames = frames :+ k
       case VmInstruction.Close(expected, _) =>
         if frames.nonEmpty && expected.forall(_ == frames.last) then frames = frames.dropRight(1)
       case VmInstruction.Reframe(closeBefore, opens, closeAfter, _) =>
         closeBefore.foreach(_ => if frames.nonEmpty then frames = frames.dropRight(1))
+        countOpens(opens.size)
         opens.foreach(spec => frames = frames :+ spec.kind)
         closeAfter.foreach(_ => if frames.nonEmpty then frames = frames.dropRight(1))
       case _ => ()
@@ -797,15 +811,27 @@ private[markdown] final class MarkdownBlocks(
         s"Markdown source exceeds the ${limits.maxSourceCodePoints} code-point limit")))
     else
       val lines = MdLine.split(text)
-      collectReferences(lines)
-      var index = 0
-      // ScalaScript YAML front matter, only at the very start
-      if scala then index = scanFrontMatter(lines, index)
-      while index < lines.size do
-        index = processLine(lines, index)
-      finishOpenBlocks()
-      closeDangling()
-      MarkdownBlockResult(out, diagnostics)
+      // A single line is one scanner pass and one inline buffer, so `maxLineCodePoints` bounds a
+      // real allocation — and until now it bounded nothing: it was ACCEPTED and never read.
+      val longest = lines.foldLeft(0)((m, l) => math.max(m, Unicode.codePointCount(l.content)))
+      if longest > limits.maxLineCodePoints then
+        MarkdownBlockResult(Vector.empty, Vector(limitDiag("uniml.markdown.limit.line",
+          s"Markdown line exceeds the ${limits.maxLineCodePoints} code-point limit")))
+      else
+        collectReferences(lines)
+        var index = 0
+        // ScalaScript YAML front matter, only at the very start
+        if scala then index = scanFrontMatter(lines, index)
+        while index < lines.size do
+          index = processLine(lines, index)
+        finishOpenBlocks()
+        closeDangling()
+        // A block-count overflow is only knowable DURING the parse, so it is reported here rather
+        // than as a pre-check. Same shape as the source and line limits: no tokens plus one fatal
+        // diagnostic, because a truncated token stream would sit in a tree that looks complete.
+        blockLimitHit match
+          case Some(d) => MarkdownBlockResult(Vector.empty, Vector(d))
+          case None    => MarkdownBlockResult(out, diagnostics)
 
   // ── link reference definitions (CommonMark 4.7) ───────────────────────────
 
