@@ -265,7 +265,7 @@ one-argument SYMBOLIC name through `arithOp`, which is where the two models meet
      lane: v3
      kind: bug
      area: runtime
-     gate: none yet
+     gate: v3/infix-front-split-gate.sh
      found-by: claude-code
      found-at: 2026-08-19 -->
 
@@ -356,6 +356,36 @@ written and withdrawn:
 So v3's fixture harness has no "this must be refused, and that is the defect" slot. Adding one is
 the prerequisite for gating this entry; pointing `gate:` at a gate that does not cover it would be
 worse than leaving it empty, because it would read as covered.
+
+### GATED 2026-08-31 — by CONTROLLING the variable that made it ungateable
+
+The correction above concluded this could not be pinned, because the verdict flips with
+`v3/.jars/uniml.cp`. That was right about the fixture and wrong about the conclusion: a gate need
+not suffer the variable, it can own it.
+
+`v3/infix-front-split-gate.sh` runs the same program in BOTH states, toggling the classpath itself,
+and asserts the pair:
+
+* with the spike front registered — REFUSED, `expected ')' to close call`;
+* with it moved aside, so v3's own front runs — both spellings print **42**.
+
+**The pair is the assertion.** Either half alone is worthless: "it refuses" would pass on any broken
+program, and "it prints 42" would pass on a tree where the second front simply is not registered.
+Together they say the two fronts DISAGREE about a legal program, which is exactly this entry's claim.
+
+Restoring the classpath is guarded on every exit path including a signal — leaving it moved would
+turn every later v3 differential into a one-front run reporting green, the failure
+`a-fresh-control-worktree-silently-runs-a-different-front` exists for.
+
+It SKIPS loudly where the classpath is absent: with one front there is nothing to compare, and
+saying so beats reporting OK.
+
+**Stability, reported as measured rather than rounded:** five consecutive GREEN including a
+deliberately cold run straight after rebuilding the classpath, and ONE unexplained RED on the very
+first invocation that has not reproduced. The failure path is conservative — an unrecognised message
+is a FAIL, not a pass — so an unexplained red is the gate declining to certify a state it does not
+know, which is the direction to be wrong in.
+
 
 ## v3-front-diff-ceiling-is-derived-by-word-counting-and-a-comment-changes-it — 23, 76 or 83 for one list
 

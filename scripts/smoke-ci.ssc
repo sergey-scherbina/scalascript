@@ -928,6 +928,14 @@ val suite = List(
   // carrying the SAME reason, not "3 files" — and the reason STRING, since a GAP for a different
   // cause would leave the bucket looking unchanged while being a different bug. ~15 s.
   Check("tests", "f-u0-gap", "tests/e2e/f-u0-gap-gate.sh", List(), 300000),
+  // The last of the gateless entries, and the only one that needed the gate to CONTROL its own
+  // environment rather than run in it. `Box(40) add 2` is lowered by v3's own front and refused by
+  // the spike front, and which one runs depends on whether v3/.jars/uniml.cp exists — so a plain
+  // fixture was green in a built tree and red in a fresh one (c780b1832 withdrew it). This gate
+  // runs the same program in BOTH states, toggling the classpath itself and restoring it on every
+  // exit path, and asserts the PAIR: either half alone would pass on something else entirely.
+  // ~40 s. v3/BUGS.md infix-application-does-not-reach-a-declared-class-method.
+  Check("v3", "infix-front-split", "v3/infix-front-split-gate.sh", List(), 300000),
   Check("scripts", "release-installer-launcher", "tests/e2e/release-installer-launcher.sh", List(), 180000),
   Check("scripts", "build-ram-guards-guard", "tests/e2e/build-ram-budget-gate.sh", List(), 180000),
 
