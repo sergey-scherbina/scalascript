@@ -1,4 +1,3 @@
-# generation: 3269
+# generation: 3270
 #slug	agent	started	items	paths
 gateless-hk-arity	claude-code	2026-08-31T18:40:15Z	higher-kinded-generic-field-corrupts-arity-of-an-unrelated-val-class-elsewhere-in-scope	file:v2/BUGS.md file:tests/conformance/contract-roster.tsv file:tests/conformance/corpus-baseline.tsv file:tests/conformance/kr-hk-field-arity.ssc file:tests/conformance/expected/kr-hk-field-arity.txt file:tests/conformance/kr-hk-field-arity-lib.ssc
-jit-double-signature-gate	claude-code	2026-08-31T20:23:16Z	int-a-double-in-a-signature-falls-off-the-jit	file:tests/e2e/jit-double-signature-gate.sh file:v1/runtime/backend/interpreter/BUGS.md file:scripts/smoke-ci.ssc file:TASK/v2-perfomance.md
