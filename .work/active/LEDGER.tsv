@@ -1,3 +1,2 @@
-# generation: 3231
+# generation: 3232
 #slug	agent	started	items	paths
-typed-pattern-transitive	claude-code	2026-08-31T10:18:06Z	typed-pattern-misses-a-subtype-reached-through-an-intermediate-trait	file:BUGS.md
