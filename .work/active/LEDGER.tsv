@@ -1,3 +1,2 @@
-# generation: 3246
+# generation: 3247
 #slug	agent	started	items	paths
-gateless-batch4	claude-code	2026-08-31T15:39:19Z	a-flat-def-passed-where-a-curried-type-is-declared check-accepts-names-the-v1-runtime-does-not-have	file:tests/BUGS.md file:tests/e2e/check-accepts-what-the-runtime-rejects-gate.sh file:scripts/smoke-ci.ssc
