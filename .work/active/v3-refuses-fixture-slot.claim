@@ -5,7 +5,7 @@ started: 2026-08-31T17:23:35Z
 heartbeat: 2026-08-31T17:23:35Z
 status: claimed-before-planning
 items: v3-fixture-harness-has-no-must-refuse-slot
-paths: file:v3/exec-gate.sh file:v3/BUGS.md file:v3/tests/front/refuses-interpolator-name-collision.ssc file:v3/tests/front/refuses-interpolator-name-collision.refuses
+paths: file:v3/exec-gate.sh file:v3/BUGS.md file:v3/front-diff.sh file:v3/tests/front/refuses-interpolator-name-collision.ssc file:v3/tests/front/refuses-interpolator-name-collision.refuses
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+next: declare the disagreement my own case introduced, file the v3 front gap
