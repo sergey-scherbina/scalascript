@@ -1,3 +1,51 @@
+## f-front-exit-reason — the CLI reported an exit CODE where a diagnostic existed
+
+<!-- status: fixed
+     lane: v2-jvm
+     area: cli
+     kind: bug
+     gate: tests/e2e/f-front-exit-reason-gate.sh
+     reported-by: claude-code
+     reported-at: 2026-08-31
+     confirmed: yes
+     fixed-in: d2176cc1f -->
+
+`runTower` wrapped the tower thread in `Console.withOut(irPs)` and left stderr alone, so every
+`#io.eprint` diagnostic went to the console and nowhere the CLI could read it. The CLI then threw
+`native frontend exited with N`.
+
+**A bucket that names a NUMBER instead of a mechanism cannot be ranked.** `ssc info --front-report`
+groups by that string; every other census bucket names a mechanism, this one named an integer, and
+that is how five files sat unread at the bottom of a census while the console had been showing
+`ssc1-run: no scalascript blocks found: …` all along.
+
+**FIXED** by TEEING stderr — writing to both a buffer and the real stderr — not by capturing it.
+That is the design, not an implementation detail: `sscLoadMod`'s "this file has no code" note is
+printed on a run that **succeeds**, so a capture-only channel would swallow the common case in
+order to serve the rare one.
+
+**The reason comes from stderr, never from `output`.** The earlier attempt at this was reverted for
+appending `TowerResult.output`, which on the front path is the IR — it attached unrelated text and
+presented it as the cause. The checker path may read `output` (it prints `TYPEERR:` to stdout and
+its caller uses `checked.output`); the front path cannot copy that, because there stdout **is** the
+IR. `errOutput` exists as a separate field for that reason and says so at the field. When the front
+printed nothing the message says so rather than inventing a reason.
+
+**The gate was checked for coverage, not read for colour.** Removing the pass-through half and
+rebuilding made `f-front-exit-reason-gate.sh` fail with exactly the right sentence — "the fix
+silenced the note as well as the exit" — and restoring it went green again. So `note-still-printed`
+is load-bearing here rather than incidentally passing.
+
+**NOT GATED, and the gate file predicted this: the reason branch has no reachable subject through
+the CLI.** Of F's three `#io.exit` sites one was closed earlier and the other two are usage errors
+the CLI intercepts first — a missing `fsub.ssc` throws in `layout` before the tower starts. Checked
+empirically too: a malformed source under `SSC_FRONT=F` does not make F exit non-zero, it fails
+downstream. The first reachable subject will be the nominal-lattice refusal from F's typing slice,
+which should bring the gate for this half with it. Until then the channel is built and only half of
+it is under test — recorded here rather than left to look finished.
+
+Corpus 378 passed, 0 failed of 378.
+
 # v2 — the self-hosted compiler — bugs
 
 Scope: defects whose FIX goes in `v2/`. Layout and routing rules:
