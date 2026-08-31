@@ -3661,14 +3661,55 @@ objection only because it REFUSES ambiguity instead of guessing; anything that g
         corpus number does NOT move — 188/368 before and after. Probes `usingp` and `summon2` are
         declared in `front-capability-gate.sh`; the follow-up is
         `BUGS.md v3-uniml-def-has-no-type-parameters`.
-  - [ ] **G2 stage 2b — inference past a literal.** `tagless-context-bounds` needs it and is the
+  - [x] **G2 stage 2b — inference past a literal.** `tagless-context-bounds` needs it and is the
         next row: `combineAll(xs)` inside a generic body passes a PARAMETER of type `List[A]`, not
         a literal, so three things are missing — a constructor's type (`List(1,2,3)` is
         `List[Int]`), structural matching of `List[A]` against `List[Int]`, and propagating the
         enclosing specialisation's binding into the calls its body makes.
-  - [ ] **G2 stage 2c — higher-kinded.** `tagless-program` and `tagless-multi-file` select on a
+        **TICKED 2026-08-31 ON MEASUREMENT, not on a landing of its own.** `tagless-context-bounds`
+        matches its checked-in expectation today — run it and diff. Whatever closed it did so
+        without claiming this row; the row is ticked where the evidence is, rather than left `[ ]`
+        for a third reader to re-plan against.
+  - [x] **G2 stage 2c — higher-kinded.** `tagless-program` and `tagless-multi-file` select on a
         type CONSTRUCTOR — `Monad[Option]` beside `Monad[List]`, `Logged[List]` beside
         `Logged[Option]`. Not reachable by substituting a type argument into text.
+        **BOTH ROWS MATCH THEIR EXPECTATIONS NOW.** `tagless-multi-file` already did before this
+        claim; `tagless-program` was the one row of G2's five acceptance set still refusing, and it
+        turned here — but NOT by the mechanism this row predicted. It needed no higher-kinded
+        selection at all: see `v3-trait-typed-receiver-dispatch` below. The prediction was wrong in
+        an instructive direction, so it is corrected rather than quietly ticked.
+
+  - [x] **G2 — the acceptance set is COMPLETE, and G2's remaining work was ONE keying defect.**
+        §52 sets five rows as G2's acceptance set. Measured 2026-08-31, all five match their
+        checked-in expectations: `tagless-resolution` (2a), `tagless-context-bounds` (2b),
+        `tagless-multi-file` (2c), `typeclass-fold`, and `tagless-program` (this claim).
+
+        **THE TYPING BUCKET IS 4, NOT 24 — re-measure before designing against §52's figure.**
+        §52's ~24 was 2026-08-09; on 2026-08-31 `v3/corpus-report.sh` gives:
+
+        | §52 category | then | now |
+        |---|---|---|
+        | `extension` | 9 | 0 — closed by `v3-extension-dispatch` |
+        | `given … with` | 5 | 0 |
+        | abstract `val` | 2 | 0 — closed 2026-08-30 |
+        | non-`def` trait member | 8 | 4 |
+        | **total** | **≈24** | **4** |
+
+        What UNSUPPORTED is actually blocked on is library surface, not typing: 44 `unknown name`,
+        16 `unknown function`, 10 host-fn-not-on-this-lane — 70 of ~99.
+
+        **`typeclass-fold`'s blocker was fixed under a DIFFERENT SLUG, which is why §52's reference
+        dangles.** The stage-1 row names `v3-method-as-a-value` as "the next thing standing between
+        this row and running". No such BUGS entry exists — it was fixed as
+        `point-free-class-method-reference-never-eta-expands` (`2cc79a78e`, claim
+        `v3-point-free-class-method-eta`). The row runs today.
+
+        **A PREMISE OF STAGE 2a NO LONGER HOLDS, and it is why this claim was cheap.** 2a chose
+        monomorphisation because "a `given` is an `object`, a NAMESPACE with no runtime value, so
+        there is nothing to pass". That was true in August. It is not now: a `given` object can be
+        passed as an ordinary argument and its methods called on it — `def run(g: Greeter) =
+        g.greet("Bob")` with `run(politeGreeter)` prints. Anyone extending G2 should re-test that
+        premise before reaching for the heavier machinery it justified.
 
 ## 55 · PLAN — the version comparison is not measurable yet, and the bridge is why (claim `v3-bench-and-bridge-plan`)
 

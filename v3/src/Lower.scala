@@ -2032,6 +2032,17 @@ object Lower:
         case Expr.Name(n, _)     => typeOfCtor(n).orElse(params.get(n))
         case _                   => None
 
+      /** Is the receiver a value whose DECLARED type is a trait that declares `m`?
+        *
+        * `receiverType` answers with the type HEAD (`Show[Int]` -> `Show`), which is exactly the
+        * key a trait is known by, so this is a lookup rather than another inference. Kept separate
+        * from `pick` because it answers a different question: `pick` chooses WHICH instance, this
+        * one asks whether the receiver already IS one. Returns false for anything whose type is
+        * unknown, which leaves the refusal below untouched for the case it was written for. */
+      def receiverIsTraitDeclaring(e: Expr, m: String, params: Map[String, String]): Boolean =
+        receiverType(e, params).exists(ty =>
+          traits.exists(t => t.name == ty && t.methods.exists(_.name == m)))
+
       def pick(ty: String, m: String): Option[String] =
         table.get((ty, m)) match
           case None | Some(Nil) => None
@@ -2142,6 +2153,34 @@ object Lower:
                 // further down the pipeline — refusing here pre-empts a mechanism that works.
                 // Measured: the first version refused nine cases, six of them the `tagless-*`
                 // family (`combine`, `empty`, `pure`, `eqv`), which had been fine.
+                // THE RECEIVER'S TYPE IS A TRAIT THAT DECLARES THE METHOD, so it is KNOWN and the
+                // refusal below does not apply to it. `def greet[F[_]](c: Console[F]) = c.writeLine(…)`
+                // and the non-generic `def run(g: Greeter) = g.greet(…)` are the same shape: an
+                // instance arrives as an ordinary parameter and its method is called on it.
+                //
+                // WHY IT REACHED THE REFUSAL AT ALL — a keying mismatch, not a typing gap. The table
+                // above is keyed by the instance's TYPE ARGUMENT (`given showInt: Show[Int]` stores
+                // `("Int", "show")`) because that is what extension-style dispatch needs: `7.show`
+                // resolves from the receiver's own type. A parameter typed `Show[Int]` is mapped to
+                // its type HEAD (`Show`) a few lines up, so `pick` looked up `("Show", "show")`
+                // against a table holding `("Int", "show")` and always missed.
+                //
+                // The non-generic spelling worked only by accident: `headAndArg` needs a `[`, so a
+                // non-generic `given` builds NO table row, `table.isEmpty` short-circuits this whole
+                // rewrite, and the call falls through to ordinary dispatch — which succeeds. This
+                // arm makes the generic spelling do what the non-generic one already did.
+                //
+                // LEAVING IT ALONE IS CORRECT, not a weakening of the guard: the refusal's own
+                // comment says it exists for a receiver whose type is UNKNOWN, where dispatch by
+                // runtime tag cannot find a name that only a `given` provides. Here the value IS the
+                // instance, so the tag is the instance's own and dispatch finds the method.
+                //
+                // That a `given` object can be PASSED as a value is a premise shift since G2 stage
+                // 2a, which chose monomorphisation because "a `given` is an `object`, a NAMESPACE
+                // with no runtime value, so there is nothing to pass". True in August; `run(polite)`
+                // prints today. It is why this arm is enough and the heavier monomorphisation of an
+                // ordinary parameter is not needed. §52's G2.
+                case None if instanceOnly.contains(m) && !hasGiven && receiverIsTraitDeclaring(recv, m, valTypes ++ params) => x
                 case None if instanceOnly.contains(m) && !hasGiven =>
                   throw LowerFail(p, "'" + m + "' is provided by a `given` instance, and the type " +
                     "of the receiver is not known here — it is a `val` with no declared type, or " +
