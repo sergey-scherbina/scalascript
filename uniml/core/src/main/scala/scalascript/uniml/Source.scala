@@ -34,25 +34,36 @@ private[uniml] object Unicode:
   def isLowSurrogate(char: Char): Boolean = char >= '\uDC00' && char <= '\uDFFF'
 
   def codePointCount(text: String): Int =
+    // INDEX THE CODE UNITS, NOT THE STRING. `charAt`/`length` are O(1) on the JVM but not on
+    // every backend: the ScalaScript Rust backend stores a String as UTF-8 and emulates JVM
+    // code-unit indexing over it, so each `charAt(i)` costs O(i) and each `length` costs O(n) —
+    // making this scan O(n²) there. A CPU profile of a 256 KB markdown parse, taken once the
+    // allocation-side quadratics were gone, was 100% this function and its `charAt`.
+    // `text.toVector` pays one O(n) conversion and every index after it is a vector index.
+    // Identical semantics on both lanes: `Vector[Char]` is code UNITS, exactly what `charAt`
+    // yields, so surrogate pairs still arrive as two elements and `chars.length == text.length`.
+    val chars = text.toVector
     var index = 0
     var count = 0
-    while index < text.length do
-      val char = text.charAt(index)
-      if isHighSurrogate(char) && index + 1 < text.length && isLowSurrogate(text.charAt(index + 1)) then
+    while index < chars.length do
+      val char = chars(index)
+      if isHighSurrogate(char) && index + 1 < chars.length && isLowSurrogate(chars(index + 1)) then
         index += 2
       else index += 1
       count += 1
     count
 
   def advance(position: SourcePosition, lexeme: String): SourcePosition =
+    // Same reason as `codePointCount` just above: index the code units, not the string.
+    val chars = lexeme.toVector
     var index = 0
     var offset = position.offset
     var line = position.line
     var column = position.column
-    while index < lexeme.length do
-      val char = lexeme.charAt(index)
+    while index < chars.length do
+      val char = chars(index)
       val width =
-        if isHighSurrogate(char) && index + 1 < lexeme.length && isLowSurrogate(lexeme.charAt(index + 1)) then 2
+        if isHighSurrogate(char) && index + 1 < chars.length && isLowSurrogate(chars(index + 1)) then 2
         else 1
       if char == '\n' then
         line += 1
