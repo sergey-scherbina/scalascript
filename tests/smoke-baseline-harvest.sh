@@ -153,6 +153,69 @@ for c in names:
     print(f"{c}\t{round(base[c] * 10)}\t{round(base[c] / total * 10000)}")
 PARSER
 
+# ── merge.py — carry forward rows CI structurally cannot measure ─────────────────────────────────
+#
+# A separate file rather than inline, so `--self-test` exercises THE SAME code the real path runs.
+# Inline, the self-test would have to restate the logic, and a restated check passes against its own
+# restatement rather than against the tool.
+#
+#   merge.py <fresh.tsv> <old.tsv> <suite.ssc> <merged.tsv>   → writes merged, prints carried names
+cat > "$work/merge.py" <<'MERGER'
+import re, sys
+
+fresh_path, old_path, suite_path, merged_path = sys.argv[1:5]
+
+fresh_lines = open(fresh_path).read().splitlines()
+fresh_names = {l.split("\t")[0] for l in fresh_lines if l and not l.startswith("#")}
+
+# Every name the suite still registers. `Check("<module>", "<name>", …)` — the name is the SECOND
+# string. Matching the first would collect MODULE names and carry rows for things that are not
+# checks at all.
+registered = set(re.findall(r'Check\(\s*"[^"]*"\s*,\s*"([^"]+)"', open(suite_path).read()))
+
+# THE RULE IS "STILL REGISTERED", NOT "WAS OPTIONAL". Keying on `optional` would carry a row for a
+# check somebody deleted, and stale rows are the other way this table rots. A check absent from the
+# harvest AND absent from the suite is correctly dropped.
+carried = []
+for line in open(old_path).read().splitlines():
+    if not line or line.startswith("#"):
+        continue
+    cols = line.split("\t")
+    if cols[0] in fresh_names or cols[0] not in registered:
+        continue
+    carried.append(cols[:3] + ["carried"])
+
+out = list(fresh_lines)
+if carried:
+    # `# sum-seconds` must keep describing THE TABLE. tests/e2e/smoke-guard-headroom.sh:144 states
+    # the invariant in its own comment — "the column sums to the header's sum-seconds" — and it
+    # reads the tenths column into its cost model. Appending rows without re-summing would leave a
+    # header that understates the file by exactly the carried rows, which are among the most
+    # expensive checks in the suite, so the understatement would be large and silent: measured
+    # 2026-08-31, the nine carried rows are 580.4 s against a fresh total of 1111.5 s.
+    #
+    # The header is already approximate by ~0.4 s and was BEFORE this change (1425.5 header against
+    # a 1425.9 column, measured on the pre-change table): parse.py sums float medians and then
+    # rounds each row separately, so 118 roundings accumulate. Adding a sum of ALREADY-ROUNDED
+    # tenths introduces no further error, so that drift stays exactly what it was. Said here
+    # because the next person to compare the two numbers will otherwise blame the carry-forward.
+    added = sum(int(c[1]) for c in carried) / 10.0
+    for i, l in enumerate(out):
+        if l.startswith("# sum-seconds\t"):
+            out[i] = "# sum-seconds\t%.1f" % (float(l.split("\t")[1]) + added)
+            break
+    header_end = max(i for i, l in enumerate(out) if l.startswith("#"))
+    out = out[: header_end + 1] + [
+        "# carried-forward\t%d\tregistered in scripts/smoke-ci.ssc but absent from these runs" % len(carried),
+        "# (optional checks are not run by smoke.yml, so CI cannot measure them; their numbers are",
+        "#  the previous table's and may be stale — refresh via a CI run with SSC_SMOKE_OPTIONAL=1)",
+    ] + out[header_end + 1 :] + ["\t".join(c) for c in carried]
+
+open(merged_path, "w").write("\n".join(out) + "\n")
+for c in carried:
+    print(c[0])
+MERGER
+
 if [[ $SELFTEST -eq 1 ]]; then
   # Asserts the PARSING, on a fixture spelling the two shapes this tool is wrong about if it guesses:
   # a CLAMPED probe, and a run whose budget was PINNED. A self-test that re-ran only the happy path
@@ -194,7 +257,64 @@ want=round(900.0/f); got=float('$g')
 sys.exit(0 if abs(want-got)<=1 else 1)" \
     || die "self-test: a probe below the clamp floor was not normalised by the CLAMPED factor —
 this is the exact case where inverting the budget gave 160.7 for a real probe of 141. got gamma=$g"
-  echo "smoke-baseline-harvest --self-test: OK  (fit ${FIT_A} + ${FIT_B}/1000 x probe, clamp ${CLAMP_LO}-${CLAMP_HI}, reference ${REF_PROBE}ms)"
+  # ── the merge, in BOTH directions ──────────────────────────────────────────────────────────────
+  #
+  # The one-directional assertion is "a missing row is carried", and it would be satisfied by a
+  # merge that carries EVERYTHING — including rows for checks that were deleted, which is the other
+  # way this table rots. So the deletion case is asserted too, and it is the load-bearing half:
+  # only a merge that consults the suite can tell `kept` from `deleted`, since both are absent from
+  # the fresh harvest in exactly the same way.
+  printf '# sum-seconds\t10.0\n# check\ttenths\tshare-bp\nalpha\t100\t5000\n' > "$work/m-fresh.tsv"
+  printf '# check\ttenths\tshare-bp\nalpha\t111\t4000\nkept\t980\t3000\ndeleted\t500\t3000\n' > "$work/m-old.tsv"
+  cat > "$work/m-suite.ssc" <<'SUITE'
+  Check("mod", "alpha", "x.sh", List(), 1000),
+  Check("mod", "kept", "y.sh", List(), 1000, optional = true),
+SUITE
+  mout="$(python3 "$work/merge.py" "$work/m-fresh.tsv" "$work/m-old.tsv" "$work/m-suite.ssc" "$work/m-merged.tsv")" \
+    || die "self-test: merge.py exited non-zero"
+
+  grep -q '^kept$' <<<"$mout" \
+    || die "self-test: 'kept' is registered in the suite and absent from the fresh harvest, so it
+must be CARRIED. Dropping it is the defect: smoke.yml never sets SSC_SMOKE_OPTIONAL=1, so every
+optional check is missing from every harvested log, and a wholesale replace deleted nine such rows.
+Got: $mout"
+
+  grep -q '^deleted$' <<<"$mout" \
+    && die "self-test: 'deleted' is NOT registered in the suite, so it must be DROPPED, not carried.
+A merge that carries everything absent would keep rows for checks nobody runs any more — stale rows
+are the other way this table rots. Got: $mout"
+
+  grep -qE '^alpha	100	5000$' "$work/m-merged.tsv" \
+    || die "self-test: a FRESH row must win over the old one — the point of harvesting is the new
+measurement. alpha should be 100/5000 from the fresh table, not 111/4000 from the old.
+Got: $(grep '^alpha' "$work/m-merged.tsv")"
+
+  grep -qE '^kept	980	3000	carried$' "$work/m-merged.tsv" \
+    || die "self-test: a carried row must keep its previous numbers and be MARKED 'carried', so a
+human can see which numbers were measured and which were inherited.
+Got: $(grep '^kept' "$work/m-merged.tsv")"
+
+  # The reader takes `row.length >= 3` and indexes 0..2 (scripts/smoke-ci.ssc:1128), so the fourth
+  # column must not disturb it. Assert the shape the reader actually requires.
+  awk -F'\t' '!/^#/ && NF < 3 { exit 1 }' "$work/m-merged.tsv" \
+    || die "self-test: the merged table has a row with fewer than 3 columns; smoke-ci.ssc would
+silently DROP it (it filters row.length >= 3), which is the same silent loss this fix is about."
+
+  # `# sum-seconds` must describe THE TABLE, not just the freshly-measured part of it.
+  # tests/e2e/smoke-guard-headroom.sh:144 states this invariant in its own comment and reads the
+  # tenths column into its cost model, so a header that omits the carried rows understates the file
+  # by exactly the most expensive checks in the suite.
+  python3 - "$work/m-merged.tsv" <<'PY' || die "self-test: '# sum-seconds' does not equal the sum of the rows.
+Appending carried rows without re-summing leaves a header that silently understates the table."
+import sys
+rows, head = 0.0, None
+for l in open(sys.argv[1]).read().splitlines():
+    if l.startswith("# sum-seconds\t"): head = float(l.split("\t")[1])
+    elif l and not l.startswith("#"):   rows += int(l.split("\t")[1]) / 10.0
+sys.exit(0 if head is not None and abs(head - rows) < 0.05 else 1)
+PY
+
+  echo "smoke-baseline-harvest --self-test: OK  (fit ${FIT_A} + ${FIT_B}/1000 x probe, clamp ${CLAMP_LO}-${CLAMP_HI}, reference ${REF_PROBE}ms; merge carries registered, drops deleted, sum re-totalled)"
   exit 0
 fi
 
@@ -226,9 +346,44 @@ Widen with --search N, or lower the bar deliberately with --min-runs N."
 FIT_A="$FIT_A" FIT_B="$FIT_B" CLAMP_LO="$CLAMP_LO" CLAMP_HI="$CLAMP_HI" REF_PROBE="$REF_PROBE" \
   python3 "$work/parse.py" "$work"/*.log > "$work/out.tsv" || die "the parser failed"
 
+# ── CARRY FORWARD WHAT CI STRUCTURALLY CANNOT MEASURE ────────────────────────────────────────────
+#
+# This wrote `mv out.tsv $OUT` — a wholesale replacement — and that DELETED rows rather than
+# refreshing them. `smoke.yml` runs the suite without `SSC_SMOKE_OPTIONAL=1`, so every check marked
+# `optional = true` is absent from every harvested log, not because it got cheap but because it was
+# never run. Replacing the table therefore drops exactly those rows.
+#
+# Measured 2026-08-31 on a real dry-run: 14 rows gained and NINE lost — `f-at-bind-pattern`,
+# `f-bodyless-object`, `f-cons-nil-tail`, `f-cons2-no-arm`, `f-effects`, `f-foldable-grade`,
+# `f-front-exit-reason`, `f-gap-tail`, `f-handler-param`, all `optional = true`. Two are among the
+# most expensive checks in the suite (f-at-bind-pattern 98.0 s, f-bodyless-object 81.0 s, per
+# smoke-ci.ssc:384). A check with no baseline row is CHARGED its measured time and cannot fail the
+# budget, so the loss is silent in both directions: nothing goes red, and the budget headroom the
+# table exists to compute becomes partly fictional.
+#
+# THE RULE IS "STILL REGISTERED", NOT "WAS OPTIONAL". Keying on `optional` would carry a row for a
+# check somebody deleted, and stale rows are the other way this table rots. Registration in
+# `scripts/smoke-ci.ssc` is the property that says the row still describes something that exists;
+# a check absent from the harvest AND absent from the suite is correctly dropped.
+#
+# Carried rows keep their previous numbers and gain a fourth column, `carried`. The reader takes
+# `row.length >= 3` and indexes 0..2 (smoke-ci.ssc:1128), so a fourth column is inert there while
+# being visible to a human deciding whether a number has gone stale.
+CARRIED_NOTE=""
+if [[ -r "$OUT" ]]; then
+  carried_names="$(python3 "$work/merge.py" "$work/out.tsv" "$OUT" \
+                     "$REPO_ROOT/scripts/smoke-ci.ssc" "$work/merged.tsv")" \
+    || die "the merge failed — refusing to write a table that would DROP rows silently"
+  mv "$work/merged.tsv" "$work/out.tsv"
+  if [[ -n "$carried_names" ]]; then
+    CARRIED_NOTE="$(wc -l <<<"$carried_names" | tr -d ' ')"
+    sed 's/^/  carried /' <<<"$carried_names" >&2
+  fi
+fi
+
 if [[ $DRY -eq 1 ]]; then
   cat "$work/out.tsv"
 else
   mv "$work/out.tsv" "$OUT"
-  echo "wrote $OUT"
+  echo "wrote $OUT${CARRIED_NOTE:+  (${CARRIED_NOTE} row(s) carried forward)}"
 fi
