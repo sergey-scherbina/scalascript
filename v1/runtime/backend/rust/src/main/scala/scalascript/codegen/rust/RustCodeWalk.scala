@@ -962,6 +962,49 @@ object RustCodeWalk:
    *
    *  Follows the tails a Scala expression can have (a block's last statement, both branches of an
    *  `if`, every arm of a `match`) and asks only whether the tail IS the bare name. */
+  /** For each statement in a block, the names whose value that statement may MOVE rather than
+   *  clone, because the statement immediately after it overwrites them.
+   *
+   *  `vm.step(vmState.clone(), token); vmState = stepped.state` (`uniml/core`'s `UniML.scala`, the
+   *  VM's own per-token loop) — `vmState` carries the accumulated tree, so cloning it once per
+   *  TOKEN is O(n) per token and O(n²) per document. A counting allocator put this and the
+   *  per-line vector clone together at 134 M allocations for a 128 KB file. The clone is pure
+   *  waste: the value is dead one statement later.
+   *
+   *  `cloneIfMoved` cannot see this on its own — it is asked about one argument at a time and
+   *  answers from `multiUse`, an occurrence COUNT over the whole body, which cannot tell a live
+   *  read from a dead one. The block is where the information is, so the block computes it.
+   *
+   *  Two guards, and both are necessary:
+   *    - the assignment must not READ the name (`x = g(x)` genuinely needs the old value);
+   *    - the name must occur exactly ONCE in the current statement (`f(x, x)` still needs a clone
+   *      for the first occurrence; only the last use may move, and this pass does not order them).
+   */
+  private def deadBeforeReassign(stats: List[m.Stat]): List[Set[String]] =
+    // (a) the next statement overwrites the name.
+    val byReassign = stats.zipWithIndex.map { (st, i) =>
+      stats.lift(i + 1) match
+        case Some(m.Term.Assign(m.Term.Name(n), rhs))
+            if !readsNameAsValue(rhs, n) && countNameReads(st, n) == 1 => Set(n)
+        case _ => Set.empty[String]
+    }
+    // A LAST-USE analysis was tried here too — `let stepped = …; vmState = stepped.state` could
+    // move the field out instead of deep-cloning — and was REVERTED: proving "last use" needs real
+    // scope analysis, not a scan of one statement list. The version written here moved a value the
+    // corpus then read again inside a later loop (`error[E0382]: use of moved value: refs`,
+    // `uniml/markdown`'s `MarkdownProjection`), because a nested block's declarations and reads are
+    // not visible as statements of the enclosing list. Caught by the corpus re-check. Worth doing
+    // properly; not worth doing approximately, since the failure mode is a wrong move.
+    byReassign
+
+  /** How many times `name` is read as a VALUE in `t` (a field spelled alike does not count — see
+   *  `readsNameAsValue`). Used to keep `deadBeforeReassign` off a statement that reads the name
+   *  more than once, where only the LAST occurrence could move. */
+  private def countNameReads(t: m.Tree, name: String): Int = t match
+    case m.Term.Name(n)         => if n == name then 1 else 0
+    case m.Term.Select(qual, _) => countNameReads(qual, name)
+    case _                      => t.children.map(countNameReads(_, name)).sum
+
   private def returnsNameDirectly(body: m.Term, name: String): Boolean =
     def tails(t: m.Term): List[m.Term] = t match
       case b: m.Term.Block            => b.stats.lastOption.collect { case e: m.Term => e }.toList.flatMap(tails)
@@ -3201,6 +3244,9 @@ object RustCodeWalk:
       // declared INSIDE the loop body is freshly bound each iteration and never has this problem.
       inWhileLoop: Boolean = false,
       multiUse: Set[String] = Set.empty,
+      // Names whose CURRENT value is provably dead: the very next statement in this block
+      // reassigns them without reading them. `cloneIfMoved` skips those — see `deadBeforeReassign`.
+      deadNames: Set[String] = Set.empty,
       // Local val/var names bound to a Signal → element type ("String"/"Int"/"Double"/
       // "Boolean").  A 0-arg apply on one — `x()` — is a signal READ and lowers to a
       // store read coerced by element type (the value isn't callable). Per-def pre-pass.
@@ -4525,6 +4571,11 @@ object RustCodeWalk:
   private def cloneIfMoved(arg: m.Term, rendered: String, ctx: Ctx): String =
     val topValNames = ctx.topVals.map(_._1).toSet
     def needs(r: String): Boolean =
+      // `deadNames` says the VALUE is dead, which is not enough on its own: a name held behind a
+      // reference (`byRefMut` — a lifted def's `&mut` capture) can never be moved out of at all,
+      // dead or not (`error[E0507]: cannot move out of *paragraphPendingPrefix, which is behind a
+      // mutable reference`). Suppress the clone only when the value is dead AND owned here.
+      !(ctx.deadNames.contains(r) && !ctx.byRefMut.contains(r)) &&
       !r.matches("__p\\d+") &&
         (topValNames.contains(r) || ctx.multiUse.contains(r)
           // INSIDE A CLOSURE, not "the closure has parameters". These are different questions and
@@ -6009,7 +6060,9 @@ object RustCodeWalk:
       // golden shape).
       if isUnit then
         liftLocalDefs(b.stats, ctx).flatMap { (liftedFns, stats, liftedCtx) =>
-          val rendered = stats.map(renderStmt(_, liftedCtx))
+          val deadPer = deadBeforeReassign(stats)
+          val rendered = stats.zipWithIndex.map { (st, i) =>
+            renderStmt(st, liftedCtx.copy(deadNames = liftedCtx.deadNames ++ deadPer(i))) }
           val (errs, ok) = rendered.partitionMap(identity)
           if errs.nonEmpty then Left(errs.flatten)
           else Right((liftedFns ++ ok).mkString("\n"))
@@ -6017,7 +6070,9 @@ object RustCodeWalk:
       else
         liftLocalDefs(b.stats, ctx).flatMap { (liftedFns, stats, liftedCtx) =>
           val (initStats, tail) = stats.splitAt(stats.length - 1)
-          val initRendered = initStats.map(renderStmt(_, liftedCtx))
+          val deadPer = deadBeforeReassign(stats)
+          val initRendered = initStats.zipWithIndex.map { (st, i) =>
+            renderStmt(st, liftedCtx.copy(deadNames = liftedCtx.deadNames ++ deadPer(i))) }
           val tailRendered: Either[List[Diagnostic], String] = tail.headOption match
             case Some(t: m.Term) => renderTerm(t, liftedCtx)
             case Some(other)     => Left(List(unsupported(
