@@ -1,0 +1,11 @@
+slug: close-nested-ctor-pattern
+branch: feature/close-nested-ctor-pattern
+agent: claude-code
+started: 2026-08-31T21:08:21Z
+heartbeat: 2026-08-31T21:08:21Z
+status: claimed-before-planning
+items: f-nested-constructor-pattern-falls-through-to-the-default
+paths: file:v2/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
