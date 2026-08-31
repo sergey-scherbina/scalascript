@@ -38,6 +38,38 @@ if [[ ! -x "$LAUNCHER" ]]; then
   exit 1
 fi
 
+# …but `bin/ssc` is TRACKED IN GIT, so it exists and is executable in every fresh worktree, while
+# `bin/lib/` is a build product and is not. The check above therefore passes on a checkout that has
+# never been built, and so does the staleness check below — both of its branches are conditional on
+# `.build-digest` or `.build-stamp` being READABLE, and in an unbuilt tree neither file exists, so
+# both are skipped. The suite then ran and died with
+#
+#   Error: Could not find or load main class scalascript.cli.StandardMain
+#
+# after zero checks, exiting 1 — which is indistinguishable from a real suite failure. The guard was
+# careful about a STALE tower and blind to an ABSENT one, which is the strictly worse case: a stale
+# tower gives a verdict about the wrong code, an absent one gives a verdict about no code at all
+# while looking identical to a red.
+#
+# Measured 2026-08-31: two agents hit this independently within minutes of each other, each burning
+# several cycles, one of them while trying to determine whether the suite STALLS — where an instant
+# exit 1 is the opposite failure mode and cost an extra round to tell apart. The second occurrence is
+# data about the tool, not about the agent.
+#
+# The check is on the artifact the launcher actually loads (`bin/ssc:106` puts
+# `bin/lib/standard/ssc.jar` on the classpath and asks for `scalascript.cli.StandardMain`), not on
+# `bin/lib/` merely existing — a half-built tree with the directory and no jar fails the same way.
+STANDARD_JAR="$ROOT/bin/lib/standard/ssc.jar"
+if [[ ! -r "$STANDARD_JAR" ]]; then
+  echo "smoke-ci: bin/ssc is present (it is tracked in git) but this checkout was never built —" >&2
+  echo "  no $STANDARD_JAR" >&2
+  echo "The suite would start, fail to load scalascript.cli.StandardMain, and exit 1 after running" >&2
+  echo "ZERO checks, which reads exactly like a red. Build first:" >&2
+  echo "  ./install.sh --dev" >&2
+  echo "(Note: install.sh --dev exits 0 even when the compile fails, so check bin/lib is populated.)" >&2
+  exit 1
+fi
+
 # The check is on the launcher's INPUTS, not on which commit is checked out.
 #
 # It was `.build-stamp` (the HEAD sha) and that was wrong in the expensive direction: a commit

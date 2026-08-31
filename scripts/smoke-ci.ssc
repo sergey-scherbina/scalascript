@@ -244,6 +244,15 @@ val suite = List(
   // anyone who did not pass `-a`. Seconds to run, and it keeps the tools honest about the
   // difference between "no" and "cannot answer".
   Check(".", "no-nul-in-sources", "tests/e2e/no-nul-in-sources.sh", List("--self-test"), 60000),
+  // `bin/ssc` is tracked in git; `bin/lib/` is a build product. So a fresh worktree has an
+  // executable launcher and no toolchain, smoke-ci's `[[ -x bin/ssc ]]` precondition passed, and
+  // its staleness check was SKIPPED rather than failed — both branches need `.build-digest` or
+  // `.build-stamp` to be readable, and an unbuilt tree has neither. The suite then ran zero checks
+  // and exited 1, which is indistinguishable from a red. Two agents hit it independently within
+  // minutes on 2026-08-31, one of them while trying to establish whether the suite STALLS — the
+  // opposite failure mode, which cost an extra round to separate. This gate asserts the refusal
+  // happens BEFORE the launcher is reached, and that a tree which has the jar still gets through.
+  Check(".", "smoke-ci-precondition", "tests/e2e/smoke-ci-precondition-gate.sh", List("--self-test"), 60000),
   Check(".", "frontmatter", "scala-cli",
         List("--server=false", "./v1/tools/scripts/validate-frontmatter.scala"), 300000),
 
