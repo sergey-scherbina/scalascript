@@ -191,9 +191,9 @@ private[markdown] final class MarkdownBlocks(
         // types 1-6 interrupt a paragraph; type 7 does not (returns None when open)
         val ht = htmlBlockType(trimmed, open == OpenLeaf.Paragraph).get
         finishParagraph(); handleHtmlBlock(lines, index, ht)
-      else if open != OpenLeaf.Paragraph && scanRefDef(refDefLines(lines, index, line, content), 0).isDefined then
+      else if refDefAt(lines, index, line, content, containers, open).isDefined then
         // the scan owns the extent: a definition may span several lines
-        index + emitDefinition(scanRefDef(refDefLines(lines, index, line, content), 0).get)
+        index + emitDefinition(refDefAt(lines, index, line, content, containers, open).get)
       else if gfm && open != OpenLeaf.Paragraph && isTableStart(lines, index, content) then
         emitTable(lines, index)
       else
@@ -662,10 +662,6 @@ private[markdown] final class MarkdownBlocks(
       * only, where no prefix has been stripped. Multi-line definitions inside a
       * list item or block quote stay unsupported, and stay red in the corpus
       * rather than lossy. */
-    def refDefLines(lines: Vector[MdLine], index: Int, line: MdLine, content: String): Vector[MdLine] =
-      if containers.isEmpty then lines.drop(index)
-      else Vector(MdLine(content, line.ending))
-
     /** Forward references: `[foo]` may be used before `[foo]: /url` appears, so
       * definitions are collected before any inline is parsed.
       *
@@ -840,6 +836,28 @@ private[markdown] final class MarkdownBlocks(
     /** Exactly the text consumed — asserted against the source by the emitter. */
     def consumedText: String =
       indent + labelLex + colon + afterColon + destLex + betweenDestTitle + titleLex + trailing
+
+  /** `scanRefDef` over the window the caller means, WITHOUT materialising it.
+    *
+    * `scanRefDef` already takes a start index, so `scanRefDef(lines.drop(index), 0)` and
+    * `scanRefDef(lines, index)` are the same scan — but the first COPIES the tail of the line
+    * vector first. On the JVM that copy is O(log n) (`Vector` shares structure); the ScalaScript
+    * Rust backend lowers `Vector` to `Vec`, where it is a full O(n) copy of every `MdLine` and
+    * every `String` in it. The old shape ran that copy once per LINE and then AGAIN in the branch
+    * body to reach `.get`, i.e. O(n²) per document, and it sat at the top of a profile once the
+    * accumulator copies were gone.
+    *
+    * A CLASS METHOD rather than a local def inside `parse`, deliberately: the Rust backend does
+    * not yet resolve `.isDefined`/`.get` on a call to a LIFTED LOCAL def (its return type never
+    * reaches the global table), so the local-def spelling emitted `no field isDefined on type
+    * Option<RefDef>`. `containers` and `open` are therefore passed explicitly. The
+    * `open == Paragraph` guard lives inside so the scan stays as lazy as it was in the caller's
+    * `else if` chain — a paragraph line still does no work. */
+  private def refDefAt(lines: Vector[MdLine], index: Int, line: MdLine, content: String,
+                       containers: Vector[Container], open: OpenLeaf): Option[RefDef] =
+    if open == OpenLeaf.Paragraph then None
+    else if containers.isEmpty then scanRefDef(lines, index)
+    else scanRefDef(Vector(MdLine(content, line.ending)), 0)
 
   private def scanRefDef(lines: Vector[MdLine], index: Int): Option[RefDef] =
     // A definition may not contain a blank line, so the window can never run

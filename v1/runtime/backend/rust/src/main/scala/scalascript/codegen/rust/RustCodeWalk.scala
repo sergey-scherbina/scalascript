@@ -3303,6 +3303,13 @@ object RustCodeWalk:
       // a mutable `var` — used only to pick how a capture is rendered when forwarded at a call site:
       // `ctx.byRefMut` says "already a reference here"; this set says "take a NEW `&mut` if not".
       liftedMutableCaptures: Set[String] = Set.empty,
+      // The read-only twin: capture names a lifted def takes as `&Vec<…>` (a captured `val`, which
+      // by definition it never writes). The call site must tell these apart from `byRefMut` — a var
+      // capture is ALREADY a reference in the caller and forwards bare, while a val capture is owned
+      // there and needs a `&`. Passing it by value instead meant `.clone()` of the whole vector at
+      // every call, which is where `dispatchLeaf`'s per-line `refDefLines(lines.clone(), …)` came
+      // from; see the signature site for the measurement.
+      liftedRefCaptures: Set[String] = Set.empty,
       // Lifted-def NAMES (across every def lifted together in one pass) whose transitive call
       // subtree reaches a `self.method(...)` call — `fn isIndentedCode = ... self.
       // startsListOrQuote(trimmed) ...`, a local def lifted out of `MarkdownBlocks`'s own `parse`
@@ -6592,6 +6599,10 @@ object RustCodeWalk:
         liftedDefExtraArgs    = ctx.liftedDefExtraArgs ++ orderedCaptures,
         liftedDefNeedsSelf    = ctx.liftedDefNeedsSelf ++ selfNeedingDefs,
         liftedMutableCaptures = ctx.liftedMutableCaptures ++ allMutableCaptures,
+        liftedRefCaptures     = ctx.liftedRefCaptures ++ orderedCaptures.toList.flatMap { (_, cs) =>
+          cs.filter(c => !varNames.contains(c) &&
+                         inferCaptureType(c, stats, ctx).exists(_.startsWith("Vec<")))
+        }.toSet,
         liftedDefDefaults     = ctx.liftedDefDefaults ++ localDefs.map { d =>
           d.name.value -> d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.default)
         }.toMap,
@@ -6627,6 +6638,20 @@ object RustCodeWalk:
             // `(*n)` identically for a `&T` or `&mut T` parameter, only the PARAMETER TYPE and
             // the reborrow it allows at a call site differ.
             else if myByRefMut.contains(c) then s"$c: &$t"
+            // A captured `val` holding a `Vec` — BY SHARED REFERENCE, and this is a complexity fix.
+            // A `val` capture cannot be written by definition, so it used to be passed by VALUE,
+            // which means `.clone()` AT EVERY CALL SITE (see the call-site arm's own `c.clone()`).
+            // `refDefLines(lines.clone(), …)` (`uniml/markdown`'s `MarkdownBlocks.scala`'s
+            // `dispatchLeaf`) therefore copied the WHOLE document's line vector — every `MdLine`
+            // and every `String` in it — twice per LINE, which is O(n) per line and O(n²) per
+            // document; a `sample` profile put it at the top after the `++`/`:+` accumulator fixes.
+            // The `&$t` shape and the deref-on-read that goes with it are exactly what a read-only
+            // VAR capture already gets one line up, so this reuses that machinery rather than
+            // adding any.
+            // SCOPED TO `Vec`, deliberately: it is the measured case, it is unambiguously non-Copy,
+            // and a Copy capture (`i64`, `bool`) is cheaper by value than behind a reference. String
+            // and HashMap are the obvious next candidates and are left until something measures them.
+            else if t.startsWith("Vec<") then s"$c: &$t"
             else s"$c: $t"
           }
           // Factored out of `paramTypes`' own RHS below so `localOptions` (below that) can build a
@@ -6646,9 +6671,15 @@ object RustCodeWalk:
             d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).flatMap { p =>
               p.decltpe.flatMap(t => mapType(t, d.name.value, ctx.enumNames).toOption).map(p.name.value -> _)
             } ++ collectLocalRustTypes(d, ctx.ctorMap, captureTypes)
+          // The `val`-capture counterpart of `myByRefMut`: read-only, passed as `&Vec<…>`, so its
+          // reads deref exactly like a read-only var capture's do. Kept as its own name because the
+          // CALL SITE has to tell them apart — a var capture is already a reference in the caller
+          // and is forwarded bare, while a val capture is owned there and needs `&`.
+          val myRefCaptures = myCaptures.filter(c =>
+            !myByRefMut.contains(c) && captureTypes.get(c).exists(_.startsWith("Vec<"))).toSet
           val childCtx = baseCtx.copy(
             defParams = ctx.defParams ++ ownParamNames ++ myCaptures.toSet,
-            byRefMut  = myByRefMut,
+            byRefMut  = myByRefMut ++ myRefCaptures,
             byRefMutWrite = myByRefMut.filter(myWrites.contains),
             // `def emit(...) = ... SourceSpan(source, start, pos) ...` lifted out of `MarkdownBlocks`'s
             // own `parse` (`uniml/markdown`'s `MarkdownBlocks.scala`) — `source` is a ctor param of the
@@ -7216,6 +7247,11 @@ object RustCodeWalk:
           val selfPrefix = if ctx.trueSelfFields.contains(c) then "self." else ""
           if ctx.byRefMut.contains(c) then s"$selfPrefix$c"
           else if ctx.liftedMutableCaptures.contains(c) then s"&mut $selfPrefix$c"
+          // A read-only `Vec` capture takes `&` here instead of a whole-vector `.clone()` — see
+          // `Ctx.liftedRefCaptures`. Checked AFTER `byRefMut`, which already means "this name is a
+          // reference in THIS scope" and so forwards bare (a lifted def calling another one passes
+          // its own `&` parameter straight through).
+          else if ctx.liftedRefCaptures.contains(c) then s"&$selfPrefix$c"
           else s"$selfPrefix$c.clone()"
         }
         // `Ctx.liftedDefNeedsSelf`'s own comment: appended LAST, matching where the callee's own
