@@ -1,0 +1,11 @@
+slug: v3-refuses-lane
+branch: feature/v3-refuses-lane
+agent: claude-code
+started: 2026-08-31T19:43:42Z
+heartbeat: 2026-08-31T19:43:42Z
+status: claimed-before-planning
+items: infix-application-does-not-reach-a-declared-class-method
+paths: file:v3/exec-gate.sh file:v3/BUGS.md file:v3/tests/front/refuses-infix-class-method.ssc file:v3/tests/front/refuses-infix-class-method.refuses
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
