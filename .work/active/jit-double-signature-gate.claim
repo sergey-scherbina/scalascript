@@ -5,7 +5,7 @@ started: 2026-08-31T20:23:16Z
 heartbeat: 2026-08-31T20:23:16Z
 status: claimed-before-planning
 items: int-a-double-in-a-signature-falls-off-the-jit
-paths: file:tests/e2e/jit-double-signature-gate.sh file:v1/runtime/backend/interpreter/BUGS.md file:scripts/smoke-ci.ssc
+paths: file:tests/e2e/jit-double-signature-gate.sh file:v1/runtime/backend/interpreter/BUGS.md file:scripts/smoke-ci.ssc file:TASK/v2-perfomance.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+next: regenerated TASK view, landing
