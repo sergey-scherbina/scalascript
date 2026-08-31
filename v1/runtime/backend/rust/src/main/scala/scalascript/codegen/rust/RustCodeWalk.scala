@@ -3968,13 +3968,28 @@ object RustCodeWalk:
       // Params DECLARED `Vector[String]`/`List[String]`/etc — `collectLocalStrings`'s own
       // `vecStringParams` fact for a bare-name INDEX read (`values(position)`, `foldLines`'s own
       // `values: Vector[String]`).
-      val vecStringParams = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
-        .collect { case p if p.decltpe.exists {
-            case m.Type.Apply.After_4_6_0(m.Type.Name("Vector" | "List" | "Seq" | "IndexedSeq" | "Array"), argClause) =>
-              argClause.values match { case List(m.Type.Name("String")) => true; case _ => false }
-            case _ => false
-          } => p.name.value
-        }.toSet
+      def isVecOfString(t: m.Type): Boolean = t match
+        case m.Type.Apply.After_4_6_0(m.Type.Name("Vector" | "List" | "Seq" | "IndexedSeq" | "Array"), argClause) =>
+          argClause.values match { case List(m.Type.Name("String")) => true; case _ => false }
+        case _ => false
+      // PARAMETERS and LOCALS both, and the locals half is a CORRECTNESS fix rather than a
+      // widening. This set is what tells `collectLocalStrings` that indexing it yields a String;
+      // without an entry, `val first = xs(0); first.length` does not know `first` is a String and
+      // `.length` falls through to a bare `.len()` — Rust's BYTE length — while the same string
+      // named directly gets `_str_length`, this lane's UTF-16 CODE-UNIT length. Two spellings of
+      // one operation on one value then disagree on any non-ASCII string: measured on `"aé"`,
+      // `direct.length` is 2 (right, as on the JVM) and `xs(0).length` is 3 (wrong, bytes).
+      // Silent — it compiles, runs, and is only wrong outside ASCII.
+      // Found while building the Rust dialect (RAG phase 2), reported rather than worked around.
+      val vecStringParams =
+        d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
+          .collect { case p if p.decltpe.exists(isVecOfString) => p.name.value }.toSet ++
+        d.body.collect {
+          case v: m.Defn.Val if v.decltpe.exists(isVecOfString) =>
+            v.pats.collect { case m.Pat.Var(m.Term.Name(n)) => n }
+          case v: m.Defn.Var if v.decltpe.exists(isVecOfString) =>
+            v.pats.collect { case m.Pat.Var(m.Term.Name(n)) => n }
+        }.flatten.toSet
       // Seeded with `stringParams` so a chain rooted in one (`value.drop(2).takeWhile(…)`) is
       // recognised too — see `collectLocalStrings`'s own comment.
       val lstrings = collectLocalStrings(d.body, stringParams, vecStringParams) ++ stringParams ++ _moduleStrings

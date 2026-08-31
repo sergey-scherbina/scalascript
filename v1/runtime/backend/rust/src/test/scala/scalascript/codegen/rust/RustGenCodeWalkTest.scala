@@ -5131,6 +5131,31 @@ class RustGenCodeWalkTest extends AnyFunSuite:
       && g.contains("if digits.is_empty() { None } else { digits.parse::<i64>().ok() }"),
       s"an Option-closure's own param must seed as a String, an object-qualified predicate reference must not gain a spurious call, and toLongOption must lower to parse().ok():\n$g")
 
+  test("`.length` on a String taken out of a LOCAL `Vector[String]` is code units, not bytes"):
+    // A CORRECTNESS bug, found while building the Rust dialect for RAG phase 2 and reported
+    // rather than worked around. `vecStringParams` — the set that tells `collectLocalStrings`
+    // "indexing this yields a String" — was built from the def's PARAMETERS only, so a LOCAL
+    // `val xs: Vector[String]` had no entry and `xs(0)` was not known to be a String. `.length`
+    // on it then fell through to a bare `.len()`, which is Rust's BYTE length, while the same
+    // string named directly gets `crate::runtime::_str_length`, this lane's UTF-16 CODE-UNIT
+    // length (JVM/JS semantics, which uniML's surrogate handling depends on).
+    //
+    // Two spellings of one operation on one value therefore disagreed on any non-ASCII string.
+    // Measured by RUNNING the emitted code on `"aé"`: `direct.length` gave 2 (right), and
+    // `fromVec.length` gave 3 (wrong — bytes). Silent: it compiles, it runs, and it is only
+    // wrong outside ASCII, which is exactly the input nobody tests with.
+    val src =
+      """```scalascript
+        |def probe(): Int =
+        |  val xs: Vector[String] = Vector("ae", "b")
+        |  val fromVec = xs(0)
+        |  fromVec.length
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("crate::runtime::_str_length(&fromVec)"),
+      s"a String indexed out of a local Vector[String] must use the code-unit length, not .len():\n$g")
+
   test("`xs.count(_.field == x)` / `xs.filter(_.field == x)` — a placeholder predicate types cleanly"):
     // `lexed.tokens.count(_.kind == "yaml.anchor")` / `ranges.filter(_.start == index)`
     // (`uniml/yaml`) — `renderVecIterBody`'s `Term.AnonymousFunction` branch wrapped the WHOLE
