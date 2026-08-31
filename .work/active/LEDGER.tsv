@@ -1,3 +1,2 @@
-# generation: 3250
+# generation: 3251
 #slug	agent	started	items	paths
-gateless-batch6	claude-code	2026-08-31T16:49:22Z	infix-application-does-not-reach-a-declared-class-method v3-an-interpolator-prefix-and-an-ordinary-function-share-one-namespace	file:v3/BUGS.md file:v3/tests/front/kr-infix-class-method.ssc file:v3/tests/front/kr-infix-class-method.expected file:v3/tests/front/kr-interpolator-name-collision.ssc file:v3/tests/front/kr-interpolator-name-collision.expected
