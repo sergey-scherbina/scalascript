@@ -175,6 +175,15 @@ Then three NEW end-stages, in this order, each planned carefully before any code
     document per target (starting with JVM: bytecode directly à la v2's `backend-jvm-bytecode`,
     or source-level à la `run-jvm` — put to the owner with measured trade-offs before code).
 
+> **OWNER RE-ORDERED THE END-STAGES, 2026-09-01** ("рефакторинг uniml и новые бекенды для v3,
+> потом доведи фронт v3 до полноценности для переключения на дефолтность и потом можно заняться
+> оптимизацией"): the sequence is now **10 (UniML de-mutabilization) → 12 (v3's own backends,
+> JVM → JS → Rust → Swift → Python → R) → v3 front to FULL capability, sufficient to switch it to
+> DEFAULT → 9 (optimization, last and thorough)**. Stage 11's audit-the-front work is subsumed
+> into the "front to default-worthiness" stage rather than sitting between the refactor and the
+> backends. The per-target bridge-parity retirement rule and the plan-document-first rule for each
+> backend stand unchanged.
+
 **WHAT IS ACTUALLY LEFT, after the 2026-08-31 audit, in the owner's own order:** stage 3 (three
 front-parser bugs, in flight) → **stage 6, the type checker G2, which is the largest real piece** →
 stage 5's remainder (the content-provider integration; the interpolator half that is left is a v2

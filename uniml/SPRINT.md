@@ -10,6 +10,42 @@ Anything not being worked on belongs in `uniml/BACKLOG.md`, not here — a queue
 the root `SPRINT.md` board and a live `.work/active/<slug>.claim`; all three are written
 in one commit. Layout: `specs/work-tracking-layout.md`.
 
+- [~] uniml-demut-survey — **stage 10 opens: the mutability census, and it inverts the expectation.**
+      The owner's directive (2026-08-30, reaffirmed 2026-09-01): eliminate mutable types everywhere
+      possible, replacing mutation with ALGEBRAS and AGGREGATORS — `empty`/`combine`/`prepare`/
+      `present`, the `std/aggregator.ssc` discipline applied to the compiler's own internals.
+
+      **MEASURED 2026-09-01, 156 source files:**
+
+      | shape | count | where |
+      |---|---|---|
+      | classes with a `var` PARAMETER | **0** | — |
+      | `var` FIELDS (module/class state) | **1** | `markup/MarkupCodec.scala:26` `_default` |
+      | in-place tree edits (`.field =` on a node) | **0** | (grep hits are the parsed LANGUAGE's assignments, not ours) |
+      | `var` locals inside methods | ~790 | markdown 221, yaml 212, scala 134, rust 56, core 40, json 38, xml 31 |
+      | local mutable builders (ListBuffer/ArrayBuffer/LinkedHashMap) | ~45 uses | markup 9 + xml 5 + scala-dialect + tests |
+
+      So UniML's TYPES are already immutable — nodes are case classes, no mutable state escapes a
+      method, nothing edits a tree in place. What mutation exists is METHOD-LOCAL: parser cursors
+      (`var i`, `var depth`) and build-then-freeze buffers. The one genuine mutable type is the
+      settable default codec.
+
+      **The conversion order this dictates (smallest risk first, gates green at every step):**
+      1. `MarkupCodec._default` — the one mutable FIELD; becomes an explicit parameter or a
+         provided instance. This is the only piece that is a mutable TYPE in the owner's sense.
+      2. Escaping builders — any buffer whose reference outlives the method (survey says ~none in
+         main sources; tests keep theirs, tests are not the product).
+      3. Local builders → folds over an aggregator where the shape is a fold already
+         (`ListBuffer` + append-in-loop + `toList` IS `foldLeft` spelled imperatively).
+      4. Parser cursors LAST and per-module, markdown → yaml → scala, each behind its module's
+         suite plus front-diff/exec/bridge for the scala dialect — with the backlog's per-piece
+         escape hatch: where a measurement says the algebraic form is too expensive on a hot
+         path, park THAT piece with the number.
+
+      Gates: `cd uniml && sbt test`, `uniml/lint-portable-subset.sh` (the refactor must stay inside
+      the portable subset — uniml has a rust backend of core that consumes it), and for the scala
+      dialect v3's front-diff (2 fronts confirmed) + exec + bridge + corpus.
+
 - [x] uniml-corpus-floor-independent-oracle — **the floor was one check doing two jobs, and only
       doing one of them.** "The sweep silently shrank" covered COLLAPSE (wrong root, walk threw —
       the number falls off a cliff) and EROSION (an exclusion widened by a character — ten files
