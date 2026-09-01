@@ -57,6 +57,20 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
       envelope — no urgent knob. Cursor de-mutabilization (stage 10) must re-run this bench per
       module as its perf gate.
 
+- [x] uniml-demut-core — **the core module is var-free: 33 → 0.** TreeVm's step/stop local
+      imperative shells became a top-level `VmWork` record threaded through the transition arms
+      (top level because v2 does not lower class-nested type decls); step's `record` still HALTS
+      on the diagnostic limit while stop's twin does not — the one behavioral asymmetry the two
+      shells had, kept and commented. reframeProblem's dry-run is a `ReframeCheck` fold;
+      validateToken builds its vector directly. UniML.parse threads `LexAcc`/`VmAcc` through its
+      two folds. Unicode.codePointCount/advance are index recursions over the SAME hoisted
+      `toVector` (the O(n²)-avoidance shape is untouched; note `advance` counts offset per code
+      POINT — preserved). Tree.sourceTokens' worklist and Literal's emit loop are recursions
+      (`LiteralEmit` hoisted for the same v2 reason). Gates: lint-portable-subset OK; full uniml
+      `sbt test` exit 0 (17 groups, rerun alone after another launcher OOM); v2-smoke 4/5 with
+      only the KNOWN-RED gap-anon (baseline-identical); verify-uniml-dual-build OK (JS 218 green,
+      isolation held).
+
 - [x] uniml-demut-rust — **the rust module is var-free: 51 → 0.** The lexer's while-spelled
       end-finders (plainStringEnd/charLiteralEnd/rawStringHashes/rawStringEnd/blockCommentEnd)
       became recursions; lexWindow's per-token scan is a `TokenAt(kind, end)` classification +

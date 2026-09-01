@@ -43,32 +43,26 @@ private[uniml] object Unicode:
     // Identical semantics on both lanes: `Vector[Char]` is code UNITS, exactly what `charAt`
     // yields, so surrogate pairs still arrive as two elements and `chars.length == text.length`.
     val chars = text.toVector
-    var index = 0
-    var count = 0
-    while index < chars.length do
-      val char = chars(index)
-      if isHighSurrogate(char) && index + 1 < chars.length && isLowSurrogate(chars(index + 1)) then
-        index += 2
-      else index += 1
-      count += 1
-    count
+    def walk(index: Int, count: Int): Int =
+      if index >= chars.length then count
+      else
+        val char = chars(index)
+        val width =
+          if isHighSurrogate(char) && index + 1 < chars.length && isLowSurrogate(chars(index + 1)) then 2
+          else 1
+        walk(index + width, count + 1)
+    walk(0, 0)
 
   def advance(position: SourcePosition, lexeme: String): SourcePosition =
     // Same reason as `codePointCount` just above: index the code units, not the string.
     val chars = lexeme.toVector
-    var index = 0
-    var offset = position.offset
-    var line = position.line
-    var column = position.column
-    while index < chars.length do
-      val char = chars(index)
-      val width =
-        if isHighSurrogate(char) && index + 1 < chars.length && isLowSurrogate(chars(index + 1)) then 2
-        else 1
-      if char == '\n' then
-        line += 1
-        column = 1
-      else column += 1
-      offset += 1
-      index += width
-    SourcePosition(offset, line, column)
+    def walk(index: Int, offset: Int, line: Int, column: Int): SourcePosition =
+      if index >= chars.length then SourcePosition(offset, line, column)
+      else
+        val char = chars(index)
+        val width =
+          if isHighSurrogate(char) && index + 1 < chars.length && isLowSurrogate(chars(index + 1)) then 2
+          else 1
+        if char == '\n' then walk(index + width, offset + 1, line + 1, 1)
+        else walk(index + width, offset + 1, line, column + 1)
+    walk(0, position.offset, position.line, position.column)

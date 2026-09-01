@@ -12,13 +12,11 @@ enum UniNode:
 
 object UniNode:
   def sourceTokens(root: UniNode): Vector[SourceToken] =
-    var result: Vector[SourceToken] = Vector.empty
-    var pending = List(root)
-    while pending.nonEmpty do
-      pending.head match
+    def walk(pending: List[UniNode], result: Vector[SourceToken]): Vector[SourceToken] =
+      if pending.isEmpty then result
+      else pending.head match
         case UniNode.Token(value) =>
-          result = result :+ value
-          pending = pending.tail
+          walk(pending.tail, result :+ value)
         case UniNode.Branch(_, edges, _, _) =>
-          pending = edges.map(_.child).toList ::: pending.tail
-    result
+          walk(edges.map(_.child).toList ::: pending.tail, result)
+    walk(List(root), Vector.empty)
