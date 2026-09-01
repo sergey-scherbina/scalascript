@@ -1,0 +1,11 @@
+slug: uniml-demut-json-rest
+branch: feature/uniml-demut-json-rest
+agent: claude-code
+started: 2026-09-01T06:19:42Z
+heartbeat: 2026-09-01T06:19:42Z
+status: claimed-before-planning
+items: uniml-json-projection-and-structure-become-folds
+paths: file:uniml/json/src/main/scala/scalascript/uniml/dialect/json/JsonProjection.scala file:uniml/json/src/main/scala/scalascript/uniml/dialect/json/JsonStructure.scala file:uniml/SPRINT.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement

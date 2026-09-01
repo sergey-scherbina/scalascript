@@ -1,2 +1,3 @@
-# generation: 3287
+# generation: 3288
 #slug	agent	started	items	paths
+uniml-demut-json-rest	claude-code	2026-09-01T06:19:42Z	uniml-json-projection-and-structure-become-folds	file:uniml/json/src/main/scala/scalascript/uniml/dialect/json/JsonProjection.scala file:uniml/json/src/main/scala/scalascript/uniml/dialect/json/JsonStructure.scala file:uniml/SPRINT.md
