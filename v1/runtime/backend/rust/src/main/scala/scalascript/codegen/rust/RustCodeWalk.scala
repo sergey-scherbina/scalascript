@@ -6212,6 +6212,14 @@ object RustCodeWalk:
         hasTailCallPath(defName, paramCount, t)
       case _ => false
     }
+    // A match in tail position: any ARM may hold the self-tail-call (tokenize's per-char
+    // `walk` is one giant match — without this it stayed a real recursion and overflowed the
+    // stack at ~3,200 lines; ssc-perf-port-to-main).
+    case mt: m.Term.Match =>
+      mt.casesBlock.cases.exists { c =>
+        isSelfTailCall(defName, paramCount, c.body).isDefined ||
+        hasTailCallPath(defName, paramCount, c.body)
+      }
     case _ => isSelfTailCall(defName, paramCount, body).isDefined
 
   /** Render params with `mut` prefix for TCO defs (loop reassigns them). */
@@ -6223,7 +6231,10 @@ object RustCodeWalk:
     // `_refParamPos` positions survived the TCO gate above only because every self-call passes
     // them through unchanged — they take the same `&` form the call sites are built against,
     // and no `mut` (the loop never reassigns them; see `renderTCOTerm`'s skip).
-    val refPos = _refParamPos.getOrElse(ctx.defName, Set.empty)
+    // In a LIFTED def's context `ctx.defName` is still the ENCLOSING def, so its
+    // `_refParamPos` positions would be nonsense here — lifted `&Vec` params are the
+    // `liftedDefParamTypes` mechanism and need no exemption from `mut`.
+    val refPos = if ctx.inLiftedFn then Set.empty[Int] else _refParamPos.getOrElse(ctx.defName, Set.empty)
     val rendered = params.zipWithIndex.map { (p, i) =>
       p.decltpe match
         case Some(t) => mapType(t, ctx.defName, ctx.enumNames).map { r =>
@@ -6281,8 +6292,26 @@ object RustCodeWalk:
         val passThrough = newArgs.zipWithIndex.collect {
           case (m.Term.Name(an), i) if paramNames.lift(i).contains(an) => i
         }.toSet
-        val argResults = newArgs.zipWithIndex.collect { case (a, i) if !passThrough.contains(i) =>
-          renderTerm(a, ctx).map(r => (s"_tco_$i", r))
+        // A param that occurs in exactly ONE reassignment initializer is DEAD after it — the
+        // loop overwrites every param right below — so that one read may MOVE. The recursion
+        // this loop replaces moved it for free (`walk(emitFixed(st, …), …)`), and cloning it
+        // instead re-created the accumulator-copy quadratic TCO exists to avoid
+        // (28 s on a 31 KB file; ssc-perf-port-to-main).
+        def occurs(t: m.Tree, name: String): Boolean =
+          var found = false
+          def w(x: m.Tree): Unit =
+            x match
+              case m.Term.Name(nm) if nm == name => found = true
+              case _                             => ()
+            if !found then x.children.foreach(w)
+          w(t)
+          found
+        val liveArgs = newArgs.zipWithIndex.collect { case (a, i) if !passThrough.contains(i) => (a, i) }
+        val argResults = liveArgs.map { (a, i) =>
+          val deadHere = paramNames.filter { pn =>
+            occurs(a, pn) && !liveArgs.exists((b, j) => j != i && occurs(b, pn))
+          }.toSet
+          renderTerm(a, ctx.copy(deadNames = ctx.deadNames ++ deadHere)).map(r => (s"_tco_$i", r))
         }
         val (errs, rendered) = argResults.partitionMap(identity)
         if errs.nonEmpty then Left(errs.flatten)
@@ -6300,6 +6329,15 @@ object RustCodeWalk:
               thenRs  <- renderTCOTerm(defName, paramNames, ifExpr.thenp, ctx, isUnit)
               elseRs  <- renderTCOTerm(defName, paramNames, ifExpr.elsep, ctx, isUnit)
             yield s"if $condRs {\n${indent(thenRs)}\n} else {\n${indent(elseRs)}\n}"
+          // A tail-position MATCH renders through the full pattern machinery with each arm's
+          // BODY routed back here (the `armBodyRender` hook) — tokenize's per-char `walk` is
+          // one giant match, and without this it stayed a real recursion.
+          case mt: m.Term.Match =>
+            renderMatch(mt.expr, mt.casesBlock.cases.toList, ctx,
+              // Braced: the arm position is an EXPRESSION, and a TCO body is statements
+              // (`let _tco…; p = …;` or `return …;`).
+              armBodyRender = Some((t, c) =>
+                renderTCOTerm(defName, paramNames, t, c, isUnit).map(r => s"{\n${indent(r)}\n}")))
           case m.Term.Block(stats) if stats.nonEmpty =>
             // The same local-val ctor prepass renderBody runs — without it a binding like
             // `val recorded = recordWork(...)` stayed untyped inside a TCO body ONLY, and
@@ -6307,7 +6345,43 @@ object RustCodeWalk:
             // shape in a non-recursive def lowered fine.
             val tcoCtx = withLocalValCtors(stats, ctx)
             val (initStats, lastStat) = (stats.init, stats.last)
-            val initResults = initStats.map(renderStmt(_, tcoCtx))
+            // A PARAM whose last read in this iteration is statement i is DEAD there — the loop
+            // reassigns every param before the next pass — so that read may MOVE. Without this,
+            // `walkLines`'s `processLine(st.clone(), …)` deep-copied the whole accumulated
+            // BlockState per LINE (the accumulator-copy quadratic again, one level up;
+            // ssc-perf-port-to-main). Conservative: only statements free of loops/lambdas (a
+            // dead-marked value must not be re-read on a second inner iteration).
+            def occursT(t: m.Tree, name: String): Boolean =
+              var found = false
+              def w(x: m.Tree): Unit =
+                x match
+                  case m.Term.Name(nm) if nm == name => found = true
+                  case _                             => ()
+                if !found then x.children.foreach(w)
+              w(t)
+              found
+            def plainStmt(t: m.Tree): Boolean =
+              var plain = true
+              def w(x: m.Tree): Unit =
+                x match
+                  case _: m.Term.While | _: m.Term.For | _: m.Term.ForYield |
+                       _: m.Term.Function | _: m.Term.PartialFunction => plain = false
+                  case _ => ()
+                if plain then x.children.foreach(w)
+              w(t)
+              plain
+            val deadAt: Int => Set[String] = { i =>
+              if !plainStmt(initStats(i)) then Set.empty
+              else
+                paramNames.filter { pn =>
+                  occursT(initStats(i), pn) &&
+                  !initStats.drop(i + 1).exists(st2 => occursT(st2, pn)) &&
+                  !occursT(lastStat, pn)
+                }.toSet
+            }
+            val initResults = initStats.zipWithIndex.map { (st1, i) =>
+              renderStmt(st1, tcoCtx.copy(deadNames = tcoCtx.deadNames ++ deadAt(i)))
+            }
             val (initErrs, initOk) = initResults.partitionMap(identity)
             if initErrs.nonEmpty then Left(initErrs.flatten)
             else
@@ -7463,10 +7537,20 @@ object RustCodeWalk:
         // (unambiguously non-Copy, and the measured case), and only when the body never writes it.
         liftedDefParamTypes   = ctx.liftedDefParamTypes ++ localDefs.map { d =>
           val myW = writes.getOrElse(d.name.value, Set.empty)
-          d.name.value -> d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).toList.map { p =>
+          val pNames = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value).toList
+          // The lifted-TCO gate (ssc-perf-port-to-main): a param the TCO loop REASSIGNS cannot
+          // be `&Vec` — same fact the top-level `_refParamPos` builder already honours. Only
+          // positions every self-call passes through unchanged stay eligible.
+          val tcoKeeps: Int => Boolean =
+            if pNames.nonEmpty && hasTailCallPath(d.name.value, pNames.size, d.body)
+               && !d.body.collect { case dd: m.Defn.Def => dd }.exists(_ => true) then
+              val inv = tcoInvariantParamPositions(d.name.value, pNames, d.body)
+              inv.contains
+            else (_: Int) => true
+          d.name.value -> d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).toList.zipWithIndex.map { (p, i) =>
             val t = p.decltpe.flatMap(tt => mapType(tt, d.name.value, ctx.enumNames).toOption).getOrElse("")
             if t.startsWith("Vec<") && !myW.contains(p.name.value) &&
-               !returnsNameDirectly(d.body, p.name.value) then s"&$t" else t
+               !returnsNameDirectly(d.body, p.name.value) && tcoKeeps(i) then s"&$t" else t
           }
         }.toMap,
         liftedDefMutWrites    = ctx.liftedDefMutWrites ++ localDefs.map { d =>
@@ -7682,7 +7766,18 @@ object RustCodeWalk:
           val childCtx2 = if refParamNames.isEmpty then childCtx
                           else childCtx.copy(byRefMut = childCtx.byRefMut ++ refParamNames)
           for
-            ownParams0 <- renderParams(d, childCtx2, None)
+            ownParams0 <- {
+              val scalaParamNames =
+                d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value).toList
+              if scalaParamNames.nonEmpty && hasTailCallPath(d.name.value, scalaParamNames.size, d.body)
+                 // and no nested defs: the TCO body renderer has no lifting pass of its own
+                 && !d.body.collect { case dd: m.Defn.Def => dd }.exists(_ => true) then
+                // TCO signature: reassigned params take `mut`; `_refParamPos` does not apply to
+                // lifted defs (their `&Vec` story is `liftedDefParamTypes`, position-invariant
+                // args need no reassignment and `renderTCOTerm` skips them).
+                renderMutParams(d, childCtx2, None)
+              else renderParams(d, childCtx2, None)
+            }
             // `renderParams` is the SHARED renderer for every def in the language, so the `&` is
             // applied here rather than inside it — this rewrite is scoped to LIFTED defs, whose
             // call sites all live inside the one function being emitted and are all rewritten
@@ -7690,7 +7785,21 @@ object RustCodeWalk:
             ownParams = refParamNames.foldLeft(ownParams0) { (acc, nm) =>
                           acc.replace(s"$nm: Vec<", s"$nm: &Vec<") }
             ret       <- renderReturnType(d, childCtx2)
-            bodyRs    <- renderBody(d.body, childCtx2, isUnit = ret.isEmpty)
+            // TCO for LIFTED defs too (ssc-perf-port-to-main): a tail-recursive nested def —
+            // main's per-LINE `walkLines` driver — lowered to a REAL recursion, which is both
+            // the O(n²) accumulator-copy shape and a stack as deep as the document (a 3,200-line
+            // file overflowed 8 MB). The self-call names only the SCALA params (captures are
+            // appended and invariant by construction), so `paramNames` is exactly that list —
+            // the reassignment targets — and every capture parameter stays a plain binding.
+            bodyRs    <- {
+              val scalaParamNames =
+                d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value).toList
+              if scalaParamNames.nonEmpty && hasTailCallPath(d.name.value, scalaParamNames.size, d.body)
+                 // and no nested defs: the TCO body renderer has no lifting pass of its own
+                 && !d.body.collect { case dd: m.Defn.Def => dd }.exists(_ => true) then
+                renderTCOBody(d.name.value, scalaParamNames, d.body, childCtx2, isUnit = ret.isEmpty)
+              else renderBody(d.body, childCtx2, isUnit = ret.isEmpty)
+            }
           yield
             // `Ctx.liftedDefNeedsSelf`'s own comment: `d`'s OWN new parameter, typed off
             // `ctx.selfTypeName` (set only when THIS whole lift originates from a genuinely mutable
@@ -8480,6 +8589,13 @@ object RustCodeWalk:
     // because a second copy of "what a code unit is" is how `length` and `substring` drifted apart
     // in the first place. A receiver whose type the walker cannot see keeps `.len()`: for a Vec
     // that is correct, and guessing the other way would break every list in the corpus.
+    // A CODE-UNIT vector's length IS the string length (that is the representation's whole
+    // point) and it is a plain `Vec::len` — checked BEFORE the String arm, which otherwise
+    // claims a `Vector[Char]` PARAM through stale string signals and emits `_str_length(&Vec)`
+    // (21 E0308s the moment MarkdownInlines went code-unit on the main base,
+    // ssc-perf-port-to-main).
+    case m.Term.Select(qual, m.Term.Name("size" | "length" | "len")) if isCharSeqExpr(qual, ctx) =>
+      renderTerm(qual, ctx).map(q => s"($q.len() as i64)")
     case m.Term.Select(qual, m.Term.Name("size" | "length" | "len"))
         if isStringExpr(qual) || (qual match
           case m.Term.Name(n) => ctx.localStrings.contains(n)
@@ -14671,7 +14787,11 @@ object RustCodeWalk:
       // another a `()` call) resolves the same way `renderUnitTerm`'s own doc comment explains.
       // Mutually exclusive with `armTail` in practice (a tail position is never also discarded);
       // `armTail` wins if somehow both are set, matching the `bod` line below.
-      isUnit: Boolean = false
+      isUnit: Boolean = false,
+      // TCO-in-a-lifted-def support (ssc-perf-port-to-main): when set, every arm BODY renders
+      // through THIS instead of the tail/unit/plain forms — `renderTCOTerm` passes itself, so a
+      // self-tail-call inside a match arm becomes param reassignments in the generated loop.
+      armBodyRender: Option[(m.Term, Ctx) => Either[List[Diagnostic], String]] = None
   ): Either[List[Diagnostic], String] =
     val subjRendered = renderTerm(subject, ctx)
     // An identity catch-all (`case x => x`, no guard) trailing a sealed-enum match is the
@@ -15119,9 +15239,12 @@ object RustCodeWalk:
         // move out of *stream, which is behind a shared reference`. Only the plain `renderTerm`
         // branch needs it — `renderValueTail`/`renderUnitTerm` build their own statement/tail
         // shapes and are unaffected by this specific gap.
-        bod   <- if armTail then renderValueTail(c.body, bodyCtx)
-                 else if isUnit then renderUnitTerm(c.body, bodyCtx)
-                 else renderTerm(c.body, bodyCtx).map(r0 => cloneIfMoved(c.body, r0, bodyCtx))
+        bod   <- armBodyRender match
+                   case Some(f) => f(c.body, bodyCtx)
+                   case None =>
+                     if armTail then renderValueTail(c.body, bodyCtx)
+                     else if isUnit then renderUnitTerm(c.body, bodyCtx)
+                     else renderTerm(c.body, bodyCtx).map(r0 => cloneIfMoved(c.body, r0, bodyCtx))
       yield
         // `divergingArmBody` — a `throw` arm's `panic!` must stay UNWRAPPED (its own comment has
         // the `Rc::new(panic!(…))`-types-as-`()` story); identity wraps are unaffected.

@@ -680,7 +680,17 @@ private[markdown] final class MarkdownBlocks(
     def openBlockquoteAndReprocess(
         st0: BlockState, index: Int, line: MdLine, content: String): BlockStep =
       val st1: BlockState = finishParagraph(st0)
-      val stripped = stripBlockquoteMarker(content).get
+      // The gate that routed here checked `startsBlockquote(trimmed)` — indent removed —
+      // while `stripBlockquoteMarker` re-checks `indentWidth(content) <= 3` on the RAW line,
+      // and `isIndentedCode` deliberately exempts quote-starting lines. A deeply indented `>`
+      // (scalascript's own tests/SPRINT.md) passed the gate and panicked on the `.get`. The
+      // marker token absorbs its indentation (lossless); the inner strip is on the trimmed
+      // line, whose first char the gate proved is `>`.
+      val stripped = stripBlockquoteMarker(content).getOrElse {
+        val leadLen = MdChars.indentPrefixLength(content)
+        val inner = stripBlockquoteMarker(content.substring(leadLen)).get
+        (content.substring(0, leadLen) + inner._1, inner._2)
+      }
       val st2: BlockState = flushPending(st1, MdKind.BlockquoteMarker, stripped._1, Vector(FrameSpec(MdBranch.Blockquote)), Some("marker"), TokenChannel.Syntax)
       val st3 = st2.copy(containers = st2.containers :+ Blockquote())
       // reprocess the remainder of the line as inner content by rebuilding a line

@@ -110,24 +110,31 @@ private[markdown] object MdLine:
     // surrogate pairs still arrive as two elements and `chars.length == text.length`.
     // annotated: captured by the lifted `split` (Rust lane)
     val chars: Vector[Char] = text.toVector
-    // Tail recursion over (index, lineStart, lines) — the same walk, and CRITICALLY the same
-    // complexity: every access is still a Vector index (O(1)) and every slice per LINE, so the
-    // O(n²) this comment block describes cannot come back through this conversion. Tail-position
-    // self-calls compile to the same loop on scalac and Scala.js.
-    def split(index: Int, lineStart: Int, lines: Vector[MdLine]): (Vector[MdLine], Int) =
-      if index >= chars.length then (lines, lineStart)
-      else chars(index) match
-        case '\n' =>
-          split(index + 1, index + 1, lines :+ MdLine(chars.slice(lineStart, index).mkString(""), "\n"))
-        case '\r' =>
-          if index + 1 < chars.length && chars(index + 1) == '\n' then
-            split(index + 2, index + 2, lines :+ MdLine(chars.slice(lineStart, index).mkString(""), "\r\n"))
-          else
-            split(index + 1, index + 1, lines :+ MdLine(chars.slice(lineStart, index).mkString(""), "\r"))
-        case _ => split(index + 1, lineStart, lines)
-    val splitResult = split(0, 0, Vector.empty)
-    val lines = splitResult._1
-    val lineStart = splitResult._2
+    // An IMPERATIVE while over (index, lineStart, lines) — the same walk, same complexity.
+    // This WAS a tail-recursive local def (the same loop on scalac and Scala.js), but the Rust
+    // lane lowers a lifted local def to a REAL recursion where `lines :+ line` in argument
+    // position concatenated the whole accumulated vector per LINE — O(lines²) plus a stack as
+    // deep as the line count (rozum's `ssc-local-last-use-move`, quadratic #5; 85% of a
+    // 12,800-line parse). The `lines = lines :+ …` SELF-APPEND lowers to an in-place push.
+    var lines: Vector[MdLine] = Vector.empty
+    var lineStart = 0
+    var index = 0
+    while index < chars.length do
+      val c = chars(index)
+      if c == '\n' then
+        lines = lines :+ MdLine(chars.slice(lineStart, index).mkString(""), "\n")
+        index = index + 1
+        lineStart = index
+      else if c == '\r' then
+        if index + 1 < chars.length && chars(index + 1) == '\n' then
+          lines = lines :+ MdLine(chars.slice(lineStart, index).mkString(""), "\r\n")
+          index = index + 2
+          lineStart = index
+        else
+          lines = lines :+ MdLine(chars.slice(lineStart, index).mkString(""), "\r")
+          index = index + 1
+          lineStart = index
+      else index = index + 1
     // SLICE THE CODE-UNIT VECTOR, NOT THE DOCUMENT — and that distinction is a second complexity
     // fix on top of the first. `text.substring(lineStart, index)` is one slice per LINE, which
     // already beat the per-character version below; but `substring` counts from the START of the
