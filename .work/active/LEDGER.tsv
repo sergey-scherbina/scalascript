@@ -1,5 +1,5 @@
-# generation: 3342
+# generation: 3343
 #slug	agent	started	items	paths
 rust-backend-self-alias-closure-rejects-a-temp-borrow	claude-code	2026-09-01T20:34:09Z	rust-backend-self-alias-closure-rejects-a-temp-borrow	file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:v1/runtime/backend/rust/src/test/scala/scalascript/codegen/rust/RustGenSelfAliasBorrowTest.scala file:v2/BUGS.md file:v2/SPRINT.md file:tests/e2e/v1-jit-size.sh
 uniml-traitdecl-drops-class-parameters	claude-code	2026-09-01T20:45:09Z	uniml-traitdecl-drops-class-parameters	file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/SpikeAst.scala file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/ScalaSpike.scala file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/SpikeTyped.scala file:uniml/scala/src/test-jvm/scala/scalascript/uniml/dialect/scalascript/ScalaSpikeSpec.scala file:v3/uniml/UniFront.scala file:v3/front-diff.sh file:v3/BUGS.md file:v3/SPRINT.md
-v3-jvm-backend-writer	claude-code	2026-09-01T21:36:58Z	v3-stage-12-jvm-writer	file:v3/specs/70-jvm-backend.md file:v3/src/JvmBackend.scala file:v3/jvm-backend-gate.sh file:v3/tests/jvm-backend-probe/run.sh
+v3-jvm-backend-writer	claude-code	2026-09-01T21:36:58Z	v3-stage-12-jvm-writer	file:v3/specs/70-jvm-backend.md file:v3/src/JvmBackend.scala file:v3/jvm-backend-gate.sh file:v3/tests/jvm-backend-probe/run.sh file:v3/src/Main.scala
