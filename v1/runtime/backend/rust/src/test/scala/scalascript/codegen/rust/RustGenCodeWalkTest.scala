@@ -1870,6 +1870,24 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(g.contains("boxed.items.clone()") || g.contains("(boxed.items).clone()"),
       s"a field read in a deeper loop than its decl must keep its clone:\n$g")
 
+  test("a Vector[Char] PARAM slices to TEXT, not decimal code points"):
+    // `content.slice(a, b).mkString("")` inside a helper RECEIVING the code-unit vector printed
+    // every unit as its decimal code point ("Same" -> "8397109101"): `collectLocalCharSeqs` only
+    // scanned local bindings, never the parameter list. A param declared `Vector[Char]` is the
+    // same sequence of code units a `val chars = text.toVector` local is.
+    val src =
+      """```scalascript
+        |def sliceOf(content: Vector[Char], a: Int, b: Int): String =
+        |  content.slice(a, b).mkString("")
+        |
+        |def firstWord(text: String): String =
+        |  sliceOf(text.toVector, 0, 4)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("SscChar"),
+      s"a Vector[Char] param's mkString must print code units as text:\n$g")
+
   test("`xs :+ x` clones a multi-use appended element"):
     // `attributes = attributes :+ attribute` then `attribute` read again afterward (`uniml/xml`'s
     // `Doc.scala`'s `scan`: `format!("… '{}'", attribute)`) — the one-element array literal

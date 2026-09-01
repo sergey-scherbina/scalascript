@@ -4162,6 +4162,20 @@ object RustCodeWalk:
       val anyParams = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
         .collect { case p if p.decltpe.exists { case m.Type.Name("Any") => true; case _ => false } => p.name.value }
         .toSet
+      // A param declared `Vector[Char]` is a sequence of CODE UNITS exactly like a local
+      // `val chars = text.toVector` — same declared-type read the `StringBuilder` params above
+      // use. Without this, `content.slice(a, b).mkString("")` inside a helper that RECEIVES the
+      // code-unit vector printed every unit as its decimal code point ("Same" → "8397109101"):
+      // `collectLocalCharSeqs` only ever scanned local bindings, never the parameter list.
+      val charSeqParams = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
+        .collect {
+          case p if p.decltpe.exists {
+            case m.Type.Apply.After_4_6_0(m.Type.Name("Vector" | "Seq" | "IndexedSeq" | "List"), ac)
+                if ac.values match { case List(m.Type.Name("Char")) => true; case _ => false } => true
+            case _ => false
+          } => p.name.value
+        }
+        .toSet
       // A CASE-CLASS METHOD reading its OWN field bare (`byName.contains(id)` inside
       // `DialectRegistry.register`, no `self.`/`this.` prefix — Scala elides it, and `selfMethod`
       // elides it too, binding `let byName = self.byName.clone();` purely at the RENDERED-TEXT
@@ -4176,7 +4190,7 @@ object RustCodeWalk:
                         localSscChars = collectLocalSscChars(d.body),
                         // See `Ctx.localCharSeqs`: `val chars = text.toVector` makes `chars` a
                         // sequence of CODE UNITS, which `mkString` must print as text.
-                        localCharSeqs = collectLocalCharSeqs(d.body, lstrings),
+                        localCharSeqs = collectLocalCharSeqs(d.body, lstrings) ++ charSeqParams,
                         localStringBuilders = collectLocalStringBuilders(d.body) ++ stringBuilderParams,
                         localSets = collectLocalSets(d.body),
                         mapFields = collectMapFields(d, ctorMap),
