@@ -8309,9 +8309,19 @@ object RustCodeWalk:
         case List(g: m.Enumerator.Generator) =>
           g.pat match
             case m.Pat.Var(m.Term.Name(name)) =>
+              // The body runs once per element — the SAME "read again across iterations" fact
+              // `while` rendering already carries (`inWhileLoop` + `loopExempt`), and this site
+              // never did: an OUTER local read by value in the body was moved on iteration one
+              // and gone on iteration two (`error[E0382]`; rozum's `ssc-for-loop-clone-gap`,
+              // found by the negative golden of `ssc-local-last-use-move`). The generator
+              // variable is fresh each pass, so it joins the exempt set like a closure param.
+              // The generator RHS keeps the plain ctx — it is evaluated once.
               for
                 xs <- renderTerm(g.rhs, ctx)
-                b  <- renderBody(f.body, ctx, isUnit = true)
+                b  <- renderBody(f.body,
+                        ctx.copy(inWhileLoop = true,
+                          loopExempt = ctx.loopExempt ++ loopExemptNames(f.body) + name),
+                        isUnit = true)
               yield s"for $name in $xs {\n${indent(b)}\n}"
             case other =>
               Left(List(unsupported(
@@ -12900,9 +12910,14 @@ object RustCodeWalk:
       case List(g: m.Enumerator.Generator) =>
         g.pat match
           case m.Pat.Var(m.Term.Name(name)) =>
+            // The body IS a closure (`move |name| { … }`) that runs once per element, so it
+            // takes the closure context every other lambda body already gets — without it, a
+            // captured non-Copy value read by value was moved into the `move` closure and gone
+            // on the second element (`error[E0382]`; rozum's `ssc-for-loop-clone-gap`, the
+            // for-yield half). The generator RHS keeps the plain ctx — evaluated once.
             for
               xs <- renderTerm(g.rhs, ctx)
-              b  <- renderTerm(body, ctx)
+              b  <- renderTerm(body, enteringClosure(ctx, Set(name)))
             yield
               s"$xs.into_iter().map(move |$name| { $b }).collect::<Vec<_>>()"
           case other =>

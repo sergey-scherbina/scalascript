@@ -1888,6 +1888,71 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(g.contains("SscChar"),
       s"a Vector[Char] param's mkString must print code units as text:\n$g")
 
+  test("a `for … do` body clones an outer local read by value"):
+    // The latent gap `ssc-local-last-use-move`'s negative golden exposed: the for-do body
+    // rendered with a PLAIN ctx, so `St(boxed.items)` moved `boxed.items` on iteration one and
+    // read it again on iteration two — non-compiling Rust (`error[E0382]`). The body now takes
+    // the same `inWhileLoop` + `loopExempt` context `while` has had all along.
+    val src =
+      """```scalascript
+        |case class St(items: Vector[String])
+        |
+        |def leak(xs: Vector[String]): Long =
+        |  val boxed = St(Vector("a"))
+        |  var n: Long = 0
+        |  for x <- xs do
+        |    val cur = St(boxed.items)
+        |    n += cur.items.length
+        |  n
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("boxed.items.clone()") || g.contains("(boxed.items).clone()"),
+      s"an outer local's field read in a for-do body must clone:\n$g")
+
+  test("a `for … do` body does not clone the generator variable or names it declares/reassigns"):
+    // The exempt half of the fix — `loopExempt` semantics verbatim: the generator variable is
+    // fresh each pass like a closure param, a declared local is rebound, a reassigned var is
+    // overwritten. None may gain a clone, or the hot parse loops regress.
+    val src =
+      """```scalascript
+        |case class Wrap(s: String)
+        |
+        |def consume(w: Wrap): Long =
+        |  w.s.length
+        |
+        |def spin(xs: Vector[String]): Long =
+        |  var n: Long = 0
+        |  for x <- xs do
+        |    val w = Wrap(x)
+        |    n += consume(w)
+        |  n
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(!g.contains("w.clone()") && !g.contains("(w).clone()"),
+      s"a loop-declared local must not gain a clone:\n$g")
+
+  test("a `for … yield` body clones a non-Copy capture read by value"):
+    // The for-yield half: the body IS a `move` closure running once per element, so a captured
+    // non-Copy value read by value must clone at the use — `enteringClosure`, like every other
+    // lambda body.
+    val src =
+      """```scalascript
+        |case class Tag(name: String)
+        |
+        |def label(t: Tag, x: String): String =
+        |  t.name + x
+        |
+        |def tagAll(xs: Vector[String]): Vector[String] =
+        |  val tag = Tag("v")
+        |  for x <- xs yield label(tag, x)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("tag.clone()") || g.contains("(tag).clone()"),
+      s"a non-Copy capture in a for-yield body must clone at the use:\n$g")
+
   test("`xs :+ x` clones a multi-use appended element"):
     // `attributes = attributes :+ attribute` then `attribute` read again afterward (`uniml/xml`'s
     // `Doc.scala`'s `scan`: `format!("… '{}'", attribute)`) — the one-element array literal
