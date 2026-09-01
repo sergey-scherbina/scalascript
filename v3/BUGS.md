@@ -2319,9 +2319,15 @@ day this parses.
      lane: v3
      kind: bug
      area: front
-     gate: v3/front-diff.sh (curried-def-member-methods is a declared corpus disagreement)
+     gate: v3/front-diff.sh (curried-def-member-methods, kr-hk-field-arity, kr-hk-field-arity-lib are declared corpus disagreements)
      found-by: claude-code
      found-at: 2026-08-31 -->
+
+**TWO MORE FILES EXHIBIT IT (2026-09-01):** `kr-hk-field-arity` / `kr-hk-field-arity-lib` landed
+with the v2 hk-arity known-red fixture and diverge by exactly this — `class Unused(val n: Int)` and
+`class Wrapper[F[_]](app: Applicative[F])` print `(fields)` on uniml, `(fields (p …))` on v3,
+nothing else differs. They arrived UNDECLARED, so `front-diff.sh` was red on main from that commit
+until they were added to `KNOWN_CONF_DISAGREE`. All three rows come out together when this is fixed.
 
 **THE DIALECT PARSES A PLAIN `class` AS A TRAIT AND KEEPS NO PARAMETER LIST.**
 `SpikeAst.TraitDecl(keyword, name, parents, members, span)` is what

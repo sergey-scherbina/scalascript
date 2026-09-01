@@ -4498,3 +4498,18 @@ nothing while printing a green line in the usual shape. `v3/uniml-classpath.sh`,
 produced the 87/88 above. Same shape as
 `v3-gates-open-red-in-every-fresh-worktree-because-uniml-cp-is-per-checkout`, met from the other
 side: front-diff does not go red for it, it goes green with one front.
+
+## v3-declare-hk-arity-conf-disagree (claim `v3-declare-hk-arity-conf-disagree`) — the v3 workflow's red is two undeclared disagreement rows
+
+- [x] **Declare `kr-hk-field-arity` + `kr-hk-field-arity-lib` in `KNOWN_CONF_DISAGREE`.** The
+  `v3 gates` job has been red on every run since the gateless campaign added the two fixtures
+  (`tests/conformance/kr-hk-field-arity*.ssc`, landed with the hk-arity fix) without declaring
+  them: `front-diff.sh` fails with "corpus DISAGREEMENTS are not the declared set". Measured:
+  both fronts print both files; the diff is exactly `(fields (p "n"))` vs `(fields)` — the same
+  open `uniml-traitdecl-drops-class-parameters` gap already declared for
+  `curried-def-member-methods`. Not a new defect, two more corpus files exhibiting a filed one.
+  *Done when:* `v3/front-diff.sh` exits 0 locally with BOTH fronts runnable (`v3/uniml-classpath.sh`
+  first — a fresh worktree compares nothing otherwise), and the pushed run's `v3 gates` job is green.
+  **Measured:** local `v3/front-diff.sh` GATE-EXIT:0, GREEN, 2 fronts, fixtures agree 87/88
+  (floor 54), corpus disagreements = exactly the five declared rows. `bugs-index-gate.sh` and its
+  `--self-test` both exit 0 (1265 entries, 0 problems).
