@@ -386,11 +386,24 @@ jobs:
       - name: Build the JVM launcher tree
         run: sbt cli/installBin
 
+      # Two things corrected here that the archive shipped WITHOUT since this job existed:
+      # 1. README.md was never copied in at all — every native archive carries one
+      #    (`tar -czf ... ssc lib README.md`), this one carried none.
+      # 2. Every entry lived under a `bin/` prefix (`tar -czf dist/ssc-jvm.tar.gz bin`), the one
+      #    place this archive's layout diverged from every native archive's (launcher(s) + lib/ +
+      #    README.md at the archive ROOT, no wrapper directory). The launcher only requires lib/
+      #    to be a SIBLING of itself (`bin/ssc`'s own `_SSC_BIN="$(dirname "${BASH_SOURCE[0]}")"`
+      #      / `_SSC_ROOT="$(dirname "$_SSC_BIN")"` resolution never assumes the directory is
+      #    NAMED "bin"), so dropping the wrapper is layout-compatible — it only changes what a
+      #    user types after extracting. README.md's own download instructions updated to match.
       - name: Assemble the JVM release archive
         run: |
           set -euo pipefail
-          mkdir -p dist
-          tar -czf dist/ssc-jvm.tar.gz bin
+          mkdir -p dist/archive-jvm
+          cp -R bin/. dist/archive-jvm/
+          cp README.md dist/archive-jvm/README.md
+          tar -czf dist/ssc-jvm.tar.gz -C dist/archive-jvm \
+            ssc ssc-provider ssc-standard ssc-tools lib README.md
           (cd dist && sha256sum ssc-jvm.tar.gz > ssc-jvm.tar.gz.sha256)
 
       # Isolated the same way the native binaries are: unpacked somewhere the checkout is not, to
@@ -403,7 +416,8 @@ jobs:
           isolated="$RUNNER_TEMP/native-release-ssc-jvm"
           mkdir -p "$isolated"
           tar -xzf dist/ssc-jvm.tar.gz -C "$isolated"
-          version_out=$("$isolated/bin/ssc-tools" --version)
+          test -s "$isolated/README.md"
+          version_out=$("$isolated/ssc-tools" --version)
           case "$version_out" in
             "ssc "*) ;;
             *) echo "ssc-jvm qualify: unexpected --version output: $version_out" >&2; exit 1 ;;
@@ -416,7 +430,7 @@ jobs:
             printf 'def main(): Unit = println("ssc-jvm archive runs standalone")\n'
             printf '```\n'
           } >"$fixture"
-          run_out=$("$isolated/bin/ssc-tools" run "$fixture")
+          run_out=$("$isolated/ssc-tools" run "$fixture")
           if [[ "$run_out" != "ssc-jvm archive runs standalone" ]]; then
             echo "ssc-jvm qualify: unexpected run output: $run_out" >&2
             exit 1
