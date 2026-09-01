@@ -1,4 +1,4 @@
-# generation: 3331
+# generation: 3332
 #slug	agent	started	items	paths
 native-release-qualify-stale-chmod	claude-code	2026-09-01T13:28:02Z	native-release-qualify-chmods-a-binary-the-release-no-longer-ships	file:.github/workflows/native-release.yml file:tests/BUGS.md file:scripts/native-release-qualify file:tests/e2e/native-release-qualification.sh file:tests/SPRINT.md file:README.md
 v3-infix-uniml-front	claude-code	2026-09-01T17:45:46Z	infix-application-does-not-reach-a-declared-class-method	file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/ScalaSpike.scala file:uniml/scala/src/test-jvm/scala/scalascript/uniml/dialect/scalascript/ScalaSpikeSpec.scala dir:v3/tests/front file:v3/infix-front-split-gate.sh file:scripts/smoke-ci.ssc
