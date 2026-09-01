@@ -149,7 +149,23 @@ claim(s), landed wave by wave; a stage does not start before the previous one's 
 
 Then three NEW end-stages, in this order, each planned carefully before any code:
 
-10. **UniML refactor — eliminate mutable types, everywhere it is possible** (owner, 2026-08-30,
+10. **UniML refactor — eliminate mutable types, everywhere it is possible** — **DONE 2026-09-01**
+    (source side complete; one measured backend follow-up queued). The whole `uniml/` tree holds
+    ONE `var` — `MarkupCodec._default`, parked with the v1-removal decision (v1-only writers).
+    Every module converted with gates green at each step (`uniml/SPRINT.md`, the `uniml-demut-*`
+    entries, carries the per-module record): address, json, yaml, markdown, scala (the SpikeParse
+    cursor rewritten immutable, dialect diagnostics BYTE-identical, paired bench ~5% faster —
+    nothing perf-parked), rust, core (TreeVm's step/stop thread a `VmWork` record), xml, markup,
+    bench, then the leaf zones themselves. Lanes on the final tree: JVM 17 suites green, Scala.js
+    dual-build green, v2-smoke baseline-identical (4/5, known-red gap-anon), composed/dialect pins
+    exact, markdown corpus 607/675 pinned. The `emit-rust` lane is honestly RED: the fold-heavy
+    demutabilized shapes exposed v2-rust type-table gaps (fold-lambda params never typed, local-val
+    member reads refused — root `BUGS.md` `rust-backend-member-read-through-local-val`, 18 cargo
+    errors in 5 counted classes, with a green control proving the pre-conversion core still builds)
+    — QUEUED as the backend follow-up; it gates only the native-chunker track, not stages 11-12.
+    Two defects found by the closing verification and fixed on the way: v1's
+    `preprocessQuotedMacros` comment-apostrophe derail (16b1d0a83) and the stale claim that the
+    cargo lane had been "re-verified on main" when its green lived on an unmerged worktree branch.
     strengthening the first phrasing: "по возможности желательно ПОЛНОСТЬЮ избавиться от
     мутабельных типов везде" — all `uniml/` submodules, not just the core tree). **The replacement
     idiom is named, not left open: instead of mutability, use ALGEBRAS and AGGREGATORS** — the
