@@ -4645,3 +4645,39 @@ trade-offs before code.** This claim writes that document. NO backend code.
   choice goes to the owner. The document therefore decides everything evidence can decide and
   leaves exactly the questions evidence cannot: what the JVM target is FOR (an AOT `.jar` from
   `translate`, or also an in-process run lane), and where `Prim` is answered on that target.
+## v3-jvm-backend-writer (claim `v3-jvm-backend-writer`) — stage 12, step 1: v3 writes a class file
+
+`v3/specs/70-jvm-backend.md` §8 step 1, with the owner's answers of 2026-09-01 applied (§7). No ASM,
+no v2, no `scala-cli` — the JDK and nothing else, so the kernel's zero `import` statements stay zero.
+
+- [x] **`v3/src/JvmBackend.scala` — SSC IR to a class file, by hand.** Constant pool, method table
+  and `Code` attribute written byte by byte. **No `StackMapTable`, and that is measured rather than
+  skipped:** `v3/tests/jvm-backend-probe/run.sh` established that frames are required only at BRANCH
+  TARGETS, and stage 1 emits none. Major **52** per the owner's Q2 answer — `invokedynamic` needs
+  51, so the version is chosen now rather than moved later under working code.
+  *Scope, stated narrowly so the gate cannot be read as claiming more:* straight-line `I64` only.
+  Every other instruction, numeric kind and literal is REFUSED BY NAME through
+  `JvmBackend.Unsupported`, exit 1. Measured: `sample.ssir` refuses with *"does not translate an
+  entry function that takes parameters"*, a `println` program with *"does not translate TailCall"*.
+  A backend that emitted a plausible zero for a construct it does not implement is the failure this
+  module exists to avoid.
+- [x] **`emit-jvm` in the driver**, deliberately NOT `run --jvm`: the in-process lane is §8 step 6b
+  and carries a native-image refusal, and shipping them together would let a reader think stage 1
+  covers more than it does.
+- [x] **`v3/jvm-backend-gate.sh`, with a self-test, wired into `v3.yml` in the same commit.**
+  Emit, then let `java` LOAD it — which is the verifier accepting bytes v3 wrote — then compare the
+  value. *The self-test plants `lsub` for `ladd`, which still VERIFIES*, so a gate that only checked
+  "the JVM loaded it" would stay green; only comparing the answer catches it. Measured: the plant
+  gives 266 where 294 is expected, the gate goes RED, and the source is restored on every exit path.
+  **It is a FIXTURE gate, not a differential, and the header says so** — the executor's output comes
+  from `io.println`, `Prim` is step 6, and stage 1 refuses `Prim`. Expectations were computed by a
+  second implementation (Python), never read off the thing under test.
+
+**Measured on this tree.** `(40 + 2) * 7` → v3-emitted class file, 351 bytes, major 52 → `java` →
+**294**. A second fixture chains sub/rem/shl/neg/bnot → **71**. Gate GREEN on 2 fixtures, self-test
+GREEN. `v3/selftest.sh` and `v3/bridge-gate.sh` GREEN with the driver change in.
+
+**What this does NOT show, said plainly.** Two fixtures of straight-line arithmetic are not a
+compatibility claim, and there is no N against the corpus yet — stage 1 cannot compile a corpus file
+at all. The parity gate the backlog requires before the bridge stops serving JVM is §8 step 7, and
+nothing before it should be read as progress toward retiring the bridge.

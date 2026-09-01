@@ -1,0 +1,21 @@
+(module
+  (consts
+    (int 12)
+    (int 5)
+    (int 3))
+  (types)
+  (globals)
+  (prims)
+  (funcs
+    (func "main" 0 8
+      (const 0 0)
+      (const 1 1)
+      (bin sub i64 2 0 1)
+      (bin rem i64 3 0 1)
+      (bin add i64 2 2 3)
+      (const 4 2)
+      (bin shl i64 5 2 4)
+      (un neg i64 6 5)
+      (un bnot i64 7 6)
+      (ret 7)))
+  (entry 0))

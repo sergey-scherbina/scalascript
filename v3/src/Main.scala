@@ -345,7 +345,7 @@ object Cli:
       return 2
     try
       if args.isEmpty then
-        println("usage: ssc3 build|ir|exec|ast <f.ssc> | check|fmt|emit-v2|exec <f.ssir> | sample | selftest | front")
+        println("usage: ssc3 build|ir|exec|ast <f.ssc> | check|fmt|emit-v2|exec <f.ssir> | emit-jvm <f> <Name> | sample | selftest | front")
         2
       else
         args.head match
@@ -403,6 +403,35 @@ object Cli:
               case e: BridgeV2.Unsupported =>
                 Console.err.println("ssc3: " + path + ": " + e.getMessage); 1
           // The IR the front produced, in canonical form — for reading and for diffing.
+          // v3's OWN JVM backend — SSC IR to a class file, no ASM, no v2 bridge.
+          // v3/specs/70-jvm-backend.md. Stage 1 is straight-line I64 only and REFUSES the rest by
+          // name; the refusal is the feature until the later stages land.
+          //
+          // `emit-jvm <f.ssir|f.ssc> <OutName>` writes `<OutName>.class` beside the cwd and says so.
+          // Deliberately NOT `run --jvm` yet: the in-process lane is stage 6b and carries a
+          // native-image refusal, and shipping the two together would let a reader think stage 1
+          // covers more than it does.
+          case "emit-jvm" if args.length >= 3 =>
+            val path = args(1)
+            val outName = args(2)
+            val src = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path)), "UTF-8")
+            try
+              val m = prepared(
+                if path.endsWith(".ssir") then Text.read(src)
+                else Driver.moduleOf(path, src),
+                args)
+              val bytes = JvmBackend.classFile(m, outName)
+              java.nio.file.Files.write(java.nio.file.Paths.get(outName + ".class"), bytes)
+              println("wrote " + outName + ".class (" + bytes.length + " bytes)")
+              0
+            catch
+              case e: JvmBackend.Unsupported => Console.err.println("ssc3: " + e.getMessage); 1
+              case e: LoadError => Console.err.println("ssc3: " + e.message); 1
+              case e: LexError  => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
+              case e: ParseFail => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
+              case e: LowerFail => Console.err.println(Driver.render(e, path)); 1
+              case e: ParseError => Console.err.println("ssc3: " + path + ": " + e.message); 1
+
           case "ir" if args.length >= 2 =>
             val path = args(1)
             val src = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path)), "UTF-8")

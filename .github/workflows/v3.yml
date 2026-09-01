@@ -293,6 +293,17 @@ jobs:
       - name: bridge
         if: ${{ !cancelled() }}
         run: v3/bridge-gate.sh
+      # v3's OWN JVM backend (specs/70-jvm-backend.md). WIRED IN THE SAME COMMIT AS THE GATE,
+      # because this module has twice found a good gate that nothing ran — and an unrun gate is a
+      # hypothesis about the future, not a check on the present. The self-test runs FIRST and is
+      # its own step: it plants an opcode defect and requires a RED, so a green from the step below
+      # means something. Both are seconds.
+      - name: jvm backend self-test
+        if: ${{ !cancelled() }}
+        run: v3/jvm-backend-gate.sh --self-test
+      - name: jvm backend
+        if: ${{ !cancelled() }}
+        run: v3/jvm-backend-gate.sh
       - name: parity
         if: ${{ !cancelled() }}
         run: v3/parity-gate.sh

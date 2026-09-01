@@ -1,0 +1,17 @@
+(module
+  (consts
+    (int 40)
+    (int 2)
+    (int 7))
+  (types)
+  (globals)
+  (prims)
+  (funcs
+    (func "main" 0 4
+      (const 0 0)
+      (const 1 1)
+      (bin add i64 2 0 1)
+      (const 3 2)
+      (bin mul i64 2 2 3)
+      (ret 2)))
+  (entry 0))

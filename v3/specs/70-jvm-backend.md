@@ -210,7 +210,40 @@ sets the precedent for the five that follow — each of which is *source* output
 at all. A kernel that has never had a dependency should not acquire its first one for the case that
 needs it least.
 
-## 7 · What is NOT decided here — the questions for the owner
+## 7 · ANSWERED by the owner, 2026-09-01 — and he took the harder arm three times
+
+The questions below were put as questions and are kept verbatim underneath their answers, because
+what was asked is part of why the answer means what it does. **The owner did not take a single one
+of my recommendations, and in each case he took the more expensive option.** That is not a note
+about being wrong; it is the record of where the extra cost was bought deliberately.
+
+| | asked | **decided** | my recommendation had been |
+|---|---|---|---|
+| **Q1** | what is the JVM target FOR? | **AOT `.jar` *and* an in-process run lane** | AOT only, at least first |
+| **Q2** | closures without `invokedynamic`? | **major 51+, `invokedynamic`, write the `StackMapTable` computer** | start at major 50 |
+| **Q3** | where does `Prim` land? | **v3 owns its own host layer for this target** | none — it was his to make |
+
+**What the three answers cost, stated together, because they compound:**
+
+- Q1 means the backend has **two consumers, not one** — a file writer and a class loader — and the
+  in-process lane inherits the native-image refusal v2 already carries
+  (`scripts/native-release-qualify:701`). That refusal must be honest and positioned from its first
+  commit, not discovered by a user; the owner's own 2026-08-05 decision was refusal over silent
+  fallback, and this lane is the same shape.
+- Q2 means the `StackMapTable` computer is **on the critical path**, not an escape hatch. My
+  estimate of 300–500 lines is still **not measured** and should be treated as a guess until the
+  pass exists.
+- Q3 means `Prim` is **its own slice of work**, not a call into the v2 fleet — so "the bridge
+  retires for JVM" will mean v2 leaves the JVM story entirely, which is the stronger reading of
+  stage 12 and the more expensive one.
+
+**One thing gets cheaper, and it comes from this document's own probe.** Frames are only required
+at *branch targets* — the first version of the probe passed at every version precisely because a
+straight-line method has none. So even at major 51+, the stages below that emit no control flow need
+no `StackMapTable` at all, and the computer is due exactly when §8 stage 3 lands. That is why the
+staging survives Q2 unchanged rather than being reordered around it.
+
+### The questions as they were asked
 
 These are asked rather than defaulted because the evidence above does not settle them and because
 the backlog entry sends this choice to the owner.
@@ -219,39 +252,57 @@ the backlog entry sends this choice to the owner.
 or also an in-process run lane (`ssc3 run --jvm`)? The AOT reading is what makes major 50 safe and
 what keeps the native binary able to emit. An in-process lane would be a second mechanism with the
 native refusal v2 already carries.
-*My recommendation: AOT only, at least first.*
+*My recommendation was AOT only, at least first. **Overruled: both.***
 
 **Q2 · Closures without `invokedynamic`.** Major 50 means `MkClos` emits one generated class per
 lambda rather than an indy call site. The alternative is major 51+ and writing a `StackMapTable`
 computer — a dataflow pass, my estimate 300–500 lines, **not measured**. Start at 50 and treat the
 stack-map computer as the escape hatch if something forces 51?
-*My recommendation: yes, start at 50.*
+*My recommendation was to start at 50. **Overruled: 51+ with the stack-map computer.***
 
 **Q3 · Where does `Prim` land on the JVM target?** `Prim` is the host door. The produced jar can
 call the existing v2 plugin fleet — which makes the *artifact* depend on v2, a dependency of the
 OUTPUT rather than of the kernel — or v3 can own a host layer for this target. This is the question
 that decides whether "the bridge retires for JVM" means v2 is gone from the JVM story or only from
 the compile path.
-*I have no recommendation; this one is genuinely a design decision about what v3 is.*
+*I had no recommendation. **Decided: v3 owns the host layer.***
 
-## 8 · The staged plan, if arm A is approved
+## 8 · The staged plan — arm A, approved, with §7's answers applied
 
 Each stage is its own claim, and none starts before the previous one's numbers are in. The
 acceptance instrument throughout is the parity gate the backlog already prescribes: **the new
 backend must match the bridge on the full corpus before the bridge stops serving this target.**
 
-1. **The writer, and a gate that can fail.** Class file at major 50 from a hand-built constant pool;
-   a fixture that emits, runs, and compares against `ssc3 run`. Plant a wrong opcode and watch it go
-   red before trusting it.
+1. **DONE 2026-09-01 (`v3/src/JvmBackend.scala`, 258 lines).** `(40 + 2) * 7` emits a 351-byte
+   major-52 class file that `java` loads and runs, printing 294; a second fixture chains
+   sub/rem/shl/neg/bnot to 71. `v3/jvm-backend-gate.sh` gates both and its `--self-test` plants
+   `lsub` for `ladd` — a defect that still VERIFIES, so only checking the ANSWER catches it — and
+   requires red. Wired into `v3.yml` in the same commit. Straight-line `I64` only; everything else
+   refuses by name at exit 1. The original text of this step: **The writer, and a gate that can
+   fail.** Class file at **major 52** from a hand-built constant
+   pool — 51 is the floor `invokedynamic` needs and 52 is the first version with no reason to prefer
+   51 — plus a fixture that emits, runs, and compares against `ssc3 run`. Plant a wrong opcode and
+   watch it go red before trusting it. **No `StackMapTable` yet, and that is not a shortcut:** this
+   stage emits no branches, and the probe in §3 measured that a method with no jump targets verifies
+   without frames at every version including 52.
 2. **The straight-line instructions** — `Const Move Un Bin MkData Field Tag NewArr ArrGet ArrSet
    ArrLen GlobGet GlobSet`. Measure N against the corpus after this stage; it will be small and
    that is the honest starting number.
-3. **Control flow** — `Block Loop If Br BrIf Switch Ret`. §2 of the IR spec says this is one walk;
-   if it is not, that is a finding about the IR and belongs back in `10-ssc-ir.md`.
+3. **Control flow, and the `StackMapTable` computer with it** — `Block Loop If Br BrIf Switch Ret`.
+   §2 of the IR spec says the emission is one walk; if it is not, that is a finding about the IR and
+   belongs back in `10-ssc-ir.md`. The frame computer arrives HERE because this is the first stage
+   that creates a branch target, which is the only thing that requires one. Its own gate is a class
+   that the verifier accepts and a deliberately wrong frame that it rejects — a computer whose
+   output is never checked by the verifier is not a computer.
 4. **Calls and closures** — `Call CallV MkClos TailCall Invoke`, Q2's answer applied.
 5. **`Try`, then `Perform`/`Handle`/`Resume`** — post-`Cps` these are closure construction and
    dispatch, not a control-flow rewrite. `effects-gate.sh`'s 34 fixtures are the instrument.
-6. **`Prim`**, per Q3.
+6. **`Prim`, as a v3-owned host layer** (Q3) — its own SPI for this target, not a call into the v2
+   fleet. Sized as its own slice; this is where "the bridge retires for JVM" becomes true or does
+   not.
+6b. **The in-process run lane** (Q1) — `ssc3 run --jvm`, sharing the emitter with `translate` so
+   there is one code path and two consumers. Ships WITH its native refusal, named and positioned,
+   because the closed-world image cannot load a class it did not see at build time.
 7. **Parity against the bridge on the full corpus**, then and only then the bridge stops serving
    JVM.
 
