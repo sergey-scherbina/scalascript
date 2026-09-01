@@ -4558,7 +4558,7 @@ the spike front refuses at 5:17.
   recorded rather than left for the next agent to rediscover. This is why the fixture goes in
   `v3/tests/front` and NOT in `tests/conformance`: a corpus case would be red on every v2 lane.
 
-**Measured, on `c41b4f029`.** The arm landed; `to`/`until` untouched. `unimlScala/test` **226/226**,
+**Measured, on `673ab2b76`.** The arm landed; `to`/`until` untouched. `unimlScala/test` **226/226**,
 including eight new cases. `v3/front-diff.sh` GREEN — **89** fixtures, 2 fronts, agree **88**: the
 new fixture joined the population and the two fronts agree on it, which is the assertion the retired
 gate used to make by hand. Corpus disagreements exactly the five declared rows, unmoved.

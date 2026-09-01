@@ -268,7 +268,7 @@ one-argument SYMBOLIC name through `arithOp`, which is where the two models meet
      gate: v3/tests/front/infix-class-method.ssc
      found-by: claude-code
      found-at: 2026-08-19
-     fixed-in: c41b4f029 -->
+     fixed-in: 673ab2b76 -->
 
 **THE SAME CALL, TWO SPELLINGS, TWO ANSWERS:**
 
@@ -392,7 +392,7 @@ know, which is the direction to be wrong in.
 
 `ScalaSpike.infixLoop` knew exactly two id-infix words, `to` and `until`, hardcoded. That was not
 uniml being behind the reference front: `v2/lib/ssc1-front.ssc0:1901-1909` stops at the same two, so
-**both fronts of the older lane have this gap and only v3's own parser had closed it.** `c41b4f029`
+**both fronts of the older lane have this gap and only v3's own parser had closed it.** `673ab2b76`
 adds an arm below the existing one for any plain identifier.
 
 **It needed no lowering, projection or Ast change, and that is a fact about the node rather than
@@ -421,7 +421,7 @@ FRONTS) and by `exec-gate.sh` (which compares the two LANES), both in `v3.yml`. 
 and its `Check` removed from `scripts/smoke-ci.ssc` with the reason written at the site, so the
 assertion moved rather than vanished.
 
-**Measured on `c41b4f029`:** the entry's own reproducer prints 42/42 with the classpath present AND
+**Measured on `673ab2b76`:** the entry's own reproducer prints 42/42 with the classpath present AND
 absent; `front-diff.sh` GREEN — **89** fixtures, 2 fronts, agree **88**, the new fixture having
 joined the population, and the corpus disagreement set is exactly the five declared rows, unmoved;
 `exec-gate.sh` GREEN — 99 cases, both lanes agree, `infix-class-method -> 42/42/120/3/3/List(1, 2, 3)`

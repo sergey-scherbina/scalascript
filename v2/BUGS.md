@@ -46,7 +46,7 @@ next. Scala's rule is that ANY identifier in that position is an application: `b
 `b.add(2)`.
 
 **Both other fronts of this compiler now do it.** v3's own front since `92e90e34e`; the UniML spike
-front since `c41b4f029`, which added an arm below the `to`/`until` one for any plain identifier and
+front since `673ab2b76`, which added an arm below the `to`/`until` one for any plain identifier and
 whose guards — a lowercase `spike.id` operator, not a reserved word, on the left operand's line,
 with an operand that begins on that line and can start an atom — are the part worth copying, since
 this front has the same problem of a small keyword set. That fix closed
