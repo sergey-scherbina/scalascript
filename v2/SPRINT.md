@@ -3210,3 +3210,46 @@ available, it is simply not worth its semantic price today).
 **What it produced for other work:** `V2CollectionBench` is permanent apparatus; the closure call is
 now measured at ~10–19 ns / 48–128 B per invocation from two independent shapes, which is the number
 P-5 will be judged against.
+
+## rust-backend-fold-accumulator-types (claim `rust-backend-fold-accumulator-types`) — the stage-10 backend follow-up
+
+- [x] **Type fold-lambda accumulators and local vals in the Rust backend** (BUGS
+  `rust-backend-member-read-through-local-val`, queued by the stage-10 closing entry; the
+  downstream uniml-md pipeline reports ~86 rustc errors on `feature/treevm-top-edges`, my merged
+  uniml/core baseline is 18 in 5 classes at `/tmp/uniml-merge/cargo-final.log`).
+  CORRECTED DIAGNOSIS while re-opening: the `|w: /* Type */, spec|` I filed as "the placeholder
+  emitted verbatim" is NOT emitted code — it is rustc's own E0282 SUGGESTION rendered into the
+  log's help line. The emitter emits untyped `|w, _|`; rustc cannot infer the accumulator type.
+  Plan: (a) a LOCAL-VAL type table — when `renderBody` binds `val x = rhs`, record x's Rust type
+  (annotation via `mapType`; rhs a call to a def with a declared return type via the existing
+  rets table; rhs a known record ctor; rhs a name with a known type) into `ctx.paramTypes`, which
+  is already what receiver-type resolution reads (RustCodeWalk ~2943) — this alone is the
+  member-read-through-local-val fix; (b) `renderVecIterBody`'s foldLeft arm: type p0 from the
+  ZERO expression via the same expression-type helper (register in bodyCtx.paramTypes so `.copy`
+  and member reads lower; annotate the emitted `|p0: T, p1|` so rustc's E0282 in
+  flatMap-inside-fold goes away), and p1 from `elemType`; (c) the eta-expanded bare-name method
+  ref (`foldLeft(z)(reframeClose)`) — wrap into a closure like the `obj.method` arm already does.
+  *Done when:* the dw-*/cp-* minimal pairs compile, cargo on the merged demutabilized core
+  (`/tmp/uniml-merge/build-merge-*.sh` regenerated from this tree) drops from 18 errors toward 0
+  with the residue named, backend unit tests + affected e2e green, and the downstream branch's
+  error count re-measured.
+  **DONE 2026-09-01, measured:** merged demutabilized uniml/core cargo **18 → 0 errors** (emit
+  exit 0, cargo build exit 0). All minimal pairs green (dw-paramdirect/valalias/valcopy,
+  cp-pubcopy/privcopy, dw-recursion, dx-fieldlocal±annot). Downstream `feature/treevm-top-edges`
+  core slice: **~86-class red → 1 error** — a distinct E0716 (temporary `&Vec::new()` through a
+  sibling self-alias closure of their new `pushFrame`), filed separately as
+  `rust-backend-self-alias-closure-rejects-a-temp-borrow`. Six mechanisms landed: (1)
+  `withLocalValCtors` — per-block local-val ctor prepass registered into `paramCtorNames`, wired
+  into `renderBody` AND the TCO block path; (2) `ctorNameOfExpr` grew `.last/.head` element
+  steps, direct ctor applications, decl-return-typed calls (bare + qualified), `.copy`
+  receiver-preservation (ordered BEFORE the swallowing qualified-call arm), and foldLeft-chain =
+  zero's ctor; (3) `foldLeft` closures: accumulator typed+ANNOTATED from the zero/explicit
+  `[T]` (the E0282 fix), element param typed from the receiver, zero cloned when a field-select
+  (E0382 partial-move); (4) TCO: structural dispatch before `isSelfTailCall` (init statements of
+  a tail block were silently DROPPED — the four `top` E0425s); (5) `bareMethodValueRef` — a
+  sibling referenced only as a VALUE now gets its self-alias, arity from `_paramTypes`, plus the
+  fold-arity fix in the lifted-def arm and a synthetic-call arm for ordinary defs; (6)
+  Option::filter explicit-lambda predicate gets the clone-rebind shim (E0308 `&i64`). Gates:
+  backendRust 506/506, v1-jit-size PASS after extracting three helpers (FROZEN renderTerm raised
+  43036→43040 (+4) with the measured reason in the gate file), rust-json-core/list-pattern/
+  toint-parity e2e green, full `scripts/smoke-ci` exit 0.

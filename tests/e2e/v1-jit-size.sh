@@ -1186,10 +1186,17 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # in `uniml/markdown`'s inline lexer was cloning the whole 48 KB line at every character — one
 # 64 KB line parsed in 35.203 s and now parses in 0.220 s, 160x, with the four corpora unchanged.
 # RAISED, NOT REVERTED, same terms as every entry above.
+# renderTerm 43036 -> 43040 (+4), from the stage-10 fold-typing campaign
+# (rust-backend-member-read-through-local-val): two foldLeft dispatch arms now hand their clauses
+# to `renderFoldLeft` and the Option-filter arm renders its predicate through `renderOptionPred`
+# — every body extracted whole (three rounds: `foldParamTypedCtx`, `renderFoldLeft`,
+# `renderOptionPred`), leaving only the call sites; the residual +4 is the ApplyType arm passing
+# `Some(targs)` where it previously bound nothing. Measured on the merged demutabilized
+# uniml/core: cargo 18 errors -> 0. RAISED, NOT REVERTED, same terms as every entry above.
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25540 scalascript.codegen.JsGen::genExpr
-43036 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+43040 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

@@ -2952,6 +2952,44 @@ object RustCodeWalk:
     // struct rustc infers from context — the real defect is this lane never RECOGNIZED the
     // receiver as one at all).
     case _: m.Term.Placeholder => ctx.paramTypes.get("__p0").filter(ctx.ctorMap.contains)
+    // `val top = recorded.stack.last` (`TreeVm.scala`'s `attachToken`, post-stage-10) — an ELEMENT
+    // step through a Vec-typed field/receiver. `elementTypeOf` already answers the element type for
+    // exactly these shapes; without this arm the chain broke at `.last` and everything bound FROM
+    // such an expression (the `top` local, then `top.kind`/`top.edges`) stayed untyped.
+    case m.Term.Select(qual, m.Term.Name("last" | "head")) =>
+      elementTypeOf(qual, ctx).filter(ctx.ctorMap.contains)
+    // A DIRECT ctor application — `ReframeCheck(kinds, None)`, `VmWork(...)` — is its own ctor.
+    case m.Term.Apply.After_4_6_0(m.Term.Name(n), _) if ctx.ctorMap.contains(n) => Some(n)
+    // A CALL RESULT's ctor is the called def's DECLARED return type — `recordWork(w, d,
+    // haltOnLimit).copy(...)` (`TreeVm.scala`, the stage-10 shapes chain record-returning helpers
+    // directly into `.copy`), and every un-annotated `val counted = recordWork(...)` a block binds.
+    // Declared types only, never inference: the same contract `_returnTypes` already carries.
+    case m.Term.Apply.After_4_6_0(m.Term.Name(fn), _) =>
+      _defBodies.get(fn).flatMap(_.decltpe).flatMap(ctorNameOfType).filter(ctx.ctorMap.contains)
+    // The QUALIFIED spelling of the same — `_ownedDefBodies`, not `_defBodies`, for the same
+    // four-`def parse` disambiguation reason `eitherSideCtorName` documents.
+    // A `foldLeft` CHAIN's own ctor is its zero's — `val validated = validateToken(...)
+    // .foldLeft(w0)((w, d) => recordWork(...))` (`TreeVm.scala`'s per-token path) binds a local
+    // FROM a fold, and everything downstream (`w1 = validated.copy(...)`, `counted`, both nested
+    // reframe folds) typed through this one binding.
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Apply.After_4_6_0(m.Term.Select(_, m.Term.Name("foldLeft")), zArgs), _)
+        if zArgs.values.sizeIs == 1 =>
+      ctorNameOfExpr(zArgs.values.head, ctx)
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Apply.After_4_6_0(
+          m.Term.ApplyType.After_4_6_0(m.Term.Select(_, m.Term.Name("foldLeft")), _), zArgs), _)
+        if zArgs.values.sizeIs == 1 =>
+      ctorNameOfExpr(zArgs.values.head, ctx)
+    // `.copy(...)` preserves its receiver's ctor — `val recorded = w.copy(stack = ...)` then
+    // `recorded.stack.nonEmpty` (the dw-valcopy minimal pair) needs `recorded` typed as `W`.
+    // BEFORE the qualified-def case below: that case matches EVERY `name.method(...)` (its
+    // `owner` pattern is just `Term.Name`) and a match does not fall through, so placed after it
+    // this arm was unreachable for the common `w.copy(...)`-on-a-param shape.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("copy")), _) =>
+      ctorNameOfExpr(qual, ctx)
+    case m.Term.Apply.After_4_6_0(m.Term.Select(m.Term.Name(owner), m.Term.Name(fn)), _) =>
+      _ownedDefBodies.get((owner, fn)).flatMap(_.decltpe).flatMap(ctorNameOfType).filter(ctx.ctorMap.contains)
     case m.Term.Select(qual, m.Term.Name(field)) =>
       for
         qualCtor <- ctorNameOfExpr(qual, ctx)
@@ -2969,6 +3007,31 @@ object RustCodeWalk:
           .orElse(ec.fieldTypes.lift(idx).filter(ctx.ctorMap.contains))
       yield result
     case _ => None
+
+  /** Per-BLOCK prepass: register the ctor/struct name of every single-name `val`/`var` the block
+   *  binds, so a member read THROUGH the binding resolves the same way it does through a def
+   *  parameter (BUGS `rust-backend-member-read-through-local-val` — `def f(w: W) = w.stack.nonEmpty`
+   *  compiled while `val recorded: W = w; recorded.stack.nonEmpty` was refused, even ANNOTATED).
+   *  Two sources, annotation first: the written `decltpe` via `ctorNameOfType`, else the
+   *  initializer's own shape via `ctorNameOfExpr` — which sees earlier bindings of the SAME block
+   *  because this folds the ctx through the statements in order. Registered into `paramCtorNames`
+   *  (the table `ctorNameOfExpr` consults first, and the one whose own comment marks it safe for
+   *  TYPE inference), overriding an outer same-name entry — a block that shadows a parameter means
+   *  the block's binding. Nested blocks each run their own pass, so scoping falls out of the
+   *  existing renderBody recursion rather than a scope table. */
+  private def withLocalValCtors(stats: List[m.Stat], ctx0: Ctx): Ctx =
+    stats.foldLeft(ctx0) { (c, st) =>
+      val bind = st match
+        case v: m.Defn.Val if v.pats.sizeIs == 1 => Some((v.pats.head, v.decltpe, v.rhs))
+        case v: m.Defn.Var if v.pats.sizeIs == 1 => Some((v.pats.head, v.decltpe, v.body))
+        case _                                   => None
+      bind match
+        case Some((m.Pat.Var(m.Term.Name(n)), decltpe, rhs)) =>
+          decltpe.flatMap(ctorNameOfType).filter(c.ctorMap.contains)
+            .orElse(ctorNameOfExpr(rhs, c))
+            .fold(c)(ctor => c.copy(paramCtorNames = c.paramCtorNames + (n -> ctor)))
+        case _ => c
+    }
 
   private def sectionAllTraits(s: ast.Section): List[m.Defn.Trait] =
     s.content.flatMap(contentAllTraits) ++ s.subsections.flatMap(sectionAllTraits)
@@ -3741,6 +3804,21 @@ object RustCodeWalk:
       case m.Term.Apply.After_4_6_0(m.Term.Name(n), args) if n == name => Some(args.values.size)
       case _ => t.children.view.flatMap(callArity(_, name)).headOption
 
+  /** Does the body reference `name` as a bare VALUE — an eta-expansion like
+   *  `closeBefore.foldLeft(z)(reframeClose)` (`TreeVm.scala`'s `reframeProblem`) — rather than
+   *  call it? `callArity` above sees only the call shape, so a sibling used ONLY this way never
+   *  got its `let $name = |…| self.$name(…);` alias and the emitted bare name was
+   *  `error[E0425]: cannot find function`. The name under an `Apply`'s own function position is
+   *  a call, not a value reference, and is deliberately NOT counted here. */
+  private def bareMethodValueRef(t: m.Tree, name: String): Boolean = t match
+    case m.Term.Apply.After_4_6_0(fun, args) =>
+      val funSide = fun match
+        case m.Term.Name(n) if n == name => false
+        case other                       => bareMethodValueRef(other, name)
+      funSide || args.values.exists(bareMethodValueRef(_, name))
+    case m.Term.Name(n) if n == name => true
+    case other => other.children.exists(bareMethodValueRef(_, name))
+
   /** Turn a rendered free function into an inherent method: give it `&self`, then bind what the
    *  body names — the fields it reads, and the sibling methods it calls — as locals.
    *
@@ -3827,7 +3905,13 @@ object RustCodeWalk:
     val params  = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value).toSet
     val usedF   = fields.filter(f => !params.contains(f) && readsName(d.body, f))
     val usedM   = siblings.filter(s => s != d.name.value && !params.contains(s))
-      .toList.sorted.flatMap(s => callArity(d.body, s).map(s -> _))
+      .toList.sorted.flatMap { s =>
+        callArity(d.body, s)
+          // A sibling referenced only as a VALUE has no call site to read the arity from; the
+          // sibling's own declared parameter list (`_paramTypes`) answers instead.
+          .orElse(if bareMethodValueRef(d.body, s) then _paramTypes.get(s).map(_.length) else None)
+          .map(s -> _)
+      }
     val withSelf =
       if render.startsWith(s"pub fn ${rustIdent(d.name.value)}()")
       then render.replaceFirst("""\(\)""", "(&self)")
@@ -5738,7 +5822,15 @@ object RustCodeWalk:
       ctx:        Ctx,
       isUnit:     Boolean
   ): Either[List[Diagnostic], String] =
-    isSelfTailCall(defName, paramNames.size, term) match
+    // Blocks and if/else go to the STRUCTURAL branch below — `isSelfTailCall` sees through a
+    // Block to its last statement, so asking it first turned the whole block into just the
+    // param reassignments and silently dropped every init statement: `drainUnclosed`'s
+    // `val top = recordedStack.last` (`TreeVm.scala`, post-stage-10) vanished, and the four
+    // `top.…` reads inside the tail call's argument were `error[E0425]: cannot find value top`.
+    val directTail = term match
+      case _: m.Term.Block | _: m.Term.If => None
+      case _ => isSelfTailCall(defName, paramNames.size, term)
+    directTail match
       case Some(newArgs) =>
         // Emit temp bindings then param assignments to avoid update-order issues.
         val argResults = newArgs.zipWithIndex.map { case (a, i) =>
@@ -5759,18 +5851,23 @@ object RustCodeWalk:
               elseRs  <- renderTCOTerm(defName, paramNames, ifExpr.elsep, ctx, isUnit)
             yield s"if $condRs {\n${indent(thenRs)}\n} else {\n${indent(elseRs)}\n}"
           case m.Term.Block(stats) if stats.nonEmpty =>
+            // The same local-val ctor prepass renderBody runs — without it a binding like
+            // `val recorded = recordWork(...)` stayed untyped inside a TCO body ONLY, and
+            // `recorded.copy(...)` emitted as a literal method call (E0599) while the identical
+            // shape in a non-recursive def lowered fine.
+            val tcoCtx = withLocalValCtors(stats, ctx)
             val (initStats, lastStat) = (stats.init, stats.last)
-            val initResults = initStats.map(renderStmt(_, ctx))
+            val initResults = initStats.map(renderStmt(_, tcoCtx))
             val (initErrs, initOk) = initResults.partitionMap(identity)
             if initErrs.nonEmpty then Left(initErrs.flatten)
             else
               lastStat match
                 case t: m.Term =>
-                  renderTCOTerm(defName, paramNames, t, ctx, isUnit).map { lastRs =>
+                  renderTCOTerm(defName, paramNames, t, tcoCtx, isUnit).map { lastRs =>
                     (initOk :+ lastRs).filter(_.nonEmpty).mkString("\n")
                   }
                 case other =>
-                  renderStmt(other, ctx).map { lastRs =>
+                  renderStmt(other, tcoCtx).map { lastRs =>
                     (initOk :+ lastRs).filter(_.nonEmpty).mkString("\n")
                   }
           case leaf =>
@@ -6267,7 +6364,8 @@ object RustCodeWalk:
       // emitted block is purely statement-oriented (matches the R.1
       // golden shape).
       if isUnit then
-        liftLocalDefs(b.stats, ctx).flatMap { (liftedFns, stats, liftedCtx) =>
+        liftLocalDefs(b.stats, ctx).flatMap { (liftedFns, stats, liftedCtx0) =>
+          val liftedCtx = withLocalValCtors(stats, liftedCtx0)
           val deadPer = deadBeforeReassign(stats)
           val rendered = stats.zipWithIndex.map { (st, i) =>
             renderStmt(st, liftedCtx.copy(deadNames = liftedCtx.deadNames ++ deadPer(i))) }
@@ -6276,7 +6374,8 @@ object RustCodeWalk:
           else Right((liftedFns ++ ok).mkString("\n"))
         }
       else
-        liftLocalDefs(b.stats, ctx).flatMap { (liftedFns, stats, liftedCtx) =>
+        liftLocalDefs(b.stats, ctx).flatMap { (liftedFns, stats, liftedCtx0) =>
+          val liftedCtx = withLocalValCtors(stats, liftedCtx0)
           val (initStats, tail) = stats.splitAt(stats.length - 1)
           val deadPer = deadBeforeReassign(stats)
           val initRendered = initStats.zipWithIndex.map { (st, i) =>
@@ -9597,7 +9696,7 @@ object RustCodeWalk:
       val predCtx = seedOptionElemParam(args.values.head, qual, ctx)
       for
         q0   <- renderTerm(qual, ctx)
-        pred <- renderTerm(args.values.head, predCtx)
+        pred <- renderOptionPred(args.values.head, predCtx)
       yield s"${cloneIfMoved(qual, q0, ctx)}.filter($pred)"
 
     // `opt.exists(p)` — Rust's `Option::is_some_and` is the exact match: false for `None`, `p(x)`
@@ -10243,35 +10342,27 @@ object RustCodeWalk:
         ),
         fArgs
       ) if zArgs.values.size == 1 && fArgs.values.size == 1 =>
-      for
-        q  <- renderTerm(qual, ctx)
-        z  <- renderTerm(zArgs.values.head, ctx)
-        fb <- renderVecIterBody(fArgs.values.head, q, ctx, method = "foldLeft", zero = Some(z),
-                accumEither = isEitherExpr(zArgs.values.head, ctx),
-                accumMap = isMapExpr(zArgs.values.head))
-      yield fb
+      renderFoldLeft(qual, zArgs, fArgs, ctx, None)
 
     // `xs.foldLeft[T](z)(f)` — the same shape, with an explicit accumulator type argument on the
     // method reference (`adapters.foldLeft[Either[String, DialectRegistry]](...)`  in
     // scalascript-uniml's `Dialect.scala`). Every foldLeft matcher above is written against the
     // bare `Select` and none of them saw through the `ApplyType` wrapper, so this fell all the way
     // to the generic call fallback and reported "no resolvable name" — a real call, misdiagnosed
-    // as an undefined one. Rust's `.fold()` infers its accumulator type from `z`, so the type
-    // argument carries nothing this lane needs; the fix is to see past it, not to use it.
+    // as an undefined one.
     case m.Term.Apply.After_4_6_0(
         m.Term.Apply.After_4_6_0(
-          m.Term.ApplyType.After_4_6_0(m.Term.Select(qual, m.Term.Name("foldLeft")), _),
+          m.Term.ApplyType.After_4_6_0(m.Term.Select(qual, m.Term.Name("foldLeft")), targs),
           zArgs
         ),
         fArgs
       ) if zArgs.values.size == 1 && fArgs.values.size == 1 =>
-      for
-        q  <- renderTerm(qual, ctx)
-        z  <- renderTerm(zArgs.values.head, ctx)
-        fb <- renderVecIterBody(fArgs.values.head, q, ctx, method = "foldLeft", zero = Some(z),
-                accumEither = isEitherExpr(zArgs.values.head, ctx),
-                accumMap = isMapExpr(zArgs.values.head))
-      yield fb
+      // The explicit `[T]` IS used now, one way: mapped to a Rust type and handed down as the
+      // accumulator annotation. "Rust infers the accumulator from z" (this arm's old claim) is
+      // false exactly when z is a bare variant call — `fold(Either::Right(empty), |result, …|
+      // result.flatMap(…))` was `error[E0282]: type annotations needed`, with the needed type
+      // sitting discarded right here.
+      renderFoldLeft(qual, zArgs, fArgs, ctx, Some(targs))
     // `trim` can appear as zero-arg apply too: `s.trim()`.
     case m.Term.Apply.After_4_6_0(
         m.Term.Select(qual, m.Term.Name("trim")),
@@ -11901,6 +11992,27 @@ object RustCodeWalk:
       case _                                          => t.children.iterator.map(find).collectFirst { case Some(ty) => ty }
     _defBodies.get(outerDefName).flatMap(d => find(d.body))
 
+  /** The predicate argument of an Option `.filter` — Rust's `Option::filter` hands it `&T`, not
+   *  `T` (`lastTokenId.filter(previous => token.id <= previous)`, `TreeVm.scala`'s
+   *  `validateToken`): rendered through the generic closure path the param bound the REFERENCE
+   *  and `token.id <= previous` was `i64 <= &i64` — `error[E0308]`. An explicit one-param lambda
+   *  gets the same clone-rebind shim `find`'s Vec dispatch already uses; every other shape
+   *  (placeholders included — their seeding lives in `seedOptionElemParam`) renders as before. */
+  private def renderOptionPred(arg: m.Term, ctx: Ctx): Either[List[Diagnostic], String] =
+    val fnOpt = arg match
+      case f: m.Term.Function if f.paramClause.values.sizeIs == 1                     => Some(f)
+      case m.Term.Block(List(f: m.Term.Function)) if f.paramClause.values.sizeIs == 1 => Some(f)
+      case _                                                                          => None
+    fnOpt match
+      case None => renderTerm(arg, ctx)
+      case Some(fn2) =>
+        val p = fn2.paramClause.values.head.name.value
+        val bodyCtx = enteringClosure(ctx, Set(p))
+        val bodyRs = fn2.body match
+          case blk: m.Term.Block => renderBody(blk, bodyCtx, isUnit = false)
+          case tt                => renderTerm(tt, bodyCtx)
+        bodyRs.map(b => s"|__f| { let $p = __f.clone(); $b }")
+
   private def isOptionExpr(term: m.Term, ctx: Ctx): Boolean = term match
     case m.Term.Name("None") => true
     case m.Term.Apply.After_4_6_0(m.Term.Name("Some"), args) if args.values.size == 1 =>
@@ -12455,6 +12567,55 @@ object RustCodeWalk:
    *  foldLeft → q.iter().copied().fold(zero, move |a, b| body)
    *             (or .cloned() when element type is String/non-Copy)
    */
+  /** The shared body of both `foldLeft` dispatch arms — extracted from `renderTerm` (frozen by
+   *  the JIT size gate). A FIELD-SELECT zero (`afterBefore.kinds`) MOVES the field out of its
+   *  owner while the stage-10 idiom reads the owner again in the same expression: `error[E0382]:
+   *  borrow of partially moved value` — cloning the zero is always sound, the fold consumes it.
+   *  `explicitAccum` is the written `foldLeft[T]` type argument when there was one. */
+  private def renderFoldLeft(
+      qual: m.Term, zArgs: m.Term.ArgClause, fArgs: m.Term.ArgClause, ctx: Ctx,
+      targs: Option[m.Type.ArgClause]
+  ): Either[List[Diagnostic], String] =
+    val zeroTerm      = zArgs.values.head
+    val fnTerm        = fArgs.values.head
+    val explicitAccum = targs.flatMap(_.values.headOption)
+    for
+      q  <- renderTerm(qual, ctx)
+      z0 <- renderTerm(zeroTerm, ctx)
+      z   = zeroTerm match
+              case _: m.Term.Select if !z0.endsWith(".clone()") => s"$z0.clone()"
+              case _                                            => z0
+      fb <- renderVecIterBody(fnTerm, q, ctx, method = "foldLeft", zero = Some(z),
+              elemType = elementTypeOf(qual, ctx),
+              accumEither = isEitherExpr(zeroTerm, ctx),
+              accumMap = isMapExpr(zeroTerm),
+              accumType = explicitAccum
+                .flatMap(ta => mapType(ta, ctx.defName, ctx.enumNames).toOption)
+                .filter(_.nonEmpty)
+                .orElse(ctorNameOfExpr(zeroTerm, ctx)))
+    yield fb
+
+  /** `foldLeft`'s two closure params typed from what the call site could place — extracted from
+   *  `renderVecIterBody` verbatim (the JIT size gate: adding it inline pushed the method over
+   *  HugeMethodLimit). See `accumType`'s parameter comment for the sources and the two uses. */
+  private def foldParamTypedCtx(
+      bodyCtx1: Ctx, accumType: Option[String], elemType: Option[String],
+      p0: String, p1: String, twoParams: Boolean
+  ): Ctx =
+    val withAcc = accumType match
+      case Some(at) =>
+        bodyCtx1.copy(
+          paramTypes     = bodyCtx1.paramTypes + (p0 -> at),
+          paramCtorNames = bodyCtx1.paramCtorNames - p0 - p1,
+          localStrings   = if at == "String" then bodyCtx1.localStrings + p0 else bodyCtx1.localStrings)
+      case None => bodyCtx1.copy(paramCtorNames = bodyCtx1.paramCtorNames - p0 - p1)
+    elemType match
+      case Some(et) if twoParams =>
+        withAcc.copy(
+          paramTypes   = withAcc.paramTypes + (p1 -> et),
+          localStrings = if et == "String" then withAcc.localStrings + p1 else withAcc.localStrings)
+      case _ => withAcc
+
   private def renderVecIterBody(
       fn:      m.Term,
       q:       String,
@@ -12475,6 +12636,16 @@ object RustCodeWalk:
       // `foldLeft`-only, the `Map`-typed twin of `accumEither` just above — see `isMapExpr`'s
       // own comment for the call it fixes.
       accumMap: Boolean = false,
+      // `foldLeft`-only: the accumulator's RUST TYPE, when the call site can place it — from the
+      // ZERO expression's own ctor (`ctorNameOfExpr`: `closeBefore.foldLeft(counted)((w, _) =>
+      // closeFrame(w))`, `TreeVm.scala`'s stage-10 shape — `counted` is a record-typed local), or
+      // from an EXPLICIT `foldLeft[T]` type argument mapped through `mapType`. Two uses, both in
+      // the Function arm: registered as `p0`'s type in the body's Ctx (so `.copy`/member reads on
+      // the accumulator lower at all — without it every fold over a record was untyped inside),
+      // and written as an annotation on the emitted closure param (`|w: VmWork, spec|`), which is
+      // what resolves rustc's own `E0282: type annotations needed` on folds whose zero is a bare
+      // variant call (`fold(Either::Right(empty), |result, adapter| result.flatMap(...))`).
+      accumType: Option[String] = None,
       // The FIRST tuple component's type for a `.zipWithIndex`-shaped receiver, when the caller
       // could place it (`zipWithIndexFirstElemType`'s own comment has the invariant that makes
       // threading it to `p0` sound) — a SEPARATE channel from `elemType`, which for the same
@@ -12489,7 +12660,7 @@ object RustCodeWalk:
     // unwrap + re-dispatch so it takes the borrow-not-move Function path below, not the
     // generic fallback (which renders the inner closure with `move` and re-moves captures).
     case m.Term.Block(List(f: m.Term.Function)) =>
-      renderVecIterBody(f, q, ctx, method, zero, elemType, accumEither, accumMap, tupleFirstElemType)
+      renderVecIterBody(f, q, ctx, method, zero, elemType, accumEither, accumMap, accumType, tupleFirstElemType)
     // Single or two-param closure `(p: T) => body` or `(a, b) => body`.
     case fn2: m.Term.Function =>
       val params = fn2.paramClause.values.toList
@@ -12518,10 +12689,21 @@ object RustCodeWalk:
                 localStrings  = if t == "String" then bodyCtx0.localStrings + p0 else bodyCtx0.localStrings
               )
             case _ => bodyCtx0
-      val bodyCtx =
-        if method == "foldLeft" && accumEither then bodyCtx1.copy(eitherLocals = bodyCtx1.eitherLocals + p0)
-        else if method == "foldLeft" && accumMap then bodyCtx1.copy(localMaps = bodyCtx1.localMaps + p0)
+      // `foldLeft`'s TWO params get their types here, from what the CALL SITE could place:
+      // the accumulator (`p0`) from `accumType` — its own field comment has the two sources —
+      // and the element (`p1`) from `elemType`, which the `params.sizeIs <= 1` case above
+      // deliberately never touches for a fold (its `p0` is the accumulator, not the element).
+      // `paramTypes` is the registration point (`ctorNameOfExpr` reads it, guarded by
+      // `ctorMap.contains`, so a non-record accumulator type like `Either<...>` sits there
+      // harmlessly); `paramCtorNames` DROPS both names so a same-named outer binding — the
+      // stage-10 idiom reuses `w` heavily — cannot shadow the closure's own params.
+      val bodyCtx2 =
+        if method == "foldLeft" then foldParamTypedCtx(bodyCtx1, accumType, elemType, p0, p1, params.sizeIs == 2)
         else bodyCtx1
+      val bodyCtx =
+        if method == "foldLeft" && accumEither then bodyCtx2.copy(eitherLocals = bodyCtx2.eitherLocals + p0)
+        else if method == "foldLeft" && accumMap then bodyCtx2.copy(localMaps = bodyCtx2.localMaps + p0)
+        else bodyCtx2
       val bodyResult = fn2.body match
         case blk: m.Term.Block => renderBody(blk, bodyCtx, isUnit = isUnitCtx)
         case t                 => renderTerm(t, bodyCtx)
@@ -12583,7 +12765,11 @@ object RustCodeWalk:
           // `Iterator::take_while`/`skip_while` have the identical signature shape.
           case "takeWhile" => s"$q.iter().cloned().take_while(|__f| { let $p0 = __f.clone(); $b }).collect::<Vec<_>>()"
           case "dropWhile" => s"$q.iter().cloned().skip_while(|__f| { let $p0 = __f.clone(); $b }).collect::<Vec<_>>()"
-          case "foldLeft" => s"$q.iter().cloned().fold(${zero.getOrElse("0")}, |$p0, $p1| { $b })"
+          case "foldLeft" =>
+            // The accumulator annotation is what rustc's `E0282` asked for on folds whose zero
+            // is a bare variant call; a plain record zero never needs it but is not hurt by it.
+            val p0Ann = accumType.fold("")(at => s": $at")
+            s"$q.iter().cloned().fold(${zero.getOrElse("0")}, |$p0$p0Ann, $p1| { $b })"
           // `ranges.filter(...).sortBy(range => (range.rank, -range.end))` (`uniml/yaml`'s
           // `YamlSemanticParser.scala`'s `blockRanges`) — missing from THIS branch's own `method`
           // match (a plain `Term.Function` key, as opposed to the method-reference/PartialFunction
@@ -12766,7 +12952,12 @@ object RustCodeWalk:
       // two lines later: the first `move` closure's capture of `&mut kinds` moved `kinds` itself
       // (`Vec` is not `Copy`), and the second statement's OWN `&mut kinds` had nothing left to
       // borrow — `error[E0382]: use of moved value: kinds`.
-      val closure = s"|__x| $n(__x${if extra.isEmpty then "" else ", " + extra.mkString(", ")})"
+      // `foldLeft` hands its function TWO arguments; the one-arg `|__x|` shape silently promised
+      // rustc a unary closure for a binary fn and never compiled. Same captures either way.
+      val extraTxt = if extra.isEmpty then "" else ", " + extra.mkString(", ")
+      val closure =
+        if method == "foldLeft" then s"|__fa, __fb| $n(__fa, __fb$extraTxt)"
+        else s"|__x| $n(__x$extraTxt)"
       Right(method match
         case "foreach"  => s"$q.iter().cloned().for_each($closure);"
         case "map"      => s"$q.iter().cloned().map($closure).collect::<Vec<_>>()"
@@ -12775,6 +12966,20 @@ object RustCodeWalk:
         case "dropWhile" => s"$q.iter().cloned().skip_while($closure).collect::<Vec<_>>()"
         case "foldLeft" => s"$q.iter().cloned().fold(${zero.getOrElse("0")}, $closure)"
         case other2     => s"$q.$other2($closure)")
+
+    // `closeBefore.foldLeft(ReframeCheck(...))(reframeClose)` (`TreeVm.scala`'s
+    // `reframeProblem`, post-stage-10) — a bare method-value reference to an ORDINARY module def,
+    // which the lifted-def arm above never matches (`reframeClose` is top-level, not lifted) and
+    // the fallback below rendered as a bare NAME. That name is not a value in the emitted Rust:
+    // module defs land as `fn f(&self, ...)` methods on the program impl, so the bare item read
+    // `error[E0425]: cannot find value reframeClose`. Synthesizing the CALL and rendering it
+    // through `renderTerm` reuses whatever self-prefix/capture treatment an ordinary written call
+    // already gets, instead of teaching this arm a second copy of those rules.
+    case fnName @ m.Term.Name(n) if method == "foldLeft" && ctx.userDefs.contains(n) =>
+      renderTerm(
+        m.Term.Apply(fnName, m.Term.ArgClause(List(m.Term.Name("__fa"), m.Term.Name("__fb")), None)),
+        ctx
+      ).map(call => s"$q.iter().cloned().fold(${zero.getOrElse("0")}, |__fa, __fb| $call)")
 
     // Fallback — inline the fn as-is and hope Rust accepts it
     case other =>
