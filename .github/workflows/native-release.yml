@@ -286,6 +286,17 @@ jobs:
           fi
           printf '%s  %s\n' "$digest" "${archive##*/}" >"$archive.sha256"
 
+      # macOS 15 runner images ship with the Application Firewall blocking incoming TCP even on
+      # loopback (actions/runner-images#11901, #10924): the qualify script's local registry server
+      # binds 127.0.0.1 and every connect is refused, with nothing in the server's own log — its
+      # 'Serving HTTP' banner sits block-buffered while the firewall eats the SYNs. Both macOS
+      # qualify jobs failed 'registry-server: never came up' on dispatch 33520292532 while the
+      # identical check passed on ubuntu. Disabling the firewall is the documented workaround, and
+      # this is a throwaway CI VM qualifying loopback-only traffic.
+      - name: Allow loopback listeners (macOS 15 firewall refuses them)
+        if: runner.os == 'macOS'
+        run: sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate off
+
       - name: Qualify isolated shipped bytes
         env:
           ARTIFACT_ID: ${{ matrix.artifact_id }}

@@ -25,6 +25,11 @@ worked on belongs in `tests/BACKLOG.md`. Layout: [`../specs/work-tracking-layout
       updated (its exit-64 fall-through makes a stale spelling loud). Pre-verified the remaining
       unexercised checks against the full JVM CLI: `run --v1` 84, `compile-jvm` non-empty
       artifact, `plugin search` exit 0 naming the fixture package.
+      FOURTH defect, dispatch 33520292532: LINUX QUALIFY FULLY GREEN, both macOS jobs fail
+      `registry-server: never came up` — macOS-15 runner images ship the Application Firewall
+      blocking incoming TCP even on loopback (actions/runner-images#11901/#10924; the check was
+      added after v0.2.0, so macOS never ran it). Fix: a macOS-only workflow step disables the
+      firewall (`socketfilterfw --setglobalstate off`) before qualification.
       *Done when:* the workflow fix is on main, the bug is filed with the landed SHA, and the owner
       has decided the recovery — re-tag v0.3.0 on a fixed snapshot vs cut v0.3.1 — since moving a
       published tag is an owner call.
