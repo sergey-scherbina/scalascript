@@ -1,2 +1,3 @@
-# generation: 3299
+# generation: 3300
 #slug	agent	started	items	paths
+uniml-demut-md-lexer	claude-code	2026-09-01T08:03:08Z	uniml-markdown-lexer-becomes-folds	file:uniml/markdown/src/main/scala/scalascript/uniml/dialect/markdown/MarkdownLexer.scala file:uniml/SPRINT.md
