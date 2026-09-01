@@ -4565,7 +4565,9 @@ gate used to make by hand. Corpus disagreements exactly the five declared rows, 
 `v3/exec-gate.sh` GREEN — **99** cases, both lanes agree, `infix-class-method -> 42/42/120/3/3/List(1, 2, 3)`
  among them. jit-gate, bench-corpus-gate, front-capability-gate, selftest, front-gate, front-report-gate, prelude-gate,
 bridge-gate, parity-gate, walker-gate, rewrite-gate, loader-gate, effects-gate, extension-gate and
-regex-subset-gate: GREEN. `bugs-index-gate.sh` OK (1270 entries, 0 problems).
+regex-subset-gate: GREEN. `bugs-index-gate.sh` OK (1270 entries, 0 problems). `scripts/smoke-ci`
+**125/125 green**, 1452 s of a 2132 s budget, on a worktree built with `./install.sh --dev` — 125
+and not 126 because the retired check is the one that left.
 
 **THE GUARDS WERE CONTROLLED, NOT ASSUMED.** Neutralising all four and re-running the spec fails the
 five new guard tests **and five pre-existing ones** — `offside: indented def body`, `offside: a
