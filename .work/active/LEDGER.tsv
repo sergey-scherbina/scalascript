@@ -1,3 +1,4 @@
-# generation: 3335
+# generation: 3336
 #slug	agent	started	items	paths
 v3-infix-uniml-front	claude-code	2026-09-01T17:45:46Z	infix-application-does-not-reach-a-declared-class-method	file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/ScalaSpike.scala file:uniml/scala/src/test-jvm/scala/scalascript/uniml/dialect/scalascript/ScalaSpikeSpec.scala dir:v3/tests/front file:v3/infix-front-split-gate.sh file:scripts/smoke-ci.ssc file:v3/specs/50-uniml-projection.md
+v3-jvm-backend-plan	claude-code	2026-09-01T20:32:45Z	v3-stage-12-jvm-backend-plan	file:v3/specs/70-jvm-backend.md
