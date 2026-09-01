@@ -57,6 +57,20 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
       envelope — no urgent knob. Cursor de-mutabilization (stage 10) must re-run this bench per
       module as its perf gate.
 
+- [~] uniml-demut-md-projection — **MarkdownProjection is var-free: 19 → 0.** No new shapes were
+      needed — all four came off the shelf: fold-with-record for project's blocks/references split
+      (`ProjectAcc`) and definitionOf (`DefnAcc`, foreach's last-token-wins preserved by copy,
+      collectDefinitions' FIRST-definition-wins preserved by the contains guard); walk-returns-
+      accumulator for collectDefinitions/concatTokens/rawLabel (Definition branches still do NOT
+      recurse); bare tail recursion for the end-finders (dropLeading/TrailingSpaces, extractRefLabel's
+      escape-aware last-open scan, decodeText and unescape index walks); codeLiteral was a collect
+      spelled as a foreach. trimBlockInlines' `var out` became a two-val chain. Splice audit: all
+      seven load-bearing comment markers present (ESCAPE-AWARE, RAW SOURCE, first-definition-wins,
+      shortcut-ref .filter, NOT-decoded, WHATWG, semicolon-terminated). Gates: unimlMarkdown/test
+      59/59 with MarkdownCorpusSpec's exact `passingCases == 607` of 675 pin, unimlMarkdownJs/test
+      52/52, lint-portable-subset OK. Markdown module running total: 162 → 124 vars (lexer 19 +
+      projection 19 gone); MarkdownBlocks (76) and MarkdownInlines (48) are next — the heavy pair.
+
 - [~] uniml-demut-md-lexer — **markdown's lexer/chars module is var-free: 19 → 0, with BOTH perf
       invariants proven, not assumed.** The line splitter (site of the O(n²) history —
       rag-uniml-parser-quadratic, a 505 KB document taking hours) is tail recursion with every

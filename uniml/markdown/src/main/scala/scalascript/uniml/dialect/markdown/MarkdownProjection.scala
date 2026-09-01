@@ -15,47 +15,53 @@ object MarkdownProjection:
       MarkdownProjectionResult(None, result.diagnostics)
     else
       val refs = collectDefinitions(result.roots)
-      var blocks: Vector[MarkdownBlock] = Vector.empty
-      var references: Vector[MarkdownBlock.LinkDefinition] = Vector.empty
-      result.roots.foreach { root =>
+      val acc = result.roots.foldLeft(ProjectAcc(Vector.empty, Vector.empty)) { (acc, root) =>
         projectBlock(root, refs) match
-          case Some(defn: MarkdownBlock.LinkDefinition) => references = references :+ defn
-          case Some(block)                              => blocks = blocks :+ block
-          case None                                     => ()
+          case Some(defn: MarkdownBlock.LinkDefinition) => acc.copy(references = acc.references :+ defn)
+          case Some(block)                              => acc.copy(blocks = acc.blocks :+ block)
+          case None                                     => acc
       }
       MarkdownProjectionResult(
-        Some(MarkdownDocument(blocks, references)),
+        Some(MarkdownDocument(acc.blocks, acc.references)),
         result.diagnostics,
       )
+
+  /** Root-level blocks split into document content and reference definitions. */
+  private final case class ProjectAcc(
+    blocks: Vector[MarkdownBlock],
+    references: Vector[MarkdownBlock.LinkDefinition],
+  )
 
   // ── reference definitions ────────────────────────────────────────────────
 
   private def collectDefinitions(roots: Vector[UniNode]): Map[String, MarkdownBlock.LinkDefinition] =
-    var map: Map[String, MarkdownBlock.LinkDefinition] = Map.empty
-    def walk(node: UniNode): Unit = node match
-      case b @ UniNode.Branch(MdBranch.Definition, _, _, _) =>
-        definitionOf(b).foreach { defn =>
-          val key = MarkdownInlines.normalizeLabel(defn.label)
-          if !map.contains(key) then map = map + (key -> defn)
-        }
-      case UniNode.Branch(_, edges, _, _) => edges.foreach(e => walk(e.child))
-      case _                              => ()
-    roots.foreach(walk)
-    map
+    def walk(map: Map[String, MarkdownBlock.LinkDefinition], node: UniNode): Map[String, MarkdownBlock.LinkDefinition] =
+      node match
+        case b @ UniNode.Branch(MdBranch.Definition, _, _, _) =>
+          definitionOf(b) match
+            case Some(defn) =>
+              val key = MarkdownInlines.normalizeLabel(defn.label)
+              // CommonMark: the FIRST definition of a label wins
+              if map.contains(key) then map else map + (key -> defn)
+            case None => map
+        case UniNode.Branch(_, edges, _, _) => edges.foldLeft(map)((m, e) => walk(m, e.child))
+        case _                              => map
+    roots.foldLeft(Map.empty[String, MarkdownBlock.LinkDefinition])((m, root) => walk(m, root))
+
+  /** The three parts of a definition, filled as its tokens appear (a later token
+    * of the same kind overwrites — the fold keeps the foreach's last-wins). */
+  private final case class DefnAcc(label: String, dest: String, title: Option[String])
 
   private def definitionOf(branch: UniNode.Branch): Option[MarkdownBlock.LinkDefinition] =
-    var label = ""
-    var dest = ""
-    var title: Option[String] = None
-    branch.edges.foreach { edge =>
+    val acc = branch.edges.foldLeft(DefnAcc("", "", None)) { (acc, edge) =>
       edge.child match
         case UniNode.Token(t) if t.kind == MdKind.ReferenceLabel =>
-          label = t.lexeme.stripPrefix("[").stripSuffix("]")
-        case UniNode.Token(t) if t.kind == MdKind.Destination => dest = unwrapDestination(t.lexeme)
-        case UniNode.Token(t) if t.kind == MdKind.Title       => title = Some(stripTitle(t.lexeme))
-        case _ => ()
+          acc.copy(label = t.lexeme.stripPrefix("[").stripSuffix("]"))
+        case UniNode.Token(t) if t.kind == MdKind.Destination => acc.copy(dest = unwrapDestination(t.lexeme))
+        case UniNode.Token(t) if t.kind == MdKind.Title       => acc.copy(title = Some(stripTitle(t.lexeme)))
+        case _ => acc
     }
-    if label.isEmpty then None else Some(MarkdownBlock.LinkDefinition(label, dest, title))
+    if acc.label.isEmpty then None else Some(MarkdownBlock.LinkDefinition(acc.label, acc.dest, acc.title))
 
   // ── blocks ────────────────────────────────────────────────────────────
 
@@ -142,22 +148,17 @@ object MarkdownProjection:
       .filter(_.nonEmpty)
 
   private def codeLiteral(edges: Vector[UniEdge]): String =
-    var buf: Vector[String] = Vector.empty
-    edges.foreach {
+    edges.collect {
       case UniEdge(_, UniNode.Token(t)) if t.kind == MdKind.CodeContent || (t.kind == MdKind.LineBreak && t.channel == TokenChannel.Embedded) =>
-        buf = buf :+ t.lexeme
-      case _ => ()
-    }
-    buf.mkString
+        t.lexeme
+    }.mkString
 
   private def concatTokens(edges: Vector[UniEdge], kind: String): String =
-    var buf: Vector[String] = Vector.empty
-    def walk(node: UniNode): Unit = node match
-      case UniNode.Token(t) if t.kind == kind || (t.kind == MdKind.LineBreak && t.channel == TokenChannel.Embedded) => buf = buf :+ t.lexeme
-      case UniNode.Branch(_, es, _, _) => es.foreach(e => walk(e.child))
-      case _ => ()
-    edges.foreach(e => walk(e.child))
-    buf.mkString
+    def walk(buf: Vector[String], node: UniNode): Vector[String] = node match
+      case UniNode.Token(t) if t.kind == kind || (t.kind == MdKind.LineBreak && t.channel == TokenChannel.Embedded) => buf :+ t.lexeme
+      case UniNode.Branch(_, es, _, _) => es.foldLeft(buf)((b, e) => walk(b, e.child))
+      case _ => buf
+    edges.foldLeft(Vector.empty[String])((b, e) => walk(b, e.child)).mkString
 
   private def projectTable(edges: Vector[UniEdge]): MarkdownBlock =
     val rows = edges.collect { case UniEdge(_, UniNode.Token(t)) if t.kind == MdKind.TableRow => t.lexeme }
@@ -210,9 +211,8 @@ object MarkdownProjection:
         case MarkdownInline.Text(v) =>
           val afterBreak = idx > 0 && isBreak(withoutTrailingBreak(idx - 1))
           val beforeBreak = idx + 1 < n && isBreak(withoutTrailingBreak(idx + 1))
-          var out = v
-          if idx == 0 || afterBreak then out = dropLeadingSpaces(out)
-          if idx == n - 1 || beforeBreak then out = dropTrailingSpaces(out)
+          val ledTrimmed = if idx == 0 || afterBreak then dropLeadingSpaces(v) else v
+          val out = if idx == n - 1 || beforeBreak then dropTrailingSpaces(ledTrimmed) else ledTrimmed
           MarkdownInline.Text(out)
         case other => other
     }.toVector.filter {
@@ -226,24 +226,26 @@ object MarkdownProjection:
     case _                                                   => false
 
   private def dropLeadingSpaces(v: String): String =
-    var i = 0
-    while i < v.length && (v.charAt(i) == ' ' || v.charAt(i) == '\t') do i += 1
-    v.substring(i)
+    def start(i: Int): Int =
+      if i < v.length && (v.charAt(i) == ' ' || v.charAt(i) == '\t') then start(i + 1) else i
+    v.substring(start(0))
 
   private def dropTrailingSpaces(v: String): String =
-    var i = v.length
-    while i > 0 && (v.charAt(i - 1) == ' ' || v.charAt(i - 1) == '\t') do i -= 1
-    v.substring(0, i)
+    def end(i: Int): Int =
+      if i > 0 && (v.charAt(i - 1) == ' ' || v.charAt(i - 1) == '\t') then end(i - 1) else i
+    v.substring(0, end(v.length))
 
   private def projectInlines(edges: Vector[UniEdge], refs: Map[String, MarkdownBlock.LinkDefinition]): Vector[MarkdownInline] =
-    var out: Vector[MarkdownInline] = Vector.empty
-    def appendMerging(inline: MarkdownInline): Unit =
+    def appendMerging(out: Vector[MarkdownInline], inline: MarkdownInline): Vector[MarkdownInline] =
       (out.lastOption, inline) match
         case (Some(MarkdownInline.Text(a)), MarkdownInline.Text(b)) =>
-          out = out.dropRight(1) :+ MarkdownInline.Text(a + b)
-        case _ => out = out :+ inline
-    edges.foreach { edge => projectInline(edge, refs).foreach(appendMerging) }
-    out
+          out.dropRight(1) :+ MarkdownInline.Text(a + b)
+        case _ => out :+ inline
+    edges.foldLeft(Vector.empty[MarkdownInline]) { (out, edge) =>
+      projectInline(edge, refs) match
+        case Some(inline) => appendMerging(out, inline)
+        case None         => out
+    }
 
   private def projectInline(edge: UniEdge, refs: Map[String, MarkdownBlock.LinkDefinition]): Option[MarkdownInline] =
     edge.child match
@@ -324,13 +326,12 @@ object MarkdownProjection:
     // bracket must be found ESCAPE-AWARE: `[foo][ref\[]` has a `\[` inside the
     // label, and taking the last raw `[` sliced the label in half, so it matched
     // no definition and resolved to href="".
-    var open = -1
-    var i = 0
-    while i < lex.length do
-      if lex.charAt(i) == '\\' then i += 2
-      else
-        if lex.charAt(i) == '[' then open = i
-        i += 1
+    def lastOpen(i: Int, open: Int): Int =
+      if i >= lex.length then open
+      else if lex.charAt(i) == '\\' then lastOpen(i + 2, open)
+      else if lex.charAt(i) == '[' then lastOpen(i + 1, i)
+      else lastOpen(i + 1, open)
+    val open = lastOpen(0, -1)
     val close = lex.lastIndexOf(']')
     if open >= 0 && close > open then lex.substring(open + 1, close) else ""
 
@@ -341,12 +342,10 @@ object MarkdownProjection:
     * href="", and the emphasis still rendered, so it looked like a link that had
     * merely lost its destination. */
   private def rawLabel(edges: Vector[UniEdge]): String =
-    var buf: Vector[String] = Vector.empty
-    def walk(node: UniNode): Unit = node match
-      case UniNode.Token(t)            => buf = buf :+ t.lexeme
-      case UniNode.Branch(_, es, _, _) => es.foreach(e => walk(e.child))
-    edges.filterNot(isLinkStructural).foreach(e => walk(e.child))
-    buf.mkString
+    def walk(buf: Vector[String], node: UniNode): Vector[String] = node match
+      case UniNode.Token(t)            => buf :+ t.lexeme
+      case UniNode.Branch(_, es, _, _) => es.foldLeft(buf)((b, e) => walk(b, e.child))
+    edges.filterNot(isLinkStructural).foldLeft(Vector.empty[String])((b, e) => walk(b, e.child)).mkString
 
   // ── decoding helpers ────────────────────────────────────────────────────
 
@@ -374,29 +373,25 @@ object MarkdownProjection:
   private def decodeText(s: String): String =
     if !s.contains('&') then s
     else
-      var buf: Vector[String] = Vector.empty
-      var i = 0
-      while i < s.length do
-        if s.charAt(i) == '&' then
+      def walk(i: Int, buf: Vector[String]): Vector[String] =
+        if i >= s.length then buf
+        else if s.charAt(i) == '&' then
           val semi = s.indexOf(';', i + 1)
           val decoded = if semi < 0 then s else decodeEntity(s.substring(i, semi + 1))
-          if semi >= 0 && decoded != s.substring(i, semi + 1) then
-            buf = buf :+ decoded
-            i = semi + 1
-          else { buf = buf :+ "&"; i += 1 }
-        else { buf = buf :+ s.substring(i, i + 1); i += 1 }
-      buf.mkString
+          if semi >= 0 && decoded != s.substring(i, semi + 1) then walk(semi + 1, buf :+ decoded)
+          else walk(i + 1, buf :+ "&")
+        else walk(i + 1, buf :+ s.substring(i, i + 1))
+      walk(0, Vector.empty).mkString
 
   private def unescape(s: String): String =
     if !s.contains('\\') then s
     else
-      var buf: Vector[String] = Vector.empty
-      var i = 0
-      while i < s.length do
-        if s.charAt(i) == '\\' && i + 1 < s.length && MdChars.isAsciiPunctuation(s.charAt(i + 1)) then
-          buf = buf :+ s.substring(i + 1, i + 2); i += 2
-        else { buf = buf :+ s.substring(i, i + 1); i += 1 }
-      buf.mkString
+      def walk(i: Int, buf: Vector[String]): Vector[String] =
+        if i >= s.length then buf
+        else if s.charAt(i) == '\\' && i + 1 < s.length && MdChars.isAsciiPunctuation(s.charAt(i + 1)) then
+          walk(i + 2, buf :+ s.substring(i + 1, i + 2))
+        else walk(i + 1, buf :+ s.substring(i, i + 1))
+      walk(0, Vector.empty).mkString
 
   /** The WHATWG HTML5 named character references, generated from the pinned
     * snapshot in `uniml/corpus/markdown/whatwg-entities.json`. It replaced a
