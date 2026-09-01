@@ -51,3 +51,35 @@ class QuotedMacroPreprocessorTest extends AnyFunSuite:
         |  sb.append('"').append(s"value ${x} done").append('"')""".stripMargin
     val (_, err) = Parser.parseScalaWithDiagnostic(src)
     assert(err.isEmpty, s"should parse: $err")
+
+  // The FOLLOW-UP defect the char-literal fix above exposed: the loop now had a `'` case
+  // (`skipChar`) but still no COMMENT case, so an apostrophe in ordinary prose — `/** the VM's
+  // stack */` in `uniml/core/TreeVm.scala` — sent `skipChar` hunting for a closing `'` across
+  // lines. It stopped at the first quote of a later `s"… '${frame.kind}' …"` string, the scan
+  // resumed INSIDE that string, and its `${…}` was rewritten to `__ssc_macro_error__("…")` in
+  // the middle of a string literal — reported as `` `)` expected but `macro` found `` at a
+  // column past the end of the line. Found by `ssc-tools emit-rust` refusing uniml/core.
+  test("preprocessQuotedMacros ignores an apostrophe inside a comment"):
+    val src =
+      """/** One open branch on the VM's stack — immutable. */
+        |final case class K(kind: String)
+        |def f(frame: K): String =
+        |  s"unclosed '${frame.kind}' node at end of input"""".stripMargin
+    val out = Parser.preprocessQuotedMacros(src)
+    assert(out == src, s"a commented apostrophe must not start a char-literal scan: $out")
+
+  test("preprocessQuotedMacros ignores an apostrophe in a line comment"):
+    val src =
+      """// the VM's stack
+        |def f(kind: String): String = s"unclosed '${kind}' node"""".stripMargin
+    val out = Parser.preprocessQuotedMacros(src)
+    assert(out == src, out)
+
+  test("parseScalaWithDiagnostic accepts a commented apostrophe before a quoted interpolation hole"):
+    val src =
+      """/** the VM's stack */
+        |final case class K(kind: String)
+        |def f(frame: K): String =
+        |  s"unclosed '${frame.kind}' node at end of input"""".stripMargin
+    val (_, err) = Parser.parseScalaWithDiagnostic(src)
+    assert(err.isEmpty, s"should parse: $err")

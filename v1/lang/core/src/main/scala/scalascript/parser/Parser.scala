@@ -2204,8 +2204,38 @@ object Parser:
             j += 1
       if depth == 0 then j else -1
 
+    // Index just past a comment starting at `start` (`//` to end of line; `/* … */` nested,
+    // as in Scala). WITHOUT THIS the outer loop had no comment case at all, so an APOSTROPHE
+    // IN A COMMENT — `/** the VM's stack */`, ordinary prose — hit the char-literal case below
+    // and `skipChar` went hunting for a closing `'` across lines. The scan then resumed INSIDE
+    // whatever string that quote belonged to, and a `${…}` in that string — `s"unclosed
+    // '${frame.kind}' node"` — was rewritten into `__ssc_macro_error__("…")` in the middle of a
+    // string literal. The parse failure named `macro` at a position past the end of its line,
+    // which is the same far-from-the-defect signature `skipChar`'s own comment describes; the
+    // char-literal fix that added skipChar (35107ed97) is what EXPOSED this, because before it a
+    // bare `'` was copied as an ordinary character and comments were harmless. Found by
+    // `ssc-tools emit-rust` refusing uniml/core's TreeVm.scala, whose doc comments write "VM's".
+    def skipComment(start: Int): Int =
+      if start + 1 < n && in(start) == '/' && in(start + 1) == '/' then
+        var j = start + 2
+        while j < n && in(j) != '\n' do j += 1
+        j
+      else if start + 1 < n && in(start) == '/' && in(start + 1) == '*' then
+        var j = start + 2
+        var depth = 1
+        while j < n && depth > 0 do
+          if j + 1 < n && in(j) == '/' && in(j + 1) == '*' then { depth += 1; j += 2 }
+          else if j + 1 < n && in(j) == '*' && in(j + 1) == '/' then { depth -= 1; j += 2 }
+          else j += 1
+        j
+      else start
+
     while i < n do
       in(i) match
+        case '/' if i + 1 < n && (in(i + 1) == '/' || in(i + 1) == '*') =>
+          val end = skipComment(i)
+          out.appendAll(in, i, end - i)
+          i = end
         case '$' if i + 1 < n && in(i + 1) == '{' =>
           val close = findBalanced(i + 1, '{', '}')
           if close >= 0 then
