@@ -1,3 +1,3 @@
-# generation: 3283
+# generation: 3284
 #slug	agent	started	items	paths
-uniml-backend-matrix	claude-code	2026-09-01T05:59:53Z	uniml-compiles-on-every-backend-status-matrix	file:uniml/SPRINT.md file:uniml/BACKLOG.md file:UNIML-RUST-BACKEND-SESSION.md file:uniml/build.sbt file:scripts/cut-release file:scripts/BUGS.md
+uniml-backend-matrix	claude-code	2026-09-01T05:59:53Z	uniml-compiles-on-every-backend-status-matrix	file:uniml/SPRINT.md file:uniml/BACKLOG.md file:UNIML-RUST-BACKEND-SESSION.md file:uniml/build.sbt file:scripts/cut-release file:scripts/BUGS.md file:uniml/bench/src/main/scala/scalascript/uniml/bench/SpikeParserBench.scala file:v1/lang/core-bench/BUGS.md file:BUGS.md

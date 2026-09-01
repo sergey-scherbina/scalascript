@@ -5,7 +5,7 @@ started: 2026-09-01T05:59:53Z
 heartbeat: 2026-09-01T05:59:53Z
 status: claimed-before-planning
 items: uniml-compiles-on-every-backend-status-matrix
-paths: file:uniml/SPRINT.md file:uniml/BACKLOG.md file:UNIML-RUST-BACKEND-SESSION.md file:uniml/build.sbt file:scripts/cut-release file:scripts/BUGS.md
+paths: file:uniml/SPRINT.md file:uniml/BACKLOG.md file:UNIML-RUST-BACKEND-SESSION.md file:uniml/build.sbt file:scripts/cut-release file:scripts/BUGS.md file:uniml/bench/src/main/scala/scalascript/uniml/bench/SpikeParserBench.scala file:v1/lang/core-bench/BUGS.md file:BUGS.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: fix the version drift + stale isolation count, teach cut-release about uniml
+next: fix the uniml bench subject path; file v1 ParserBench fallback
