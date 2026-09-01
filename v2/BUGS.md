@@ -125,11 +125,18 @@ collection element types it already knows.
 
 ## rust-backend-self-alias-closure-rejects-a-temp-borrow — `&Vec::new()` through a sibling alias is E0716
 
-<!-- status: open
+<!-- status: fixed
      lane: v2-rust
      area: codegen
      kind: bug
-     gate: none yet — repro is the downstream feature/treevm-top-edges core slice (scratch ds-merged.scala); a backend fixture should pin it -->
+     gate: v1/runtime/backend/rust/src/test/scala/scalascript/codegen/rust/RustGenSelfAliasBorrowTest.scala
+     fixed-in: 7b67d59f8 -->
+
+**FIXED 2026-09-01 in `7b67d59f8`.** The alias's parameters were UNANNOTATED, so a `&`-typed one
+got an early-bound lifetime tied to the alias binding; `selfMethod` now writes the declared type
+out at every `_refParamPos` position (`__a2: &Vec<VmFrame>`), which makes the lifetime late-bound —
+the alias accepts exactly what the method accepts. Minimal pair sa-temp/sa-direct: 1 error -> 0 /
+0 -> 0; the downstream `feature/treevm-top-edges` core slice (ds-merged.scala): 1 error -> **0**.
 
 The ONE error left on `feature/treevm-top-edges`'s core slice after the fold-typing campaign
 (`651378ef8`) took it from red-by-~86-classes. Their `TreeVm.pushFrame` helper is called from a

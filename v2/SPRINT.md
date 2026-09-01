@@ -13,6 +13,39 @@ lose the reasoning around them.
 Milestone view: [`ROADMAP.md`](ROADMAP.md). Pipeline: `ssc0 → ir → ssc(VM) → cpu`. Work each slice
 in its own worktree off `origin/main`.
 
+## [x] rust backend: `&`-temporary through a sibling self-alias is E0716 (claim `rust-backend-self-alias-closure-rejects-a-temp-borrow`)
+
+**BUGS:** `v2/BUGS.md` `rust-backend-self-alias-closure-rejects-a-temp-borrow` — the ONE residual
+error on `feature/treevm-top-edges`'s core slice after `651378ef8`. Their `pushFrame` is called
+from a fold lambda, so the call routes through the sibling self-alias
+(`let pushFrame = |__a0, __a1, __a2| self.pushFrame(__a0, __a1, __a2);`), and the third argument
+renders as `&Vec::new()` — a temporary the closure's inferred parameter lifetimes reject
+(`error[E0716]: temporary value dropped while borrowed`). A DIRECT `self.pushFrame(...)` call
+accepts the same temporary.
+
+**LANDED 2026-09-01 as `7b67d59f8`** — candidate (a)/(b) both lost to a third, smaller site: the
+ALIAS GENERATOR itself. `selfMethod` annotates the alias closure's `_refParamPos` parameters with
+their declared types, making the closure's reference lifetimes late-bound; no call-site rewrite at
+all. Minimal pair 1 -> 0 errors (control 0 -> 0), downstream treevm-top-edges core slice 1 -> 0,
+backendRust 507/507 (new `RustGenSelfAliasBorrowTest` pins the reporter's shape), v1-jit-size PASS
+(`selfMethod` is not frozen), smoke-ci exit 0 after a toolchain rebuild — the first smoke run
+honestly refused a tree edited after its build (stale launcher digest), which is the gate working.
+
+**Plan (as executed):**
+1. Minimal repro first (run-one harness): a class method with a `Vector[T]` param, called inside a
+   `foldLeft` lambda with a `Vector()` argument — must reproduce E0716 through the alias, and the
+   direct-call control must compile.
+2. Two candidate sites, decide on the code, prefer (a):
+   (a) at the CALL-ARGUMENT render site, when the callee is a sibling self-alias and an argument
+   renders as `&<non-path expr>`, hoist: emit a block `{ let __argN = <expr>; alias(.., &__argN, ..) }`;
+   (b) render CALL-position uses of a self method directly as `self.m(...)` and keep the alias only
+   for VALUE position (`bareMethodValueRef`) — read the code to see why calls go through the alias
+   at all before choosing.
+3. Regression golden test `RustGenSelfAliasBorrowTest` mirroring the reporter's shape (fold lambda +
+   alias + empty-vec argument), asserting the emitted Rust compiles.
+4. Gates: backendRust suite, `tests/e2e/v1-jit-size.sh`, rust e2e subset, `scripts/smoke-ci`;
+   re-measure the downstream `ds-merged.scala` slice → expect 0 errors.
+
 ## [x] the checker refuses a vararg call whose result type is known (claim `v2-vararg-call-arity`)
 
 **LANDED 2026-08-25 as `4386b4cc0`.** One file, `v2/lib/ssc1-check.ssc0`. Gate
