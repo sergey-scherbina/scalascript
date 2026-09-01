@@ -1,3 +1,68 @@
+## coord-claim-refuses-a-dir-scope-both-hooks-support — and its refusal message says the opposite of the truth
+
+<!-- status: open
+     lane: apparatus
+     area: build
+     kind: bug
+     gate: none yet — see the body, the fix and the gate are one edit
+     reported-by: claude-code
+     reported-at: 2026-09-01
+     confirmed: yes -->
+
+`scripts/coord-claim … --paths "dir:v3/tests/jvm-backend-probe"` is REFUSED:
+
+```
+refusing: these --paths entries are not scopes the guards understand:
+  dir:v3/tests/jvm-backend-probe
+
+The vocabulary is exactly:
+  file:<path>   exactly one file …
+  mod:<path>    a module subtree …
+  repo:         the whole repository …
+
+An unrecognised prefix is not a narrower claim, it is NO claim: the overlap guard
+compares it literally, nothing matches, and a second agent can take the same files.
+```
+
+**Every sentence of that last paragraph is true in general and false about `dir:`.** Both guards
+already know the prefix, and one of them was taught it for exactly this reason:
+
+* `.githooks/pre-commit:117-121` — *"`dir:` added 2026-08-30 for the same reason `file:` was added
+  on 2026-07-30, and found the same way — by the first claim to use it"* — and it strips the prefix
+  alongside `repo:`/`mod:`/`file:`.
+* `.githooks/pre-push:446-454` — `dir:*` ranks as `mod` for overlap purposes and is stripped by the
+  same line as the other three.
+
+So `dir:` is a scope the guards understand, `coord-claim` is the one component that does not, and
+its message tells the reader the reverse — that using it means having no claim at all. A message
+that misinforms about the mutex is worse than a refusal, because the reader acts on it.
+
+**HOW IT WAS FOUND, because the path matters more than the symptom.** `scripts/coord-update`
+accepts `dir:` silently — it has no scope validation of any kind (`grep -n 'dir:' scripts/coord-update`
+is empty). So a claim WIDENED to a `dir:` scope is accepted, works, and is honoured by both hooks;
+the same scope in the original `coord-claim` is refused. One session used both, minutes apart, and
+got opposite answers about the same string.
+
+**Three components, three vocabularies:**
+
+| | knows `dir:`? |
+|---|---|
+| `.githooks/pre-commit` | yes, since 2026-08-30 |
+| `.githooks/pre-push` | yes, ranked as `mod` |
+| `scripts/coord-claim` | **no — refuses** |
+| `scripts/coord-update` | validates nothing at all |
+
+**The fix and its gate are one edit.** Teach `coord-claim` the prefix, and assert the vocabularies
+agree rather than re-listing them in a fourth place: a check that the set of prefixes each component
+accepts is IDENTICAL. That is the shape this repo already uses for
+`freeze-consistency-gate.sh` — two copies of one fact are not allowed to disagree — and it is what
+stops the next prefix from being added to two of four components again.
+
+**Open question the fix must answer, not assume:** `pre-push` ranks `dir:` as `mod`, and `mod:`
+requires `--broad "<reason>"`. Whether a `dir:` claim should therefore demand `--broad` is a real
+decision — a two-file test directory is not a module edit lock — and it is why this is filed rather
+than patched in passing.
+
 ## bugs-report-no-gate-misses-a-none-with-a-trailing-comment — the gate gap was under-reported by a fifth
 
 <!-- status: fixed
