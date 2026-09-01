@@ -17,93 +17,83 @@ object PureMarkupCodec extends MarkupCodec:
   // ── Serializer ───────────────────────────────────────────────────────────
 
   def serialize(doc: Markup.Doc, opts: SerializeOpts = SerializeOpts.default): String =
-    val sb = StringBuilder()
-    if !opts.omitXmlDecl then
-      val decl = doc.decl.getOrElse(Markup.XmlDecl("1.0"))
-      sb.append(s"""<?xml version="${decl.version}"""")
-      decl.encoding.foreach(enc => sb.append(s""" encoding="$enc""""))
-      decl.standalone.foreach(s => sb.append(s""" standalone="${if s then "yes" else "no"}""""))
-      sb.append("?>")
-      if opts.pretty then sb.append('\n')
-    doc.docType.foreach { dt =>
-      sb.append(s"<!DOCTYPE ${dt.name}")
-      dt.publicId.foreach(p => sb.append(s""" PUBLIC "$p""""))
-      dt.systemId.foreach(s => sb.append(s""" "$s""""))
-      sb.append('>')
-      if opts.pretty then sb.append('\n')
+    val declParts: Vector[String] =
+      if opts.omitXmlDecl then Vector.empty
+      else
+        val decl = doc.decl.getOrElse(Markup.XmlDecl("1.0"))
+        Vector(s"""<?xml version="${decl.version}"""") ++
+          decl.encoding.map(enc => s""" encoding="$enc"""").toVector ++
+          decl.standalone.map(sa => s""" standalone="${if sa then "yes" else "no"}"""").toVector ++
+          Vector("?>") ++ (if opts.pretty then Vector("\n") else Vector.empty)
+    val docTypeParts: Vector[String] = doc.docType.toVector.flatMap { dt =>
+      Vector(s"<!DOCTYPE ${dt.name}") ++
+        dt.publicId.map(p => s""" PUBLIC "$p"""").toVector ++
+        dt.systemId.map(sy => s""" "$sy"""").toVector ++
+        Vector(">") ++ (if opts.pretty then Vector("\n") else Vector.empty)
     }
-    serializeNode(doc.root, sb, opts, depth = 0)
-    doc.trailing.foreach { n => serializeNode(n, sb, opts, depth = 0) }
-    sb.toString
+    (declParts ++ docTypeParts ++ serializeNode(doc.root, opts, depth = 0) ++
+      doc.trailing.toVector.flatMap(n => serializeNode(n, opts, depth = 0))).mkString
 
-  private def serializeNode(node: Markup.Node, sb: StringBuilder, opts: SerializeOpts, depth: Int): Unit =
+  private def serializeNode(node: Markup.Node, opts: SerializeOpts, depth: Int): Vector[String] =
     val pad = if opts.pretty then opts.indent * depth else ""
     node match
       case e: Markup.Element =>
-        if opts.pretty then sb.append(pad)
-        sb.append('<').append(e.name.toXml)
-        e.attrs.foreach { a =>
-          sb.append(' ').append(a.name.toXml)
-             .append('=').append('"').append(XmlEscape.escapeAttr(a.value)).append('"')
-        }
-        if e.children.isEmpty then
-          sb.append("/>")
-        else
-          sb.append('>')
-          val hasElementChild = e.children.exists(_.isInstanceOf[Markup.Element])
-          if opts.pretty && hasElementChild then sb.append('\n')
-          e.children.foreach(serializeNode(_, sb, opts, depth + 1))
-          if opts.pretty && hasElementChild then sb.append(pad)
-          sb.append("</").append(e.name.toXml).append('>')
-        if opts.pretty then sb.append('\n')
+        val head = (if opts.pretty then Vector(pad) else Vector.empty) ++
+          Vector("<", e.name.toXml) ++
+          e.attrs.toVector.flatMap(a => Vector(" ", a.name.toXml, "=", "\"", XmlEscape.escapeAttr(a.value), "\""))
+        val body =
+          if e.children.isEmpty then Vector("/>")
+          else
+            val hasElementChild = e.children.exists(_.isInstanceOf[Markup.Element])
+            Vector(">") ++
+              (if opts.pretty && hasElementChild then Vector("\n") else Vector.empty) ++
+              e.children.toVector.flatMap(serializeNode(_, opts, depth + 1)) ++
+              (if opts.pretty && hasElementChild then Vector(pad) else Vector.empty) ++
+              Vector("</", e.name.toXml, ">")
+        head ++ body ++ (if opts.pretty then Vector("\n") else Vector.empty)
 
       case Markup.Text(chars) =>
-        sb.append(XmlEscape.escapeText(chars))
+        Vector(XmlEscape.escapeText(chars))
 
       case Markup.CData(chars) =>
-        sb.append("<![CDATA[").append(chars).append("]]>")
+        Vector("<![CDATA[", chars, "]]>")
 
       case Markup.Comment(text) =>
-        if opts.pretty then sb.append(pad)
-        sb.append("<!--").append(text).append("-->")
-        if opts.pretty then sb.append('\n')
+        (if opts.pretty then Vector(pad) else Vector.empty) ++
+          Vector("<!--", text, "-->") ++
+          (if opts.pretty then Vector("\n") else Vector.empty)
 
       case Markup.PI(target, data) =>
-        if opts.pretty then sb.append(pad)
-        sb.append("<?").append(target)
-        if data.nonEmpty then sb.append(' ').append(data)
-        sb.append("?>")
-        if opts.pretty then sb.append('\n')
+        (if opts.pretty then Vector(pad) else Vector.empty) ++
+          Vector("<?", target) ++
+          (if data.nonEmpty then Vector(" ", data) else Vector.empty) ++
+          Vector("?>") ++
+          (if opts.pretty then Vector("\n") else Vector.empty)
 
       case Markup.Raw(chars) =>
-        sb.append(chars)
+        Vector(chars)
 
-      case _ => ()   // Doc / Attr / DocType / XmlDecl handled at top level
+      case _ => Vector.empty   // Doc / Attr / DocType / XmlDecl handled at top level
 
   // ── Inner parser ─────────────────────────────────────────────────────────
 
+  /** The parser's cursor: position plus the line/column its error messages cite. */
+  private final case class Cursor(pos: Int, line: Int, col: Int)
+
   private final class Parser(src: String):
-    private var pos    = 0
-    private var line   = 1
-    private var col    = 1
+    private def cur(c: Cursor): Char = if c.pos < src.length then src.charAt(c.pos) else 0.toChar
 
-    private def cur: Char = if pos < src.length then src.charAt(pos) else 0.toChar
+    private def advance(c: Cursor, n: Int = 1): Cursor =
+      if n <= 0 || c.pos >= src.length then c
+      else if src.charAt(c.pos) == '\n' then advance(Cursor(c.pos + 1, c.line + 1, 1), n - 1)
+      else advance(Cursor(c.pos + 1, c.line, c.col + 1), n - 1)
 
-    private def advance(n: Int = 1): Unit =
-      var i = 0
-      while i < n do
-        if pos < src.length then
-          if src.charAt(pos) == '\n' then { line += 1; col = 1 }
-          else col += 1
-          pos += 1
-        i += 1
+    private def err(c: Cursor, msg: String): Nothing =
+      throw ParseError(msg, c.line, c.col)
 
-    private def err(msg: String): Nothing =
-      throw ParseError(msg, line, col)
-
-    private def require(expected: String): Unit =
-      if !src.startsWith(expected, pos) then err(s"expected '$expected'")
-      advance(expected.length)
+    private def require(c: Cursor, expected: String): Cursor =
+      if !src.startsWith(expected, c.pos) then err(c, s"expected '$expected'")
+      advance(c, expected.length)
 
     // XML 1.0 §2.3: `S ::= (#x20 | #x9 | #xD | #xA)+`. FOUR characters, and the host's
     // `Char.isWhitespace` is not that set: it also admits vertical tab, form feed, the file/group/
@@ -113,84 +103,86 @@ object PureMarkupCodec extends MarkupCodec:
     private def isXmlSpace(c: Char): Boolean =
       c == ' ' || c == '\t' || c == '\r' || c == '\n'
 
-    private def skipWhitespace(): Unit =
-      while pos < src.length && isXmlSpace(src.charAt(pos)) do advance()
+    private def skipWhitespace(c: Cursor): Cursor =
+      if c.pos < src.length && isXmlSpace(src.charAt(c.pos)) then skipWhitespace(advance(c)) else c
 
     // Scan until we see `until` (exclusive) — returns the scanned text.
-    private def scanUntil(until: String): String =
-      val start = pos
-      while pos < src.length && !src.startsWith(until, pos) do advance()
-      if pos >= src.length then err(s"unexpected end of input (expected '$until')")
-      src.substring(start, pos)
+    private def scanUntil(c0: Cursor, until: String): (Cursor, String) =
+      def scan(c: Cursor): Cursor =
+        if c.pos < src.length && !src.startsWith(until, c.pos) then scan(advance(c)) else c
+      val stop = scan(c0)
+      if stop.pos >= src.length then err(stop, s"unexpected end of input (expected '$until')")
+      (stop, src.substring(c0.pos, stop.pos))
 
     def parseDoc(): Markup.Doc =
-      skipWhitespace()
+      val c0 = skipWhitespace(Cursor(0, 1, 1))
       // XML declaration
-      val decl = if src.startsWith("<?xml", pos) then
-        advance(2)  // <?
-        val target = readName()
-        if target != "xml" then err("expected <?xml")
-        skipWhitespace()
-        val attrs = readPseudoAttrs()
-        skipWhitespace()
-        require("?>")
-        skipWhitespace()
-        Some(buildXmlDecl(attrs))
-      else None
+      val (c1, decl) =
+        if src.startsWith("<?xml", c0.pos) then
+          val (cT, target) = readName(advance(c0, 2)) // <?
+          if target != "xml" then err(cT, "expected <?xml")
+          val (cA, attrs) = readPseudoAttrs(skipWhitespace(cT))
+          val cEnd = skipWhitespace(require(skipWhitespace(cA), "?>"))
+          (cEnd, Some(buildXmlDecl(attrs)))
+        else (c0, None)
 
       // DOCTYPE
-      val docType = if src.startsWith("<!DOCTYPE", pos) then
-        advance(9)
-        skipWhitespace()
-        val name = readName()
-        skipWhitespace()
-        var publicId: Option[String] = None
-        var systemId: Option[String] = None
-        if src.startsWith("PUBLIC", pos) then
-          advance(6); skipWhitespace()
-          publicId = Some(readQuotedValue())
-          skipWhitespace()
-          systemId = Some(readQuotedValue())
-        else if src.startsWith("SYSTEM", pos) then
-          advance(6); skipWhitespace()
-          systemId = Some(readQuotedValue())
-        skipWhitespace()
-        // skip internal subset
-        if cur == '[' then
-          advance()
-          var depth = 1
-          while pos < src.length && depth > 0 do
-            if cur == '[' then depth += 1
-            else if cur == ']' then depth -= 1
-            advance()
-        skipWhitespace()
-        require(">")
-        skipWhitespace()
-        Some(Markup.DocType(name, publicId, systemId))
-      else None
+      val (c2, docType) =
+        if src.startsWith("<!DOCTYPE", c1.pos) then
+          val (cN, name) = readName(skipWhitespace(advance(c1, 9)))
+          val cAfterName = skipWhitespace(cN)
+          val (cIds, publicId, systemId) =
+            if src.startsWith("PUBLIC", cAfterName.pos) then
+              val (cP, pub) = readQuotedValue(skipWhitespace(advance(cAfterName, 6)))
+              val (cS, sys) = readQuotedValue(skipWhitespace(cP))
+              (cS, Some(pub), Some(sys))
+            else if src.startsWith("SYSTEM", cAfterName.pos) then
+              val (cS, sys) = readQuotedValue(skipWhitespace(advance(cAfterName, 6)))
+              (cS, None, Some(sys))
+            else (cAfterName, None, None)
+          val cSubsetStart = skipWhitespace(cIds)
+          // skip internal subset
+          def subset(c: Cursor, depth: Int): Cursor =
+            if c.pos >= src.length || depth == 0 then c
+            else if cur(c) == '[' then subset(advance(c), depth + 1)
+            else if cur(c) == ']' then subset(advance(c), depth - 1)
+            else subset(advance(c), depth)
+          val cSubset =
+            if cur(cSubsetStart) == '[' then subset(advance(cSubsetStart), 1)
+            else cSubsetStart
+          val cEnd = skipWhitespace(require(skipWhitespace(cSubset), ">"))
+          (cEnd, Some(Markup.DocType(name, publicId, systemId)))
+        else (c1, None)
 
       // skip comments and PIs before root element
-      val preRoot = scala.collection.mutable.ListBuffer.empty[Markup.Node]
-      var done = false
-      while !done do
-        skipWhitespace()
-        if src.startsWith("<!--", pos) then preRoot += readComment()
-        else if src.startsWith("<?", pos) then preRoot += readPI()
-        else done = true
+      def preRoot(c: Cursor, acc: Vector[Markup.Node]): (Cursor, Vector[Markup.Node]) =
+        val cW = skipWhitespace(c)
+        if src.startsWith("<!--", cW.pos) then
+          val (cC, comment) = readComment(cW)
+          preRoot(cC, acc :+ comment)
+        else if src.startsWith("<?", cW.pos) then
+          val (cP, pi) = readPI(cW)
+          preRoot(cP, acc :+ pi)
+        else (cW, acc)
+      val (c3, _) = preRoot(c2, Vector.empty)
 
-      if cur != '<' then err("expected root element")
-      val root = readElement()
+      if cur(c3) != '<' then err(c3, "expected root element")
+      val (c4, root) = readElement(c3)
 
       // trailing PIs/comments
-      val trailing = scala.collection.mutable.ListBuffer.empty[Markup.Node]
-      skipWhitespace()
-      while pos < src.length do
-        if src.startsWith("<!--", pos) then trailing += readComment()
-        else if src.startsWith("<?", pos) then trailing += readPI()
-        else if isXmlSpace(src.charAt(pos)) then skipWhitespace()
-        else err(s"unexpected content after root element at position $pos")
+      def trailing(c: Cursor, acc: Vector[Markup.Node]): Vector[Markup.Node] =
+        if c.pos >= src.length then acc
+        else if src.startsWith("<!--", c.pos) then
+          val (cC, comment) = readComment(c)
+          trailing(cC, acc :+ comment)
+        else if src.startsWith("<?", c.pos) then
+          val (cP, pi) = readPI(c)
+          trailing(cP, acc :+ pi)
+        else if isXmlSpace(src.charAt(c.pos)) then trailing(skipWhitespace(c), acc)
+        else err(c, s"unexpected content after root element at position ${c.pos}")
+      val trail = trailing(skipWhitespace(c4), Vector.empty)
 
-      Markup.Doc(decl, docType, root, trailing.toList)
+      Markup.Doc(decl, docType, root, trail.toList)
 
     private def buildXmlDecl(attrs: Map[String, String]): Markup.XmlDecl =
       Markup.XmlDecl(
@@ -199,142 +191,134 @@ object PureMarkupCodec extends MarkupCodec:
         standalone = attrs.get("standalone").map(_ == "yes"),
       )
 
-    private def readPseudoAttrs(): Map[String, String] =
-      val m = scala.collection.mutable.LinkedHashMap.empty[String, String]
-      while cur != '?' do
-        skipWhitespace()
-        if cur == '?' then ()
+    private def readPseudoAttrs(c0: Cursor): (Cursor, Map[String, String]) =
+      def loop(c: Cursor, acc: Map[String, String]): (Cursor, Map[String, String]) =
+        if cur(c) == '?' then (c, acc)
         else
-          val name = readName()
-          skipWhitespace()
-          require("=")
-          skipWhitespace()
-          val value = readQuotedValue()
-          m(name) = value
-      m.toMap
+          val cW = skipWhitespace(c)
+          if cur(cW) == '?' then loop(cW, acc)
+          else
+            val (cN, name) = readName(cW)
+            val cEq = skipWhitespace(require(skipWhitespace(cN), "="))
+            val (cV, value) = readQuotedValue(cEq)
+            loop(cV, acc.updated(name, value))
+      loop(c0, Map.empty)
 
-    private def readElement(): Markup.Element =
-      require("<")
-      val name = readQName()
-      val attrs = readAttrs()
-      skipWhitespace()
-      if cur == '/' then
-        advance(); require(">")
-        Markup.Element(name, attrs)
+    private def readElement(c0: Cursor): (Cursor, Markup.Element) =
+      val (cN, name) = readQName(require(c0, "<"))
+      val (cA, attrs) = readAttrs(cN)
+      val cW = skipWhitespace(cA)
+      if cur(cW) == '/' then
+        (require(advance(cW), ">"), Markup.Element(name, attrs))
       else
-        require(">")
-        val children = readContent(name)
-        Markup.Element(name, attrs, children)
+        val (cC, children) = readContent(require(cW, ">"), name)
+        (cC, Markup.Element(name, attrs, children))
 
-    private def readAttrs(): List[Markup.Attr] =
-      val buf = scala.collection.mutable.ListBuffer.empty[Markup.Attr]
-      skipWhitespace()
-      while cur != '>' && cur != '/' do
-        val name = readQName()
-        skipWhitespace()
-        require("=")
-        skipWhitespace()
-        val value = XmlEscape.unescape(readQuotedValue())
-        buf += Markup.Attr(name, value)
-        skipWhitespace()
-      buf.toList
+    private def readAttrs(c0: Cursor): (Cursor, List[Markup.Attr]) =
+      def loop(c: Cursor, acc: Vector[Markup.Attr]): (Cursor, Vector[Markup.Attr]) =
+        if cur(c) != '>' && cur(c) != '/' then
+          val (cN, name) = readQName(c)
+          val cEq = skipWhitespace(require(skipWhitespace(cN), "="))
+          val (cV, raw) = readQuotedValue(cEq)
+          loop(skipWhitespace(cV), acc :+ Markup.Attr(name, XmlEscape.unescape(raw)))
+        else (c, acc)
+      val (cEnd, attrs) = loop(skipWhitespace(c0), Vector.empty)
+      (cEnd, attrs.toList)
 
-    private def readContent(parentName: Markup.QName): List[Markup.Node] =
-      val buf = scala.collection.mutable.ListBuffer.empty[Markup.Node]
-      while pos < src.length do
-        if src.startsWith("</", pos) then
-          advance(2)
-          val closeName = readQName()
+    private def readContent(c0: Cursor, parentName: Markup.QName): (Cursor, List[Markup.Node]) =
+      def loop(c: Cursor, acc: Vector[Markup.Node]): (Cursor, Vector[Markup.Node]) =
+        if c.pos >= src.length then
+          err(c, s"unexpected end of input inside element <${parentName.toXml}>")
+        else if src.startsWith("</", c.pos) then
+          val (cN, closeName) = readQName(advance(c, 2))
           if closeName.localName != parentName.localName then
-            err(s"mismatched closing tag: expected </${parentName.toXml}>, got </${closeName.toXml}>")
-          skipWhitespace()
-          require(">")
-          return buf.toList
-        else if src.startsWith("<!--", pos) then
-          buf += readComment()
-        else if src.startsWith("<![CDATA[", pos) then
-          buf += readCData()
-        else if src.startsWith("<?", pos) then
-          buf += readPI()
-        else if cur == '<' then
-          buf += readElement()
+            err(cN, s"mismatched closing tag: expected </${parentName.toXml}>, got </${closeName.toXml}>")
+          (require(skipWhitespace(cN), ">"), acc)
+        else if src.startsWith("<!--", c.pos) then
+          val (cC, comment) = readComment(c)
+          loop(cC, acc :+ comment)
+        else if src.startsWith("<![CDATA[", c.pos) then
+          val (cC, cdata) = readCData(c)
+          loop(cC, acc :+ cdata)
+        else if src.startsWith("<?", c.pos) then
+          val (cP, pi) = readPI(c)
+          loop(cP, acc :+ pi)
+        else if cur(c) == '<' then
+          val (cE, element) = readElement(c)
+          loop(cE, acc :+ element)
         else
-          buf += readText()
-      err(s"unexpected end of input inside element <${parentName.toXml}>")
+          val (cT, text) = readText(c)
+          loop(cT, acc :+ text)
+      val (cEnd, nodes) = loop(c0, Vector.empty)
+      (cEnd, nodes.toList)
 
-    private def readText(): Markup.Text =
-      val sb = StringBuilder()
-      while pos < src.length && cur != '<' do
-        if cur == '&' then sb.append(readEntity())
-        else { sb.append(cur); advance() }
-      Markup.Text(sb.toString)
+    private def readText(c0: Cursor): (Cursor, Markup.Text) =
+      def loop(c: Cursor, pieces: Vector[String]): (Cursor, Vector[String]) =
+        if c.pos >= src.length || cur(c) == '<' then (c, pieces)
+        else if cur(c) == '&' then
+          val (cE, entity) = readEntity(c)
+          loop(cE, pieces :+ entity)
+        else loop(advance(c), pieces :+ src.substring(c.pos, c.pos + 1))
+      val (cEnd, pieces) = loop(c0, Vector.empty)
+      (cEnd, Markup.Text(pieces.mkString))
 
-    private def readEntity(): String =
-      advance()  // skip &
-      if cur == '#' then
-        advance()
-        val hex = cur == 'x'
-        if hex then advance()
-        val numStr = scanUntil(";")
-        advance()  // skip ;
+    private def readEntity(c0: Cursor): (Cursor, String) =
+      val c1 = advance(c0)  // skip &
+      if cur(c1) == '#' then
+        val c2 = advance(c1)
+        val hex = cur(c2) == 'x'
+        val c3 = if hex then advance(c2) else c2
+        val (cN, numStr) = scanUntil(c3, ";")
         val code = if hex then Integer.parseInt(numStr, 16) else numStr.toInt
-        String.valueOf(code.toChar)
+        (advance(cN), String.valueOf(code.toChar))  // skip ;
       else
-        val name = scanUntil(";")
-        advance()  // skip ;
-        name match
+        val (cN, name) = scanUntil(c1, ";")
+        val decoded = name match
           case "amp"  => "&"
           case "lt"   => "<"
           case "gt"   => ">"
           case "quot" => "\""
           case "apos" => "'"
           case other  => s"&$other;"   // pass through unknown named entities
+        (advance(cN), decoded)  // skip ;
 
-    private def readComment(): Markup.Comment =
-      require("<!--")
-      val text = scanUntil("-->")
-      advance(3)  // -->
-      Markup.Comment(text)
+    private def readComment(c0: Cursor): (Cursor, Markup.Comment) =
+      val (cT, text) = scanUntil(require(c0, "<!--"), "-->")
+      (advance(cT, 3), Markup.Comment(text))  // -->
 
-    private def readCData(): Markup.CData =
-      require("<![CDATA[")
-      val text = scanUntil("]]>")
-      advance(3)  // ]]>
-      Markup.CData(text)
+    private def readCData(c0: Cursor): (Cursor, Markup.CData) =
+      val (cT, text) = scanUntil(require(c0, "<![CDATA["), "]]>")
+      (advance(cT, 3), Markup.CData(text))  // ]]>
 
-    private def readPI(): Markup.PI =
-      require("<?")
-      val target = readName()
-      skipWhitespace()
-      val data = scanUntil("?>")
-      advance(2)  // ?>
-      Markup.PI(target, data.trim)
+    private def readPI(c0: Cursor): (Cursor, Markup.PI) =
+      val (cN, target) = readName(require(c0, "<?"))
+      val (cD, data) = scanUntil(skipWhitespace(cN), "?>")
+      (advance(cD, 2), Markup.PI(target, data.trim))  // ?>
 
-    private def readQName(): Markup.QName =
-      val first = readName()
-      if cur == ':' then
-        advance()
-        val local = readName()
-        Markup.QName(Some(first), local, None)
+    private def readQName(c0: Cursor): (Cursor, Markup.QName) =
+      val (cF, first) = readName(c0)
+      if cur(cF) == ':' then
+        val (cL, local) = readName(advance(cF))
+        (cL, Markup.QName(Some(first), local, None))
       else
-        Markup.QName(None, first, None)
+        (cF, Markup.QName(None, first, None))
 
-    private def readName(): String =
-      if pos >= src.length || !isNameStart(cur) then err(s"expected XML name, got '${cur}'")
-      val start = pos
-      while pos < src.length && isNameChar(cur) do advance()
-      src.substring(start, pos)
+    private def readName(c0: Cursor): (Cursor, String) =
+      if c0.pos >= src.length || !isNameStart(cur(c0)) then err(c0, s"expected XML name, got '${cur(c0)}'")
+      def nameEnd(c: Cursor): Cursor =
+        if c.pos < src.length && isNameChar(cur(c)) then nameEnd(advance(c)) else c
+      val stop = nameEnd(c0)
+      (stop, src.substring(c0.pos, stop.pos))
 
-    private def readQuotedValue(): String =
-      val quote = cur
-      if quote != '"' && quote != '\'' then err(s"expected quote, got '$quote'")
-      advance()
-      val start = pos
-      while pos < src.length && cur != quote do advance()
-      if pos >= src.length then err("unterminated quoted value")
-      val v = src.substring(start, pos)
-      advance()  // closing quote
-      v
+    private def readQuotedValue(c0: Cursor): (Cursor, String) =
+      val quote = cur(c0)
+      if quote != '"' && quote != '\'' then err(c0, s"expected quote, got '$quote'")
+      val start = advance(c0)
+      def valueEnd(c: Cursor): Cursor =
+        if c.pos < src.length && cur(c) != quote then valueEnd(advance(c)) else c
+      val stop = valueEnd(start)
+      if stop.pos >= src.length then err(stop, "unterminated quoted value")
+      (advance(stop), src.substring(start.pos, stop.pos))  // closing quote
 
     // ── the XML 1.0 alphabet, spelled from the grammar rather than borrowed ──────────────
     //

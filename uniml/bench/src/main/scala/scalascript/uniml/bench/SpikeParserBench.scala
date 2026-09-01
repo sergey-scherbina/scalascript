@@ -92,8 +92,7 @@ object Describe:
   */
 object Retained:
   private def settle(): Long =
-    var i = 0
-    while i < 6 do { System.gc(); Thread.sleep(150); i += 1 }
+    (0 until 6).foreach { _ => System.gc(); Thread.sleep(150) }
     val rt = Runtime.getRuntime
     rt.totalMemory - rt.freeMemory
 
@@ -113,10 +112,9 @@ object Retained:
     // overhead — classloading, JIT structures, the parser's own tables — cancelled out. A single
     // reading cannot separate those from the tree, which is why the naive version of this probe
     // spread 11.8x to 47.7x across five rounds and could not be reported.
-    var round = 0
-    while round < 5 do
+    (0 until 5).foreach { round =>
       val one = holdK(src, 1)
       val ten = holdK(src, 10)
       val perTree = (ten - one) / 9.0
       println(f"round $round%d  1-tree ${one / 1024.0}%8.1f KiB   10-tree ${ten / 1024.0}%9.1f KiB   per-tree ${perTree / 1024.0}%7.1f KiB = ${perTree / src.length}%5.2f x source")
-      round += 1
+    }

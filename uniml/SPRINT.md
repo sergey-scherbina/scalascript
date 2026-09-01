@@ -71,6 +71,24 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
       only the KNOWN-RED gap-anon (baseline-identical); verify-uniml-dual-build OK (JS 218 green,
       isolation held).
 
+- [x] uniml-demut-tail — **xml, markup and the bench harness are var-free: 44 → 0 (plus every
+      mutable collection in them).** XmlDialect: validateNamespaces' ArrayBuffer stack + two
+      HashSets → a recursive walk with Vector-based dedup (the file's own no-Set-on-v2 rule);
+      XmlScanner's nine-var scan → an `XmlScanState` record threaded through per-construct
+      scanners (NamedScan for scanName's pair); the var classifiers (validXmlName,
+      numericReferenceValue with its -1 sentinel, validAttributeReferences, the declaration
+      matcher chain) → recursions/val-chains. PureMarkupCodec: the mutable-pos Parser → an
+      immutable `Cursor(pos, line, col)` threaded through every read function (ParseError throws
+      unchanged); ListBuffers/LinkedHashMap → Vector/Map folds; the serializer's StringBuilder →
+      piece vectors. XmlEscape's three loops → iterator maps. SpikeParserBench's Retained loops →
+      ranges. HOLDOUTS left, each named where it lives: `MarkupCodec._default` (a registry var
+      v1's writers set — parked with the v1-removal decision), JsonLexer.validNumber (the
+      documented RFC-clause-mirror exemplar). Gates: full uniml `sbt test` exit 0 (17 groups,
+      rerun alone after the recurring launcher OOM — and the first dual-build attempt was
+      TRUNCATED by an `| tail` masking its exit code, the exact a-truncated-run-reads-like-a-
+      regression trap: rerun with the script's own exit code, DUAL-EXIT 0, 42 green suites);
+      lint-portable-subset OK.
+
 - [x] uniml-demut-rust — **the rust module is var-free: 51 → 0.** The lexer's while-spelled
       end-finders (plainStringEnd/charLiteralEnd/rawStringHashes/rawStringEnd/blockCommentEnd)
       became recursions; lexWindow's per-token scan is a `TokenAt(kind, end)` classification +

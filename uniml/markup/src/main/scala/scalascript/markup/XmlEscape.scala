@@ -9,42 +9,30 @@ package scalascript.markup
 object XmlEscape:
 
   def escape(s: String): String =
-    val sb = StringBuilder(s.length + 8)
-    var i = 0
-    while i < s.length do
-      s.charAt(i) match
-        case '&'  => sb.append("&amp;")
-        case '<'  => sb.append("&lt;")
-        case '>'  => sb.append("&gt;")
-        case '"'  => sb.append("&quot;")
-        case '\'' => sb.append("&apos;")
-        case c    => sb.append(c)
-      i += 1
-    sb.toString
+    s.iterator.map {
+      case '&'  => "&amp;"
+      case '<'  => "&lt;"
+      case '>'  => "&gt;"
+      case '"'  => "&quot;"
+      case '\'' => "&apos;"
+      case c    => c.toString
+    }.mkString
 
   def escapeText(s: String): String =
-    val sb = StringBuilder(s.length + 8)
-    var i = 0
-    while i < s.length do
-      s.charAt(i) match
-        case '&' => sb.append("&amp;")
-        case '<' => sb.append("&lt;")
-        case '>' => sb.append("&gt;")
-        case c   => sb.append(c)
-      i += 1
-    sb.toString
+    s.iterator.map {
+      case '&' => "&amp;"
+      case '<' => "&lt;"
+      case '>' => "&gt;"
+      case c   => c.toString
+    }.mkString
 
   def escapeAttr(s: String): String =
-    val sb = StringBuilder(s.length + 8)
-    var i = 0
-    while i < s.length do
-      s.charAt(i) match
-        case '&'  => sb.append("&amp;")
-        case '<'  => sb.append("&lt;")
-        case '"'  => sb.append("&quot;")
-        case c    => sb.append(c)
-      i += 1
-    sb.toString
+    s.iterator.map {
+      case '&'  => "&amp;"
+      case '<'  => "&lt;"
+      case '"'  => "&quot;"
+      case c    => c.toString
+    }.mkString
 
   def unescape(s: String): String =
     s.replace("&amp;", "&")
