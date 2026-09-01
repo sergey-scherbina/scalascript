@@ -485,6 +485,43 @@ object SpikeParse:
     case other if other.nonEmpty            => firstCharPrec(other.charAt(0))
     case _                                  => 0
 
+  /** Words that can follow an expression on the SAME LINE and are not infix operators.
+    *
+    * THE LEXER HAS ELEVEN KEYWORDS (`keywords`, ScalaSpike.scala:31) and Scala has about forty, so
+    * everything else — `yield`, `catch`, `var`, `object`, `with` — arrives here as an ordinary
+    * `spike.id` and is dispatched by VALUE further up. That is fine while `to`/`until` are the only
+    * id-infix words; it stops being fine the moment ANY identifier can be one, because `try f()
+    * catch …` and `for x <- xs yield e` would parse as the applications `f().catch(…)` and
+    * `xs.yield(e)`. So this list is load-bearing, not belt-and-braces.
+    *
+    * It holds three groups: the words the parser itself dispatches on by value (grep
+    * `peekLexeme ==` / `isWord`), the declaration starters and modifiers that may legally begin a
+    * statement, and `_`, which is a placeholder rather than a name. `to`/`until` are NOT here — the
+    * arm above this one still claims them, so their behaviour is unchanged. */
+  private val notInfixWord = Set(
+    // structural words the parser reads by value — each of these can sit on the same line as the
+    // end of an expression in legal source
+    "yield", "catch", "finally", "do", "while", "for", "try", "new", "throw", "return", "end",
+    "with", "extends", "derives", "forSome",
+    // declaration starters and modifiers
+    "var", "type", "object", "trait", "effect", "package", "import", "export",
+    "implicit", "using", "override", "sealed", "abstract", "final", "private", "protected",
+    "lazy", "inline", "open", "opaque", "transparent", "infix", "erased",
+    // not a name
+    "_",
+  )
+
+  /** Can this token kind BEGIN the right operand of an id-infix application?
+    *
+    * Deliberately narrower than `parseAtom` accepts. A symbolic operator is excluded so `a b - c`
+    * cannot be read as `a.b(-c)`, and a keyword is excluded so `x foo if …` cannot start one. Both
+    * are still reachable with a parenthesis, which is what Scala itself asks for in the ambiguous
+    * cases. */
+  private def startsIdInfixOperand(kind: String): Boolean = kind match
+    case "spike.int" | "spike.float" | "spike.str" | "spike.id" | "spike.uid" |
+         "spike.lparen" | "spike.lbracket" | "spike.lbrace" | "spike.qname" => true
+    case _ => false
+
   /** Scala's precedence-by-first-character, for operators no table entry names. The numbers match
     * the table above so a user operator sits where its spelling says it should. */
   private def firstCharPrec(c: Char): Int = c match
@@ -582,6 +619,9 @@ object SpikeParse:
     def peek2Kind: String = // the second significant (non-trivia) token's kind
       val q = sig(sig(p) + 1)
       if q < toks.length then toks(q).kind else "spike.eof"
+    def peek2Line: Int = // the second significant token's starting line (-1 at eof)
+      val q = sig(sig(p) + 1)
+      if q < toks.length then toks(q).span.start.line else -1
     /** Is the `:` under the cursor Scala 3's fewer-braces argument, rather than a type ascription?
       *
       * `:` is the most overloaded token in the language — ascription, a pattern's type, a parameter
@@ -1650,6 +1690,31 @@ object SpikeParse:
       val p = c.peekPrec
       // `to`/`until` are id-infix range words that bind loosest (only at the outer level)
       val isRange = minPrec <= 1 && c.peekKind == "spike.id" && (c.peekLexeme == "to" || c.peekLexeme == "until")
+      // ANY other identifier is an infix application too — `b add 2` is `b.add(2)`, Scala's rule.
+      //
+      // `to`/`until` used to be the only two, an exact mirror of ssc1-front's parseInfix
+      // (v2/lib/ssc1-front.ssc0:1901-1909), which also stops there. v3's own front lowers the
+      // general form since 92e90e34e, so this front refusing it was a split between two fronts of
+      // ONE compiler — v3/BUGS.md `infix-application-does-not-reach-a-declared-class-method`.
+      //
+      // IT BUILDS THE SAME NODE `to`/`until` build. `spike.rangeop` is not a range: it lowers to
+      // `mkApp(mkSel(lhs, word), [rhs])` here and to `RangeOp` -> `Expr.Bin(op, …)` in the typed
+      // projection, which is exactly `lhs.word(rhs)` — the shape an id-infix application means. The
+      // kind keeps its old spelling because renaming it would move byte-exact CST pins for nothing.
+      //
+      // THE GUARDS, each because legal source would otherwise change meaning:
+      //   - `spike.id`, so a `spike.uid` stays a constructor reference rather than an operator;
+      //   - not a reserved word (`notInfixWord`), since only 11 words are lexer keywords here;
+      //   - the operator on the SAME LINE as the end of the left operand, or the two statements
+      //     `a` NEWLINE `b` fuse into one application;
+      //   - the right operand on that same line and able to start an atom (`startsIdInfixOperand`).
+      // Every one of them can only WITHHOLD the new arm, so a program the old loop handled takes
+      // the old route unchanged; the arm is reachable only where the loop used to stop and the
+      // caller then failed to parse.
+      val isIdInfix = minPrec <= 1 && !isRange && c.peekKind == "spike.id" &&
+        !notInfixWord(c.peekLexeme) &&
+        c.peekLine == c.prevEndLine &&
+        c.peek2Line == c.peekLine && startsIdInfixOperand(c.peek2Kind)
       if p >= minPrec && p > 0 then
         val opStep = c.advance // spike.op
         val op = opStep.v.get
@@ -1662,7 +1727,7 @@ object SpikeParse:
           case None =>
             loop(right.c.report("spike.missing-operand", s"missing right operand after '${op.lexeme}'"),
               Node.Frame("spike.infix", None, Vector(left.withRole("bin.left"), Node.Leaf(op, Some("bin.op")))))
-      else if isRange then
+      else if isRange || isIdInfix then
         val word = c.advance
         val rhs = parsePostfix(word.c)
         val rhsNode = rhs.v.getOrElse(Node.Frame("spike.error", None, Vector.empty))
