@@ -75,42 +75,16 @@ final case class TreeVm(limits: Limits = Limits.default) extends Processor[VmSta
     if state.finished then Stepped(state, ProcessBatch(Vector.empty, Vector(TreeVm.finishedDiagnostic)))
     else if state.halted then Stepped(state, ProcessBatch.empty)
     else
-      // NOTE: step's `record` HALTS the VM when the diagnostic limit trips; stop's twin does not.
-      def record(w: VmWork, d: Diagnostic): VmWork =
-        if w.diagCount < limits.maxDiagnostics then
-          w.copy(diagCount = w.diagCount + 1, diags = w.diags :+ d)
-        else if !w.diagLimitReported then
-          w.copy(diagLimitReported = true, halted = true, diags = w.diags :+ Diagnostic(
-            code = "uniml.limit.diagnostics",
-            message = s"diagnostic count exceeds the ${limits.maxDiagnostics} limit",
-            severity = Severity.Fatal,
-            span = d.span,
-          ))
-        else w
-
-      def addTop(w: VmWork, edge: UniEdge): VmWork =
-        val top = w.stack.last
-        w.copy(stack = w.stack.dropRight(1) :+ VmFrame(top.kind, top.role, top.edges :+ edge, top.openingSpan))
-
-      def attach(w: VmWork, branch: UniNode.Branch, role: Option[String]): VmWork =
-        if w.stack.nonEmpty then addTop(w, UniEdge(role, branch)) else w.copy(roots = w.roots :+ branch)
-
-      def attachToken(w: VmWork, role: Option[String], tokenNode: UniNode): VmWork =
-        if w.stack.nonEmpty then addTop(w, UniEdge(role, tokenNode)) else w.copy(roots = w.roots :+ tokenNode)
-
-      def closeFrame(w: VmWork): VmWork =
-        val frame = w.stack.last
-        attach(w.copy(stack = w.stack.dropRight(1)), TreeVm.buildBranch(frame, Origin.SourceBacked), frame.role)
-
       val w0 = VmWork(state.stack, state.nodeCount, state.lastTokenId, state.diagnosticCount,
         state.diagnosticLimitReported, state.halted, Vector.empty, Vector.empty)
 
       val done = preflight(state.stack, state.nodeCount, input) match
         case Some(diagnostic) =>
           val h = if diagnostic.severity == Severity.Fatal then w0.copy(halted = true) else w0
-          record(h, diagnostic)
+          recordWork(h, diagnostic, haltOnLimit = true)
         case None =>
-          val validated = TreeVm.validateToken(state.lastTokenId, input.token).foldLeft(w0)(record)
+          val validated = TreeVm.validateToken(state.lastTokenId, input.token)
+            .foldLeft(w0)((w, d) => recordWork(w, d, haltOnLimit = true))
           val w1 = validated.copy(lastTokenId = Some(input.token.id))
           input.instruction match
             case VmInstruction.Open(kind, role) =>
@@ -124,7 +98,7 @@ final case class TreeVm(limits: Limits = Limits.default) extends Processor[VmSta
             case instruction @ VmInstruction.Reframe(closeBefore, open, closeAfter, role) =>
               reframeProblem(w1.stack, instruction) match
                 case Some(problem) =>
-                  val recorded = record(w1.copy(nodeCount = w1.nodeCount + 1L), problem.copy(span = Some(input.token.span)))
+                  val recorded = recordWork(w1.copy(nodeCount = w1.nodeCount + 1L), problem.copy(span = Some(input.token.span)), haltOnLimit = true)
                   attachToken(recorded, role, UniNode.Token(input.token))
                 case None =>
                   val counted = w1.copy(nodeCount = w1.nodeCount + 1L + open.size)
@@ -135,33 +109,37 @@ final case class TreeVm(limits: Limits = Limits.default) extends Processor[VmSta
                   closeAfter.foldLeft(emitted)((w, _) => closeFrame(w))
 
             case VmInstruction.Report(code, message, severity) =>
-              val recorded = record(w1.copy(nodeCount = w1.nodeCount + 1L),
-                Diagnostic(code, message, severity, Some(input.token.span)))
+              val recorded = recordWork(w1.copy(nodeCount = w1.nodeCount + 1L),
+                Diagnostic(code, message, severity, Some(input.token.span)), haltOnLimit = true)
               val h = if severity == Severity.Fatal then recorded.copy(halted = true) else recorded
               attachToken(h, None, UniNode.Token(input.token))
 
             case VmInstruction.Close(expectedKind, role) =>
               val counted = w1.copy(nodeCount = w1.nodeCount + 1L)
               val tokenNode = UniNode.Token(input.token)
-              if counted.stack.isEmpty then
-                record(counted, Diagnostic(
+              // the field bound into a collection-typed local before the member call — the Rust
+              // backend resolves `.isEmpty` on a param or a collection local, but not through a
+              // record-typed LOCAL's field (BUGS: rust-backend-member-read-through-local-val)
+              val countedStack: Vector[VmFrame] = counted.stack
+              if countedStack.isEmpty then
+                recordWork(counted, Diagnostic(
                   code = "uniml.vm.orphan-close",
                   message = "close instruction has no open node",
                   severity = Severity.Error,
                   span = Some(input.token.span),
-                )).copy(roots = counted.roots :+ tokenNode)
+                ), haltOnLimit = true).copy(roots = counted.roots :+ tokenNode)
               else
                 val frame = counted.stack.last
                 val extended = addTop(counted, UniEdge(role, tokenNode))
                 expectedKind match
                   case Some(expected) if expected != frame.kind =>
-                    record(extended, Diagnostic(
+                    recordWork(extended, Diagnostic(
                       code = "uniml.vm.mismatched-close",
                       message = s"expected to close '$expected' but current node is '${frame.kind}'",
                       severity = Severity.Error,
                       span = Some(input.token.span),
                       details = Vector("expected" -> expected, "actual" -> frame.kind),
-                    ))
+                    ), haltOnLimit = true)
                   case _ =>
                     // pop the frame we just extended
                     val closed = extended.stack.last
@@ -177,37 +155,62 @@ final case class TreeVm(limits: Limits = Limits.default) extends Processor[VmSta
   def stop(state: VmState): ProcessBatch[UniNode] =
     if state.finished then ProcessBatch(Vector.empty, Vector(TreeVm.finishedDiagnostic))
     else
-      // like step's `record`, but the diagnostic limit does not halt (there is nothing left to halt)
-      def record(w: VmWork, d: Diagnostic): VmWork =
-        if w.diagCount < limits.maxDiagnostics then
-          w.copy(diagCount = w.diagCount + 1, diags = w.diags :+ d)
-        else if !w.diagLimitReported then
-          w.copy(diagLimitReported = true, diags = w.diags :+ Diagnostic(
-            code = "uniml.limit.diagnostics",
-            message = s"diagnostic count exceeds the ${limits.maxDiagnostics} limit",
-            severity = Severity.Fatal,
-            span = d.span,
-          ))
-        else w
-      def drain(w: VmWork): VmWork =
-        if w.stack.isEmpty then w
-        else
-          val frame = w.stack.last
-          val recorded = record(w.copy(stack = w.stack.dropRight(1)), Diagnostic(
-            code = "uniml.vm.unclosed-node",
-            message = s"unclosed '${frame.kind}' node at end of input",
-            severity = Severity.Error,
-            span = Some(frame.openingSpan),
-          ))
-          val branch = TreeVm.buildBranch(frame, Origin.Synthetic(s"unclosed:${frame.kind}"))
-          if recorded.stack.nonEmpty then
-            val top = recorded.stack.last
-            drain(recorded.copy(stack = recorded.stack.dropRight(1) :+
-              VmFrame(top.kind, top.role, top.edges :+ UniEdge(frame.role, branch), top.openingSpan)))
-          else drain(recorded.copy(roots = recorded.roots :+ branch))
-      val done = drain(VmWork(state.stack, state.nodeCount, state.lastTokenId, state.diagnosticCount,
+      val done = drainUnclosed(VmWork(state.stack, state.nodeCount, state.lastTokenId, state.diagnosticCount,
         state.diagnosticLimitReported, state.halted, Vector.empty, Vector.empty))
       ProcessBatch(done.roots, done.diags)
+
+  // ── VmWork transitions. PRIVATE METHODS, not local defs, deliberately: the Rust backend
+  // does not resolve a member read on a value whose type comes from a LIFTED LOCAL def (the
+  // lifted def's return type never reaches the global table — the same gap `refDefAt`'s
+  // comment records in the markdown dialect, filed as
+  // `rust-backend-member-read-through-lifted-local-def`). As methods their types are global
+  // and `recorded.stack.nonEmpty` lowers. `haltOnLimit`: `step` HALTS the VM when the
+  // diagnostic limit trips; `stop` does not (there is nothing left to halt). ──
+
+  private def recordWork(w: VmWork, d: Diagnostic, haltOnLimit: Boolean): VmWork =
+    if w.diagCount < limits.maxDiagnostics then
+      w.copy(diagCount = w.diagCount + 1, diags = w.diags :+ d)
+    else if !w.diagLimitReported then
+      w.copy(diagLimitReported = true, halted = w.halted || haltOnLimit, diags = w.diags :+ Diagnostic(
+        code = "uniml.limit.diagnostics",
+        message = s"diagnostic count exceeds the ${limits.maxDiagnostics} limit",
+        severity = Severity.Fatal,
+        span = d.span,
+      ))
+    else w
+
+  private def addTop(w: VmWork, edge: UniEdge): VmWork =
+    val top = w.stack.last
+    w.copy(stack = w.stack.dropRight(1) :+ VmFrame(top.kind, top.role, top.edges :+ edge, top.openingSpan))
+
+  private def attach(w: VmWork, branch: UniNode.Branch, role: Option[String]): VmWork =
+    if w.stack.nonEmpty then addTop(w, UniEdge(role, branch)) else w.copy(roots = w.roots :+ branch)
+
+  private def attachToken(w: VmWork, role: Option[String], tokenNode: UniNode): VmWork =
+    if w.stack.nonEmpty then addTop(w, UniEdge(role, tokenNode)) else w.copy(roots = w.roots :+ tokenNode)
+
+  private def closeFrame(w: VmWork): VmWork =
+    val frame = w.stack.last
+    attach(w.copy(stack = w.stack.dropRight(1)), TreeVm.buildBranch(frame, Origin.SourceBacked), frame.role)
+
+  private def drainUnclosed(w: VmWork): VmWork =
+    if w.stack.isEmpty then w
+    else
+      val frame = w.stack.last
+      val recorded = recordWork(w.copy(stack = w.stack.dropRight(1)), Diagnostic(
+        code = "uniml.vm.unclosed-node",
+        message = s"unclosed '${frame.kind}' node at end of input",
+        severity = Severity.Error,
+        span = Some(frame.openingSpan),
+      ), haltOnLimit = false)
+      val branch = TreeVm.buildBranch(frame, Origin.Synthetic(s"unclosed:${frame.kind}"))
+      // collection-typed local for the same backend reason as `countedStack` in step
+      val recordedStack: Vector[VmFrame] = recorded.stack
+      if recordedStack.nonEmpty then
+        val top = recordedStack.last
+        drainUnclosed(recorded.copy(stack = recorded.stack.dropRight(1) :+
+          VmFrame(top.kind, top.role, top.edges :+ UniEdge(frame.role, branch), top.openingSpan)))
+      else drainUnclosed(recorded.copy(roots = recorded.roots :+ branch))
 
   private def preflight(stack: Vector[VmFrame], nodeCount: Long, input: VmToken): Option[Diagnostic] =
     val token = input.token
@@ -265,29 +268,32 @@ final case class TreeVm(limits: Limits = Limits.default) extends Processor[VmSta
         span = None,
       ))
     else
-      def close(st: ReframeCheck, expected: String): ReframeCheck =
-        if st.problem.isDefined then st
-        else if st.kinds.isEmpty then
-          st.copy(problem = Some(Diagnostic(
-            code = "uniml.vm.reframe-underflow",
-            message = s"reframe cannot close '$expected' because no frame is open",
-            severity = Severity.Error,
-            span = None,
-          )))
-        else if st.kinds.last != expected then
-          st.copy(problem = Some(Diagnostic(
-            code = "uniml.vm.mismatched-reframe",
-            message = s"expected to reframe '$expected' but current node is '${st.kinds.last}'",
-            severity = Severity.Error,
-            span = None,
-            details = Vector("expected" -> expected, "actual" -> st.kinds.last),
-          )))
-        else st.copy(kinds = st.kinds.dropRight(1))
-      val afterBefore = closeBefore.foldLeft(ReframeCheck(stack.map(_.kind), None))(close)
-      if afterBefore.problem.isEmpty then
-        val opened = afterBefore.copy(kinds = open.foldLeft(afterBefore.kinds)((k, spec) => k :+ spec.kind))
-        closeAfter.foldLeft(opened)(close).problem
-      else afterBefore.problem
+      val afterBefore = closeBefore.foldLeft(ReframeCheck(stack.map(_.kind), None))(reframeClose)
+      afterBefore.problem match
+        case None =>
+          val opened = afterBefore.copy(kinds = open.foldLeft(afterBefore.kinds)((k, spec) => k :+ spec.kind))
+          closeAfter.foldLeft(opened)(reframeClose).problem
+        case some => some
+
+  // a method for the same backend reason as the VmWork transitions above
+  private def reframeClose(st: ReframeCheck, expected: String): ReframeCheck =
+    if st.problem.isDefined then st
+    else if st.kinds.isEmpty then
+      st.copy(problem = Some(Diagnostic(
+        code = "uniml.vm.reframe-underflow",
+        message = s"reframe cannot close '$expected' because no frame is open",
+        severity = Severity.Error,
+        span = None,
+      )))
+    else if st.kinds.last != expected then
+      st.copy(problem = Some(Diagnostic(
+        code = "uniml.vm.mismatched-reframe",
+        message = s"expected to reframe '$expected' but current node is '${st.kinds.last}'",
+        severity = Severity.Error,
+        span = None,
+        details = Vector("expected" -> expected, "actual" -> st.kinds.last),
+      )))
+    else st.copy(kinds = st.kinds.dropRight(1))
 
 object TreeVm:
   private val finishedDiagnostic = Diagnostic(

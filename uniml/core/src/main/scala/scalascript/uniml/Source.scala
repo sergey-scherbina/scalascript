@@ -42,7 +42,9 @@ private[uniml] object Unicode:
     // `text.toVector` pays one O(n) conversion and every index after it is a vector index.
     // Identical semantics on both lanes: `Vector[Char]` is code UNITS, exactly what `charAt`
     // yields, so surrogate pairs still arrive as two elements and `chars.length == text.length`.
-    val chars = text.toVector
+    // annotated: the Rust backend cannot infer a CAPTURED local's type inside a lifted
+    // walk (BUGS: rust-backend-member-read-through-local-val, the capture relative)
+    val chars: Vector[Char] = text.toVector
     def walk(index: Int, count: Int): Int =
       if index >= chars.length then count
       else
@@ -55,7 +57,8 @@ private[uniml] object Unicode:
 
   def advance(position: SourcePosition, lexeme: String): SourcePosition =
     // Same reason as `codePointCount` just above: index the code units, not the string.
-    val chars = lexeme.toVector
+    // annotated for the same backend capture rule as codePointCount's chars
+    val chars: Vector[Char] = lexeme.toVector
     def walk(index: Int, offset: Int, line: Int, column: Int): SourcePosition =
       if index >= chars.length then SourcePosition(offset, line, column)
       else

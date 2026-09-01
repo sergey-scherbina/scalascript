@@ -71,6 +71,30 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
       only the KNOWN-RED gap-anon (baseline-identical); verify-uniml-dual-build OK (JS 218 green,
       isolation held).
 
+- [x] uniml-demut-stage10-closing-verification — **stage 10's closing pass: all lanes measured
+      on the final tree; the emit-rust lane found two real defects (one v1, one v2-rust) and is
+      honestly RED pending a backend follow-up.** (1) FINAL CENSUS: uniml's source tree holds ONE
+      var — the parked `MarkupCodec._default`; every other `var` match is the word in a comment.
+      (2) JVM `sbt test` 17 groups green; Scala.js dual-build exit 0; v2-smoke 4/5
+      baseline-identical; composed pin Complete/0/4220 and dialect pin 41/1791 EXACT; markdown
+      corpus 607/675 pinned; paired bench not slower (composed 3.609±0.123 vs 3.847±0.089 ms/op).
+      (3) THE CARGO LANE re-verification (deferred per-module, run once here): first refused to
+      PARSE TreeVm — chased as a stage-10 regression until an A/B on the pre-conversion text
+      failed identically, which re-aimed it at the v1 front: `preprocessQuotedMacros` had no
+      comment case, so a prose apostrophe (`the VM's stack`) derailed the scan into a later
+      `'${...}'` string (BUGS v1-quoted-macro-preproc-comment-apostrophe, FIXED 16b1d0a83,
+      9/9 + 1168/1168 green). With the parse fixed, emit-rust reached the backend and the
+      demutabilized shapes exposed the type-table gaps filed as
+      `rust-backend-member-read-through-local-val`: member reads through record-typed LOCAL VALS
+      refused (param reads fine — minimal pair dw-*), captured-local types uninferrable, and the
+      deep one — FOLD-LAMBDA PARAMS never typed (`|w: /* Type */, …|` verbatim in the emitted
+      Rust), so `.copy`/locals/eta'd method refs inside folds all fail (18 cargo errors, 5
+      classes, counted). Accommodations landed where they read naturally (VmWork transitions as
+      methods; collection-typed field locals; annotated `chars`) — emit is now CLEAN (exit 0) and
+      cargo build is the remaining red, queued as the backend follow-up. The GREEN CONTROL: the
+      pre-conversion core still emits+builds clean on the same toolchain, so the red measures the
+      backend against the new fold-heavy shapes, not a lost capability.
+
 - [x] uniml-demut-closing — **the leaf zones are converted: uniml's source tree holds ONE var,
       the deliberately-parked `MarkupCodec._default` (v1-only writers; falls with v1).** 122 leaf
       vars → 0 across YamlDialect, YamlTagEnvironment, YamlLexer (validateLines/advance),
