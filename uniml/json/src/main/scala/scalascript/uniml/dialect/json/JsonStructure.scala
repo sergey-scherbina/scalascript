@@ -27,178 +27,188 @@ private final case class ObjectFrame(state: ObjectState) extends Frame
 private final case class ArrayFrame(state: ArrayState) extends Frame
 
 private object JsonStructure:
-  def assign(tokens: Vector[JsonLexToken], eof: SourcePosition, source: SourceId): JsonStructureBatch =
-    var instructions: Vector[VmToken] = Vector.empty
-    var diagnostics: Vector[Diagnostic] = Vector.empty
-    var stack: Vector[Frame] = Vector.empty
-    var document = DocumentState.Value
 
-    def emit(token: SourceToken, instruction: VmInstruction): Unit =
-      instructions = instructions :+ VmToken(token, instruction)
+  /** The assigner's whole state, threaded as a pure fold over the token stream — the same
+    * `step(state, chunk)` shape JsonLexer took, one field per former `var`. */
+  private final case class AssignState(
+      instructions: Vector[VmToken],
+      diagnostics: Vector[Diagnostic],
+      stack: Vector[Frame],
+      document: DocumentState,
+  )
+
+  def assign(tokens: Vector[JsonLexToken], eof: SourcePosition, source: SourceId): JsonStructureBatch =
+
+    def emit(s: AssignState, token: SourceToken, instruction: VmInstruction): AssignState =
+      s.copy(instructions = s.instructions :+ VmToken(token, instruction))
 
     // replace the current top frame with a state-transitioned copy
-    def retop(frame: Frame): Unit =
-      stack = stack.dropRight(1) :+ frame
+    def retop(s: AssignState, frame: Frame): AssignState =
+      s.copy(stack = s.stack.dropRight(1) :+ frame)
 
-    def consumeValue(token: SourceToken, role: Option[String]): Boolean =
+    // The Boolean mirrors the imperative original, where every arm answered `true` and the one
+    // caller used it to move the document to End. It is vestigial TODAY; it is kept so the
+    // conversion is a re-spelling and not a redesign — collapsing it is a separate, visible change.
+    def consumeValue(s: AssignState, token: SourceToken, role: Option[String]): (AssignState, Boolean) =
       token.kind match
         case "json.lbrace" =>
-          emit(token, VmInstruction.Open("json.object", role))
-          stack = stack :+ ObjectFrame(ObjectState.KeyOrEnd)
-          true
+          (emit(s, token, VmInstruction.Open("json.object", role))
+            .copy(stack = s.stack :+ ObjectFrame(ObjectState.KeyOrEnd)), true)
         case "json.lbracket" =>
-          emit(token, VmInstruction.Open("json.array", role))
-          stack = stack :+ ArrayFrame(ArrayState.ValueOrEnd)
-          true
+          (emit(s, token, VmInstruction.Open("json.array", role))
+            .copy(stack = s.stack :+ ArrayFrame(ArrayState.ValueOrEnd)), true)
         case "json.string" | "json.number" | "json.true" | "json.false" | "json.null" =>
-          emit(token, VmInstruction.Emit(role))
-          true
+          (emit(s, token, VmInstruction.Emit(role)), true)
         case _ =>
-          emit(token, VmInstruction.Report("uniml.json.expected-value", "expected a JSON value"))
-          true
+          (emit(s, token, VmInstruction.Report("uniml.json.expected-value", "expected a JSON value")), true)
 
-    def consumeKey(token: SourceToken, frame: ObjectFrame): Unit =
-      if token.kind == "json.string" then
-        emit(token, VmInstruction.Emit(Some("member.key")))
-      else
-        emit(token, VmInstruction.Report("uniml.json.expected-key", "expected a quoted JSON object key"))
-      retop(frame.copy(state = ObjectState.Colon))
+    def consumeKey(s: AssignState, token: SourceToken, frame: ObjectFrame): AssignState =
+      val emitted =
+        if token.kind == "json.string" then emit(s, token, VmInstruction.Emit(Some("member.key")))
+        else emit(s, token, VmInstruction.Report("uniml.json.expected-key", "expected a quoted JSON object key"))
+      retop(emitted, frame.copy(state = ObjectState.Colon))
 
-    def closeObject(token: SourceToken): Unit =
-      emit(token, VmInstruction.Close(Some("json.object"), Some("delimiter.close")))
-      stack = stack.dropRight(1)
+    def closeObject(s: AssignState, token: SourceToken): AssignState =
+      emit(s, token, VmInstruction.Close(Some("json.object"), Some("delimiter.close")))
+        .copy(stack = s.stack.dropRight(1))
 
-    def closeArray(token: SourceToken): Unit =
-      emit(token, VmInstruction.Close(Some("json.array"), Some("delimiter.close")))
-      stack = stack.dropRight(1)
+    def closeArray(s: AssignState, token: SourceToken): AssignState =
+      emit(s, token, VmInstruction.Close(Some("json.array"), Some("delimiter.close")))
+        .copy(stack = s.stack.dropRight(1))
 
-    def recoverAfterInvalid(): Unit =
-      if stack.isEmpty then document = DocumentState.End
-      else stack.last match
+    def recoverAfterInvalid(s: AssignState): AssignState =
+      if s.stack.isEmpty then s.copy(document = DocumentState.End)
+      else s.stack.last match
         case frame: ObjectFrame =>
           frame.state match
-            case ObjectState.KeyOrEnd | ObjectState.Key => retop(frame.copy(state = ObjectState.Colon))
-            case ObjectState.Value                      => retop(frame.copy(state = ObjectState.CommaOrEnd))
-            case _                                      => ()
+            case ObjectState.KeyOrEnd | ObjectState.Key => retop(s, frame.copy(state = ObjectState.Colon))
+            case ObjectState.Value                      => retop(s, frame.copy(state = ObjectState.CommaOrEnd))
+            case _                                      => s
         case frame: ArrayFrame =>
           frame.state match
-            case ArrayState.ValueOrEnd | ArrayState.Value => retop(frame.copy(state = ArrayState.CommaOrEnd))
-            case _                                        => ()
+            case ArrayState.ValueOrEnd | ArrayState.Value => retop(s, frame.copy(state = ArrayState.CommaOrEnd))
+            case _                                        => s
 
-    tokens.foreach { lexed =>
+    def diag(s: AssignState, token: SourceToken, code: String, message: String): AssignState =
+      s.copy(diagnostics = s.diagnostics :+ tokenDiagnostic(token, code, message))
+
+    // The original's `reprocess` while-loop, as bounded recursion. Three arms re-dispatch — a
+    // value-start where a colon was due, and a member/element start where a comma was due — and
+    // each first moves its frame to the state that consumes the token, so a re-entry takes a
+    // different branch and the depth is at most two, exactly as the loop's was.
+    def dispatch(s: AssignState, token: SourceToken): AssignState =
+      if s.stack.isEmpty then
+        s.document match
+          case DocumentState.Value =>
+            val (consumed, done) = consumeValue(s, token, Some("document.value"))
+            if done then consumed.copy(document = DocumentState.End) else consumed
+          case DocumentState.End =>
+            emit(s, token, VmInstruction.Report(
+              "uniml.json.trailing-data",
+              "JSON text contains data after the root value",
+            ))
+      else s.stack.last match
+        case frame: ObjectFrame =>
+          frame.state match
+            case ObjectState.KeyOrEnd =>
+              if token.kind == "json.rbrace" then closeObject(s, token)
+              else consumeKey(s, token, frame)
+            case ObjectState.Key =>
+              if token.kind == "json.rbrace" then
+                closeObject(diag(s, token, "uniml.json.trailing-comma", "trailing comma in JSON object"), token)
+              else consumeKey(s, token, frame)
+            case ObjectState.Colon =>
+              if token.kind == "json.colon" then
+                retop(emit(s, token, VmInstruction.Emit(Some("member.colon"))), frame.copy(state = ObjectState.Value))
+              else if isValueStart(token) then
+                dispatch(
+                  retop(diag(s, token, "uniml.json.expected-colon", "expected ':' after JSON object key"),
+                        frame.copy(state = ObjectState.Value)),
+                  token,
+                )
+              else emit(s, token, VmInstruction.Report(
+                "uniml.json.expected-colon",
+                "expected ':' after JSON object key",
+              ))
+            case ObjectState.Value =>
+              // pre-set the object frame to CommaOrEnd (consumeValue only
+              // appends any nested container above it), then consume
+              consumeValue(retop(s, frame.copy(state = ObjectState.CommaOrEnd)), token, Some("member.value"))._1
+            case ObjectState.CommaOrEnd =>
+              token.kind match
+                case "json.comma" =>
+                  retop(emit(s, token, VmInstruction.Emit(Some("member.separator"))), frame.copy(state = ObjectState.Key))
+                case "json.rbrace" => closeObject(s, token)
+                case _ if token.kind == "json.string" =>
+                  dispatch(
+                    retop(diag(s, token, "uniml.json.expected-comma-or-end", "expected ',' or '}' after JSON object member"),
+                          frame.copy(state = ObjectState.Key)),
+                    token,
+                  )
+                case _ => emit(s, token, VmInstruction.Report(
+                  "uniml.json.expected-comma-or-end",
+                  "expected ',' or '}' after JSON object member",
+                ))
+        case frame: ArrayFrame =>
+          frame.state match
+            case ArrayState.ValueOrEnd =>
+              if token.kind == "json.rbracket" then closeArray(s, token)
+              else consumeValue(retop(s, frame.copy(state = ArrayState.CommaOrEnd)), token, Some("array.element"))._1
+            case ArrayState.Value =>
+              if token.kind == "json.rbracket" then
+                closeArray(diag(s, token, "uniml.json.trailing-comma", "trailing comma in JSON array"), token)
+              else consumeValue(retop(s, frame.copy(state = ArrayState.CommaOrEnd)), token, Some("array.element"))._1
+            case ArrayState.CommaOrEnd =>
+              token.kind match
+                case "json.comma" =>
+                  retop(emit(s, token, VmInstruction.Emit(Some("array.separator"))), frame.copy(state = ArrayState.Value))
+                case "json.rbracket" => closeArray(s, token)
+                case _ if isValueStart(token) =>
+                  dispatch(
+                    retop(diag(s, token, "uniml.json.expected-comma-or-end", "expected ',' or ']' after JSON array element"),
+                          frame.copy(state = ArrayState.Value)),
+                    token,
+                  )
+                case _ => emit(s, token, VmInstruction.Report(
+                  "uniml.json.expected-comma-or-end",
+                  "expected ',' or ']' after JSON array element",
+                ))
+
+    def feed(s: AssignState, lexed: JsonLexToken): AssignState =
       val token = lexed.token
-      if token.kind == "json.whitespace" then emit(token, VmInstruction.Emit(Some("trivia")))
+      if token.kind == "json.whitespace" then emit(s, token, VmInstruction.Emit(Some("trivia")))
       else if token.kind == "json.bom" then
         val issue = lexed.issue.get
-        emit(token, VmInstruction.Report(issue.code, issue.message, issue.severity))
+        emit(s, token, VmInstruction.Report(issue.code, issue.message, issue.severity))
       else lexed.issue match
         case Some(issue) =>
-          emit(token, VmInstruction.Report(issue.code, issue.message, issue.severity))
-          recoverAfterInvalid()
-        case None =>
-          var reprocess = true
-          while reprocess do
-            reprocess = false
-            if stack.isEmpty then
-              document match
-                case DocumentState.Value =>
-                  if consumeValue(token, Some("document.value")) then document = DocumentState.End
-                case DocumentState.End =>
-                  emit(token, VmInstruction.Report(
-                    "uniml.json.trailing-data",
-                    "JSON text contains data after the root value",
-                  ))
-            else stack.last match
-              case frame: ObjectFrame =>
-                frame.state match
-                  case ObjectState.KeyOrEnd =>
-                    if token.kind == "json.rbrace" then closeObject(token)
-                    else consumeKey(token, frame)
-                  case ObjectState.Key =>
-                    if token.kind == "json.rbrace" then
-                      diagnostics = diagnostics :+ tokenDiagnostic(token, "uniml.json.trailing-comma", "trailing comma in JSON object")
-                      closeObject(token)
-                    else consumeKey(token, frame)
-                  case ObjectState.Colon =>
-                    if token.kind == "json.colon" then
-                      emit(token, VmInstruction.Emit(Some("member.colon")))
-                      retop(frame.copy(state = ObjectState.Value))
-                    else if isValueStart(token) then
-                      diagnostics = diagnostics :+ tokenDiagnostic(token, "uniml.json.expected-colon", "expected ':' after JSON object key")
-                      retop(frame.copy(state = ObjectState.Value))
-                      reprocess = true
-                    else emit(token, VmInstruction.Report(
-                      "uniml.json.expected-colon",
-                      "expected ':' after JSON object key",
-                    ))
-                  case ObjectState.Value =>
-                    // pre-set the object frame to CommaOrEnd (consumeValue only
-                    // appends any nested container above it), then consume
-                    retop(frame.copy(state = ObjectState.CommaOrEnd))
-                    consumeValue(token, Some("member.value"))
-                  case ObjectState.CommaOrEnd =>
-                    token.kind match
-                      case "json.comma" =>
-                        emit(token, VmInstruction.Emit(Some("member.separator")))
-                        retop(frame.copy(state = ObjectState.Key))
-                      case "json.rbrace" => closeObject(token)
-                      case _ if token.kind == "json.string" =>
-                        diagnostics = diagnostics :+ tokenDiagnostic(token, "uniml.json.expected-comma-or-end", "expected ',' or '}' after JSON object member")
-                        retop(frame.copy(state = ObjectState.Key))
-                        reprocess = true
-                      case _ => emit(token, VmInstruction.Report(
-                        "uniml.json.expected-comma-or-end",
-                        "expected ',' or '}' after JSON object member",
-                      ))
+          recoverAfterInvalid(emit(s, token, VmInstruction.Report(issue.code, issue.message, issue.severity)))
+        case None => dispatch(s, token)
 
-              case frame: ArrayFrame =>
-                frame.state match
-                  case ArrayState.ValueOrEnd =>
-                    if token.kind == "json.rbracket" then closeArray(token)
-                    else
-                      retop(frame.copy(state = ArrayState.CommaOrEnd))
-                      consumeValue(token, Some("array.element"))
-                  case ArrayState.Value =>
-                    if token.kind == "json.rbracket" then
-                      diagnostics = diagnostics :+ tokenDiagnostic(token, "uniml.json.trailing-comma", "trailing comma in JSON array")
-                      closeArray(token)
-                    else
-                      retop(frame.copy(state = ArrayState.CommaOrEnd))
-                      consumeValue(token, Some("array.element"))
-                  case ArrayState.CommaOrEnd =>
-                    token.kind match
-                      case "json.comma" =>
-                        emit(token, VmInstruction.Emit(Some("array.separator")))
-                        retop(frame.copy(state = ArrayState.Value))
-                      case "json.rbracket" => closeArray(token)
-                      case _ if isValueStart(token) =>
-                        diagnostics = diagnostics :+ tokenDiagnostic(token, "uniml.json.expected-comma-or-end", "expected ',' or ']' after JSON array element")
-                        retop(frame.copy(state = ArrayState.Value))
-                        reprocess = true
-                      case _ => emit(token, VmInstruction.Report(
-                        "uniml.json.expected-comma-or-end",
-                        "expected ',' or ']' after JSON array element",
-                      ))
-    }
+    val walked = tokens.foldLeft(AssignState(Vector.empty, Vector.empty, Vector.empty, DocumentState.Value))(feed)
 
     val eofSpan = SourceSpan(source, eof, eof)
-    if document == DocumentState.Value then
-      diagnostics = diagnostics :+ Diagnostic(
-        code = "uniml.json.unexpected-eof",
-        message = "expected a JSON value before end of input",
-        severity = Severity.Error,
-        span = Some(eofSpan),
-        dialect = Some(JsonDialect.id),
-      )
-    if stack.nonEmpty then
-      diagnostics = diagnostics :+ Diagnostic(
-        code = "uniml.json.unexpected-eof",
-        message = "JSON container is not closed before end of input",
-        severity = Severity.Error,
-        span = Some(eofSpan),
-        dialect = Some(JsonDialect.id),
-      )
-    JsonStructureBatch(instructions, diagnostics)
+    val withValueEof =
+      if walked.document == DocumentState.Value then
+        walked.copy(diagnostics = walked.diagnostics :+ Diagnostic(
+          code = "uniml.json.unexpected-eof",
+          message = "expected a JSON value before end of input",
+          severity = Severity.Error,
+          span = Some(eofSpan),
+          dialect = Some(JsonDialect.id),
+        ))
+      else walked
+    val finished =
+      if withValueEof.stack.nonEmpty then
+        withValueEof.copy(diagnostics = withValueEof.diagnostics :+ Diagnostic(
+          code = "uniml.json.unexpected-eof",
+          message = "JSON container is not closed before end of input",
+          severity = Severity.Error,
+          span = Some(eofSpan),
+          dialect = Some(JsonDialect.id),
+        ))
+      else withValueEof
+    JsonStructureBatch(finished.instructions, finished.diagnostics)
 
   private def isValueStart(token: SourceToken): Boolean =
     token.kind == "json.lbrace" || token.kind == "json.lbracket" || token.kind == "json.string" ||

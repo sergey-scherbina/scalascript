@@ -57,6 +57,17 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
       envelope — no urgent knob. Cursor de-mutabilization (stage 10) must re-run this bench per
       module as its perf gate.
 
+- [~] uniml-demut-json-rest — **the json module is done: 38 vars → 1.** JsonProjection's six var
+      clusters became folds/recursions, each shape chosen for a reason written in place: tail
+      recursion where the imperative walk STOPPED at the first failure (a fold would keep visiting
+      and discarding), index recursion where the stride varies (1/2/6 in decodeString, 1/2 in the
+      surrogate scan), foldLeft where it is a textbook accumulator (parseHex, duplicateDiagnostics).
+      JsonStructure took the lexer's exact idiom — an AssignState record threaded step-wise, the
+      reprocess loop as bounded re-dispatch after the frame moves to the consuming state.
+      `consumeValue`'s vestigial Boolean (every arm answers true) is KEPT and documented: the
+      conversion is a re-spelling, not a redesign, and collapsing it is a separate visible change.
+      Tests 16/16 JVM + 16/16 JS, lint OK, warm wall time 2.84–3.50s vs 2.65–3.01s baseline —
+      within noise. The remaining var in the module is validNumber's documented holdout.
 - [~] uniml-demut-json-lexer — **the first PARSER conversion: JsonLexer is a pure fold.** 13 state
       vars became one `JsonLexState` record (field-per-var, declaration order kept so a historical
       diff matches one to one) threaded `step(state, chunk)`-style — the exact shape the
