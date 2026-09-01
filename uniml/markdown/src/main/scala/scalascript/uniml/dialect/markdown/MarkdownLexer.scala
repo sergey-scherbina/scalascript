@@ -94,26 +94,24 @@ private[markdown] object MdLine:
     // semantics on both lanes: `Vector[Char]` is code UNITS, exactly what `charAt` yields, so
     // surrogate pairs still arrive as two elements and `chars.length == text.length`.
     val chars = text.toVector
-    var lines: Vector[MdLine] = Vector.empty
-    var lineStart = 0
-    var index = 0
-    while index < chars.length do
-      val char = chars(index)
-      char match
+    // Tail recursion over (index, lineStart, lines) — the same walk, and CRITICALLY the same
+    // complexity: every access is still a Vector index (O(1)) and every slice per LINE, so the
+    // O(n²) this comment block describes cannot come back through this conversion. Tail-position
+    // self-calls compile to the same loop on scalac and Scala.js.
+    def split(index: Int, lineStart: Int, lines: Vector[MdLine]): (Vector[MdLine], Int) =
+      if index >= chars.length then (lines, lineStart)
+      else chars(index) match
         case '\n' =>
-          lines = lines :+ MdLine(chars.slice(lineStart, index).mkString, "\n")
-          index += 1
-          lineStart = index
+          split(index + 1, index + 1, lines :+ MdLine(chars.slice(lineStart, index).mkString, "\n"))
         case '\r' =>
           if index + 1 < chars.length && chars(index + 1) == '\n' then
-            lines = lines :+ MdLine(chars.slice(lineStart, index).mkString, "\r\n")
-            index += 2
+            split(index + 2, index + 2, lines :+ MdLine(chars.slice(lineStart, index).mkString, "\r\n"))
           else
-            lines = lines :+ MdLine(chars.slice(lineStart, index).mkString, "\r")
-            index += 1
-          lineStart = index
-        case _ =>
-          index += 1
+            split(index + 1, index + 1, lines :+ MdLine(chars.slice(lineStart, index).mkString, "\r"))
+        case _ => split(index + 1, lineStart, lines)
+    val splitResult = split(0, 0, Vector.empty)
+    val lines = splitResult._1
+    val lineStart = splitResult._2
     // SLICE THE CODE-UNIT VECTOR, NOT THE DOCUMENT — and that distinction is a second complexity
     // fix on top of the first. `text.substring(lineStart, index)` is one slice per LINE, which
     // already beat the per-character version below; but `substring` counts from the START of the
@@ -131,8 +129,7 @@ private[markdown] object MdLine:
     // text still comes from the source, never from a Char) while calling `substring` once per
     // line, which is what takes the total from O(n²) to O(n) on a backend whose `substring` is
     // not O(1). It also drops the per-line `mkString` and the `Vector[String]` accumulator.
-    if lineStart < chars.length then lines = lines :+ MdLine(chars.drop(lineStart).mkString, "")
-    lines
+    if lineStart < chars.length then lines :+ MdLine(chars.drop(lineStart).mkString, "") else lines
 
 /** Shared character classification following CommonMark 0.31.2 §2.1. */
 private[markdown] object MdChars:
@@ -154,12 +151,12 @@ private[markdown] object MdChars:
     * scheme, `www.`, a link label — so ASCII folding is not an approximation, it is the rule.
     * Anything above `z` is left exactly as it was rather than guessed at. */
   def asciiLower(s: String): String =
-    var i = 0
-    var needs = false
-    while i < s.length && !needs do
+    // The no-uppercase fast path RETURNS THE INPUT UNALLOCATED, exactly as before — an `exists`
+    // over the chars is the same early-exit scan the while spelled out.
+    val needs = (0 until s.length).exists { i =>
       val c = s.charAt(i)
-      if c >= 'A' && c <= 'Z' then needs = true
-      i += 1
+      c >= 'A' && c <= 'Z'
+    }
     if !needs then s
     else
       // `Vector[String]` + `.mkString`, not `StringBuilder`: v2 has no StringBuilder, and this is
@@ -167,13 +164,10 @@ private[markdown] object MdChars:
       // ships. `Char.toString` is the portable char→String step — `String.valueOf(c)` is NOT: a
       // capitalized receiver lowers to an effect operation on v2 and yields
       // `Op("String.valueOf", B, <closure>)` instead of a string, silently.
-      var out: Vector[String] = Vector.empty
-      var k = 0
-      while k < s.length do
+      (0 until s.length).foldLeft(Vector.empty[String]) { (out, k) =>
         val c = s.charAt(k)
-        out = out :+ (if c >= 'A' && c <= 'Z' then (c + 32).toChar else c).toString
-        k += 1
-      out.mkString
+        out :+ (if c >= 'A' && c <= 'Z' then (c + 32).toChar else c).toString
+      }.mkString
 
   /** CommonMark's link-label fold: Unicode, but NOT locale-dependent.
     *
@@ -191,16 +185,13 @@ private[markdown] object MdChars:
     // locale-independent fold this doc comment argues for, and it runs on v2 since 2026-08-16
     // (`v2/src/Runtime.scala`, `characterFold`); before that it silently produced
     // `Op("Character.toLowerCase", …)` rather than a char.
-    var out: Vector[String] = Vector.empty
-    var i = 0
-    while i < s.length do
+    (0 until s.length).foldLeft(Vector.empty[String]) { (out, i) =>
       val c = s.charAt(i)
-      out = out :+ (
+      out :+ (
         if c >= 'A' && c <= 'Z' then (c + 32).toChar
         else if c < 128 then c
         else Character.toLowerCase(c)).toString
-      i += 1
-    out.mkString
+    }.mkString
 
   def isAsciiWhitespace(c: Char): Boolean =
     c == ' ' || c == '\t' || c == '\n' || c == VerticalTab || c == FormFeed || c == '\r'
@@ -225,17 +216,17 @@ private[markdown] object MdChars:
     isAsciiPunctuation(c) || (c.toInt >= 0x80 && bmpPunct(c.toInt))
 
   private def bmpPunct(cp: Int): Boolean =
-    var lo = 0
-    var hi = punctRanges.length / 2 - 1
-    var found = false
-    while lo <= hi && !found do
-      val mid = (lo + hi) / 2
-      val start = punctRanges(mid * 2)
-      val end = punctRanges(mid * 2 + 1)
-      if cp < start then hi = mid - 1
-      else if cp > end then lo = mid + 1
-      else found = true
-    found
+    // Binary search as tail recursion on (lo, hi) — the loop's exact halving, same O(log n).
+    def search(lo: Int, hi: Int): Boolean =
+      if lo > hi then false
+      else
+        val mid = (lo + hi) / 2
+        val start = punctRanges(mid * 2)
+        val end = punctRanges(mid * 2 + 1)
+        if cp < start then search(lo, mid - 1)
+        else if cp > end then search(mid + 1, hi)
+        else true
+    search(0, punctRanges.length / 2 - 1)
 
   // 199 BMP ranges (Unicode Pc Pd Pe Pf Pi Po Ps + Sc Sk Sm So), sorted, as
   // [start0, end0, start1, end1, …]. Generated from java.lang.Character.getType.
@@ -276,15 +267,13 @@ private[markdown] object MdChars:
   /** Count of leading spaces (tab expands to next multiple of 4). Used only for
     * indentation decisions; the exact bytes are always preserved as tokens. */
   def indentWidth(content: String): Int =
-    var col = 0
-    var i = 0
-    var done = false
-    while i < content.length && !done do
-      content.charAt(i) match
-        case ' '  => col += 1; i += 1
-        case '\t' => col += 4 - (col % 4); i += 1
-        case _    => done = true
-    col
+    def walk(i: Int, col: Int): Int =
+      if i >= content.length then col
+      else content.charAt(i) match
+        case ' '  => walk(i + 1, col + 1)
+        case '\t' => walk(i + 1, col + (4 - (col % 4)))
+        case _    => col
+    walk(0, 0)
 
   /** Char index at which exactly `columns` columns of leading indentation have
     * been consumed, or -1 when the run is too short or a TAB straddles that
@@ -292,18 +281,16 @@ private[markdown] object MdChars:
     * which no lossless token can represent, so callers must handle -1 rather
     * than approximate it. */
   def indentCut(content: String, columns: Int): Int =
-    var col = 0
-    var i = 0
-    var stopped = false
-    while i < content.length && col < columns && !stopped do
-      content.charAt(i) match
-        case ' '  => col += 1; i += 1
-        case '\t' => col += 4 - (col % 4); i += 1
-        case _    => stopped = true
-    if col == columns then i else -1
+    def walk(i: Int, col: Int): Int =
+      if i >= content.length || col >= columns then (if col == columns then i else -1)
+      else content.charAt(i) match
+        case ' '  => walk(i + 1, col + 1)
+        case '\t' => walk(i + 1, col + (4 - (col % 4)))
+        case _    => if col == columns then i else -1
+    walk(0, 0)
 
   /** Length in chars of the leading whitespace prefix of `content`. */
   def indentPrefixLength(content: String): Int =
-    var i = 0
-    while i < content.length && (content.charAt(i) == ' ' || content.charAt(i) == '\t') do i += 1
-    i
+    def walk(i: Int): Int =
+      if i < content.length && (content.charAt(i) == ' ' || content.charAt(i) == '\t') then walk(i + 1) else i
+    walk(0)

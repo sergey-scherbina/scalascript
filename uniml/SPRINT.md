@@ -57,6 +57,16 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
       envelope — no urgent knob. Cursor de-mutabilization (stage 10) must re-run this bench per
       module as its perf gate.
 
+- [~] uniml-demut-md-lexer — **markdown's lexer/chars module is var-free: 19 → 0, with BOTH perf
+      invariants proven, not assumed.** The line splitter (site of the O(n²) history —
+      rag-uniml-parser-quadratic, a 505 KB document taking hours) is tail recursion with every
+      access still a Vector index and one slice per LINE; linearity re-proven by measurement:
+      doubling a markdown-heavy input (358 KB → 717 KB) adds ~0.25s in repeated warm runs, where a
+      quadratic return would add ~0.8s. asciiLower's no-uppercase fast path still returns the
+      input UNALLOCATED (an exists is the same early-exit scan); the fold keeps the
+      Vector[String]+mkString shape the portable gapmap settled on. bmpPunct's binary search is
+      recursion on (lo, hi), same halving. indentCut's tab-straddle overshoot semantics carried
+      (a tab jumping past the target column still answers -1). 56/56 JVM + 49/49 JS, lint OK.
 - [~] uniml-demut-yaml-semantic — **the semantic parser's state machine is a fold: 66 vars → 39,
       with every survivor a tail-zone leaf.** The three closure vars (index, diagnostics,
       tagEnvironment) became a ParseState threaded through ~12 mutually recursive parse functions
