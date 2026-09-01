@@ -1,2 +1,3 @@
-# generation: 3279
+# generation: 3280
 #slug	agent	started	items	paths
+uniml-demut-address	claude-code	2026-09-01T05:53:27Z	uniml-address-vars-to-combinators	file:uniml/address/src/main/scala/scalascript/uniml/address/JsonAddress.scala file:uniml/SPRINT.md
