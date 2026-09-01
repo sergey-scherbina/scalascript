@@ -93,19 +93,21 @@ object JsonAddress:
   /** The value of the member whose `member.key` token spells `name`. The key and its value are
    *  separate edges of the object, so pair them by walking in order. */
   private def member(edges: Vector[UniEdge], name: String): Option[UniNode] =
-    var i = 0
-    var found: Option[UniNode] = None
-    while i < edges.length && found.isEmpty do
-      val edge = edges(i)
-      if edge.role == MemberKey && keyText(edge.child).contains(name) then
-        // the value is the next `member.value` edge after this key
-        var j = i + 1
-        while j < edges.length && found.isEmpty do
-          if edges(j).role == MemberValue then found = Some(edges(j).child)
-          else if edges(j).role == MemberKey then j = edges.length // a key with no value
-          j += 1
-      i += 1
-    found
+    // The value is the next `member.value` edge after the matching key, STOPPING at the next
+    // `member.key` — a key with no value yields nothing for that key. And the outer scan does not
+    // stop there: the imperative original kept walking, so a LATER duplicate key with a value
+    // still answers. Duplicate-key behaviour IS pinned by the tests ("the first wins"); the
+    // key-with-no-value continuation is preserved from the original as written — the dialect
+    // parser may never produce that edge shape, and this walk keeps the original's answer for it
+    // rather than betting on that.
+    edges.indices.iterator
+      .filter(i => edges(i).role == MemberKey && keyText(edges(i).child).contains(name))
+      .map { i =>
+        edges.iterator.drop(i + 1)
+          .takeWhile(_.role != MemberKey)
+          .collectFirst { case e if e.role == MemberValue => e.child }
+      }
+      .collectFirst { case Some(value) => value }
 
   /** A key's text, unescaped by the dialect's own lexer rather than by us re-reading the lexeme. */
   private def keyText(node: UniNode): Option[String] = node match

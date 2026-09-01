@@ -10,6 +10,18 @@ Anything not being worked on belongs in `uniml/BACKLOG.md`, not here — a queue
 the root `SPRINT.md` board and a live `.work/active/<slug>.claim`; all three are written
 in one commit. Layout: `specs/work-tracking-layout.md`.
 
+- [~] uniml-demut-address — **stage 10's first conversion: `address` is var-free.** The `member`
+      search (3 of the tree's ~790 vars) became an iterator pipeline. Two semantic branches carried
+      over explicitly: a later DUPLICATE key with a value still answers when an earlier one lacks
+      one (the outer scan does not stop), and a key-with-no-value stops only that key's value scan.
+      Duplicate-first-wins is pinned by the module's tests; the no-value continuation is preserved
+      as written, with the comment saying exactly which of the two the tests assert. 9/9 green,
+      portable-subset lint OK.
+      **Piece 1 verdict (the one mutable FIELD): PARKED WITH EVIDENCE, not converted.**
+      `MarkupCodec._default`'s only writers are v1's plugins (markup-node, markup-js at init), the
+      node-vs-browser choice is a genuine RUNTIME selection so no compile-time platform val can
+      replace it, uniml cannot depend on v1 (project-partition-gate), and v1 is scheduled for
+      removal — the var dissolves with its writers. Re-visit when v1 goes.
 - [~] uniml-demut-survey — **stage 10 opens: the mutability census, and it inverts the expectation.**
       The owner's directive (2026-08-30, reaffirmed 2026-09-01): eliminate mutable types everywhere
       possible, replacing mutation with ALGEBRAS and AGGREGATORS — `empty`/`combine`/`prepare`/
