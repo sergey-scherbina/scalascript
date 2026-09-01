@@ -408,6 +408,35 @@ final class MarkdownDialectSpec extends AnyFunSuite:
     assert(result.roots.isEmpty, "a limit hit must not also hand back a partial tree")
   }
 
+  test("delimiter-run limit fails with a structured fatal diagnostic") {
+    val tiny = MarkdownLimits(maxDelimiterRun = 4)
+    val result = Markdown.parse(
+      SourceInput.fromString(source, "ok text\n******** too long a run\n"),
+      MarkdownProfile.CommonMark, tiny)
+    assert(result.diagnostics.exists(_.code == "uniml.markdown.limit.delimiter-run"))
+    assert(result.roots.isEmpty, "a limit hit must not also hand back a partial tree")
+  }
+
+  test("fence code-point limit fails with a structured fatal diagnostic") {
+    val tiny = MarkdownLimits(maxFenceCodePoints = 8)
+    val doc = "```\nthis body is far longer than eight code points\n```\n"
+    val result = Markdown.parse(SourceInput.fromString(source, doc), MarkdownProfile.CommonMark, tiny)
+    assert(result.diagnostics.exists(_.code == "uniml.markdown.limit.fence"))
+    assert(result.roots.isEmpty, "a limit hit must not also hand back a partial tree")
+  }
+
+  test("the fence counter resets per fence — two small fences are not one big one") {
+    // The counter tracks the OPEN fence, not a running total: two fences each under the limit
+    // must pass even though their sum exceeds it. A cumulative counter would make the limit
+    // depend on how many code blocks a document has, which is a different (wrong) promise.
+    val tiny = MarkdownLimits(maxFenceCodePoints = 24)
+    val doc = "```\nsmall one\n```\n\ntext\n\n```\nsmall two\n```\n"
+    val result = Markdown.parse(SourceInput.fromString(source, doc), MarkdownProfile.CommonMark, tiny)
+    assert(!result.diagnostics.exists(_.code == "uniml.markdown.limit.fence"),
+      s"per-fence, not cumulative: ${result.diagnostics}")
+    assert(result.roots.nonEmpty)
+  }
+
   test("an ordinary document is unaffected by the default limits") {
     val doc = "# Title\n\nA paragraph.\n\n- one\n- two\n\n```\ncode\n```\n"
     val result = Markdown.parse(SourceInput.fromString(source, doc), MarkdownProfile.CommonMark,

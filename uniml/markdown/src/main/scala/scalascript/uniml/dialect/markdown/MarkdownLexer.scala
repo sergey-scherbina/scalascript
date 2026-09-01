@@ -80,6 +80,21 @@ private[markdown] final case class MdLine(content: String, ending: String):
   def isBlank: Boolean = content.forall(c => c == ' ' || c == '\t')
 
 private[markdown] object MdLine:
+  /** Longest run of a delimiter character (`*`, `_`, `` ` ``, `~`) in `s` — the quantity
+    * `maxDelimiterRun` bounds. Counted per line because a run cannot cross a line ending. */
+  def longestRun(s: String): Int =
+    var best = 0
+    var i = 0
+    while i < s.length do
+      val c = s.charAt(i)
+      if c == '*' || c == '_' || c == '`' || c == '~' then
+        var j = i + 1
+        while j < s.length && s.charAt(j) == c do j = j + 1
+        if j - i > best then best = j - i
+        i = j
+      else i = i + 1
+    best
+
   /** Splits source into lines preserving CR / LF / CRLF spellings distinctly. A
     * trailing newline yields no synthetic empty final line; a missing trailing
     * newline yields a final line with `ending == ""`. */

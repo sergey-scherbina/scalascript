@@ -71,6 +71,12 @@ private[markdown] final class MarkdownBlocks(
     // branch in the tree, so it is the quantity that grows with a hostile document.
     var blocksOpened = 0
     var blockLimitHit: Option[Diagnostic] = None
+    // `maxFenceCodePoints` counts the BODY of the currently open fence. Reset on every
+    // FenceOpen; only knowable during the parse, so a hit is recorded and reported at the end,
+    // like the block limit — a truncated token stream inside a tree that looks complete is the
+    // failure mode all these limits exist to avoid.
+    var fenceCp = 0L
+    var fenceLimitHit: Option[Diagnostic] = None
     var refs: Map[String, LinkRef] = Map.empty
     var containers: Vector[Container] = Vector.empty
     // frames pending closure, to fold into the next emitted structural token
@@ -456,6 +462,7 @@ private[markdown] final class MarkdownBlocks(
       val info = body.substring(flen)
       if info.nonEmpty then leaf(MdKind.Info, info, Some("info"), TokenChannel.Embedded)
       if line.ending.nonEmpty then leaf(MdKind.LineBreak, line.ending, Some("trailing"), TokenChannel.Trivia)
+      fenceCp = 0L
       open = OpenLeaf.FencedCode(fence._1, flen)
 
     def handleFenceBody(line: MdLine, fchar: Char, flen: Int): Unit =
@@ -469,6 +476,10 @@ private[markdown] final class MarkdownBlocks(
         close(MdBranch.CodeBlock, MdKind.FenceClose, line.content.substring(lead), Some("fence.close"), TokenChannel.Syntax)
         if line.ending.nonEmpty then leaf(MdKind.LineBreak, line.ending, Some("trailing"), TokenChannel.Trivia)
       else
+        fenceCp = fenceCp + Unicode.codePointCount(line.raw)
+        if fenceCp > limits.maxFenceCodePoints && fenceLimitHit.isEmpty then
+          fenceLimitHit = Some(limitDiag("uniml.markdown.limit.fence",
+            s"fenced code block exceeds the ${limits.maxFenceCodePoints} code-point limit"))
         if line.content.nonEmpty then leaf(MdKind.CodeContent, line.content, Some("code"), TokenChannel.Embedded)
         if line.ending.nonEmpty then leaf(MdKind.LineBreak, line.ending, Some("code"), TokenChannel.Embedded)
 
@@ -817,6 +828,13 @@ private[markdown] final class MarkdownBlocks(
       if longest > limits.maxLineCodePoints then
         MarkdownBlockResult(Vector.empty, Vector(limitDiag("uniml.markdown.limit.line",
           s"Markdown line exceeds the ${limits.maxLineCodePoints} code-point limit")))
+      // A delimiter run (`***…`, `` ``` ``…) cannot cross a line ending, so the longest run in any
+      // LINE bounds the longest run the inline lexer will ever walk — which is why this check can
+      // live here, where `limits` already is, instead of threading limits through the inline
+      // lexer's whole call surface. One O(line) pass, and only for runs of the three run chars.
+      else if lines.exists(l => MdLine.longestRun(l.content) > limits.maxDelimiterRun) then
+        MarkdownBlockResult(Vector.empty, Vector(limitDiag("uniml.markdown.limit.delimiter-run",
+          s"delimiter run exceeds the ${limits.maxDelimiterRun} code-point limit")))
       else
         collectReferences(lines)
         var index = 0
@@ -829,7 +847,7 @@ private[markdown] final class MarkdownBlocks(
         // A block-count overflow is only knowable DURING the parse, so it is reported here rather
         // than as a pre-check. Same shape as the source and line limits: no tokens plus one fatal
         // diagnostic, because a truncated token stream would sit in a tree that looks complete.
-        blockLimitHit match
+        blockLimitHit.orElse(fenceLimitHit) match
           case Some(d) => MarkdownBlockResult(Vector.empty, Vector(d))
           case None    => MarkdownBlockResult(out, diagnostics)
 
