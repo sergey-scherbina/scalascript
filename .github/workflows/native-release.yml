@@ -296,7 +296,11 @@ jobs:
           cp "dist/$ARTIFACT_ID.tar.gz" "$isolated/"
           cp "dist/$ARTIFACT_ID.tar.gz.sha256" "$isolated/"
           cp scripts/native-release-qualify "$isolated/"
-          chmod +x "$isolated/$ARTIFACT_ID" "$isolated/native-release-qualify"
+          # Only the qualify script needs the bit: the bare binary stopped being copied here when
+          # 93bc81423 dropped it from the release, and a chmod on the no-longer-present
+          # "$isolated/$ARTIFACT_ID" is what failed all three qualify jobs on the v0.3.0 tag —
+          # the first run this step ever had, since qualify runs only on tags and dispatches.
+          chmod +x "$isolated/native-release-qualify"
 
           # A native image with a captured checkout root must fail here. Hide the staged
           # frontend and std/ before execution.

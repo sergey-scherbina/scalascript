@@ -3,6 +3,20 @@
 This module's queue. **Two states and no third:** `[~]` in progress, `[x]` done. Anything not being
 worked on belongs in `tests/BACKLOG.md`. Layout: [`../specs/work-tracking-layout.md`](../specs/work-tracking-layout.md).
 
+- [~] **v0.3.0 SHIPPED NO RELEASE — the qualify step chmods a binary the release no longer ships**
+      (claim `native-release-qualify-stale-chmod`, BUGS
+      `native-release-qualify-chmods-a-binary-the-release-no-longer-ships`). Tag run 33473746204:
+      all three "Qualify isolated shipped bytes" jobs died on
+      `chmod: .../native-release-$ARTIFACT_ID/ssc-*: No such file or directory`, so "Publish
+      qualified tag" skipped and v0.3.0 is a tag with no GitHub Release. Cause: `93bc81423`
+      (2026-08-28, after v0.2.0's green run) dropped the bare binary from `dist/` and removed its
+      `cp` into the isolated dir but left the `chmod +x "$isolated/$ARTIFACT_ID"`; the step first
+      executed on the v0.3.0 tag because qualify runs only on tags/dispatches. Fix: chmod only the
+      qualify script (`native-release-qualify` extracts the binary from the tarball itself).
+      *Done when:* the workflow fix is on main, the bug is filed with the landed SHA, and the owner
+      has decided the recovery — re-tag v0.3.0 on a fixed snapshot vs cut v0.3.1 — since moving a
+      published tag is an owner call.
+
 - [x] **THE SMOKE JOB CAP IS UNDER THE SUITE AGAIN** — LANDED 2026-08-25 as `a6818c2cc`; run
       32847621107 completed in 25.6 min on a slower host (probe 279 ms), suite 113/113 in 1350.3 s. (claim `smoke-job-cap`, BUGS
       `smoke-job-cap-no-longer-looser-than-the-suite`). The 2026-08-15 fix held ten days and the
