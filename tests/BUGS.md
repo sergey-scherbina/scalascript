@@ -8,7 +8,30 @@
      reported-by: claude-code
      reported-at: 2026-09-01
      confirmed: no
-     fixed-in: ae9881826 -->
+     fixed-in: 968da72fe -->
+
+**FIRST FIX ATTEMPT (`ae9881826`, socketfilterfw disable) DID NOT WORK — corrected here rather
+than left standing.** Dispatch `33528612417` ran with the firewall disabled and BOTH macOS jobs
+failed identically. Diagnosis was wrong in kind, not just incomplete: the Application Firewall
+(actions/runner-images#11901) is a real, different, DOCUMENTED-FIXABLE issue, and this looked
+enough like it to accept the first plausible cause without proving the fix moved the failure.
+The actual blocker is macOS 15's separate "Local Network" TCC permission
+(actions/runner-images#10924), which GitHub tracks OPEN with no known scriptable grant — a gap in
+the CI runner's environment that this repository cannot close from a workflow file.
+
+**OWNER DECISION (asked directly, with evidence in hand):** rather than keep chasing an
+unresolved GitHub-side bug or block the release on it, soften the network check to a WARNING on
+macOS specifically — `SSC_RELEASE_NETWORK_CHECK_OPTIONAL=1`, set by the workflow only for
+`runner.os == 'macOS'` — while linux keeps the hard gate (`fixed-in` `968da72fe`). Verified both
+branches directly by forcing the never-came-up path in the real script: WARN + exit 0 with the
+flag, FAILED + exit 1 without.
+
+**THE ARCHIVES THEMSELVES WERE NEVER IN DOUBT.** While diagnosing this, a real native
+`ssc-macos-arm64` image was built locally (GraalVM 21.0.11 via sdkman, `sbt cli/installBin
+pluginHost/assembly cli/nativeImageArgv` then `native-image`, 2m23s) and qualified in an isolated
+directory the same way the workflow isolates it: `QUALIFIED artifact=ssc-macos-arm64 vm=84 asm=84
+plugin-host=ready`. The network check was failing about the RUNNER, never about the bytes it was
+qualifying.
 
 Third qualification dispatch (`33520292532`): **linux qualification fully green for the first time
 on this tree** — layout, manifests, version, the plugin-search network check, all runtime lanes —
@@ -20,18 +43,20 @@ and both macOS jobs fail the same new way:
     --- actual
     never came up: b''
 
-**THE RUNNER'S DEFECT, NOT OURS.** macOS 15 runner images ship the Application Firewall blocking
-incoming TCP even on loopback (actions/runner-images#11901, #10924): the qualify script's registry
-server binds 127.0.0.1 and every connect is refused. The empty log is consistent, not mysterious —
-`http.server`'s banner is block-buffered into the redirect while the firewall eats the SYNs, so the
-process is alive and silent. The check was added after v0.2.0 (`b45192115`, the http/https
-URL-protocol regression), so no macOS runner had ever executed it.
+**THE RUNNER'S DEFECT, NOT OURS.** The qualify script's registry server binds 127.0.0.1 and every
+connect is refused; the empty log is consistent with the process being alive and silent rather
+than crashed. The check was added after v0.2.0 (`b45192115`, the http/https URL-protocol
+regression), so no macOS runner had ever executed it before this release. Initially attributed to
+the Application Firewall (actions/runner-images#11901) — WRONG, see the correction at the top of
+this entry: the real cause is the separate "Local Network" TCC permission
+(actions/runner-images#10924), open and unfixed on GitHub's side.
 
-**FIX** (`ae9881826`): a macOS-only workflow step runs
-`sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate off` before qualification —
-the documented workaround, on a throwaway CI VM, for loopback-only traffic. In the qualify script
-itself would be wrong: it also runs on developer machines, where a sudo firewall flip is not this
-script's decision to make.
+**FIX** (`968da72fe`, superseding the first attempt `ae9881826`): the qualify script accepts
+`SSC_RELEASE_NETWORK_CHECK_OPTIONAL=1` and turns "registry-server never came up" into a WARN
+instead of a hard failure; the workflow sets it only for `runner.os == 'macOS'`. Linux gets no
+override and keeps failing hard on this check. The `socketfilterfw` step from the first attempt is
+kept (harmless, and real defense-in-depth against #11901 specifically) but no longer credited with
+fixing this failure.
 
 Fourth entry on one road: `native-release-qualify-chmods-a-binary-the-release-no-longer-ships`,
 `native-release-qualify-rejects-the-lib-tower-directory-member`,
