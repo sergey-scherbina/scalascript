@@ -489,8 +489,31 @@ object RustCodeWalk:
       val ownNames = userTypeNames ++ dt.tparams.toSet
       dt.members.map(mem => mem.name -> mapType(mem.ret, s"${dt.name}.${mem.name}", ownNames).getOrElse(""))
     }
+    // A LIFTED LOCAL def's declared return type joins the same pool under the same collision
+    // discipline (`ssc-rust-lifted-def-return-types`): a call to one is spelled exactly like any
+    // other call, and every return-type-driven lowering asks this table by bare name — the table
+    // just never heard of nested defs, so `val picked = pick(xs); picked.nonEmpty` refused with
+    // "collection member, not a field" while the SAME shape through a module-level def lowered
+    // fine. (The Option half had already been patched around locally — `isOptionExpr`'s
+    // `nestedLocalDefDecltpe` fallback — which is why the backlog entry only ever saw
+    // `.isDefined` fail before that fix and `.nonEmpty` after it.) Bare-name keying is scope-
+    // blind by design; a nested def colliding with anything of a different type collapses to
+    // "no opinion" exactly as module-level collisions always have.
+    val nestedDefReturnPairs = defs.flatMap { d =>
+      var out = List.empty[(String, String)]
+      def walkNested(t: m.Tree): Unit =
+        t match
+          case nd: m.Defn.Def =>
+            out = (nd.name.value ->
+              nd.decltpe.flatMap(ty => mapType(ty, nd.name.value, userTypeNames).toOption).getOrElse("")) :: out
+            nd.children.foreach(walkNested)
+          case other => other.children.foreach(walkNested)
+      walkNested(d.body)
+      out
+    }
     _returnTypes =
-      (defReturnPairs ++ dispatchReturnPairs).groupMapReduce(_._1)(p => Set(p._2))(_ ++ _)
+      (defReturnPairs ++ dispatchReturnPairs ++ nestedDefReturnPairs)
+        .groupMapReduce(_._1)(p => Set(p._2))(_ ++ _)
         .map { case (n, ts) => n -> (if ts.sizeIs == 1 then ts.head else "") }
     // See `_ownedReturnTypes`'s own comment for why the bare-name table above cannot answer for a
     // QUALIFIED call: no collision-collapsing needed here at all, since (owner, member) already
@@ -12019,6 +12042,10 @@ object RustCodeWalk:
       case m.Type.Name("String") => true
       case _                     => false
     }
+    // `_defBodies` holds MODULE-level defs only; a LIFTED LOCAL def's declared String return
+    // lives in `_returnTypes` since `ssc-rust-lifted-def-return-types` — additive fallback, so
+    // the bare-name last-writer-wins answer above keeps deciding wherever it already did.
+    || _returnTypes.get(name).contains("String")
 
   /** Does the 3rd argument of a `route(...)` call take a `Request`?
    *

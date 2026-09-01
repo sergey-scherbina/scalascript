@@ -1953,6 +1953,39 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(g.contains("tag.clone()") || g.contains("(tag).clone()"),
       s"a non-Copy capture in a for-yield body must clone at the use:\n$g")
 
+  test("a lifted local def's declared return type drives Option/Vec/String lowerings on its calls"):
+    // `ssc-rust-lifted-def-return-types`, found twice in the corpus before this: `_returnTypes`
+    // never heard of nested defs, so `val picked = pick(xs); picked.nonEmpty` REFUSED as
+    // "collection member, not a field" (the Vec half), and `tag.length` took Rust's byte-`len`
+    // path (the String half) — while the Option half worked only because `isOptionExpr` had
+    // been patched around locally (`nestedLocalDefDecltpe`). Nested defs now join the pool
+    // under the same bare-name collision discipline.
+    val src =
+      """```scalascript
+        |def scan(xs: Vector[String]): Long =
+        |  def findFirst(v: Vector[String]): Option[String] =
+        |    if v.isEmpty then None else Some(v(0))
+        |  def pick(v: Vector[String]): Vector[String] =
+        |    v
+        |  def label(v: Vector[String]): String =
+        |    "n=" + v.length
+        |  val hit = findFirst(xs)
+        |  val picked = pick(xs)
+        |  val tag = label(xs)
+        |  val a: Long = if hit.isDefined then hit.get.length else 0
+        |  val b: Long = if picked.nonEmpty then picked.length else 0
+        |  val c: Long = tag.length
+        |  a + b + c
+        |```
+        |""".stripMargin
+    compileResult(src) match
+      case CompileResult.Failed(ds) => fail(s"REFUSED: ${ds.mkString(" ||| ")}")
+      case _ => ()
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("hit.is_some()"), s"Option lowering must fire on a lifted-def-call val:\n$g")
+    assert(g.contains("!picked.is_empty()"), s"Vec lowering must fire on a lifted-def-call val:\n$g")
+    assert(g.contains("_str_length(&tag)"), s"String length must fire on a lifted-def-call val:\n$g")
+
   test("`xs :+ x` clones a multi-use appended element"):
     // `attributes = attributes :+ attribute` then `attribute` read again afterward (`uniml/xml`'s
     // `Doc.scala`'s `scan`: `format!("… '{}'", attribute)`) — the one-element array literal
