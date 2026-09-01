@@ -1,3 +1,41 @@
+## native-release-qualify-rejects-the-lib-tower-directory-member — the fixture's tars had no directories, the real tar does
+
+<!-- status: fixed
+     lane: apparatus
+     area: build
+     kind: bug
+     gate: tests/e2e/native-release-qualification.sh
+     reported-by: claude-code
+     reported-at: 2026-09-01
+     confirmed: no
+     fixed-in: eb5efa1c8 -->
+
+**THE SECOND DEFECT ON THE ROAD TO THE v0.3.0 RELEASE**, found by the dispatch run (`33513746923`)
+launched to prove the first fix (`native-release-qualify-chmods-a-binary-the-release-no-longer-ships`)
+before re-tagging — which is the only reason it cost a dispatch and not another dead tag. With the
+stale chmod gone, all qualify jobs advanced to the script and failed:
+
+    native-release-qualify: FAILED check 'archive-layout'
+    --- expected
+    a declared distribution directory
+    --- actual
+    lib/tower
+
+**CAUSE:** the native-front → tower rename updated `allowed_directory`'s PREFIX test
+(`lib/tower/...`) and listed `lib/std` in the fixed set, but not `lib/tower` itself — and a prefix
+test admits only entries UNDER the directory, never its own member. The real archive is written by
+`tar -czf ... -C dist/archive ssc lib README.md`, which emits a member for every directory it
+descends into, `lib/tower/` included.
+
+**WHY 64 GREEN E2E CASES NEVER SAW IT:** `tests/e2e/native-release-qualification.sh` built its
+fixture tarballs from bare FILE entries — no directory members at all — so `allowed_directory` had
+never once been called with these names outside CI. A gate green on fixtures and wrong about the
+only real input; same family as the fixture-blindness entries in memory, and the fix is coverage,
+not just the one name: the fixture now derives and emits directory members from its file set the
+way real tar does. Plant proved before fixing the script: the enriched fixture fails the happy case
+against the unfixed script with byte-for-byte CI's error; 64/64 green after (`eb5efa1c8`), and
+`native-release-publication.sh` 40/40.
+
 ## native-release-qualify-chmods-a-binary-the-release-no-longer-ships — v0.3.0 is a tag with no release
 
 <!-- status: fixed
