@@ -1,3 +1,43 @@
+## native-release-qualify-probes-the-removed-search-spelling — the third defect between v0.2.0 and a publishable v0.3.0
+
+<!-- status: fixed
+     lane: apparatus
+     area: build
+     kind: bug
+     gate: tests/e2e/native-release-qualification.sh
+     reported-by: claude-code
+     reported-at: 2026-09-01
+     confirmed: no
+     fixed-in: a153c5b1c -->
+
+Second qualification dispatch (`33516592493`), launched to prove the `lib/tower` fix: layout,
+manifests and the version check now pass, and the run advances to the network check —
+
+    native-release-qualify: FAILED check 'search-exit'
+    --- expected
+    0
+    --- actual
+    1; stderr=b'Error: File not found: search\n'
+
+**NOT a CLI regression.** `b04ecd237` (2026-08-28) moved top-level `ssc search` under
+`ssc plugin search` deliberately — the move is in the commit message and `specs/arch-registry.md`
+§8. The qualify script kept probing the removed spelling, and the full CLI read `search` as a
+script path. The check runs only on tags and dispatches, so nothing executed it between the move
+and the release.
+
+**FIX** (`a153c5b1c`): probe `plugin search` — flags and both asserted output shapes are unchanged
+by the move, verified against the full JVM CLI (`bin/ssc-tools`): exit 0, a row naming
+`qualify-fixture/network-check`, no empty-registry fallback. The e2e fixture's fake `ssc` now
+matches the new argv; its exit-64 fall-through on unexpected args means a stale spelling in the
+qualify script fails all four search mutation cases loudly instead of silently passing. Also
+pre-verified the checks the dispatch had not yet reached — `run --v1` prints 84, `compile-jvm`
+writes a non-empty artifact — so the next dispatch is not a blind fourth attempt.
+
+Sibling defects on the same road: `native-release-qualify-chmods-a-binary-the-release-no-longer-ships`,
+`native-release-qualify-rejects-the-lib-tower-directory-member`. Three defects, three different
+commits (binary drop, tower rename, registry unification), one shared cause: every one of these
+paths executes ONLY at release time, and no push between v0.2.0 and the tag ran any of them.
+
 ## native-release-qualify-rejects-the-lib-tower-directory-member — the fixture's tars had no directories, the real tar does
 
 <!-- status: fixed
