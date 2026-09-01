@@ -3,7 +3,7 @@
 This module's queue. **Two states and no third:** `[~]` in progress, `[x]` done. Anything not being
 worked on belongs in `tests/BACKLOG.md`. Layout: [`../specs/work-tracking-layout.md`](../specs/work-tracking-layout.md).
 
-- [~] **v0.3.0 SHIPPED NO RELEASE — the qualify step chmods a binary the release no longer ships**
+- [x] **v0.3.0 SHIPPED NO RELEASE — the qualify step chmods a binary the release no longer ships**
       (claim `native-release-qualify-stale-chmod`, BUGS
       `native-release-qualify-chmods-a-binary-the-release-no-longer-ships`). Tag run 33473746204:
       all three "Qualify isolated shipped bytes" jobs died on
@@ -60,6 +60,12 @@ worked on belongs in `tests/BACKLOG.md`. Layout: [`../specs/work-tracking-layout
       *Done when:* the workflow fix is on main, the bug is filed with the landed SHA, and the owner
       has decided the recovery — re-tag v0.3.0 on a fixed snapshot vs cut v0.3.1 — since moving a
       published tag is an owner call.
+      **DONE 2026-09-01: v0.3.0 IS PUBLISHED.** Owner chose re-tag; dispatch 33535521858 proved
+      all three platforms + JVM green first; the dead tag was deleted and `scripts/cut-release
+      0.3.0` re-cut it at `97323ea48`; tag run 33544431105 GREEN end to end including `Publish
+      qualified tag`, release carries 18 assets (3 native tars + ssc-jvm + 4 plugin .sscpkg, each
+      with sha256). Five defects found and fixed on the way — four filed in this file, the fifth
+      (JVM archive layout+README) in the entry above.
 
 - [x] **THE SMOKE JOB CAP IS UNDER THE SUITE AGAIN** — LANDED 2026-08-25 as `a6818c2cc`; run
       32847621107 completed in 25.6 min on a slower host (probe 279 ms), suite 113/113 in 1350.3 s. (claim `smoke-job-cap`, BUGS
