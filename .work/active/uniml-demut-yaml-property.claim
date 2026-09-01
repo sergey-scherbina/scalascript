@@ -1,0 +1,11 @@
+slug: uniml-demut-yaml-property
+branch: feature/uniml-demut-yaml-property
+agent: claude-code
+started: 2026-09-01T07:53:30Z
+heartbeat: 2026-09-01T07:53:30Z
+status: claimed-before-planning
+items: uniml-yaml-property-syntax-folds-and-parks
+paths: file:uniml/yaml/src/main/scala/scalascript/uniml/dialect/yaml/YamlPropertySyntax.scala file:uniml/SPRINT.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
