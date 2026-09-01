@@ -1,3 +1,2 @@
-# generation: 3314
+# generation: 3315
 #slug	agent	started	items	paths
-uniml-demut-tail	claude-code	2026-09-01T09:34:22Z	uniml-demut-tail	file:uniml/xml/src/main/scala/scalascript/uniml/dialect/xml/XmlDialect.scala file:uniml/markup/src/main/scala/scalascript/markup/PureMarkupCodec.scala file:uniml/markup/src/main/scala/scalascript/markup/XmlEscape.scala file:uniml/markup/src/main/scala/scalascript/markup/MarkupCodec.scala file:uniml/bench/src/main/scala/scalascript/uniml/bench/SpikeParserBench.scala file:uniml/SPRINT.md
