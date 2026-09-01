@@ -1,3 +1,40 @@
+## native-release-qualify-chmods-a-binary-the-release-no-longer-ships — v0.3.0 is a tag with no release
+
+<!-- status: fixed
+     lane: apparatus
+     area: build
+     kind: bug
+     gate: .github/workflows/native-release.yml
+     reported-by: sergiy
+     reported-at: 2026-09-01
+     confirmed: no
+     fixed-in: 60bbae144 -->
+
+**THE TAG RAN, EVERY QUALIFY JOB DIED ON ONE `chmod`, AND `Publish qualified tag` SKIPPED.**
+Reported by the owner as "я не вижу релиза 0.3.0 на гитхабе - только тег". Run `33473746204`
+(the `v0.3.0` tag push): `qualifier-contract`, the JVM archive and the plugin packages all green,
+then all three `Qualify isolated shipped bytes` matrix jobs failed identically —
+
+    chmod: /Users/runner/work/_temp/native-release-ssc-macos-arm64/ssc-macos-arm64: No such file or directory
+
+so the publish job never ran and v0.2.0 is still the latest release.
+
+**CAUSE:** `93bc81423` (2026-08-28, hours AFTER v0.2.0's green run) dropped the bare per-platform
+binary from `dist/` — correctly, it could never run standalone — and removed its `cp` into the
+isolated qualify dir, but left `chmod +x "$isolated/$ARTIFACT_ID"` behind. Under `set -euo
+pipefail` the chmod of the no-longer-copied file kills the step. `scripts/native-release-qualify`
+itself never needed the bare binary: it extracts `ssc` from the tarball it validates.
+
+**WHY NO GATE SAW IT:** the qualify step executes only on tag pushes and `workflow_dispatch`, and
+the last dispatch (`32267986853`, 2026-08-19) predates the change — so the leftover's first
+execution was the release it broke. `tests/e2e/native-release-qualification.sh` exercises the
+qualify SCRIPT, not the workflow step's own shell; the step is unguarded glue.
+
+**FIX** (`60bbae144`): chmod only `native-release-qualify`. Recovery of the release itself is the
+owner's call, because the tag's own workflow is the broken one — a tag-push run always executes
+the workflow AT the tag, so re-running `33473746204` re-fails: either re-tag `v0.3.0` on a
+snapshot carrying the fix, or `scripts/cut-release 0.3.1`.
+
 ## smoke-baseline-harvest-deletes-optional-check-rows — a wholesale table replace dropped the rows CI structurally cannot measure
 
 <!-- status: fixed
