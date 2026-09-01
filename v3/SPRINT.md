@@ -9,6 +9,39 @@ Pipeline: `source → AST → SSC IR → execute | translate`.
 **The order is deliberate: the IR is designed and verified before a front is written against it.**
 A compiler built on an IR that turns out to be wrong is work thrown away twice.
 
+## [x] uniml-extern-class-members-hoist-to-top-level (claim `uniml-extern-class-members-hoist-to-top-level`)
+
+**BUGS:** `v3/BUGS.md` `uniml-extern-class-members-hoist-to-top-level`. The filed entry says "the
+dialect has no `extern` handling"; the MEASURED mechanism is different and BROADER (probes
+ex1–ex5, 2026-09-02): `parseProgram`'s loop erases decl modifiers (`skipDeclModifiers`, `extern`
+included) BEFORE dispatch, so `parseExtern` is dead code at top level, and
+`parseTraitOrClassNoop`/`parseObject` anchor their offside `declCol` at the KEYWORD's column —
+after `extern ` erasure that is column 8, members at column 3 read as "not indented past it", the
+body is empty and the members re-parse as top-level siblings. The same hoisting hits `sealed
+trait Shape:` (loses its methods) and `private object Registry:` (loses its members) — any erased
+modifier shifts the anchor. Decisive probe: members indented past the keyword column ATTACH.
+
+**LANDED 2026-09-02 as `0d947d34a`**, plan executed with one addition found by the differential's
+COUNTS, not its diff list: attaching an extern class's members sent its abstract `val` into the
+TraitDecl member sort, whose refusal silently un-printed two corpus files (uniml-only 50 -> 48) —
+the `UniFront` AbstractVal-in-class Skip arm restored them (50/9 again). Final: agree 359/360,
+one declared row left (kr-summon-anonymous-given), unimlScala 228/228, smoke-ci exit 0.
+
+**Plan (as executed):**
+1. `parseProgram`'s loop: capture the pre-modifier column (`cPre.peekCol` after
+   `skipAnns(skipResiduals(…))`, before `skipDeclModifiers`) and pass it to `dispatch`.
+2. `parseTraitOrClassNoop` and `parseObject` take `headCol0: Option[Int] = None` and anchor
+   `declCol` there; other call sites unchanged (None keeps today's behaviour).
+3. Probes ex1 (extern class), ex5 (sealed trait + private object) must attach; ex4 (deep indent)
+   must keep attaching; `extern def` top-level unchanged (erased signature).
+4. Probe ONE nested shape (a modifier-prefixed decl inside an object body) — memberLoop erases
+   modifiers too (`:2826`); if broken, file it separately rather than widening this fix.
+5. Regression tests in SpikeTypedRolesSpec (extern class members attach; sealed trait keeps
+   methods; private object keeps members). mcp-client-invoke OUT of KNOWN_CONF_DISAGREE if the
+   projection now agrees (the extern-class members become `__abstract__` methods exactly as v3
+   prints them) — verify with front-diff before removing the row.
+6. Gates: unimlScala tests, v3/front-diff.sh (fresh classpath), smoke-ci.
+
 ## [x] uniml-traitdecl-drops-class-parameters (claim `uniml-traitdecl-drops-class-parameters`)
 
 **BUGS:** `v3/BUGS.md` `uniml-traitdecl-drops-class-parameters` — `class Box(n: Int)` reaches the

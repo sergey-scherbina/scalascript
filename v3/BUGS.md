@@ -2413,13 +2413,30 @@ capability that lands on one front is what makes the other front's defects reach
 
 ## uniml-extern-class-members-hoist-to-top-level — an `extern class` arrives with empty members and its `def`s as siblings
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      kind: bug
      area: front
-     gate: v3/front-diff.sh (mcp-client-invoke is a declared corpus disagreement)
+     gate: v3/front-diff.sh (mcp-client-invoke is OUT of KNOWN_CONF_DISAGREE); SpikeTypedRolesSpec's three-modifier test
      found-by: claude-code
-     found-at: 2026-08-31 -->
+     found-at: 2026-08-31
+     fixed-in: 0d947d34a -->
+
+**FIXED 2026-09-02 in `0d947d34a`, and the filed cause was WRONG — kept below as evidence.** The
+dialect DOES route `extern` (into `parseExtern`) — but `parseProgram`'s loop erases decl modifiers
+before dispatch, so that arm is dead code at top level, and the REAL mechanism was the offside
+anchor: `parseTraitOrClassNoop`/`parseObject` took `declCol` from the KEYWORD's column, which after
+`extern `/`sealed `/`private ` erasure sits past the members' indent — so the body read as absent
+and the members re-parsed as top-level siblings. `sealed trait` lost its methods and `private
+object` its members by the same shift; a probe with members indented past the keyword column
+attached them, which decided it. The loop now hands the pre-modifier column to both parsers.
+The freed abstract `val` of an extern class then reached the TraitDecl member sort and was
+refused — `UniFront` now skips it for `kw == "class"` by the admitted field-declaration rule
+(`abstract-val-in-an-extern-class-is-a-field-declaration`); a trait's abstract state stays
+refused. Both fronts print `McpClient` byte-identically; agree 359/360, uniml-only and
+shared-gap counts back at their pre-fix values.
+
+### Original report (superseded 2026-09-02)
 
 **`extern class C: def f(): Int` PROJECTS AS AN EMPTY CLASS PLUS A TOP-LEVEL `def f`.** The dialect
 has no `extern` handling at all, so the members are lifted out of the declaration rather than
