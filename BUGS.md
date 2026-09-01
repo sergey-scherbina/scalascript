@@ -19,7 +19,7 @@ Newest first.
 ## v1-quoted-macro-preproc-comment-apostrophe — a prose apostrophe in a comment derailed the quoted-macro preprocessor
 
 <!-- status: fixed
-     lane: v1
+     lane: multi
      area: front
      kind: bug
      gate: v1/lang/core/src/test/scala/scalascript/parser/QuotedMacroPreprocessorTest.scala
