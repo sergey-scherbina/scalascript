@@ -87,7 +87,7 @@ having the gate before the projection.
 | `Throw(v)` | `Call("__throw__", [v])` — v3's throw is a prim call | `Parser` |
 | `Try(body, handler, finalizer)` | `Try(body, name, handler)`. A `finalizer` REFUSES; a handler that is not a `PartialFn` of exactly one binding arm REFUSES | `Parser.parseTry` |
 | `CompoundAssign(n, op, v)` | `Assign(n, Bin(op-minus-the-`=`, Name(n), v))` |
-| `RangeOp(op, a, b)` | `Bin(op, a, b)` — an ordinary binary operator in the TREE. The desugaring into a cons list lives in `Lower`, one implementation for two fronts; emitting the desugared form here made the fronts print different trees |
+| `RangeOp(op, a, b)` | `Bin(op, a, b)` — an ordinary binary operator in the TREE. The desugaring into a cons list lives in `Lower`, one implementation for two fronts; emitting the desugared form here made the fronts print different trees. **`RangeOp` carries EVERY id-infix application, not just `to`/`until`** (see below) |
 | `Summon`, `Quote`, `Splice`, `QuotedName`, `Marker` | **REFUSE.** `Marker` is `direct[F] { … }` and the optics markers: erasing one to its contents would run a monadic-do block as an ordinary block, which is a wrong ANSWER rather than a smaller tree |
 | `NotImplemented` in EXPRESSION position | `Prim("__throw__", ["an implementation is missing"])` — Scala's `???` throws WHEN EVALUATED, and refusing the file is stricter than the language: a stub in a branch nobody takes used to block the whole program |
 | `NotImplemented` as a def BODY | `Name("__abstract__")` — no `=` was written. ONE marker, and the SITE says what it means: in a trait or class it is an abstract member, at top level it is an `extern`, i.e. a host function |
@@ -143,6 +143,19 @@ reachable through any same-named method and refuse the 144 again.
 projection, because v3's own front hands `_` over as an ordinary name too. Two fronts implementing
 one desugaring is two implementations that will disagree. Same for curried application, `to`/`until`
 and boxing a captured `var` — every rule that both fronts need lives past the fork, not in it.
+
+**`RangeOp` IS NOT A RANGE — IT IS EVERY ID-INFIX APPLICATION** (`8f26b983f`, 2026-09-01).
+`b add 2` is `b.add(2)`, Scala's rule for an identifier in operator position, and the spike front
+builds the same `spike.rangeop` node for it that `to`/`until` have always used, because that node
+projects to `Bin(op, a, b)` and lowers to `lhs.op(rhs)` — which is exactly what the application
+means. The kind keeps the old spelling deliberately: renaming it would move byte-exact CST pins for
+a cosmetic gain, and the row above says what it actually holds.
+
+**WHERE THIS IS TRUE, STATED NARROWLY.** Both of v3's fronts do it. The v2 lane does NOT, and it
+does not merely refuse — `println(b add 2)` there compiles, exits 0 and prints the RECEIVER
+(`v2/BUGS.md v2-front-drops-an-id-infix-application-and-prints-the-receiver`). So this is not yet a
+language guarantee to document in `docs/user-guide.md`, and `v3/tests/front/infix-class-method.ssc`
+is deliberately not a `tests/conformance` case: it would be red on every v2 lane.
 
 **AN `object` IS A NAMESPACE, AND ITS CLASSES ARE HOISTED.** `def`s become `O.name`, `val`s become
 the object's state, and a `case class` declared inside is lifted to the top level under its PLAIN
