@@ -417,6 +417,27 @@ final class SpikeTypedRolesSpec extends AnyFunSuite:
     assert(bare.head.params.map(_.name) == Vector("n"), s"bodyless-class params are ${bare.head.params}")
   }
 
+  test("an erased MODIFIER must not shift the offside anchor — extern/sealed/private keep their members") {
+    // `parseProgram`'s loop erases decl modifiers before dispatching, and the decl parsers
+    // anchored their offside line at the KEYWORD's column — so `extern class Widget:` read its
+    // members (column 3, keyword at column 8) as "not indented past the declaration" and
+    // re-parsed them as top-level siblings. Same hoist for `sealed trait` and `private object`.
+    // (v3/BUGS.md uniml-extern-class-members-hoist-to-top-level.)
+    val ext = decls("extern class Widget:\n  def render(): String\ndef main(): Int = 0")
+      .collect { case t: SpikeAst.TraitDecl => t }
+    assert(ext.sizeIs == 1, s"expected the extern class, got $ext")
+    assert(ext.head.members.collect { case d: SpikeAst.Def => d.name } == Vector("render"),
+           s"the extern class's members hoisted to top level: ${ext.head.members}")
+    val sealedT = decls("sealed trait Shape:\n  def area(): Int = 1\ndef main(): Int = 0")
+      .collect { case t: SpikeAst.TraitDecl => t }
+    assert(sealedT.head.members.collect { case d: SpikeAst.Def => d.name } == Vector("area"),
+           s"the sealed trait's methods hoisted: ${sealedT.head.members}")
+    val privO = decls("private object Registry:\n  def get(): Int = 2\ndef main(): Int = 0")
+      .collect { case o: SpikeAst.ObjectDecl => o }
+    assert(privO.head.members.collect { case d: SpikeAst.Def => d.name } == Vector("get"),
+           s"the private object's members hoisted: ${privO.head.members}")
+  }
+
   test("a trait's body is WALKED, so it can never be invisible to a count again") {
     val n = SpikeAst.walk(project("trait S:\n  def f(): Int = 1 + 2\ndef main(): Int = 0"))
       .count(_.isInstanceOf[SpikeAst.Infix])

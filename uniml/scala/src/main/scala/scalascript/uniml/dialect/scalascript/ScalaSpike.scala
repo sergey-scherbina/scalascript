@@ -2951,10 +2951,12 @@ object SpikeParse:
 
   // `object X [extends …]: members` / `object X { members }` → Pair("object", Pair(name, [member-stmts]))
   // (ssc1-front.ssc0:2687). The lowerer emits `X_member` globals from the body; `X.member` resolves to them.
-  private def parseObject(c0: Cur, caseTok: Option[SourceToken] = None): St[Node] =
+  private def parseObject(c0: Cur, caseTok: Option[SourceToken], headCol0: Option[Int]): St[Node] =
     // The DECLARATION's own column, not the `object` keyword's — for `case object` the head token is
-    // `case`, already consumed by the caller. A member must be indented past THIS. See `hasBody`.
-    val declCol = caseTok.map(_.span.start.column).getOrElse(c0.peekCol)
+    // `case`, already consumed by the caller, and for `private object` it is the modifier
+    // `parseProgram`'s loop erased (headCol0, same anchor `parseTraitOrClassNoop` takes — its
+    // comment has the measurement). A member must be indented past THIS. See `hasBody`.
+    val declCol = headCol0.orElse(caseTok.map(_.span.start.column)).getOrElse(c0.peekCol)
     val kids0 = caseTok.map(t => Node.Leaf(t, Some("obj.case"))).toVector // `case object` — the marker, kept
     val name = expectName(c0.bump, "obj.name", "object name") // `object`
     // The parents are KEPT now, under the same `td.parent` role the trait uses. They used to be
@@ -2995,7 +2997,7 @@ object SpikeParse:
     // across the corpus came from that one missing branch.
     else if isKw(c, "case") && c.peek2Lexeme == "object" then
       val caseKw = c.advance
-      parseObject(caseKw.c, caseKw.v)
+      parseObject(caseKw.c, caseKw.v, None)
     else if isKw(c, "case") then parseCaseClass(c)
     else if isKw(c, "val") then parseVal(c)
     else if isWord(c, "var") then parseVarStmt(c)
@@ -3080,8 +3082,16 @@ object SpikeParse:
       St(close.c, inner.v ++ close.v.map(t => Node.Leaf(t, Some("td.rparen"))).toVector)
     else St(inner.c, inner.v) // bail already consumed through `)`
 
-  private def parseTraitOrClassNoop(c0: Cur): St[Node] =
-    val declCol = c0.peekCol // before the keyword is consumed — the offside line for members
+  private def parseTraitOrClassNoop(c0: Cur, headCol0: Option[Int]): St[Node] =
+    // The offside line for members is the DECLARATION's first token, which is NOT always the
+    // keyword: `parseProgram`'s loop erases decl modifiers before dispatching, so for
+    // `extern class Widget:` the cursor stands at `class`, column 8 — and members at column 3
+    // read as "not indented past the declaration" and re-parse as top-level siblings. Measured
+    // 2026-09-02 (uniml-extern-class-members-hoist-to-top-level): `extern class` lost all its
+    // members, `sealed trait` its methods — any erased modifier shifted the anchor. The caller
+    // that erased the modifiers passes the pre-modifier column; the keyword column stays the
+    // default for callers that erased nothing.
+    val declCol = headCol0.getOrElse(c0.peekCol)
     val kw = c0.advance // `trait` / `class`
     val kids0 = kw.v.map(t => Node.Leaf(t, Some("td.kw"))).toVector
     val name: St[Vector[Node]] =
@@ -3181,18 +3191,18 @@ object SpikeParse:
     St(walked.c, Node.Frame("spike.sealed", None, walked.v))
 
   def parseProgram(toks: Vector[SourceToken]): Parsed =
-    def dispatch(c: Cur): St[Node] =
+    def dispatch(c: Cur, headCol: Int): St[Node] =
       if isDefStart(c) then parseDef(c)
       // `case object`. The `case` used to be advanced past and dropped, so the object frame had
       // no way to know, and `case object O` projected identically to `object O`.
       else if isKw(c, "case") && c.peek2Lexeme == "object" then
         val caseKw = c.advance
-        parseObject(caseKw.c, caseKw.v)
+        parseObject(caseKw.c, caseKw.v, Some(headCol))
       else if isKw(c, "case") then parseCaseClass(c)
       else if isKw(c, "given") then parseGiven(c)
       else if isKw(c, "enum") then parseEnum(c)
       else if isKw(c, "extension") then parseExtension(c)
-      else if isWord(c, "object") then parseObject(c)
+      else if isWord(c, "object") then parseObject(c, None, Some(headCol))
       else if isWord(c, "effect") && (c.peek2Kind == "spike.uid" || c.peek2Kind == "spike.id") then parseEffectDecl(c, false)
       else if isWord(c, "multi") && c.peek2Lexeme == "effect" then parseEffectDecl(c, true) // `multi effect`
       else if isWord(c, "extern") then parseExtern(c)
@@ -3208,7 +3218,7 @@ object SpikeParse:
       // tier erases has to be erased by both fronts or the feature is invisible on the default path.
       else if isWord(c, "opaque") && c.peek2Lexeme == "type" then
         parseTypeAlias(c.bump) // `opaque`; `parseTypeAlias` starts at `type` and eats the rest of the line
-      else if isWord(c, "trait") || isKw(c, "class") then parseTraitOrClassNoop(c)
+      else if isWord(c, "trait") || isKw(c, "class") then parseTraitOrClassNoop(c, Some(headCol))
       // a top-level STATEMENT — script-style `println(…)`, top-level `val`/`var`/expr. ssc1-front keeps these
       // in source order and lowerProg collects them into `(entry (seq …))` (and `val`/`var` → a global cell).
       // Before this they collapsed the whole program to Nil (newfront Phase 0's #1 gap).
@@ -3243,10 +3253,11 @@ object SpikeParse:
     def loop(c0: Cur, defs: Vector[Node]): St[Vector[Node]] =
       if c0.eof then St(c0, defs)
       else
-        val c1 = skipDeclModifiers(skipAnns(skipResiduals(c0)))         // `sealed`/`final`/`abstract`/… — erased
+        val cPre = skipAnns(skipResiduals(c0)) // the declaration's own first token — the offside anchor
+        val c1 = skipDeclModifiers(cPre)                                 // `sealed`/`final`/`abstract`/… — erased
         if c1.eof then St(c1, defs) // trailing annotation(s)/modifier(s) with nothing after
         else
-          val d = dispatch(c1)
+          val d = dispatch(c1, cPre.peekCol)
           val progressed = if d.c.p == c1.p then d.c.bump else d.c // guarantee progress even if nothing was consumed
           loop(progressed, defs :+ d.v)
     val done = loop(Cur(toks, 0, Vector.empty, 0, Nil), Vector.empty)

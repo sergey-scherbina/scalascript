@@ -220,13 +220,10 @@ if [ "${SSC3_FRONT_DIFF_CORPUS:-1}" = 1 ] && [ "$nfronts" -ge 2 ]; then
   # `U.TraitDecl`'s `keyword` to `_` and answered `TraitDef` for a `class` — and those are fixed,
   # not declared. Agreement 347 -> 349.
   #
-  #   mcp-client-invoke           reaches `std/mcp/client.ssc:45`, `extern class McpClient:`,
-  #                               through the import closure. The dialect has no `extern` handling,
-  #                               so the class arrives with EMPTY members and its twelve `def`s
-  #                               arrive as top-level SIBLINGS. The projection maps one declaration
-  #                               at a time and has no cross-declaration context to tell which
-  #                               siblings belong to which class, so reattaching them here would be
-  #                               a guess. `uniml-extern-class-members-hoist-to-top-level`.
+  #   (2026-09-02: `mcp-client-invoke` came out — the hoist was `parseProgram` erasing decl
+  #   modifiers before dispatch, which shifted the offside anchor to the keyword's column;
+  #   `uniml-extern-class-members-hoist-to-top-level` has the measured story. Both fronts now
+  #   print `McpClient` byte-identically.)
   #
   #   kr-summon-anonymous-given   NEITHER front handles an ANONYMOUS `given T with`, and they fail
   #                               DIFFERENTLY, which is why it lands here rather than in the
@@ -247,7 +244,6 @@ if [ "${SSC3_FRONT_DIFF_CORPUS:-1}" = 1 ] && [ "$nfronts" -ge 2 ]; then
   # Closing either gap makes this gate RED with the row named — drop it in the same commit.
   declare -a KNOWN_CONF_DISAGREE=(
     kr-summon-anonymous-given
-    mcp-client-invoke
   )
   cdactual="$(cut -f1 "$cdiffs" | sort | tr '\n' ' ')"
   cddecl="$(printf '%s\n' "${KNOWN_CONF_DISAGREE[@]}" | sort | tr '\n' ' ')"

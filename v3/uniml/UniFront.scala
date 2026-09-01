@@ -273,6 +273,15 @@ object UniFront:
                       case U.NotImplemented(bs) => Expr.Name("__abstract__", pos(bs))
                       case other                => expr(other),
                     pos(d.span), d.tparams.toList, boundParams(d), retText(d.ret)))
+        // An abstract `val` MEMBER of a plain/extern CLASS is a FIELD DECLARATION and emits
+        // nothing — the rule the owner admitted on 2026-08-19 for the top-level arm
+        // (`abstract-val-in-an-extern-class-is-a-field-declaration`), now applied where the member
+        // actually arrives: since the dialect stopped hoisting an `extern class`'s body
+        // (`uniml-extern-class-members-hoist-to-top-level`), `std/http.ssc:170`'s `val name:
+        // String` reaches THIS sort instead of the top-level one, and refusing it here re-lost the
+        // two corpus files the old hoisting accidentally kept printable. A TRAIT's abstract state
+        // stays refused below — v3's traits carry methods, not state, by recorded design.
+        case _: U.AbstractVal if kw == "class" => Nil
         case other => no("a `trait` member that is not a `def`", other.span)
       }
       // THE `keyword` WAS CARRIED HERE AND THEN DISCARDED. `SpikeAst.TraitDecl` holds it because
