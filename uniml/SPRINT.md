@@ -57,6 +57,18 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
       envelope — no urgent knob. Cursor de-mutabilization (stage 10) must re-run this bench per
       module as its perf gate.
 
+- [~] uniml-demut-json-lexer — **the first PARSER conversion: JsonLexer is a pure fold.** 13 state
+      vars became one `JsonLexState` record (field-per-var, declaration order kept so a historical
+      diff matches one to one) threaded `step(state, chunk)`-style — the exact shape the
+      portable-program decision named ("keep the pure fold step(state, chunk)"). The imperative
+      shell's while-loop is a tail-recursive walk (the shape scalac and Scala.js both compile to a
+      loop); the `reprocess` loop's at-most-twice property became bounded recursion with the halted
+      guard where the loop condition had it. `validNumber` keeps its imperative spelling
+      DELIBERATELY, documented in place: a straight-line RFC 8259 grammar walk over one short
+      lexeme whose index never escapes — converting it buys no observable immutability.
+      **Measured, not assumed:** tests 16/16 JVM + 16/16 JS, portable lint OK, and warm test-suite
+      wall time 3.00s before → 2.65–2.76s after (three runs each) — no regression, so the
+      backlog's perf escape hatch is NOT needed here. Vars 15 → 1.
 - [~] uniml-demut-address — **stage 10's first conversion: `address` is var-free.** The `member`
       search (3 of the tree's ~790 vars) became an iterator pipeline. Two semantic branches carried
       over explicitly: a later DUPLICATE key with a value still answers when an earlier one lacks

@@ -23,212 +23,264 @@ private enum JsonStringState:
   case Escape
   case UnicodeEscape(remaining: Int)
 
+/** The whole of the lexer's state, threaded through a pure fold. One value per former `var`, in
+  * the order the imperative original declared them — the record IS the conversion, so a reader
+  * diffing against history can match field to variable one for one. */
+private final case class JsonLexState(
+    completed: Vector[JsonLexToken],
+    diagnostics: Vector[Diagnostic],
+    current: Vector[String],
+    mode: JsonMode,
+    stringState: JsonStringState,
+    currentStart: SourcePosition,
+    currentIssue: Option[JsonLexIssue],
+    currentCodePoints: Int,
+    nextTokenId: Long,
+    totalCodePoints: Long,
+    currentPosition: SourcePosition,
+    halted: Boolean,
+)
+
 /** Pure JSON lexer: a single fold over the whole source that returns the token
-  * vector, diagnostics, and the final position. All lexing state lives in local
-  * `var`s inside `scan` (no mutable object fields), with a local imperative shell
-  * and immutable `Vector` accumulation — including the in-progress lexeme buffer
-  * `current` (a `Vector[String]` of code-point lexemes, joined with `.mkString`).
+  * vector, diagnostics, and the final position. Lexing state is an immutable
+  * [[JsonLexState]] record threaded `step(state, chunk)`-style — the shape the
+  * portable-program decision names — with NO `var` anywhere: the former local
+  * imperative shell is a tail-recursive walk. The in-progress lexeme buffer
+  * stays a `Vector[String]` of code-point lexemes joined with `.mkString`.
   * Uses only v2-supported constructs (no `StringBuilder`). */
 private object JsonLexer:
   def scan(source: SourceId, text: String, limits: JsonLimits): JsonLexResult =
-    var completed: Vector[JsonLexToken] = Vector.empty
-    var diagnostics: Vector[Diagnostic] = Vector.empty
-    // token buffer as an immutable Vector of code-point lexemes (v2 has no
-    // StringBuilder; Vector `:+`/`.mkString` are supported and fully immutable)
-    var current: Vector[String] = Vector.empty
-    var mode = JsonMode.Default
-    var stringState = JsonStringState.Normal
-    var currentStart = SourcePosition.Start
-    var currentIssue: Option[JsonLexIssue] = None
-    var currentCodePoints = 0
-    var nextTokenId = 0L
-    var totalCodePoints = 0L
-    var currentPosition = SourcePosition.Start
-    var halted = false
 
-    def setIssue(code: String, message: String, severity: Severity): Unit =
-      if currentIssue.isEmpty then currentIssue = Some(JsonLexIssue(code, message, severity))
+    def setIssue(s: JsonLexState, code: String, message: String, severity: Severity): JsonLexState =
+      if s.currentIssue.isEmpty then s.copy(currentIssue = Some(JsonLexIssue(code, message, severity)))
+      else s
 
-    def complete(kind: String, channel: TokenChannel): Unit =
-      val lexeme = current.mkString
-      completed = completed :+ JsonLexToken(
-        SourceToken(
-          id = nextTokenId,
-          kind = kind,
-          lexeme = lexeme,
-          span = SourceSpan(source, currentStart, currentPosition),
-          channel = channel,
+    def complete(s: JsonLexState, kind: String, channel: TokenChannel): JsonLexState =
+      val lexeme = s.current.mkString
+      s.copy(
+        completed = s.completed :+ JsonLexToken(
+          SourceToken(
+            id = s.nextTokenId,
+            kind = kind,
+            lexeme = lexeme,
+            span = SourceSpan(source, s.currentStart, s.currentPosition),
+            channel = channel,
+          ),
+          s.currentIssue,
         ),
-        currentIssue,
+        nextTokenId = s.nextTokenId + 1L,
+        mode = JsonMode.Default,
+        stringState = JsonStringState.Normal,
+        current = Vector.empty,
+        currentIssue = None,
+        currentCodePoints = 0,
       )
-      nextTokenId += 1L
-      mode = JsonMode.Default
-      stringState = JsonStringState.Normal
-      current = Vector.empty
-      currentIssue = None
-      currentCodePoints = 0
 
-    def append(lexeme: String, rawSurrogate: Boolean): Unit =
-      current = current :+ lexeme
-      currentCodePoints += 1
-      currentPosition = Unicode.advance(currentPosition, lexeme)
-      if rawSurrogate && mode != JsonMode.StringValue then
-        setIssue("uniml.json.invalid-character", "raw unpaired UTF-16 surrogate", Severity.Error)
-      if mode == JsonMode.StringValue && currentCodePoints > limits.maxStringCodePoints then
-        setIssue("uniml.json.limit.string", s"JSON string exceeds the ${limits.maxStringCodePoints} code-point limit", Severity.Fatal)
-        complete("json.invalid", TokenChannel.Error)
-        halted = true
-      else if mode == JsonMode.Atom && current.nonEmpty &&
-          (current.head.charAt(0) == '-' || isAsciiDigit(current.head.charAt(0))) &&
-          currentCodePoints > limits.maxNumberCodePoints then
-        setIssue("uniml.json.limit.number", s"JSON number exceeds the ${limits.maxNumberCodePoints} code-point limit", Severity.Fatal)
-        complete("json.invalid", TokenChannel.Error)
-        halted = true
+    // Order preserved from the original: append and advance FIRST, then the surrogate issue (only
+    // outside a string — the string path raises its own), then the limit checks, whose `complete`
+    // must see the advanced position and the appended lexeme.
+    def append(s0: JsonLexState, lexeme: String, rawSurrogate: Boolean): JsonLexState =
+      val s1 = s0.copy(
+        current = s0.current :+ lexeme,
+        currentCodePoints = s0.currentCodePoints + 1,
+        currentPosition = Unicode.advance(s0.currentPosition, lexeme),
+      )
+      val s2 =
+        if rawSurrogate && s1.mode != JsonMode.StringValue then
+          setIssue(s1, "uniml.json.invalid-character", "raw unpaired UTF-16 surrogate", Severity.Error)
+        else s1
+      if s2.mode == JsonMode.StringValue && s2.currentCodePoints > limits.maxStringCodePoints then
+        complete(
+          setIssue(s2, "uniml.json.limit.string", s"JSON string exceeds the ${limits.maxStringCodePoints} code-point limit", Severity.Fatal),
+          "json.invalid", TokenChannel.Error,
+        ).copy(halted = true)
+      else if s2.mode == JsonMode.Atom && s2.current.nonEmpty &&
+          (s2.current.head.charAt(0) == '-' || isAsciiDigit(s2.current.head.charAt(0))) &&
+          s2.currentCodePoints > limits.maxNumberCodePoints then
+        complete(
+          setIssue(s2, "uniml.json.limit.number", s"JSON number exceeds the ${limits.maxNumberCodePoints} code-point limit", Severity.Fatal),
+          "json.invalid", TokenChannel.Error,
+        ).copy(halted = true)
+      else s2
 
-    def start(nextMode: JsonMode, lexeme: String, rawSurrogate: Boolean): Unit =
-      mode = nextMode
-      currentStart = currentPosition
-      current = Vector.empty
-      currentIssue = None
-      currentCodePoints = 0
-      append(lexeme, rawSurrogate)
+    def start(s: JsonLexState, nextMode: JsonMode, lexeme: String, rawSurrogate: Boolean): JsonLexState =
+      append(
+        s.copy(
+          mode = nextMode,
+          currentStart = s.currentPosition,
+          current = Vector.empty,
+          currentIssue = None,
+          currentCodePoints = 0,
+        ),
+        lexeme, rawSurrogate,
+      )
 
-    def emitSingle(kind: String, lexeme: String): Unit =
-      start(JsonMode.Atom, lexeme, rawSurrogate = false)
-      complete(kind, TokenChannel.Syntax)
+    def emitSingle(s: JsonLexState, kind: String, lexeme: String): JsonLexState =
+      complete(start(s, JsonMode.Atom, lexeme, rawSurrogate = false), kind, TokenChannel.Syntax)
 
-    def completeAtom(): Unit =
-      val lexeme = current.mkString
-      if currentIssue.nonEmpty then complete("json.invalid", TokenChannel.Error)
+    def completeAtom(s: JsonLexState): JsonLexState =
+      val lexeme = s.current.mkString
+      if s.currentIssue.nonEmpty then complete(s, "json.invalid", TokenChannel.Error)
       else lexeme match
-        case "true"  => complete("json.true", TokenChannel.Syntax)
-        case "false" => complete("json.false", TokenChannel.Syntax)
-        case "null"  => complete("json.null", TokenChannel.Syntax)
-        case value if startsNumber(value) && validNumber(value) => complete("json.number", TokenChannel.Syntax)
+        case "true"  => complete(s, "json.true", TokenChannel.Syntax)
+        case "false" => complete(s, "json.false", TokenChannel.Syntax)
+        case "null"  => complete(s, "json.null", TokenChannel.Syntax)
+        case value if startsNumber(value) && validNumber(value) => complete(s, "json.number", TokenChannel.Syntax)
         case value if startsNumber(value) =>
-          setIssue("uniml.json.invalid-number", s"invalid RFC 8259 number '$value'", Severity.Error)
-          complete("json.invalid", TokenChannel.Error)
+          complete(
+            setIssue(s, "uniml.json.invalid-number", s"invalid RFC 8259 number '$value'", Severity.Error),
+            "json.invalid", TokenChannel.Error,
+          )
         case value =>
-          setIssue("uniml.json.invalid-literal", s"invalid JSON literal '$value'", Severity.Error)
-          complete("json.invalid", TokenChannel.Error)
+          complete(
+            setIssue(s, "uniml.json.invalid-literal", s"invalid JSON literal '$value'", Severity.Error),
+            "json.invalid", TokenChannel.Error,
+          )
 
-    def feedStringCodePoint(lexeme: String, rawSurrogate: Boolean): Unit =
-      append(lexeme, rawSurrogate)
-      if rawSurrogate then
-        setIssue("uniml.json.invalid-string", "raw unpaired UTF-16 surrogate in JSON string", Severity.Error)
-      stringState match
+    def feedStringCodePoint(s0: JsonLexState, lexeme: String, rawSurrogate: Boolean): JsonLexState =
+      val s1 = append(s0, lexeme, rawSurrogate)
+      val s2 =
+        if rawSurrogate then
+          setIssue(s1, "uniml.json.invalid-string", "raw unpaired UTF-16 surrogate in JSON string", Severity.Error)
+        else s1
+      s2.stringState match
         case JsonStringState.Normal =>
           lexeme match
-            case "\"" => complete(if currentIssue.isEmpty then "json.string" else "json.invalid", if currentIssue.isEmpty then TokenChannel.Syntax else TokenChannel.Error)
-            case "\\" => stringState = JsonStringState.Escape
+            case "\"" =>
+              if s2.currentIssue.isEmpty then complete(s2, "json.string", TokenChannel.Syntax)
+              else complete(s2, "json.invalid", TokenChannel.Error)
+            case "\\" => s2.copy(stringState = JsonStringState.Escape)
             case value if isControl(value) =>
-              setIssue("uniml.json.invalid-string", "unescaped control character in JSON string", Severity.Error)
-            case _ => ()
+              setIssue(s2, "uniml.json.invalid-string", "unescaped control character in JSON string", Severity.Error)
+            case _ => s2
         case JsonStringState.Escape =>
           lexeme match
-            case "\"" | "\\" | "/" | "b" | "f" | "n" | "r" | "t" => stringState = JsonStringState.Normal
-            case "u" => stringState = JsonStringState.UnicodeEscape(4)
+            case "\"" | "\\" | "/" | "b" | "f" | "n" | "r" | "t" => s2.copy(stringState = JsonStringState.Normal)
+            case "u" => s2.copy(stringState = JsonStringState.UnicodeEscape(4))
             case _ =>
-              setIssue("uniml.json.invalid-string", "invalid JSON string escape", Severity.Error)
-              stringState = JsonStringState.Normal
+              setIssue(s2, "uniml.json.invalid-string", "invalid JSON string escape", Severity.Error)
+                .copy(stringState = JsonStringState.Normal)
         case JsonStringState.UnicodeEscape(remaining) =>
           if isHexDigit(lexeme) then
-            if remaining == 1 then stringState = JsonStringState.Normal
-            else stringState = JsonStringState.UnicodeEscape(remaining - 1)
+            if remaining == 1 then s2.copy(stringState = JsonStringState.Normal)
+            else s2.copy(stringState = JsonStringState.UnicodeEscape(remaining - 1))
           else
-            setIssue("uniml.json.invalid-string", "JSON unicode escape requires four hexadecimal digits", Severity.Error)
-            if lexeme == "\"" then complete("json.invalid", TokenChannel.Error)
-            else if lexeme == "\\" then stringState = JsonStringState.Escape
-            else stringState = JsonStringState.Normal
+            val s3 = setIssue(s2, "uniml.json.invalid-string", "JSON unicode escape requires four hexadecimal digits", Severity.Error)
+            if lexeme == "\"" then complete(s3, "json.invalid", TokenChannel.Error)
+            else if lexeme == "\\" then s3.copy(stringState = JsonStringState.Escape)
+            else s3.copy(stringState = JsonStringState.Normal)
 
-    def feedCodePoint(lexeme: String, rawSurrogate: Boolean): Unit =
-      totalCodePoints += 1L
-      if totalCodePoints > limits.maxSourceCodePoints then
-        halted = true
-        diagnostics = diagnostics :+ Diagnostic(
-          code = "uniml.json.limit.source",
-          message = s"JSON source exceeds the ${limits.maxSourceCodePoints} code-point limit",
-          severity = Severity.Fatal,
-          span = Some(SourceSpan(source, currentPosition, currentPosition)),
-          dialect = Some(JsonDialect.id),
+    // The original's `reprocess` while-loop runs at most twice: only the Whitespace and Atom arms
+    // request reprocessing, both complete into Default first, and Default never requests it. The
+    // recursion below has exactly that depth, and the halted guard sits where the loop condition
+    // (`reprocess && !halted`) had it — a limit-`complete` inside `append` must suppress the rerun.
+    def dispatch(s: JsonLexState, lexeme: String, rawSurrogate: Boolean): JsonLexState =
+      s.mode match
+        case JsonMode.Default =>
+          if isWhitespace(lexeme) then start(s, JsonMode.Whitespace, lexeme, rawSurrogate)
+          else lexeme match
+            case "{" => emitSingle(s, "json.lbrace", lexeme)
+            case "}" => emitSingle(s, "json.rbrace", lexeme)
+            case "[" => emitSingle(s, "json.lbracket", lexeme)
+            case "]" => emitSingle(s, "json.rbracket", lexeme)
+            case ":" => emitSingle(s, "json.colon", lexeme)
+            case "," => emitSingle(s, "json.comma", lexeme)
+            case "\"" =>
+              start(s, JsonMode.StringValue, lexeme, rawSurrogate).copy(stringState = JsonStringState.Normal)
+            case "\uFEFF" if s.currentPosition.offset == 0 =>
+              complete(
+                setIssue(
+                  start(s, JsonMode.Atom, lexeme, rawSurrogate),
+                  "uniml.json.bom", "leading JSON byte-order mark was preserved", Severity.Warning,
+                ),
+                "json.bom", TokenChannel.Trivia,
+              )
+            case value if startsAtom(value) => start(s, JsonMode.Atom, value, rawSurrogate)
+            case _ =>
+              complete(
+                setIssue(
+                  start(s, JsonMode.Atom, lexeme, rawSurrogate),
+                  "uniml.json.invalid-character", "invalid character outside a JSON token", Severity.Error,
+                ),
+                "json.invalid", TokenChannel.Error,
+              )
+        case JsonMode.Whitespace =>
+          if isWhitespace(lexeme) then append(s, lexeme, rawSurrogate)
+          else
+            val done = complete(s, "json.whitespace", TokenChannel.Trivia)
+            if done.halted then done else dispatch(done, lexeme, rawSurrogate)
+        case JsonMode.Atom =>
+          if isDelimiter(lexeme) then
+            val done = completeAtom(s)
+            if done.halted then done else dispatch(done, lexeme, rawSurrogate)
+          else append(s, lexeme, rawSurrogate)
+        case JsonMode.StringValue => feedStringCodePoint(s, lexeme, rawSurrogate)
+
+    def feedCodePoint(s: JsonLexState, lexeme: String, rawSurrogate: Boolean): JsonLexState =
+      val counted = s.copy(totalCodePoints = s.totalCodePoints + 1L)
+      if counted.totalCodePoints > limits.maxSourceCodePoints then
+        counted.copy(
+          halted = true,
+          diagnostics = counted.diagnostics :+ Diagnostic(
+            code = "uniml.json.limit.source",
+            message = s"JSON source exceeds the ${limits.maxSourceCodePoints} code-point limit",
+            severity = Severity.Fatal,
+            span = Some(SourceSpan(source, counted.currentPosition, counted.currentPosition)),
+            dialect = Some(JsonDialect.id),
+          ),
         )
+      else dispatch(counted, lexeme, rawSurrogate)
+
+    // Walk the whole source once, pairing UTF-16 surrogates as we go. Tail-recursive: the shape
+    // scalac and Scala.js both compile to a loop, so the depth is O(1) regardless of input size.
+    // Lexemes are built by SLICING the source, never `char.toString` / s"$char": a `Char` kept for
+    // classification is portable, but turning it back into text is not (ScalaScript v2 has no Char
+    // box, so `char.toString` yields the decimal code). `substring` returns the actual
+    // character(s) on both scalac and v2.
+    def walk(s: JsonLexState, index: Int): JsonLexState =
+      if index >= text.length || s.halted then s
       else
-        var reprocess = true
-        while reprocess && !halted do
-          reprocess = false
-          mode match
-            case JsonMode.Default =>
-              if isWhitespace(lexeme) then start(JsonMode.Whitespace, lexeme, rawSurrogate)
-              else lexeme match
-                case "{" => emitSingle("json.lbrace", lexeme)
-                case "}" => emitSingle("json.rbrace", lexeme)
-                case "[" => emitSingle("json.lbracket", lexeme)
-                case "]" => emitSingle("json.rbracket", lexeme)
-                case ":" => emitSingle("json.colon", lexeme)
-                case "," => emitSingle("json.comma", lexeme)
-                case "\"" =>
-                  start(JsonMode.StringValue, lexeme, rawSurrogate)
-                  stringState = JsonStringState.Normal
-                case "\uFEFF" if currentPosition.offset == 0 =>
-                  start(JsonMode.Atom, lexeme, rawSurrogate)
-                  setIssue("uniml.json.bom", "leading JSON byte-order mark was preserved", Severity.Warning)
-                  complete("json.bom", TokenChannel.Trivia)
-                case value if startsAtom(value) => start(JsonMode.Atom, value, rawSurrogate)
-                case _ =>
-                  start(JsonMode.Atom, lexeme, rawSurrogate)
-                  setIssue("uniml.json.invalid-character", "invalid character outside a JSON token", Severity.Error)
-                  complete("json.invalid", TokenChannel.Error)
-
-            case JsonMode.Whitespace =>
-              if isWhitespace(lexeme) then append(lexeme, rawSurrogate)
-              else
-                complete("json.whitespace", TokenChannel.Trivia)
-                reprocess = true
-
-            case JsonMode.Atom =>
-              if isDelimiter(lexeme) then
-                completeAtom()
-                reprocess = true
-              else append(lexeme, rawSurrogate)
-
-            case JsonMode.StringValue => feedStringCodePoint(lexeme, rawSurrogate)
-
-    // Walk the whole source once, pairing UTF-16 surrogates as we go.
-    var index = 0
-    while index < text.length && !halted do
-      val char = text.charAt(index)
-      // Build lexemes by SLICING the source, never `char.toString` / s"$char":
-      // a `Char` code point kept only for classification is portable, but turning
-      // it back into text via `.toString`/interpolation is not (ScalaScript v2 has
-      // no Char box, so `char.toString` yields the decimal code). `substring`
-      // returns the actual character(s) on both scalac and v2.
-      if Unicode.isHighSurrogate(char) then
-        if index + 1 < text.length then
-          val next = text.charAt(index + 1)
-          if Unicode.isLowSurrogate(next) then
-            feedCodePoint(text.substring(index, index + 2), rawSurrogate = false)
-            index += 2
+        val char = text.charAt(index)
+        if Unicode.isHighSurrogate(char) then
+          if index + 1 < text.length && Unicode.isLowSurrogate(text.charAt(index + 1)) then
+            walk(feedCodePoint(s, text.substring(index, index + 2), rawSurrogate = false), index + 2)
           else
-            feedCodePoint(text.substring(index, index + 1), rawSurrogate = true)
-            index += 1
+            walk(feedCodePoint(s, text.substring(index, index + 1), rawSurrogate = true), index + 1)
         else
-          feedCodePoint(text.substring(index, index + 1), rawSurrogate = true)
-          index += 1
-      else
-        feedCodePoint(text.substring(index, index + 1), rawSurrogate = Unicode.isLowSurrogate(char))
-        index += 1
+          walk(feedCodePoint(s, text.substring(index, index + 1), rawSurrogate = Unicode.isLowSurrogate(char)), index + 1)
+
+    val walked = walk(
+      JsonLexState(
+        completed = Vector.empty,
+        diagnostics = Vector.empty,
+        current = Vector.empty,
+        mode = JsonMode.Default,
+        stringState = JsonStringState.Normal,
+        currentStart = SourcePosition.Start,
+        currentIssue = None,
+        currentCodePoints = 0,
+        nextTokenId = 0L,
+        totalCodePoints = 0L,
+        currentPosition = SourcePosition.Start,
+        halted = false,
+      ),
+      0,
+    )
 
     // Finalize any token left open at end of input.
-    if !halted then
-      mode match
-        case JsonMode.Default    => ()
-        case JsonMode.Whitespace => complete("json.whitespace", TokenChannel.Trivia)
-        case JsonMode.Atom       => completeAtom()
+    val finished =
+      if walked.halted then walked
+      else walked.mode match
+        case JsonMode.Default    => walked
+        case JsonMode.Whitespace => complete(walked, "json.whitespace", TokenChannel.Trivia)
+        case JsonMode.Atom       => completeAtom(walked)
         case JsonMode.StringValue =>
-          setIssue("uniml.json.invalid-string", "unterminated JSON string", Severity.Error)
-          complete("json.invalid", TokenChannel.Error)
+          complete(
+            setIssue(walked, "uniml.json.invalid-string", "unterminated JSON string", Severity.Error),
+            "json.invalid", TokenChannel.Error,
+          )
 
-    JsonLexResult(completed, diagnostics, currentPosition)
+    JsonLexResult(finished.completed, finished.diagnostics, finished.currentPosition)
 
   private def isWhitespace(lexeme: String): Boolean =
     lexeme == " " || lexeme == "\t" || lexeme == "\n" || lexeme == "\r"
@@ -256,6 +308,10 @@ private object JsonLexer:
       isAsciiDigit(char) || (char >= 'a' && char <= 'f') || (char >= 'A' && char <= 'F')
     }
 
+  // The number validator keeps its imperative spelling deliberately: it is a straight-line RFC 8259
+  // grammar walk over a SHORT string (a single number lexeme), its `index` never escapes, and the
+  // `return`-laden shape mirrors the grammar clause by clause. Converting it buys no immutability
+  // anyone can observe — the fold above is where state actually flowed between steps.
   private def validNumber(value: String): Boolean =
     var index = 0
     if index < value.length && value.charAt(index) == '-' then index += 1
