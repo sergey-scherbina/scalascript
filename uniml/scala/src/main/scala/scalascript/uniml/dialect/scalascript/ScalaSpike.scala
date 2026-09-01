@@ -2741,7 +2741,7 @@ object SpikeEmit:
     else
       val byId = evs.iterator.map(ev => ev.tok.id -> ev).toMap
       // (token, opens, closes, role) per LEXED token, tree events where there are any
-      var rows = lexed.map { tok =>
+      val rows0 = lexed.map { tok =>
         byId.get(tok.id) match
           case Some(ev) => (tok, ev.opens, ev.closes, ev.role)
           case None =>
@@ -2754,25 +2754,25 @@ object SpikeEmit:
       // every consumer takes `roots.head`, so `\ndef f…` projected to Nil while `def f…`
       // projected fine. Move the outermost open to the first emitted token and the
       // outermost close to the last; inner frames keep the tokens that earned them.
-      val openAt = evs.headOption.flatMap(h => rows.indexWhere(_._1.id == h.tok.id) match
+      val openAt = evs.headOption.flatMap(h => rows0.indexWhere(_._1.id == h.tok.id) match
         case -1 => None
         case i  => Some(i))
-      openAt.foreach { i =>
-        if i > 0 && rows(i)._2.nonEmpty then
-          val spec = rows(i)._2.head
-          rows = rows.updated(i, rows(i).copy(_2 = rows(i)._2.drop(1)))
-          rows = rows.updated(0, rows(0).copy(_2 = spec +: rows(0)._2))
-      }
-      val closeAt = evs.lastOption.flatMap(l => rows.lastIndexWhere(_._1.id == l.tok.id) match
+      val withOpen = openAt match
+        case Some(i) if i > 0 && rows0(i)._2.nonEmpty =>
+          val spec = rows0(i)._2.head
+          val trimmed = rows0.updated(i, rows0(i).copy(_2 = rows0(i)._2.drop(1)))
+          trimmed.updated(0, trimmed(0).copy(_2 = spec +: trimmed(0)._2))
+        case _ => rows0
+      val closeAt = evs.lastOption.flatMap(l => withOpen.lastIndexWhere(_._1.id == l.tok.id) match
         case -1 => None
         case i  => Some(i))
-      closeAt.foreach { i =>
-        val last = rows.length - 1
-        if i < last && rows(i)._3.nonEmpty then
-          val kind = rows(i)._3.last
-          rows = rows.updated(i, rows(i).copy(_3 = rows(i)._3.dropRight(1)))
-          rows = rows.updated(last, rows(last).copy(_3 = rows(last)._3 :+ kind))
-      }
+      val rows = closeAt match
+        case Some(i) if i < withOpen.length - 1 && withOpen(i)._3.nonEmpty =>
+          val last = withOpen.length - 1
+          val kind = withOpen(i)._3.last
+          val trimmed = withOpen.updated(i, withOpen(i).copy(_3 = withOpen(i)._3.dropRight(1)))
+          trimmed.updated(last, trimmed(last).copy(_3 = trimmed(last)._3 :+ kind))
+        case _ => withOpen
       rows.map { (tok, opens, closes, role) =>
         val instr =
           if opens.isEmpty && closes.isEmpty then VmInstruction.Emit(role)
@@ -2815,56 +2815,47 @@ object SpikeProject:
 
   /** skip a nested `"…"` inside a `${…}` body; returns the index just after the closing quote. */
   private def scanNestedStr(s: String, i0: Int): Int =
-    var i = i0
     val n = s.length
-    var res = -1
-    while res < 0 && i < n do
-      if s.charAt(i) == '"' then res = i + 1
-      else if s.charAt(i) == '\\' then i += 2
-      else i += 1
-    if res >= 0 then res else i
+    def scan(i: Int): Int =
+      if i >= n then i
+      else if s.charAt(i) == '"' then i + 1
+      else if s.charAt(i) == '\\' then scan(i + 2)
+      else scan(i + 1)
+    scan(i0)
 
   /** index just after the `}` that matches a `${` opened at depth `depth0`; balances nested
     * braces and string literals; malformed input returns EOF. */
   private def scanInterpEnd(s: String, i0: Int, depth0: Int): Int =
-    var i = i0
-    var depth = depth0
     val n = s.length
-    var res = -1
-    while res < 0 && i < n do
-      s.charAt(i) match
-        case '"' => i = scanNestedStr(s, i + 1)
-        case '{' => depth += 1; i += 1
-        case '}' => if depth == 1 then res = i + 1 else { depth -= 1; i += 1 }
-        case _   => i += 1
-    if res >= 0 then res else i
+    def scan(i: Int, depth: Int): Int =
+      if i >= n then i
+      else s.charAt(i) match
+        case '"' => scan(scanNestedStr(s, i + 1), depth)
+        case '{' => scan(i + 1, depth + 1)
+        case '}' => if depth == 1 then i + 1 else scan(i + 1, depth - 1)
+        case _   => scan(i + 1, depth)
+    scan(i0, depth0)
 
   /** split a decoded interpolated string into ("str",lit) | ("var",name) | ("expr",src) parts. */
   private def interpParts(raw: String): Vector[(String, String)] =
     val n = raw.length
-    var out = Vector.empty[(String, String)]
-    var i = 0
-    var litStart = 0
-    def flush(end: Int): Unit = if end > litStart then out = out :+ (("str", raw.substring(litStart, end)))
-    while i < n do
-      if raw.charAt(i) == '$' && i + 1 < n then
+    def flush(out: Vector[(String, String)], litStart: Int, end: Int): Vector[(String, String)] =
+      if end > litStart then out :+ (("str", raw.substring(litStart, end))) else out
+    def walk(i: Int, litStart: Int, out: Vector[(String, String)]): Vector[(String, String)] =
+      if i >= n then flush(out, litStart, n)
+      else if raw.charAt(i) == '$' && i + 1 < n then
         val c2 = raw.charAt(i + 1)
         if c2 == '{' then
           val iAfter  = scanInterpEnd(raw, i + 2, 1)
           val exprEnd = if iAfter > i + 2 && iAfter <= n && raw.charAt(iAfter - 1) == '}' then iAfter - 1 else n
-          flush(i)
-          out = out :+ (("expr", raw.substring(i + 2, exprEnd)))
-          i = iAfter; litStart = iAfter
+          walk(iAfter, iAfter, flush(out, litStart, i) :+ (("expr", raw.substring(i + 2, exprEnd))))
         else if UniAlphabet.isAsciiLetter(c2) || UniAlphabet.isNonAscii(c2) then // ssc1-front's isAlpha is LETTER-only: `$_foo` is NOT interpolated (a literal `$`)
-          flush(i)
-          var endId = i + 1
-          while endId < n && isAlphaNum(raw.charAt(endId)) do endId += 1
-          out = out :+ (("var", raw.substring(i + 1, endId)))
-          i = endId; litStart = endId
-        else i += 1 // a literal `$` (including `$_…` / `$1…`, which ssc1-front leaves as text)
-      else i += 1
-    flush(n)
-    out
+          def idEnd(k: Int): Int = if k < n && isAlphaNum(raw.charAt(k)) then idEnd(k + 1) else k
+          val endId = idEnd(i + 1)
+          walk(endId, endId, flush(out, litStart, i) :+ (("var", raw.substring(i + 1, endId))))
+        else walk(i + 1, litStart, out) // a literal `$` (including `$_…` / `$1…`, which ssc1-front leaves as text)
+      else walk(i + 1, litStart, out)
+    walk(0, 0, Vector.empty)
 
   /** fold parts into the right-associative `++` concatenation partsToExpr builds. */
   private def partsToExpr(parts: Vector[(String, String)]): String =
@@ -2888,10 +2879,10 @@ object SpikeProject:
     val len = part.length
     if len == 0 || part.charAt(0) != '%' then ("%s", part)
     else
-      var i = 1
-      while i < len && isFmtFlag(part.charAt(i)) do i += 1
-      while i < len && isDigitC(part.charAt(i)) do i += 1
-      if i < len && part.charAt(i) == '.' then { i += 1; while i < len && isDigitC(part.charAt(i)) do i += 1 }
+      def flagsEnd(i: Int): Int = if i < len && isFmtFlag(part.charAt(i)) then flagsEnd(i + 1) else i
+      def digitsEnd(i: Int): Int = if i < len && isDigitC(part.charAt(i)) then digitsEnd(i + 1) else i
+      val afterWidth = digitsEnd(flagsEnd(1))
+      val i = if afterWidth < len && part.charAt(afterWidth) == '.' then digitsEnd(afterWidth + 1) else afterWidth
       if i < len && UniAlphabet.isAsciiLetter(part.charAt(i)) then (part.substring(0, i + 1), part.substring(i + 1, len))
       else ("%s", part)
 
@@ -3007,6 +2998,25 @@ object SpikeProject:
     val cases = ks.collect { case (_, c) if kindOf(c) == "spike.enumcase" => enumCase(c.asInstanceOf[UniNode.Branch]) }
     s"""Pair("enum", Pair("${esc(name)}", ${consList(cases)}))"""
 
+  /** Positional (name, default) pairing: each `fieldRole` leaf owns the LAST `dfltRole` that
+    * follows it before the next boundary role — the shape the three index walks it replaced all
+    * shared (a default sits right after its field, before the next field/section). Roles compare
+    * by EQUALITY (`Option.contains`), exactly as the walks did. */
+  private def fieldDefaultPairs(
+      ks: Vector[(Option[String], UniNode)],
+      fieldRole: String, dfltRole: String, boundary: Option[String] => Boolean,
+  ): Vector[(String, Option[String])] =
+    def dfltAfter(j: Int, found: Option[String]): Option[String] =
+      if j >= ks.length || boundary(ks(j)._1) then found
+      else if ks(j)._1.contains(dfltRole) then dfltAfter(j + 1, Some(wrapArg(ks(j)._2)))
+      else dfltAfter(j + 1, found)
+    ks.zipWithIndex.collect {
+      case ((role, node), i) if role.contains(fieldRole) =>
+        ("\"" + esc(lexeme(node)) + "\"", dfltAfter(i + 1, None))
+    }
+
+  private val noDflt = """Pair("__nodflt__", "")"""
+
   // the enum decl plus, per parametrized case with field defaults, a companion `("funcdefaults", …)` node
   // (variant-A: lowerProg's collectFuncDefaultsNodes unions it into funcDefaultsCell) so `Circle()` →
   // `Circle(1)` synthesises like a case class with defaults (`case Square(side: Int = 2)`).
@@ -3014,18 +3024,9 @@ object SpikeProject:
     val fdNodes = kids(n).collect { case (_, c) if kindOf(c) == "spike.enumcase" => c }.toVector.flatMap { ec =>
       val eks = kids(ec)
       val cname = eks.collectFirst { case (Some("ec.name"), c) => lexeme(c) }.getOrElse("_")
-      val fieldB = Vector.newBuilder[String]; val dfltB = Vector.newBuilder[String]; var hasDflt = false
-      var i = 0
-      while i < eks.length do
-        if eks(i)._1.contains("ec.field") then
-          fieldB += "\"" + esc(lexeme(eks(i)._2)) + "\""
-          var j = i + 1; var d = ""
-          while j < eks.length && !eks(j)._1.contains("ec.field") do
-            if eks(j)._1.contains("ec.dflt") then d = wrapArg(eks(j)._2)
-            j += 1
-          if d.nonEmpty then { dfltB += d; hasDflt = true } else dfltB += """Pair("__nodflt__", "")"""
-        i += 1
-      if hasDflt then Vector(s"""Pair("funcdefaults", Pair("${esc(cname)}", Pair(${consList(fieldB.result())}, ${consList(dfltB.result())})))""")
+      val pairs = fieldDefaultPairs(eks, "ec.field", "ec.dflt", r => r.contains("ec.field"))
+      if pairs.exists(_._2.isDefined) then
+        Vector(s"""Pair("funcdefaults", Pair("${esc(cname)}", Pair(${consList(pairs.map(_._1))}, ${consList(pairs.map(_._2.getOrElse(noDflt)))})))""")
       else Vector.empty[String]
     }
     Vector(enumNode(n)) ++ fdNodes
@@ -3090,24 +3091,13 @@ object SpikeProject:
     val ks   = kids(n)
     val name = ks.collectFirst { case (Some("def.name"), c) => lexeme(c) }.getOrElse("_")
     // positional param names + their defaults (a def.dflt follows its def.param, before the next def.param)
-    val paramNames = Vector.newBuilder[String]
-    val dflts = Vector.newBuilder[String]
-    var hasDflt = false
-    var i = 0
-    while i < ks.length do
-      if ks(i)._1.contains("def.param") then
-        paramNames += "\"" + esc(lexeme(ks(i)._2)) + "\""
-        var j = i + 1; var d = ""
-        while j < ks.length && !ks(j)._1.contains("def.param") do
-          if ks(j)._1.contains("def.dflt") then d = wrapArg(ks(j)._2)
-          j += 1
-        if d.nonEmpty then { dflts += d; hasDflt = true } else dflts += """Pair("__nodflt__", "")"""
-      i += 1
+    val pairs = fieldDefaultPairs(ks, "def.param", "def.dflt", r => r.contains("def.param"))
+    val paramNames = pairs.map(_._1)
     val usingTypes = ks.collect { case (Some("def.usingtype"), c) => "\"" + esc(lexeme(c)) + "\"" }.toVector
     val usingNode = if usingTypes.isEmpty then Vector.empty[String]
-      else Vector(s"""Pair("usingsig", Pair("${esc(name)}", Pair(${consList(usingTypes)}, ${paramNames.result().length})))""")
-    val fdNode = if !hasDflt then Vector.empty[String]
-      else Vector(s"""Pair("funcdefaults", Pair("${esc(name)}", Pair(${consList(paramNames.result())}, ${consList(dflts.result())})))""")
+      else Vector(s"""Pair("usingsig", Pair("${esc(name)}", Pair(${consList(usingTypes)}, ${paramNames.length})))""")
+    val fdNode = if !pairs.exists(_._2.isDefined) then Vector.empty[String]
+      else Vector(s"""Pair("funcdefaults", Pair("${esc(name)}", Pair(${consList(paramNames)}, ${consList(pairs.map(_._2.getOrElse(noDflt)))})))""")
     Vector(base) ++ usingNode ++ fdNode
 
   // a case class projects to its mkCaseCls plus, if the body has METHODS, a companion casemethods node
@@ -3119,22 +3109,12 @@ object SpikeProject:
     val name    = ks.collectFirst { case (Some("cc.name"), c) => lexeme(c) }.getOrElse("_")
     val methods = ks.collect { case (Some("cc.method"), c) => memberNode(c) }.toVector
     // positional field names + defaults (a cc.dflt follows its cc.field, before the next cc.field / cc.method)
-    val fieldB = Vector.newBuilder[String]; val dfltB = Vector.newBuilder[String]; var hasDflt = false
-    var i = 0
-    while i < ks.length do
-      if ks(i)._1.contains("cc.field") then
-        fieldB += "\"" + esc(lexeme(ks(i)._2)) + "\""
-        var j = i + 1; var d = ""
-        while j < ks.length && !ks(j)._1.contains("cc.field") && !ks(j)._1.contains("cc.method") do
-          if ks(j)._1.contains("cc.dflt") then d = wrapArg(ks(j)._2)
-          j += 1
-        if d.nonEmpty then { dfltB += d; hasDflt = true } else dfltB += """Pair("__nodflt__", "")"""
-      i += 1
-    val fields = fieldB.result()
+    val pairs = fieldDefaultPairs(ks, "cc.field", "cc.dflt", r => r.contains("cc.field") || r.contains("cc.method"))
+    val fields = pairs.map(_._1)
     val cmNode = if methods.isEmpty then Vector.empty[String]
       else Vector(s"""Pair("casemethods", Pair("${esc(name)}", Pair(${consList(fields)}, ${consList(methods)})))""")
-    val fdNode = if !hasDflt then Vector.empty[String]
-      else Vector(s"""Pair("funcdefaults", Pair("${esc(name)}", Pair(${consList(fields)}, ${consList(dfltB.result())})))""")
+    val fdNode = if !pairs.exists(_._2.isDefined) then Vector.empty[String]
+      else Vector(s"""Pair("funcdefaults", Pair("${esc(name)}", Pair(${consList(fields)}, ${consList(pairs.map(_._2.getOrElse(noDflt)))})))""")
     // `case class Circle(…) extends Shape` → ("subtype", (Shape, Circle)) so `case _: Shape` expands to child tags
     val stNode = ks.collectFirst { case (Some("cc.parent"), c) => lexeme(c) } match
       case Some(p) => Vector(s"""Pair("subtype", Pair("${esc(p)}", "${esc(name)}"))""")
@@ -3411,31 +3391,33 @@ object SpikeProject:
       kids(b).collect { case (Some("call.fn"), c) => countPh(c) }.sum
     case b: UniNode.Branch if phDescend(b) => kids(b).map((_, c) => countPh(c)).sum
     case _ => 0
-  private def projectPh(n: UniNode, ctr: Array[Int]): String = n match
+  /** Projects with the running placeholder index THREADED (was a mutable one-cell array):
+    * returns the projected source and the index after this subtree's placeholders. */
+  private def projectPh(n: UniNode, k0: Int): (String, Int) = n match
     case UniNode.Token(t) if t.kind == "spike.id" && t.lexeme == "_" =>
-      val i = ctr(0); ctr(0) = i + 1; s"""mkVar("__u$i")"""
+      (s"""mkVar("__u$k0")""", k0 + 1)
     case b: UniNode.Branch if b.kind == "spike.infix" =>
       val op = kids(b).collectFirst { case (Some("bin.op"), c) => SpikeOp.meaning(lexeme(c)) }.getOrElse("+")
-      val l  = kids(b).collectFirst { case (Some("bin.left"), c) => projectPh(c, ctr) }.getOrElse(hole)
-      val r  = kids(b).collectFirst { case (Some("bin.right"), c) => projectPh(c, ctr) }.getOrElse(hole)
-      s"""mkInf("${esc(op)}", $l, $r)"""
+      val (l, k1) = kids(b).collectFirst { case (Some("bin.left"), c) => projectPh(c, k0) }.getOrElse((hole, k0))
+      val (r, k2) = kids(b).collectFirst { case (Some("bin.right"), c) => projectPh(c, k1) }.getOrElse((hole, k1))
+      (s"""mkInf("${esc(op)}", $l, $r)""", k2)
     case b: UniNode.Branch if b.kind == "spike.pre" =>
       val op  = kids(b).collectFirst { case (Some("pre.op"), c) => lexeme(c) }.getOrElse("-")
-      val sub = kids(b).collectFirst { case (Some("pre.sub"), c) => projectPh(c, ctr) }.getOrElse(hole)
-      s"""mkPre("${esc(op)}", $sub)"""
+      val (sub, k1) = kids(b).collectFirst { case (Some("pre.sub"), c) => projectPh(c, k0) }.getOrElse((hole, k0))
+      (s"""mkPre("${esc(op)}", $sub)""", k1)
     case b: UniNode.Branch if b.kind == "spike.sel" =>
-      val obj   = kids(b).collectFirst { case (Some("sel.obj"), c) => projectPh(c, ctr) }.getOrElse(hole)
+      val (obj, k1) = kids(b).collectFirst { case (Some("sel.obj"), c) => projectPh(c, k0) }.getOrElse((hole, k0))
       val field = kids(b).collectFirst { case (Some("sel.field"), c) => lexeme(c) }.getOrElse("_")
-      s"""mkSel($obj, "${esc(field)}")"""
+      (s"""mkSel($obj, "${esc(field)}")""", k1)
     case b: UniNode.Branch if b.kind == "spike.call" =>
-      // fn position joins THIS lift (shared ctr); a nested call's args get their OWN placeholder scope
-      // via wrapArg (independent lambda), so they must NOT consume this lambda's params.
-      val fn   = kids(b).collectFirst { case (Some("call.fn"), c) => projectPh(c, ctr) }.getOrElse(hole)
+      // fn position joins THIS lift (threaded index); a nested call's args get their OWN placeholder
+      // scope via wrapArg (independent lambda), so they must NOT consume this lambda's params.
+      val (fn, k1) = kids(b).collectFirst { case (Some("call.fn"), c) => projectPh(c, k0) }.getOrElse((hole, k0))
       val args = kids(b).collect { case (Some("call.arg"), c) => wrapArg(c) }
-      s"""mkApp($fn, ${consList(args.toVector)})"""
+      (s"""mkApp($fn, ${consList(args.toVector)})""", k1)
     case b: UniNode.Branch if b.kind == "spike.paren" =>
-      kids(b).collectFirst { case (Some("group.elem"), c) => projectPh(c, ctr) }.getOrElse(hole)
-    case _ => expr(n) // literals, vars, lambdas, blocks, ifs, matches: projected as-is (no placeholder descent)
+      kids(b).collectFirst { case (Some("group.elem"), c) => projectPh(c, k0) }.getOrElse((hole, k0))
+    case _ => (expr(n), k0) // literals, vars, lambdas, blocks, ifs, matches: projected as-is (no placeholder descent)
   private def wrapArg(n: UniNode): String = n match
     case b: UniNode.Branch if b.kind == "spike.narg" => // label = value → Pair("narg", Pair(label, value))
       val name = kids(b).collectFirst { case (Some("narg.name"), c) => lexeme(c) }.getOrElse("_")
@@ -3444,9 +3426,8 @@ object SpikeProject:
     case _ =>
       if isBarePh(n) then expr(n)
       else if countPh(n) > 0 then
-        val ctr = Array(0)
-        val body = projectPh(n, ctr)
-        s"""mkLam(${consList((0 until ctr(0)).map(i => s""""__u$i"""").toVector)}, $body)"""
+        val (body, cnt) = projectPh(n, 0)
+        s"""mkLam(${consList((0 until cnt).map(i => s""""__u$i"""").toVector)}, $body)"""
       else expr(n)
 
   private def ifExpr(b: UniNode.Branch): String =
