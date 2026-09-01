@@ -1,3 +1,3 @@
 # generation: 3326
 #slug	agent	started	items	paths
-native-release-qualify-stale-chmod	claude-code	2026-09-01T13:28:02Z	native-release-qualify-chmods-a-binary-the-release-no-longer-ships	file:.github/workflows/native-release.yml file:tests/BUGS.md file:scripts/native-release-qualify file:tests/e2e/native-release-qualification.sh file:tests/SPRINT.md
+native-release-qualify-stale-chmod	claude-code	2026-09-01T13:28:02Z	native-release-qualify-chmods-a-binary-the-release-no-longer-ships	file:.github/workflows/native-release.yml file:tests/BUGS.md file:scripts/native-release-qualify file:tests/e2e/native-release-qualification.sh file:tests/SPRINT.md file:README.md
