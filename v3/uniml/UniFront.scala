@@ -243,7 +243,7 @@ object UniFront:
 
     // A `trait` — it used to VANISH into `NoOpDecl`, invisible to every measurement UniML makes
     // about itself. `keyword` distinguishes `trait` from the other things the dialect routes here.
-    case U.TraitDecl(kw, n, parents, ms, s) =>
+    case U.TraitDecl(kw, n, ctorParams, parents, ms, s) =>
       val defs = ms.toList.flatMap { m => m match
         case dd: U.Def =>
           // An ABSTRACT signature — no `=`, no body — arrives with `NotImplemented` as its body
@@ -284,11 +284,12 @@ object UniFront:
       // construct is what made these files comparable, and the differential answered on the first
       // run: four corpus cases, `class` against `trait`.
       //
-      // The constructor's parameters are NOT recoverable here — `TraitDecl` carries no parameter
-      // list, so `class Box(n: Int)` reaches this arm with `n` already gone. That is a gap in the
-      // dialect rather than in this projection, filed as `uniml-traitdecl-drops-class-parameters`,
-      // and it is why one of the four stays declared instead of closing.
-      if kw == "class" then Sorted.C(List(ClassDef(n, Nil, defs, parents.toList, pos(s))))
+      // The constructor's parameters ARE carried now — `TraitDecl.params` holds the clause the
+      // dialect used to consume with `skipBalancedParens` (`uniml-traitdecl-drops-class-parameters`,
+      // closed with the capture in `ScalaSpike.captureCtorParams`). The same `param` conversion the
+      // `CaseClass` arm uses; a `trait`'s clause stays unused below because v3's `TraitDef` models
+      // methods, not state.
+      if kw == "class" then Sorted.C(List(ClassDef(n, ctorParams.toList.map(param), defs, parents.toList, pos(s))))
       else Sorted.T(TraitDef(n, defs, parents.toList, pos(s)))
 
     // `val id: String` with no `=` — A DECLARATION, NOT A DEFINITION, so there is nothing to emit

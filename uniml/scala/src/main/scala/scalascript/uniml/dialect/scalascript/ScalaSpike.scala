@@ -3021,6 +3021,65 @@ object SpikeParse:
   // The frame KIND stays `spike.sealed` deliberately: `SpikeProject` matches on it and returns a
   // constant, so the v2 lane sees no change and no kind census moves. Consumers that want the
   // trait read the roles. Same trade as the import path, for the same reason.
+  // The CONSTRUCTOR CLAUSE of a plain `class`, captured instead of skipped. `class Box(n: Int)`
+  // went through `skipBalancedParens` — consumed, recorded nowhere — so `SpikeAst.TraitDecl` had no
+  // parameters to carry and the projection printed `(fields)` where v3's own front printed
+  // `(fields (p "n"))` (v3/BUGS.md uniml-traitdecl-drops-class-parameters; three declared
+  // front-diff rows diverge by exactly this). Roles follow the `slots` convention `cc.field` /
+  // `def.param` use: `td.param` the name, `td.paramType` the type HEAD (generics erased by
+  // `skipTypeTail`, as def params were before stage 2b needed theirs — nothing reads a class
+  // field's type arguments yet), `td.dflt` a default. A `val`/`var`/`private`/`protected` modifier
+  // is consumed role-less, exactly what the old skip did to every token here.
+  //
+  // On ANY unrecognised shape the remainder is skipped balanced WITHOUT `report`: a clause this
+  // capture does not model parsed SILENTLY before, and the error census must not move because the
+  // tokens are now looked at. Either exit consumes through the closing `)` — the consumed token
+  // set is `skipBalancedParens`'s own.
+  private def captureCtorParams(c0: Cur): St[Vector[Node]] =
+    val open = c0.advance // `(`
+    val kids0 = open.v.map(t => Node.Leaf(t, Some("td.lparen"))).toVector
+    def bail(c: Cur, acc: Vector[Node]): St[Vector[Node]] = St(skipToParamListEnd(c), acc)
+    def params(c: Cur, acc: Vector[Node]): St[Vector[Node]] =
+      def mods(cm: Cur): Cur =
+        if isKw(cm, "val") || isKw(cm, "var") || isKw(cm, "private") || isKw(cm, "protected")
+        then mods(cm.bump)
+        else cm
+      val cM = mods(c)
+      if !isNameKind(cM.peekKind) then bail(cM, acc)
+      else
+        val nameP = cM.advance
+        val acc1 = acc ++ nameP.v.map(t => Node.Leaf(t, Some("td.param"))).toVector
+        if nameP.c.peekKind != "spike.colon" then bail(nameP.c, acc1)
+        else
+          val colon = nameP.c.advance
+          val acc2 = acc1 ++ colon.v.map(t => Node.Leaf(t, Some("td.colon"))).toVector
+          val ty: St[Vector[Node]] =
+            if colon.c.peekKind == "spike.lparen" then
+              // a parenthesised (tuple/function) type — `captureType` opens on exactly this
+              val ct = captureType(colon.c, "td.paramType")
+              St(ct.c, acc2 :+ ct.v)
+            else if isNameKind(colon.c.peekKind) then
+              val t = colon.c.advance
+              St(skipTypeTail(t.c), acc2 ++ t.v.map(tt => Node.Leaf(tt, Some("td.paramType"))).toVector)
+            else St(colon.c, acc2)
+          val dflt: St[Vector[Node]] =
+            if ty.c.peekKind == "spike.eq" then
+              val e = parseExpr(ty.c.bump, 1)
+              St(e.c, ty.v ++ e.v.map(_.withRole("td.dflt")).toVector)
+            else ty
+          if dflt.c.peekKind == "spike.comma" then
+            val comma = dflt.c.advance
+            params(comma.c, dflt.v ++ comma.v.map(t => Node.Leaf(t, Some("td.comma"))).toVector)
+          else if dflt.c.peekKind == "spike.rparen" then St(dflt.c, dflt.v)
+          else bail(dflt.c, dflt.v)
+    val inner: St[Vector[Node]] =
+      if open.c.peekKind == "spike.rparen" then St(open.c, kids0)
+      else params(open.c, kids0)
+    if inner.c.peekKind == "spike.rparen" then
+      val close = inner.c.advance
+      St(close.c, inner.v ++ close.v.map(t => Node.Leaf(t, Some("td.rparen"))).toVector)
+    else St(inner.c, inner.v) // bail already consumed through `)`
+
   private def parseTraitOrClassNoop(c0: Cur): St[Node] =
     val declCol = c0.peekCol // before the keyword is consumed — the offside line for members
     val kw = c0.advance // `trait` / `class`
@@ -3031,8 +3090,10 @@ object SpikeParse:
         St(n.c, kids0 ++ n.v.map(t => Node.Leaf(t, Some("td.name"))).toVector)
       else St(kw.c, kids0)
     val c1 = skipTypeParams(name.c)
-    val c2 = if c1.peekKind == "spike.lparen" then skipBalancedParens(c1) else c1 // class constructor params
-    val parents = captureExtendsClause(c2)
+    // the class constructor clause, captured — see captureCtorParams just above
+    val ctor: St[Vector[Node]] =
+      if c1.peekKind == "spike.lparen" then captureCtorParams(c1) else St(c1, Vector.empty)
+    val parents = captureExtendsClause(ctor.c)
     val braced = parents.c.peekKind == "spike.lbrace"
     val c3 =
       if braced then parents.c.bump
@@ -3044,10 +3105,10 @@ object SpikeParse:
       // Same offside rule as `parseObject`, and the same bug: a marker `trait SqliteValue` with no
       // body swallowed every declaration that followed it at column 1.
       val hasBody = braced || bodyCol > declCol
-      val members = memberLoop(c4, "obj.member", braced, bodyCol, hasBody, eraseModifiers = true, name.v ++ parents.v)
+      val members = memberLoop(c4, "obj.member", braced, bodyCol, hasBody, eraseModifiers = true, name.v ++ ctor.v ++ parents.v)
       val closed = if braced && members.c.peekKind == "spike.rbrace" then members.c.bump else members.c
       St(closed, Node.Frame("spike.sealed", None, members.v))
-    else St(c3, Node.Frame("spike.sealed", None, name.v ++ parents.v))
+    else St(c3, Node.Frame("spike.sealed", None, name.v ++ ctor.v ++ parents.v))
 
   // `[a, b, c](path.ssc)` markdown-link import — a parse-only no-op (ssc1-front.ssc0:2474 → Pair("sealed","")).
   // Consume `[ … ]` then the optional `( … )`, matching ssc1-front's non-nested skipTo.

@@ -220,11 +220,6 @@ if [ "${SSC3_FRONT_DIFF_CORPUS:-1}" = 1 ] && [ "$nfronts" -ge 2 ]; then
   # `U.TraitDecl`'s `keyword` to `_` and answered `TraitDef` for a `class` — and those are fixed,
   # not declared. Agreement 347 -> 349.
   #
-  #   curried-def-member-methods  `SpikeAst.TraitDecl` carries no parameter list, so `class Box(n:
-  #                               Int)` reaches the projection with `n` ALREADY GONE. v3 prints
-  #                               `(fields (p "n"))`, uniml prints none. Not recoverable in the
-  #                               projection: the information is destroyed upstream of it.
-  #                               `uniml-traitdecl-drops-class-parameters`.
   #   mcp-client-invoke           reaches `std/mcp/client.ssc:45`, `extern class McpClient:`,
   #                               through the import closure. The dialect has no `extern` handling,
   #                               so the class arrives with EMPTY members and its twelve `def`s
@@ -245,23 +240,12 @@ if [ "${SSC3_FRONT_DIFF_CORPUS:-1}" = 1 ] && [ "$nfronts" -ge 2 ]; then
   #                               every ssc lane — this is v3's front reading it, not the program
   #                               being wrong.
   #
-  #   kr-hk-field-arity           BOTH rows are the `curried-def-member-methods` gap again, not a
-  #   kr-hk-field-arity-lib       new one: `class Unused(val n: Int)` and `class Wrapper[F[_]](app:
-  #                               Applicative[F])` reach the projection with their constructor
-  #                               clauses already discarded — v3 prints `(fields (p "n"))` /
-  #                               `(fields (p "app"))`, uniml prints `(fields)`, nothing else
-  #                               differs. `uniml-traitdecl-drops-class-parameters`. The fixtures
-  #                               landed 2026-09-01 with the hk-arity known-red (they exist to gate
-  #                               a v2 arity bug) and nothing declared them here, so this gate was
-  #                               red on main from that commit on. All THREE rows citing that slug
-  #                               come out together the day `SpikeAst.TraitDecl` carries a
-  #                               parameter clause.
+  #   (2026-09-01: `curried-def-member-methods`, `kr-hk-field-arity` and `kr-hk-field-arity-lib`
+  #   came OUT together — `SpikeAst.TraitDecl` carries the constructor clause now
+  #   (`ScalaSpike.captureCtorParams`), closing `uniml-traitdecl-drops-class-parameters`.)
   #
   # Closing either gap makes this gate RED with the row named — drop it in the same commit.
   declare -a KNOWN_CONF_DISAGREE=(
-    curried-def-member-methods
-    kr-hk-field-arity
-    kr-hk-field-arity-lib
     kr-summon-anonymous-given
     mcp-client-invoke
   )

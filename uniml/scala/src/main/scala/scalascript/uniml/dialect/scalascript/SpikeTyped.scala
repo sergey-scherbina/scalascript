@@ -182,6 +182,7 @@ object SpikeTyped:
       if byRole(n, "td.kw").isDefined then
         TraitDecl(byRole(n, "td.kw").map(lex).getOrElse("trait"),
                   byRole(n, "td.name").map(lex).getOrElse("_"),
+                  slots(n, "td.param", Set("td.paramType"), "td.dflt"),
                   allByRole(n, "td.parent").map(lex),
                   allByRole(n, "obj.member").map(decl), span(n))
       else if segs.isEmpty then NoOpDecl(span(n))

@@ -383,6 +383,40 @@ final class SpikeTypedRolesSpec extends AnyFunSuite:
            s"the trait's methods were dropped: ${t.head.members}")
   }
 
+  test("a plain class KEEPS ITS CONSTRUCTOR PARAMETERS — names, types, modifiers, generics") {
+    // `class Box(n: Int)` routes to `TraitDecl` (kw = "class") and its clause went through
+    // `skipBalancedParens` — consumed, recorded nowhere — so v3's projection printed `(fields)`
+    // where v3's own front printed `(fields (p "n"))`. Found, like everything in this section, by
+    // the front DIFFERENTIAL, three declared rows' worth.
+    // (v3/BUGS.md uniml-traitdecl-drops-class-parameters.)
+    val plain = decls("class Box(n: Int):\n  def plus(a: Int): Int = n + a\ndef main(): Int = 0")
+      .collect { case t: SpikeAst.TraitDecl => t }
+    assert(plain.sizeIs == 1, s"expected one TraitDecl, got ${plain.map(_.getClass.getSimpleName)}")
+    assert(plain.head.keyword == "class", s"keyword is ${plain.head.keyword}")
+    assert(plain.head.params.map(_.name) == Vector("n"), s"ctor params are ${plain.head.params}")
+    assert(plain.head.params.head.tpe.exists(_.text == "Int"),
+           s"the param's type is ${plain.head.params.head.tpe}")
+    assert(plain.head.members.collect { case d: SpikeAst.Def => d.name } == Vector("plus"),
+           s"the class's methods were dropped: ${plain.head.members}")
+    // `val n` (kr-hk-field-arity's `class Unused(val n: Int)`) — the modifier must not end the list.
+    val withVal = decls("class Unused(val n: Int):\n  def get(): Int = n\ndef main(): Int = 0")
+      .collect { case t: SpikeAst.TraitDecl => t }
+    assert(withVal.head.params.map(_.name) == Vector("n"), s"`val n` params are ${withVal.head.params}")
+    // a generic type argument (`class Wrapper[F[_]](app: Applicative[F])`) — erased from the type
+    // TEXT (nothing reads a field's type arguments yet) but the NAME must survive.
+    val generic = decls("class Wrapper[F[_]](app: Applicative[F]):\n  def get(): Applicative[F] = app\ndef main(): Int = 0")
+      .collect { case t: SpikeAst.TraitDecl => t }
+    assert(generic.head.params.map(_.name) == Vector("app"), s"generic-field params are ${generic.head.params}")
+    // two params with a default — the comma loop and the default capture.
+    val two = decls("class Pt(x: Int, y: Int = 7):\n  def sum(): Int = x + y\ndef main(): Int = 0")
+      .collect { case t: SpikeAst.TraitDecl => t }
+    assert(two.head.params.map(_.name) == Vector("x", "y"), s"two-param clause is ${two.head.params}")
+    assert(two.head.params(1).default.nonEmpty, "the default `= 7` was dropped")
+    // a TRAIT keeps an empty clause, and a bodyless class still parses.
+    val bare = decls("class Marker(n: Int)\ndef main(): Int = 0").collect { case t: SpikeAst.TraitDecl => t }
+    assert(bare.head.params.map(_.name) == Vector("n"), s"bodyless-class params are ${bare.head.params}")
+  }
+
   test("a trait's body is WALKED, so it can never be invisible to a count again") {
     val n = SpikeAst.walk(project("trait S:\n  def f(): Int = 1 + 2\ndef main(): Int = 0"))
       .count(_.isInstanceOf[SpikeAst.Infix])

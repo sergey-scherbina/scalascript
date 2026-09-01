@@ -95,8 +95,8 @@ object SpikeAst:
     * the silent-drop census AND to the coverage figure, all at once. Nothing UniML measures about
     * itself could see it. v3's front differential found it in one run, because comparing against a
     * second implementation asks a question that self-measurement cannot. */
-  final case class TraitDecl(keyword: String, name: String, parents: Vector[String],
-                             members: Vector[Decl], span: SourceSpan) extends Decl
+  final case class TraitDecl(keyword: String, name: String, params: Vector[Param],
+                             parents: Vector[String], members: Vector[Decl], span: SourceSpan) extends Decl
   /** `val id: String` with no `=` — an ABSTRACT member, legal inside a trait or class body. It has
     * no right-hand side, so it is a declaration rather than a `ValDef`, and modelling it as one
     * would need an initialiser that was never written. It only became reachable once traits stopped
@@ -235,7 +235,7 @@ object SpikeAst:
     case Param(_, t, d, _, _, _)  => t.toVector.flatMap(walk) ++ d.toVector.flatMap(walk)
     case CaseClass(_, fs, _, ms, _) => fs.flatMap(walk) ++ ms.flatMap(walk)
     case EnumDecl(_, cs, _)       => cs.flatMap(walk)
-    case TraitDecl(_, _, _, ms, _) => ms.flatMap(walk)
+    case TraitDecl(_, _, ps, _, ms, _) => ps.flatMap(walk) ++ ms.flatMap(walk)
     case EnumCase(_, fs, _)       => fs.flatMap(walk)
     case Given(_, t, b, _)        => t.toVector.flatMap(walk) ++ b.toVector.flatMap(walk)
     case Extension(r, ds, _)      => r.toVector.flatMap(walk) ++ ds.flatMap(walk)
