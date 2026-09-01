@@ -9,6 +9,39 @@ Pipeline: `source → AST → SSC IR → execute | translate`.
 **The order is deliberate: the IR is designed and verified before a front is written against it.**
 A compiler built on an IR that turns out to be wrong is work thrown away twice.
 
+## [x] uniml-traitdecl-drops-class-parameters (claim `uniml-traitdecl-drops-class-parameters`)
+
+**BUGS:** `v3/BUGS.md` `uniml-traitdecl-drops-class-parameters` — `class Box(n: Int)` reaches the
+projection with `n` gone: the dialect parses a plain `class` as `SpikeAst.TraitDecl`, which has no
+field for the constructor clause, and `ScalaSpike.parseTraitOrClassNoop` consumes the parens with
+`skipBalancedParens` (ScalaSpike.scala:3034). Three declared `KNOWN_CONF_DISAGREE` rows in
+`v3/front-diff.sh` diverge by exactly this (`curried-def-member-methods`, `kr-hk-field-arity`,
+`kr-hk-field-arity-lib`) and come out together.
+
+**LANDED 2026-09-01 as `886e3ae8f`**, plan executed as written; measurements: front-diff GREEN,
+corpus agree 358/360 both-printed (the two remaining rows are the two still-declared ones),
+fixtures 88/89, unimlScala 226/226 (+ the new roles test: plain/`val`-modified/generic/defaulted/
+bodyless clauses), smoke-ci exit 0.
+
+**Plan (as executed):**
+1. `SpikeAst.TraitDecl` gains `params: Vector[Param]` (placed after `name`). Only two positional
+   patterns exist (SpikeAst.scala:238 walk, UniFront.scala:246) — update both; type-based
+   `case t: TraitDecl` collects are untouched.
+2. `ScalaSpike.parseTraitOrClassNoop`: replace the `skipBalancedParens` at the ctor clause with a
+   capture loop emitting `td.param` / `td.paramType` / `td.dflt` roles (the `slots` convention
+   `cc.field`/`def.param` already use). Handle the corpus shapes — optional `val`/`var` modifier,
+   `name: Type` with generics, defaults — and FALL BACK to balanced skipping on any unrecognised
+   token so the consumed token set never shrinks. Frame kind stays `spike.sealed` (SpikeProject
+   maps it to a constant; the v2 lane must see no change).
+3. `SpikeTyped` "spike.sealed" arm: `slots(n, "td.param", Set("td.paramType"), "td.dflt")` into
+   the new field.
+4. `UniFront` `kw == "class"` branch: `ClassDef(n, params.toList.map(param), defs, …)` — the same
+   `param` conversion the `CaseClass` arm uses.
+5. Regression: ScalaSpikeSpec/SpikeTypedRolesSpec case asserting the params survive typing; the
+   three `KNOWN_CONF_DISAGREE` rows removed from `v3/front-diff.sh` (the gate then PROVES agreement).
+6. Gates: uniml test-jvm suites, `v3/front-diff.sh` (fresh classpath via `v3/uniml-classpath.sh`),
+   v3 conformance, smoke-ci.
+
 ## ssc3-compile-time-extension (claim `v3-compile-time-extension`) — a plugin supplies SYNTAX
 
 Design: [`specs/60-compile-time-extension.md`](specs/60-compile-time-extension.md). The owner's Tier

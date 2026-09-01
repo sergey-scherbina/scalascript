@@ -2364,13 +2364,21 @@ day this parses.
 
 ## uniml-traitdecl-drops-class-parameters — `class Box(n: Int)` reaches the projection with `n` already gone
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      kind: bug
      area: front
-     gate: v3/front-diff.sh (curried-def-member-methods, kr-hk-field-arity, kr-hk-field-arity-lib are declared corpus disagreements)
+     gate: v3/front-diff.sh (the three rows are OUT of KNOWN_CONF_DISAGREE; SpikeTypedRolesSpec pins the dialect side)
      found-by: claude-code
-     found-at: 2026-08-31 -->
+     found-at: 2026-08-31
+     fixed-in: 886e3ae8f -->
+
+**FIXED 2026-09-01 in `886e3ae8f`.** `ScalaSpike.captureCtorParams` captures the clause the parser
+used to `skipBalancedParens` (roles `td.param`/`td.paramType`/`td.dflt`, modifiers consumed,
+balanced-skip fallback on unmodelled shapes), `TraitDecl` carries `params`, `SpikeTyped` types them
+through the case-class `slots` walk, `UniFront`'s class branch hands them to `ClassDef`. All three
+declared rows came out together, exactly as predicted below: corpus agree 358/360 printed by both,
+fixtures 88/89, unimlScala 226/226, smoke-ci exit 0.
 
 **TWO MORE FILES EXHIBIT IT (2026-09-01):** `kr-hk-field-arity` / `kr-hk-field-arity-lib` landed
 with the v2 hk-arity known-red fixture and diverge by exactly this — `class Unused(val n: Int)` and
