@@ -24,223 +24,280 @@ private[yaml] object YamlSemanticParser:
 
   private final case class Properties(tag: Option[String], anchor: Option[String])
 
+  /** The parser's shared state — the three former closure vars, threaded through every parse
+    * function. `Parsed` is the (state, value) result record; a tuple would need destructuring,
+    * which the module's v2 rules forbid in val patterns and lambda parameters. */
+  private final case class ParseState(
+      index: Int,
+      diagnostics: Vector[Diagnostic],
+      tagEnvironment: YamlTagEnvironment,
+  )
+  private final case class Parsed(state: ParseState, value: YamlValue)
+  private final case class SplitResult(state: ParseState, properties: Properties, rest: String)
+
   def parse(source: SourceId, input: String, schema: YamlSchema): YamlSemanticResult =
     val lines = splitLines(input)
-    var diagnostics: Vector[Diagnostic] = Vector.empty
-    var index = 0
-    var tagEnvironment = YamlTagEnvironment.defaults
 
     def problem(
+        st: ParseState,
         code: String,
         message: String,
         span: SourceSpan,
         severity: Severity = Severity.Error,
-    ): Unit = diagnostics = diagnostics :+ Diagnostic(code, message, severity, Some(span), Some(YamlDialect.id))
+    ): ParseState = st.copy(diagnostics = st.diagnostics :+ Diagnostic(code, message, severity, Some(span), Some(YamlDialect.id)))
 
-    def skipBlank(): Unit =
-      while index < lines.size && clean(lines(index)).isEmpty do index += 1
+    def skipBlank(st: ParseState): ParseState =
+      if st.index < lines.size && clean(lines(st.index)).isEmpty then skipBlank(st.copy(index = st.index + 1))
+      else st
 
-    def currentSpan(): SourceSpan =
-      if index < lines.size then lines(index).span(source)
+    def currentSpan(st: ParseState): SourceSpan =
+      if st.index < lines.size then lines(st.index).span(source)
       else
         val offset = Unicode.codePointCount(input)
         val line = if lines.isEmpty then 1 else lines.last.number + Option.when(lines.last.lineBreak.nonEmpty)(1).getOrElse(0)
         SourceSpan(source, SourcePosition(offset, line, 1), SourcePosition(offset, line, 1))
 
-    def parseValue(minIndent: Int, depth: Int): YamlValue =
+    def parseValue(st0: ParseState, minIndent: Int, depth: Int): Parsed =
       if depth > 512 then
-        problem("uniml.yaml.limit.depth", "YAML semantic depth exceeds 512", currentSpan(), Severity.Fatal)
-        return nullValue("")
-      skipBlank()
-      if index >= lines.size || isDocumentBoundary(lines(index)) || indentOf(lines(index)) < minIndent then nullValue("")
+        Parsed(problem(st0, "uniml.yaml.limit.depth", "YAML semantic depth exceeds 512", currentSpan(st0), Severity.Fatal), nullValue(""))
       else
-        val line = lines(index)
-        val indentation = indentOf(line)
-        val text = clean(line).drop(indentation)
-        if isSequenceLine(text) then parseBlockSequence(indentation, depth + 1)
-        else if findKeyColon(text) >= 0 || text.startsWith("? ") then parseBlockMapping(indentation, depth + 1)
+        val st = skipBlank(st0)
+        if st.index >= lines.size || isDocumentBoundary(lines(st.index)) || indentOf(lines(st.index)) < minIndent then
+          Parsed(st, nullValue(""))
         else
-          index += 1
-          parseInline(text, line.span(source), depth + 1)
+          val line = lines(st.index)
+          val indentation = indentOf(line)
+          val text = clean(line).drop(indentation)
+          if isSequenceLine(text) then parseBlockSequence(st, indentation, depth + 1)
+          else if findKeyColon(text) >= 0 || text.startsWith("? ") then parseBlockMapping(st, indentation, depth + 1)
+          else parseInline(st.copy(index = st.index + 1), text, line.span(source), depth + 1)
 
-    def parseBlockMapping(mapIndent: Int, depth: Int): YamlValue =
-      var entries: Vector[YamlEntry] = Vector.empty
-      var continue = true
-      while continue && index < lines.size do
-        skipBlank()
-        if index >= lines.size || isDocumentBoundary(lines(index)) || indentOf(lines(index)) != mapIndent then continue = false
-        else
-          val line = lines(index)
-          val text = clean(line).drop(mapIndent)
-          if text.startsWith("? ") then
-            index += 1
-            val key = parseInline(text.drop(2).trim, line.span(source), depth + 1)
-            skipBlank()
-            if index < lines.size && indentOf(lines(index)) == mapIndent && clean(lines(index)).drop(mapIndent).startsWith(":") then
-              val valueLine = lines(index)
-              val rest = clean(valueLine).drop(mapIndent + 1).trim
-              index += 1
-              val value = parseAfterIndicator(rest, mapIndent, valueLine, depth + 1)
-              entries = entries :+ YamlEntry(key, value, mergeSpan(line.span(source), valueLine.span(source)))
-            else
-              problem("uniml.yaml.expected-value", "explicit mapping key has no ':' value indicator", line.span(source))
-              entries = entries :+ YamlEntry(key, nullValue(""), line.span(source))
-          else
-            val colon = findKeyColon(text)
-            if colon < 0 then continue = false
-            else
-              index += 1
-              val rawKey = text.take(colon).trim
-              val rawValue = text.drop(colon + 1).trim
-              val key = if rawKey.isEmpty then nullValue("") else parseInline(rawKey, line.span(source), depth + 1)
-              val value = parseAfterIndicator(rawValue, mapIndent, line, depth + 1)
-              entries = entries :+ YamlEntry(key, value, line.span(source))
-      YamlValue.Mapping(entries, None, None)
+    final case class EntriesStep(state: ParseState, entries: Vector[YamlEntry])
 
-    def parseBlockSequence(sequenceIndent: Int, depth: Int): YamlValue =
-      var values: Vector[YamlValue] = Vector.empty
-      var continue = true
-      while continue && index < lines.size do
-        skipBlank()
-        if index >= lines.size || isDocumentBoundary(lines(index)) || indentOf(lines(index)) != sequenceIndent then continue = false
+    def parseBlockMapping(st0: ParseState, mapIndent: Int, depth: Int): Parsed =
+      def loop(acc: EntriesStep): EntriesStep =
+        if acc.state.index >= lines.size then acc
         else
-          val line = lines(index)
-          val text = clean(line).drop(sequenceIndent)
-          if !isSequenceLine(text) then continue = false
+          val st = skipBlank(acc.state)
+          if st.index >= lines.size || isDocumentBoundary(lines(st.index)) || indentOf(lines(st.index)) != mapIndent then
+            acc.copy(state = st)
           else
-            index += 1
-            val after = text.drop(1).trim
-            if after.isEmpty then values = values :+ nestedOrNull(sequenceIndent, depth + 1)
-            else if blockHeader(after).nonEmpty then values = values :+ parseBlockScalar(after, sequenceIndent, line)
+            val line = lines(st.index)
+            val text = clean(line).drop(mapIndent)
+            if text.startsWith("? ") then
+              val keyResult = parseInline(st.copy(index = st.index + 1), text.drop(2).trim, line.span(source), depth + 1)
+              val afterKey = skipBlank(keyResult.state)
+              if afterKey.index < lines.size && indentOf(lines(afterKey.index)) == mapIndent &&
+                  clean(lines(afterKey.index)).drop(mapIndent).startsWith(":") then
+                val valueLine = lines(afterKey.index)
+                val rest = clean(valueLine).drop(mapIndent + 1).trim
+                val valueResult = parseAfterIndicator(afterKey.copy(index = afterKey.index + 1), rest, mapIndent, valueLine, depth + 1)
+                loop(EntriesStep(
+                  valueResult.state,
+                  acc.entries :+ YamlEntry(keyResult.value, valueResult.value, mergeSpan(line.span(source), valueLine.span(source))),
+                ))
+              else
+                val flagged = problem(afterKey, "uniml.yaml.expected-value", "explicit mapping key has no ':' value indicator", line.span(source))
+                loop(EntriesStep(flagged, acc.entries :+ YamlEntry(keyResult.value, nullValue(""), line.span(source))))
             else
-              val (properties, rest) = splitPropertiesNoDiagnostic(after)
-              if findKeyColon(rest) >= 0 then
-                val mapping = parseCompactMapping(rest, sequenceIndent, line, depth + 1)
-                if properties == Properties(None, None) then values = values :+ mapping
+              val colon = findKeyColon(text)
+              if colon < 0 then acc.copy(state = st)
+              else
+                val stepped = st.copy(index = st.index + 1)
+                val rawKey = text.take(colon).trim
+                val rawValue = text.drop(colon + 1).trim
+                val keyResult =
+                  if rawKey.isEmpty then Parsed(stepped, nullValue(""))
+                  else parseInline(stepped, rawKey, line.span(source), depth + 1)
+                val valueResult = parseAfterIndicator(keyResult.state, rawValue, mapIndent, line, depth + 1)
+                loop(EntriesStep(valueResult.state, acc.entries :+ YamlEntry(keyResult.value, valueResult.value, line.span(source))))
+      val walked = loop(EntriesStep(st0, Vector.empty))
+      Parsed(walked.state, YamlValue.Mapping(walked.entries, None, None))
+
+    final case class ValuesStep(state: ParseState, values: Vector[YamlValue])
+
+    def parseBlockSequence(st0: ParseState, sequenceIndent: Int, depth: Int): Parsed =
+      def loop(acc: ValuesStep): ValuesStep =
+        if acc.state.index >= lines.size then acc
+        else
+          val st = skipBlank(acc.state)
+          if st.index >= lines.size || isDocumentBoundary(lines(st.index)) || indentOf(lines(st.index)) != sequenceIndent then
+            acc.copy(state = st)
+          else
+            val line = lines(st.index)
+            val text = clean(line).drop(sequenceIndent)
+            if !isSequenceLine(text) then acc.copy(state = st)
+            else
+              val stepped = st.copy(index = st.index + 1)
+              val after = text.drop(1).trim
+              if after.isEmpty then
+                val nested = nestedOrNull(stepped, sequenceIndent, depth + 1)
+                loop(ValuesStep(nested.state, acc.values :+ nested.value))
+              else if blockHeader(after).nonEmpty then
+                val scalar = parseBlockScalar(stepped, after, sequenceIndent, line)
+                loop(ValuesStep(scalar.state, acc.values :+ scalar.value))
+              else
+                val propsAndRest = splitPropertiesNoDiagnostic(after)
+                val properties = propsAndRest._1
+                val rest = propsAndRest._2
+                if findKeyColon(rest) >= 0 then
+                  val mapping = parseCompactMapping(stepped, rest, sequenceIndent, line, depth + 1)
+                  if properties == Properties(None, None) then loop(ValuesStep(mapping.state, acc.values :+ mapping.value))
+                  else
+                    val validated = splitProperties(mapping.state, after, line.span(source))
+                    loop(ValuesStep(validated.state, acc.values :+ applyProperties(validated.state, mapping.value, validated.properties, line.span(source)).value))
                 else
-                  val (validated, _) = splitProperties(after, line.span(source))
-                  values = values :+ applyProperties(mapping, validated, line.span(source))
-              else values = values :+ parseAfterIndicator(after, sequenceIndent, line, depth + 1)
-      YamlValue.Sequence(values, None, None)
+                  val value = parseAfterIndicator(stepped, after, sequenceIndent, line, depth + 1)
+                  loop(ValuesStep(value.state, acc.values :+ value.value))
+      val walked = loop(ValuesStep(st0, Vector.empty))
+      Parsed(walked.state, YamlValue.Sequence(walked.values, None, None))
 
-    def parseCompactMapping(first: String, parentIndent: Int, firstLine: Line, depth: Int): YamlValue =
-      var entries: Vector[YamlEntry] = Vector.empty
-      entries = appendCompactEntry(first, parentIndent, firstLine, depth, entries)
-      skipBlank()
-      var continue = true
-      var mapIndent = -1
-      while continue && index < lines.size && !isDocumentBoundary(lines(index)) do
-        val line = lines(index)
-        val indentation = indentOf(line)
-        val text = clean(line).drop(indentation)
-        if indentation <= parentIndent || findKeyColon(text) < 0 then continue = false
-        else if mapIndent >= 0 && indentation != mapIndent then continue = false
+    final case class CompactStep(state: ParseState, entries: Vector[YamlEntry], mapIndent: Int)
+
+    def parseCompactMapping(st0: ParseState, first: String, parentIndent: Int, firstLine: Line, depth: Int): Parsed =
+      val firstEntry = appendCompactEntry(st0, first, parentIndent, firstLine, depth, Vector.empty)
+      def loop(acc: CompactStep): CompactStep =
+        if acc.state.index >= lines.size || isDocumentBoundary(lines(acc.state.index)) then acc
         else
-          if mapIndent < 0 then mapIndent = indentation
-          index += 1
-          entries = appendCompactEntry(text, indentation, line, depth, entries)
-          skipBlank()
-      YamlValue.Mapping(entries, None, None)
+          val line = lines(acc.state.index)
+          val indentation = indentOf(line)
+          val text = clean(line).drop(indentation)
+          if indentation <= parentIndent || findKeyColon(text) < 0 then acc
+          else if acc.mapIndent >= 0 && indentation != acc.mapIndent then acc
+          else
+            val latched = if acc.mapIndent < 0 then indentation else acc.mapIndent
+            val stepped = acc.state.copy(index = acc.state.index + 1)
+            val appended = appendCompactEntry(stepped, text, indentation, line, depth, acc.entries)
+            loop(CompactStep(skipBlank(appended.state), appended.entries, latched))
+      val walked = loop(CompactStep(skipBlank(firstEntry.state), firstEntry.entries, -1))
+      Parsed(walked.state, YamlValue.Mapping(walked.entries, None, None))
+
+    final case class AppendResult(state: ParseState, entries: Vector[YamlEntry])
 
     def appendCompactEntry(
+        st0: ParseState,
         text: String,
         parentIndent: Int,
         line: Line,
         depth: Int,
         entries: Vector[YamlEntry],
-    ): Vector[YamlEntry] =
+    ): AppendResult =
       val colon = findKeyColon(text)
       if colon < 0 then
-        problem("uniml.yaml.expected-key", "compact mapping entry has no ':'", line.span(source))
-        entries
+        AppendResult(problem(st0, "uniml.yaml.expected-key", "compact mapping entry has no ':'", line.span(source)), entries)
       else
         val keyText = text.take(colon).trim
         val valueText = text.drop(colon + 1).trim
-        val key = if keyText.isEmpty then nullValue("") else parseInline(keyText, line.span(source), depth + 1)
-        val value = parseAfterIndicator(valueText, parentIndent, line, depth + 1)
-        entries :+ YamlEntry(key, value, line.span(source))
+        val keyResult =
+          if keyText.isEmpty then Parsed(st0, nullValue(""))
+          else parseInline(st0, keyText, line.span(source), depth + 1)
+        val valueResult = parseAfterIndicator(keyResult.state, valueText, parentIndent, line, depth + 1)
+        AppendResult(valueResult.state, entries :+ YamlEntry(keyResult.value, valueResult.value, line.span(source)))
 
-    def parseAfterIndicator(text: String, parentIndent: Int, line: Line, depth: Int): YamlValue =
-      if text.isEmpty then nestedOrNull(parentIndent, depth + 1)
-      else if blockHeader(text).nonEmpty then parseBlockScalar(text, parentIndent, line)
+    def parseAfterIndicator(st: ParseState, text: String, parentIndent: Int, line: Line, depth: Int): Parsed =
+      if text.isEmpty then nestedOrNull(st, parentIndent, depth + 1)
+      else if blockHeader(text).nonEmpty then parseBlockScalar(st, text, parentIndent, line)
       else
-        val (properties, rest) = splitPropertiesNoDiagnostic(text)
+        val propsAndRest = splitPropertiesNoDiagnostic(text)
+        val properties = propsAndRest._1
+        val rest = propsAndRest._2
         if properties != Properties(None, None) && rest.isEmpty then
-          val (validated, _) = splitProperties(text, line.span(source))
-          applyProperties(nestedOrNull(parentIndent, depth + 1), validated, line.span(source))
-        else parseInline(text, line.span(source), depth + 1)
+          val validated = splitProperties(st, text, line.span(source))
+          val nested = nestedOrNull(validated.state, parentIndent, depth + 1)
+          applyProperties(nested.state, nested.value, validated.properties, line.span(source))
+        else parseInline(st, text, line.span(source), depth + 1)
 
-    def nestedOrNull(parentIndent: Int, depth: Int): YamlValue =
-      skipBlank()
-      if index < lines.size && !isDocumentBoundary(lines(index)) && indentOf(lines(index)) > parentIndent then
-        parseValue(indentOf(lines(index)), depth + 1)
-      else nullValue("")
+    def nestedOrNull(st0: ParseState, parentIndent: Int, depth: Int): Parsed =
+      val st = skipBlank(st0)
+      if st.index < lines.size && !isDocumentBoundary(lines(st.index)) && indentOf(lines(st.index)) > parentIndent then
+        parseValue(st, indentOf(lines(st.index)), depth + 1)
+      else Parsed(st, nullValue(""))
 
-    def parseBlockScalar(headerText: String, parentIndent: Int, headerLine: Line): YamlValue =
-      val (properties, header) = splitProperties(headerText, headerLine.span(source))
-      val headerValue = blockHeader(header).getOrElse {
-        problem("uniml.yaml.invalid-block-scalar", "invalid block scalar header", headerLine.span(source))
-        ('|', None, None)
+    def parseBlockScalar(st0: ParseState, headerText: String, parentIndent: Int, headerLine: Line): Parsed =
+      val split = splitProperties(st0, headerText, headerLine.span(source))
+      val properties = split.properties
+      val header = split.rest
+      val headerParsed = blockHeader(header)
+      val st1 =
+        if headerParsed.isEmpty then
+          problem(split.state, "uniml.yaml.invalid-block-scalar", "invalid block scalar header", headerLine.span(source))
+        else split.state
+      val headerValue = headerParsed.getOrElse(('|', None, None))
+      val styleChar = headerValue._1
+      val chomping = headerValue._2
+      val explicitIndent = headerValue._3
+      val contentStart = st1.index
+      // pure scan for the detected indent — the imperative cursor never escaped
+      def firstContentLine(cursor: Int): Int =
+        if cursor < lines.size && clean(lines(cursor)).isEmpty then firstContentLine(cursor + 1) else cursor
+      val detectedIndent = explicitIndent.map(parentIndent + _).getOrElse {
+        val cursor = firstContentLine(contentStart)
+        if cursor < lines.size then math.max(parentIndent + 1, indentOf(lines(cursor))) else parentIndent + 1
       }
-      val (styleChar, chomping, explicitIndent) = headerValue
-      val contentStart = index
-      var detectedIndent = explicitIndent.map(parentIndent + _).getOrElse(-1)
-      if detectedIndent < 0 then
-        var cursor = contentStart
-        while cursor < lines.size && clean(lines(cursor)).isEmpty do cursor += 1
-        detectedIndent = if cursor < lines.size then math.max(parentIndent + 1, indentOf(lines(cursor))) else parentIndent + 1
 
-      var rawLines: Vector[String] = Vector.empty
-      var lexeme = headerText + headerLine.lineBreak
-      var continue = true
-      while continue && index < lines.size && !isDocumentBoundary(lines(index)) do
-        val line = lines(index)
-        val blank = clean(line).isEmpty
-        if !blank && indentOf(line) < detectedIndent then continue = false
+      final case class ScalarStep(state: ParseState, rawLines: Vector[String], lexeme: String)
+      def gather(acc: ScalarStep): ScalarStep =
+        if acc.state.index >= lines.size || isDocumentBoundary(lines(acc.state.index)) then acc
         else
-          val content = if blank then "" else line.raw.drop(math.min(detectedIndent, line.raw.length))
-          rawLines = rawLines :+ content
-          lexeme = lexeme + line.raw + line.lineBreak
-          index += 1
+          val line = lines(acc.state.index)
+          val blank = clean(line).isEmpty
+          if !blank && indentOf(line) < detectedIndent then acc
+          else
+            val content = if blank then "" else line.raw.drop(math.min(detectedIndent, line.raw.length))
+            gather(ScalarStep(
+              acc.state.copy(index = acc.state.index + 1),
+              acc.rawLines :+ content,
+              acc.lexeme + line.raw + line.lineBreak,
+            ))
+      val gathered = gather(ScalarStep(st1, Vector.empty, headerText + headerLine.lineBreak))
 
       val normalized =
-        if styleChar == '|' then rawLines.mkString("\n")
-        else foldLines(rawLines)
-      val withBreak = if contentStart < index then normalized + "\n" else normalized
+        if styleChar == '|' then gathered.rawLines.mkString("\n")
+        else foldLines(gathered.rawLines)
+      val withBreak = if contentStart < gathered.state.index then normalized + "\n" else normalized
       val cooked = chomping match
         case Some('-') => withBreak.reverse.dropWhile(_ == '\n').reverse
         case Some('+') => withBreak
         case _         => withBreak.reverse.dropWhile(_ == '\n').reverse + Option.when(withBreak.nonEmpty)("\n").getOrElse("")
       val style = if styleChar == '|' then ScalarStyle.Literal else ScalarStyle.Folded
-      applyProperties(YamlValue.Scalar(YamlScalar.StringValue(cooked, lexeme, style), None, None), properties, headerLine.span(source))
+      applyProperties(
+        gathered.state,
+        YamlValue.Scalar(YamlScalar.StringValue(cooked, gathered.lexeme, style), None, None),
+        properties,
+        headerLine.span(source),
+      )
 
-    def parseInline(text: String, span: SourceSpan, depth: Int): YamlValue =
+    def parseInline(st0: ParseState, text: String, span: SourceSpan, depth: Int): Parsed =
       val withoutComment = stripComment(text).trim
-      val (properties, rest) = splitProperties(withoutComment, span)
-      val value =
-        if rest.startsWith("[") then flowParse(rest, span, depth, isSequence = true)
-        else if rest.startsWith("{") then flowParse(rest, span, depth, isSequence = false)
+      val split = splitProperties(st0, withoutComment, span)
+      val properties = split.properties
+      val rest = split.rest
+      val valueResult: Parsed =
+        if rest.startsWith("[") then flowParse(split.state, rest, span, depth, isSequence = true)
+        else if rest.startsWith("{") then flowParse(split.state, rest, span, depth, isSequence = false)
         else if rest.startsWith("*") then
           val scanned = YamlPropertySyntax.scan(rest, 0, YamlPropertyKind.Alias)
           val name = rest.substring(1, scanned.end)
           val boundaryProblem = YamlPropertySyntax.boundaryFailure(scanned, None)
           val trailing = rest.substring(scanned.end).trim
-          boundaryProblem.foreach(value =>
+          val flaggedBoundary = boundaryProblem.fold(split.state)(value =>
             problem(
+              split.state,
               "uniml.yaml.invalid-alias",
               s"invalid YAML alias at UTF-16 offset ${value.offset}: ${value.message}",
               span,
             )
           )
-          if trailing.nonEmpty && name.nonEmpty && boundaryProblem.isEmpty then
-            problem("uniml.yaml.invalid-alias", "a YAML alias cannot have trailing node content", span)
-          if name.isEmpty || boundaryProblem.nonEmpty then
-            nullValue(rest)
-          else YamlValue.Alias(name)
-        else if rest.startsWith("'") then quotedSingle(rest, span)
-        else if rest.startsWith("\"") then quotedDouble(rest, span)
-        else plainScalar(rest, properties.tag)
-      applyProperties(value, properties, span)
+          val flaggedTrailing =
+            if trailing.nonEmpty && name.nonEmpty && boundaryProblem.isEmpty then
+              problem(flaggedBoundary, "uniml.yaml.invalid-alias", "a YAML alias cannot have trailing node content", span)
+            else flaggedBoundary
+          if name.isEmpty || boundaryProblem.nonEmpty then Parsed(flaggedTrailing, nullValue(rest))
+          else Parsed(flaggedTrailing, YamlValue.Alias(name))
+        else if rest.startsWith("'") then quotedSingle(split.state, rest, span)
+        else if rest.startsWith("\"") then quotedDouble(split.state, rest, span)
+        else Parsed(split.state, plainScalar(rest, properties.tag))
+      applyProperties(valueResult.state, valueResult.value, properties, span)
 
     def plainScalar(lexeme: String, explicitTag: Option[String]): YamlValue =
       val tag = explicitTag.map(normalizeTag)
@@ -270,245 +327,311 @@ private[yaml] object YamlSemanticParser:
         else if matchesCoreFloat(lexeme) then YamlScalar.FloatValue(lexeme)
         else YamlScalar.StringValue(lexeme, lexeme, ScalarStyle.Plain)
 
-    def quotedSingle(text: String, span: SourceSpan): YamlValue =
+    def quotedSingle(st: ParseState, text: String, span: SourceSpan): Parsed =
       if text.length < 2 || text.last != '\'' then
-        problem("uniml.yaml.invalid-single-quoted", "unterminated single-quoted scalar", span)
-        YamlValue.Scalar(YamlScalar.StringValue(text.drop(1), text, ScalarStyle.SingleQuoted), None, None)
+        Parsed(
+          problem(st, "uniml.yaml.invalid-single-quoted", "unterminated single-quoted scalar", span),
+          YamlValue.Scalar(YamlScalar.StringValue(text.drop(1), text, ScalarStyle.SingleQuoted), None, None),
+        )
       else
         val cooked = text.substring(1, text.length - 1).replace("''", "'")
-        YamlValue.Scalar(YamlScalar.StringValue(cooked, text, ScalarStyle.SingleQuoted), None, None)
+        Parsed(st, YamlValue.Scalar(YamlScalar.StringValue(cooked, text, ScalarStyle.SingleQuoted), None, None))
 
-    def quotedDouble(text: String, span: SourceSpan): YamlValue =
+    def quotedDouble(st: ParseState, text: String, span: SourceSpan): Parsed =
       if text.length < 2 || text.last != '"' then
-        problem("uniml.yaml.invalid-double-quoted", "unterminated double-quoted scalar", span)
-        YamlValue.Scalar(YamlScalar.StringValue(text.drop(1), text, ScalarStyle.DoubleQuoted), None, None)
+        Parsed(
+          problem(st, "uniml.yaml.invalid-double-quoted", "unterminated double-quoted scalar", span),
+          YamlValue.Scalar(YamlScalar.StringValue(text.drop(1), text, ScalarStyle.DoubleQuoted), None, None),
+        )
       else
         decodeDouble(text.substring(1, text.length - 1)) match
-          case Some(cooked) => YamlValue.Scalar(YamlScalar.StringValue(cooked, text, ScalarStyle.DoubleQuoted), None, None)
+          case Some(cooked) => Parsed(st, YamlValue.Scalar(YamlScalar.StringValue(cooked, text, ScalarStyle.DoubleQuoted), None, None))
           case None =>
-            problem("uniml.yaml.invalid-double-quoted", "invalid escape in double-quoted scalar", span)
-            YamlValue.Scalar(YamlScalar.StringValue(text.substring(1, text.length - 1), text, ScalarStyle.DoubleQuoted), None, None)
+            Parsed(
+              problem(st, "uniml.yaml.invalid-double-quoted", "invalid escape in double-quoted scalar", span),
+              YamlValue.Scalar(YamlScalar.StringValue(text.substring(1, text.length - 1), text, ScalarStyle.DoubleQuoted), None, None),
+            )
 
-    def parseDirective(line: Line): YamlDirective =
+    final case class DirectiveResult(state: ParseState, directive: YamlDirective)
+
+    def parseDirective(st: ParseState, line: Line): DirectiveResult =
       val lexeme = clean(line)
       val body = lexeme.drop(1)
       val split = body.indexWhere(c => isWs(c))
-      val (name, value) = if split < 0 then body -> "" else body.take(split) -> body.drop(split).trim
-      if name != "YAML" && name != "TAG" then
-        problem("uniml.yaml.invalid-directive", s"reserved YAML directive '$name' is preserved but not interpreted", line.span(source), Severity.Warning)
-      YamlDirective(name, value, lexeme, line.span(source))
+      val name = if split < 0 then body else body.take(split)
+      val value = if split < 0 then "" else body.drop(split).trim
+      val flagged =
+        if name != "YAML" && name != "TAG" then
+          problem(st, "uniml.yaml.invalid-directive", s"reserved YAML directive '$name' is preserved but not interpreted", line.span(source), Severity.Warning)
+        else st
+      DirectiveResult(flagged, YamlDirective(name, value, lexeme, line.span(source)))
 
-    def splitProperties(text: String, span: SourceSpan): (Properties, String) =
-      var rest = text.trim
-      var tag: Option[String] = None
-      var anchor: Option[String] = None
-      var continue = true
-      while continue && rest.nonEmpty do
-        if rest.startsWith("!") then
+    def splitProperties(st0: ParseState, text: String, span: SourceSpan): SplitResult =
+      def loop(st: ParseState, rest: String, tag: Option[String], anchor: Option[String]): SplitResult =
+        if rest.isEmpty then SplitResult(st, Properties(tag, anchor), rest)
+        else if rest.startsWith("!") then
           val scanned = YamlPropertySyntax.scan(rest, 0, YamlPropertyKind.Tag)
           val value = rest.substring(0, scanned.end)
-          YamlPropertySyntax.boundaryFailure(scanned, None).foreach { failure =>
+          val flaggedBoundary = YamlPropertySyntax.boundaryFailure(scanned, None).fold(st) { failure =>
             problem(
+              st,
               "uniml.yaml.invalid-tag",
               s"invalid YAML tag at UTF-16 offset ${failure.offset}: ${failure.message}",
               span,
             )
           }
-          if tag.nonEmpty then problem("uniml.yaml.invalid-tag", "a YAML node cannot have two tags", span)
-          tag = Some(
-            tagEnvironment.expand(value) match
-              case Right(expanded) => expanded
-              case Left(message) =>
-                problem("uniml.yaml.invalid-tag", message, span)
-                value
-          )
-          rest = rest.substring(scanned.end)
-          if scanned.hadSeparation then rest = rest.trim
-          else continue = false
+          val flaggedDouble =
+            if tag.nonEmpty then problem(flaggedBoundary, "uniml.yaml.invalid-tag", "a YAML node cannot have two tags", span)
+            else flaggedBoundary
+          val expanded = flaggedDouble.tagEnvironment.expand(value) match
+            case Right(result) => SplitResult(flaggedDouble, Properties(Some(result), anchor), rest.substring(scanned.end))
+            case Left(message) =>
+              SplitResult(
+                problem(flaggedDouble, "uniml.yaml.invalid-tag", message, span),
+                Properties(Some(value), anchor),
+                rest.substring(scanned.end),
+              )
+          if scanned.hadSeparation then loop(expanded.state, expanded.rest.trim, expanded.properties.tag, expanded.properties.anchor)
+          else SplitResult(expanded.state, expanded.properties, expanded.rest)
         else if rest.startsWith("&") then
           val scanned = YamlPropertySyntax.scan(rest, 0, YamlPropertyKind.Anchor)
           val value = rest.substring(1, scanned.end)
-          YamlPropertySyntax.boundaryFailure(scanned, None).foreach { failure =>
+          val flaggedBoundary = YamlPropertySyntax.boundaryFailure(scanned, None).fold(st) { failure =>
             problem(
+              st,
               "uniml.yaml.invalid-anchor",
               s"invalid YAML anchor at UTF-16 offset ${failure.offset}: ${failure.message}",
               span,
             )
           }
-          if anchor.nonEmpty then problem("uniml.yaml.invalid-anchor", "a YAML node cannot have two anchors", span)
-          anchor = Some(value)
-          rest = rest.substring(scanned.end)
-          if scanned.hadSeparation then rest = rest.trim
-          else continue = false
-        else continue = false
-      Properties(tag, anchor) -> rest
+          val flaggedDouble =
+            if anchor.nonEmpty then problem(flaggedBoundary, "uniml.yaml.invalid-anchor", "a YAML node cannot have two anchors", span)
+            else flaggedBoundary
+          val nextRest = rest.substring(scanned.end)
+          if scanned.hadSeparation then loop(flaggedDouble, nextRest.trim, tag, Some(value))
+          else SplitResult(flaggedDouble, Properties(tag, Some(value)), nextRest)
+        else SplitResult(st, Properties(tag, anchor), rest)
+      loop(st0, text.trim, None, None)
 
-    def applyProperties(value: YamlValue, properties: Properties, span: SourceSpan): YamlValue = value match
+    def applyProperties(st: ParseState, value: YamlValue, properties: Properties, span: SourceSpan): Parsed = value match
       case YamlValue.Mapping(entries, tag, anchor) =>
-        YamlValue.Mapping(entries, properties.tag.orElse(tag), properties.anchor.orElse(anchor))
+        Parsed(st, YamlValue.Mapping(entries, properties.tag.orElse(tag), properties.anchor.orElse(anchor)))
       case YamlValue.Sequence(values, tag, anchor) =>
-        YamlValue.Sequence(values, properties.tag.orElse(tag), properties.anchor.orElse(anchor))
+        Parsed(st, YamlValue.Sequence(values, properties.tag.orElse(tag), properties.anchor.orElse(anchor)))
       case YamlValue.Scalar(scalar, tag, anchor) =>
-        YamlValue.Scalar(scalar, properties.tag.orElse(tag), properties.anchor.orElse(anchor))
+        Parsed(st, YamlValue.Scalar(scalar, properties.tag.orElse(tag), properties.anchor.orElse(anchor)))
       case alias: YamlValue.Alias =>
         if properties.tag.nonEmpty || properties.anchor.nonEmpty then
-          problem("uniml.yaml.invalid-alias", "aliases cannot have tag or anchor properties", span)
-        alias
-      case stream: YamlValue.Stream => stream
+          Parsed(problem(st, "uniml.yaml.invalid-alias", "aliases cannot have tag or anchor properties", span), alias)
+        else Parsed(st, alias)
+      case stream: YamlValue.Stream => Parsed(st, stream)
 
-    def flowParse(text: String, span: SourceSpan, depth: Int, isSequence: Boolean): YamlValue =
-      var cursor = 0
+    // The flow machine threads (outer state, local cursor) — FlowStep is its Parsed.
+    final case class FlowStep(state: ParseState, cursor: Int, value: YamlValue)
 
-      def skipSpaces(): Unit =
-        while cursor < text.length && isWs(text.charAt(cursor)) do cursor += 1
+    def flowParse(st0: ParseState, text: String, span: SourceSpan, depth: Int, isSequence: Boolean): Parsed =
 
-      def parseNode(stopAtColon: Boolean = false): YamlValue =
-        skipSpaces()
+      def skipSpaces(cursor: Int): Int =
+        if cursor < text.length && isWs(text.charAt(cursor)) then skipSpaces(cursor + 1) else cursor
+
+      def singleEnd(cursor: Int): Int =
+        if cursor >= text.length then cursor
+        else if text.charAt(cursor) == '\'' then
+          if cursor + 1 < text.length && text.charAt(cursor + 1) == '\'' then singleEnd(cursor + 2)
+          else cursor + 1
+        else singleEnd(cursor + 1)
+
+      def doubleEnd(cursor: Int, escaped: Boolean): Int =
+        if cursor >= text.length then cursor
+        else
+          val char = text.charAt(cursor)
+          if escaped then doubleEnd(cursor + 1, false)
+          else if char == '\\' then doubleEnd(cursor + 1, true)
+          else if char == '"' then cursor + 1
+          else doubleEnd(cursor + 1, false)
+
+      def plainNodeEnd(cursor: Int, stopAtColon: Boolean): Int =
+        // NOT `!",]}".contains(...)`: a unary op written with NO SPACE directly against a
+        // literal (`!",]}"`) is tokenized by this toolchain's parser as one combined
+        // "unary-prefixed literal" node — the same adjacency rule that turns `-1` into a
+        // NEGATIVE literal rather than `ApplyUnary(-, 1)`, applied here even though `!` means
+        // nothing for a `String` — and `.contains(...)` then chains onto that INNER node,
+        // which nothing in the Rust backend renders: `error: unsupported expression: Lit.
+        // WithUnary (!",]}")`. Explicit parens force the intended grouping regardless.
+        if cursor < text.length && !(",]}".contains(text.charAt(cursor))) &&
+            !(stopAtColon && text.charAt(cursor) == ':') then plainNodeEnd(cursor + 1, stopAtColon)
+        else cursor
+
+      def parseNode(st: ParseState, cursor0: Int, stopAtColon: Boolean): FlowStep =
+        val cursor = skipSpaces(cursor0)
         val start = cursor
-        if cursor >= text.length then nullValue("")
+        if cursor >= text.length then FlowStep(st, cursor, nullValue(""))
         else text.charAt(cursor) match
-          case '[' => parseSequence()
-          case '{' => parseMapping()
+          case '[' => parseSequence(st, cursor)
+          case '{' => parseMapping(st, cursor)
           case '\'' =>
-            cursor += 1
-            var closed = false
-            while cursor < text.length && !closed do
-              if text.charAt(cursor) == '\'' then
-                if cursor + 1 < text.length && text.charAt(cursor + 1) == '\'' then cursor += 2
-                else
-                  cursor += 1
-                  closed = true
-              else cursor += 1
-            quotedSingle(text.substring(start, cursor), span)
+            val end = singleEnd(cursor + 1)
+            val quoted = quotedSingle(st, text.substring(start, end), span)
+            FlowStep(quoted.state, end, quoted.value)
           case '"' =>
-            cursor += 1
-            var escaped = false
-            var closed = false
-            while cursor < text.length && !closed do
-              val char = text.charAt(cursor)
-              if escaped then escaped = false
-              else if char == '\\' then escaped = true
-              else if char == '"' then closed = true
-              cursor += 1
-            quotedDouble(text.substring(start, cursor), span)
+            val end = doubleEnd(cursor + 1, false)
+            val quoted = quotedDouble(st, text.substring(start, end), span)
+            FlowStep(quoted.state, end, quoted.value)
           case '*' =>
             val scanned = YamlPropertySyntax.scan(text, cursor, YamlPropertyKind.Alias)
-            cursor = scanned.end
             val name = text.substring(start + 1, scanned.end)
-            YamlValue.Alias(name)
+            FlowStep(st, scanned.end, YamlValue.Alias(name))
           case _ =>
-            // NOT `!",]}".contains(...)`: a unary op written with NO SPACE directly against a
-            // literal (`!",]}"`) is tokenized by this toolchain's parser as one combined
-            // "unary-prefixed literal" node — the same adjacency rule that turns `-1` into a
-            // NEGATIVE literal rather than `ApplyUnary(-, 1)`, applied here even though `!` means
-            // nothing for a `String` — and `.contains(...)` then chains onto that INNER node,
-            // which nothing in the Rust backend renders: `error: unsupported expression: Lit.
-            // WithUnary (!",]}")`. Explicit parens force the intended grouping regardless.
-            while cursor < text.length && !(",]}".contains(text.charAt(cursor))) &&
-                !(stopAtColon && text.charAt(cursor) == ':') do cursor += 1
-            parseInline(text.substring(start, cursor).trim, span, depth + 1)
+            val end = plainNodeEnd(cursor, stopAtColon)
+            val inline = parseInline(st, text.substring(start, end).trim, span, depth + 1)
+            FlowStep(inline.state, end, inline.value)
 
-      def parseSequence(): YamlValue =
-        cursor += 1
-        var values: Vector[YamlValue] = Vector.empty
-        skipSpaces()
-        while cursor < text.length && text.charAt(cursor) != ']' do
-          values = values :+ parseNode()
-          skipSpaces()
-          if cursor < text.length && text.charAt(cursor) == ',' then
-            cursor += 1
-            skipSpaces()
-          else if cursor < text.length && text.charAt(cursor) != ']' then
-            problem("uniml.yaml.expected-separator", "expected ',' or ']' in flow sequence", span)
-            cursor = text.length
-        if cursor < text.length && text.charAt(cursor) == ']' then cursor += 1
-        else problem("uniml.yaml.unclosed-flow", "unclosed flow sequence", span)
-        YamlValue.Sequence(values, None, None)
+      final case class FlowSeqStep(state: ParseState, cursor: Int, values: Vector[YamlValue])
 
-      def parseMapping(): YamlValue =
-        cursor += 1
-        var entries: Vector[YamlEntry] = Vector.empty
-        skipSpaces()
-        while cursor < text.length && text.charAt(cursor) != '}' do
-          val key = parseNode(stopAtColon = true)
-          skipSpaces()
-          if cursor >= text.length || text.charAt(cursor) != ':' then
-            problem("uniml.yaml.expected-value", "expected ':' in flow mapping", span)
-            cursor = text.length
+      def parseSequence(st0: ParseState, cursor0: Int): FlowStep =
+        def loop(acc: FlowSeqStep): FlowSeqStep =
+          if acc.cursor >= text.length || text.charAt(acc.cursor) == ']' then acc
           else
-            cursor += 1
-            skipSpaces()
-            val value =
-              if cursor < text.length && text.charAt(cursor) != ',' && text.charAt(cursor) != '}' then
-                parseNode()
-              else nullValue("")
-            entries = entries :+ YamlEntry(key, value, span)
-            skipSpaces()
-            if cursor < text.length && text.charAt(cursor) == ',' then
-              cursor += 1
-              skipSpaces()
-            else if cursor < text.length && text.charAt(cursor) != '}' then
-              problem("uniml.yaml.expected-separator", "expected ',' or '}' in flow mapping", span)
-              cursor = text.length
-        if cursor < text.length && text.charAt(cursor) == '}' then cursor += 1
-        else problem("uniml.yaml.unclosed-flow", "unclosed flow mapping", span)
-        YamlValue.Mapping(entries, None, None)
-
-      if isSequence then parseSequence() else parseMapping()
-
-    var documents: Vector[YamlDocument] = Vector.empty
-    skipBlank()
-    while index < lines.size do
-      tagEnvironment = YamlTagEnvironment.defaults
-      var directives: Vector[YamlDirective] = Vector.empty
-      while index < lines.size && clean(lines(index)).startsWith("%") do
-        val directive = parseDirective(lines(index))
-        directives = directives :+ directive
-        if directive.name == "TAG" then
-          YamlTagEnvironment.directiveParts(directive.value) match
-            case None =>
-              problem(
-                "uniml.yaml.invalid-directive",
-                "a %TAG directive requires exactly one handle and one prefix",
-                directive.span,
+            val node = parseNode(acc.state, acc.cursor, stopAtColon = false)
+            val afterNode = skipSpaces(node.cursor)
+            if afterNode < text.length && text.charAt(afterNode) == ',' then
+              loop(FlowSeqStep(node.state, skipSpaces(afterNode + 1), acc.values :+ node.value))
+            else if afterNode < text.length && text.charAt(afterNode) != ']' then
+              FlowSeqStep(
+                problem(node.state, "uniml.yaml.expected-separator", "expected ',' or ']' in flow sequence", span),
+                text.length,
+                acc.values :+ node.value,
               )
-            case Some((handle, prefix)) =>
-              tagEnvironment.register(handle, prefix) match
-                case Right(updated) => tagEnvironment = updated
-                case Left(message) =>
-                  problem("uniml.yaml.invalid-directive", message, directive.span)
-        index += 1
-        skipBlank()
+            else FlowSeqStep(node.state, afterNode, acc.values :+ node.value)
+        val walked = loop(FlowSeqStep(st0, skipSpaces(cursor0 + 1), Vector.empty))
+        if walked.cursor < text.length && text.charAt(walked.cursor) == ']' then
+          FlowStep(walked.state, walked.cursor + 1, YamlValue.Sequence(walked.values, None, None))
+        else
+          FlowStep(
+            problem(walked.state, "uniml.yaml.unclosed-flow", "unclosed flow sequence", span),
+            walked.cursor,
+            YamlValue.Sequence(walked.values, None, None),
+          )
 
-      val directiveValues = directives
-      val explicitStart = index < lines.size && clean(lines(index)) == "---"
-      if directiveValues.nonEmpty && !explicitStart then
-        problem("uniml.yaml.directive-position", "directives must be followed by an explicit document start", currentSpan())
-      if explicitStart then
-        index += 1
-        skipBlank()
+      final case class FlowMapStep(state: ParseState, cursor: Int, entries: Vector[YamlEntry])
 
-      if index >= lines.size then documents = documents :+ YamlDocument(None, directiveValues)
-      else if clean(lines(index)) == "..." then
-        index += 1
-        documents = documents :+ YamlDocument(None, directiveValues)
-      else if clean(lines(index)) == "---" then
-        documents = documents :+ YamlDocument(None, directiveValues)
+      def parseMapping(st0: ParseState, cursor0: Int): FlowStep =
+        def loop(acc: FlowMapStep): FlowMapStep =
+          if acc.cursor >= text.length || text.charAt(acc.cursor) == '}' then acc
+          else
+            val key = parseNode(acc.state, acc.cursor, stopAtColon = true)
+            val afterKey = skipSpaces(key.cursor)
+            if afterKey >= text.length || text.charAt(afterKey) != ':' then
+              FlowMapStep(
+                problem(key.state, "uniml.yaml.expected-value", "expected ':' in flow mapping", span),
+                text.length,
+                acc.entries,
+              )
+            else
+              val valueStart = skipSpaces(afterKey + 1)
+              val value =
+                if valueStart < text.length && text.charAt(valueStart) != ',' && text.charAt(valueStart) != '}' then
+                  parseNode(key.state, valueStart, stopAtColon = false)
+                else FlowStep(key.state, valueStart, nullValue(""))
+              val entries = acc.entries :+ YamlEntry(key.value, value.value, span)
+              val afterValue = skipSpaces(value.cursor)
+              if afterValue < text.length && text.charAt(afterValue) == ',' then
+                loop(FlowMapStep(value.state, skipSpaces(afterValue + 1), entries))
+              else if afterValue < text.length && text.charAt(afterValue) != '}' then
+                FlowMapStep(
+                  problem(value.state, "uniml.yaml.expected-separator", "expected ',' or '}' in flow mapping", span),
+                  text.length,
+                  entries,
+                )
+              else FlowMapStep(value.state, afterValue, entries)
+        val walked = loop(FlowMapStep(st0, skipSpaces(cursor0 + 1), Vector.empty))
+        if walked.cursor < text.length && text.charAt(walked.cursor) == '}' then
+          FlowStep(walked.state, walked.cursor + 1, YamlValue.Mapping(walked.entries, None, None))
+        else
+          FlowStep(
+            problem(walked.state, "uniml.yaml.unclosed-flow", "unclosed flow mapping", span),
+            walked.cursor,
+            YamlValue.Mapping(walked.entries, None, None),
+          )
+
+      val stepped = if isSequence then parseSequence(st0, 0) else parseMapping(st0, 0)
+      Parsed(stepped.state, stepped.value)
+
+    // ── the document driver ──────────────────────────────────────────────────────────────────────
+    final case class DirectivesStep(state: ParseState, directives: Vector[YamlDirective])
+
+    def gatherDirectives(acc: DirectivesStep): DirectivesStep =
+      if acc.state.index < lines.size && clean(lines(acc.state.index)).startsWith("%") then
+        val result = parseDirective(acc.state, lines(acc.state.index))
+        val withTag =
+          if result.directive.name == "TAG" then
+            YamlTagEnvironment.directiveParts(result.directive.value) match
+              case None =>
+                problem(
+                  result.state,
+                  "uniml.yaml.invalid-directive",
+                  "a %TAG directive requires exactly one handle and one prefix",
+                  result.directive.span,
+                )
+              case Some(parts) =>
+                result.state.tagEnvironment.register(parts._1, parts._2) match
+                  case Right(updated) => result.state.copy(tagEnvironment = updated)
+                  case Left(message)  => problem(result.state, "uniml.yaml.invalid-directive", message, result.directive.span)
+          else result.state
+        gatherDirectives(DirectivesStep(
+          skipBlank(withTag.copy(index = withTag.index + 1)),
+          acc.directives :+ result.directive,
+        ))
+      else acc
+
+    final case class DocumentsStep(state: ParseState, documents: Vector[YamlDocument])
+
+    def parseDocuments(acc: DocumentsStep): DocumentsStep =
+      if acc.state.index >= lines.size then acc
       else
-        val startIndex = index
-        val value = parseValue(indentOf(lines(index)), 0)
-        if index == startIndex then index += 1
-        skipBlank()
-        if index < lines.size && clean(lines(index)) == "..." then index += 1
-        documents = documents :+ YamlDocument(Some(value), directiveValues)
+        // per-document tag scope: the environment resets to the defaults at each document boundary
+        val fresh = acc.state.copy(tagEnvironment = YamlTagEnvironment.defaults)
+        val gathered = gatherDirectives(DirectivesStep(fresh, Vector.empty))
+        val directiveValues = gathered.directives
+        val st1 = gathered.state
+        val explicitStart = st1.index < lines.size && clean(lines(st1.index)) == "---"
+        val st2 =
+          if directiveValues.nonEmpty && !explicitStart then
+            problem(st1, "uniml.yaml.directive-position", "directives must be followed by an explicit document start", currentSpan(st1))
+          else st1
+        val st3 = if explicitStart then skipBlank(st2.copy(index = st2.index + 1)) else st2
 
-      skipBlank()
-      if index < lines.size && clean(lines(index)) != "---" && !clean(lines(index)).startsWith("%") then
-        problem("uniml.yaml.expected-node", "unexpected content after YAML document root", lines(index).span(source))
-        index += 1
-        skipBlank()
+        val documented: DocumentsStep =
+          if st3.index >= lines.size then DocumentsStep(st3, acc.documents :+ YamlDocument(None, directiveValues))
+          else if clean(lines(st3.index)) == "..." then
+            DocumentsStep(st3.copy(index = st3.index + 1), acc.documents :+ YamlDocument(None, directiveValues))
+          else if clean(lines(st3.index)) == "---" then
+            DocumentsStep(st3, acc.documents :+ YamlDocument(None, directiveValues))
+          else
+            val startIndex = st3.index
+            val parsed = parseValue(st3, indentOf(lines(st3.index)), 0)
+            val bumped =
+              if parsed.state.index == startIndex then parsed.state.copy(index = parsed.state.index + 1)
+              else parsed.state
+            val blanked = skipBlank(bumped)
+            val consumedEnd =
+              if blanked.index < lines.size && clean(lines(blanked.index)) == "..." then blanked.copy(index = blanked.index + 1)
+              else blanked
+            DocumentsStep(consumedEnd, acc.documents :+ YamlDocument(Some(parsed.value), directiveValues))
 
-    YamlSemanticResult(YamlValue.Stream(documents), diagnostics)
+        val blanked = skipBlank(documented.state)
+        val checked =
+          if blanked.index < lines.size && clean(lines(blanked.index)) != "---" && !clean(lines(blanked.index)).startsWith("%") then
+            skipBlank(
+              problem(blanked, "uniml.yaml.expected-node", "unexpected content after YAML document root", lines(blanked.index).span(source))
+                .copy(index = blanked.index + 1)
+            )
+          else blanked
+        parseDocuments(DocumentsStep(checked, documented.documents))
+
+    val initial = ParseState(0, Vector.empty, YamlTagEnvironment.defaults)
+    val finished = parseDocuments(DocumentsStep(skipBlank(initial), Vector.empty))
+    YamlSemanticResult(YamlValue.Stream(finished.documents), finished.state.diagnostics)
 
   private def nullValue(lexeme: String): YamlValue = YamlValue.Scalar(YamlScalar.NullValue(lexeme), None, None)
 

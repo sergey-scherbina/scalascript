@@ -57,6 +57,18 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
       envelope — no urgent knob. Cursor de-mutabilization (stage 10) must re-run this bench per
       module as its perf gate.
 
+- [~] uniml-demut-yaml-semantic — **the semantic parser's state machine is a fold: 66 vars → 39,
+      with every survivor a tail-zone leaf.** The three closure vars (index, diagnostics,
+      tagEnvironment) became a ParseState threaded through ~12 mutually recursive parse functions
+      returning Parsed(state, value); flowParse's shared-cursor machine threads FlowStep(state,
+      cursor, value). Transcription risks carried explicitly: the DOUBLE diagnostic on an unclosed
+      flow collection (separator error sets cursor to end, the close check then ALSO fires);
+      parseCompactMapping's mapIndent latch; the driver's per-document tagEnvironment reset;
+      `index += 1; skipBlank()` ordering in the directive gatherer; doubleEnd including its closing
+      quote. The 39 remaining vars are ALL in the file's tail leaf zone — decodeDouble, splitLines,
+      stripComment, findKeyColon and the regex-mirroring matchers, each a grammar walk over one
+      string with the regex documented beside it. 61/61 JVM + 60/60 JS, lint OK, warm wall
+      4.03–4.09s vs 3.78–3.97 earlier baselines (~5% on the whole suite, stated).
 - [~] uniml-demut-yaml-property — **YamlPropertySyntax: the yaml side converts (10 vars), the RFC
       object PARKS as a declared whole-object holdout (30 vars).** scan's two end-finding loops
       became verbatimEnd/plainEnd (the lexer's idiom); validHandle a forall; validateUnits a
