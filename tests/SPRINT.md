@@ -13,6 +13,12 @@ worked on belongs in `tests/BACKLOG.md`. Layout: [`../specs/work-tracking-layout
       `cp` into the isolated dir but left the `chmod +x "$isolated/$ARTIFACT_ID"`; the step first
       executed on the v0.3.0 tag because qualify runs only on tags/dispatches. Fix: chmod only the
       qualify script (`native-release-qualify` extracts the binary from the tarball itself).
+      SECOND defect caught by the post-fix dispatch (33513746923) BEFORE re-tagging:
+      `archive-layout` rejects the `lib/tower` DIRECTORY member — the rename left `lib/tower`
+      out of `allowed_directory`'s fixed set while `lib/std` is in it, and the e2e fixture
+      built tars with no directory members at all, so the gate was green on fixtures and wrong
+      on the only real input. Fixture now emits directory members like real tar (plant proved:
+      unfixed script fails the happy case exactly like CI); script lists `lib/tower`.
       *Done when:* the workflow fix is on main, the bug is filed with the landed SHA, and the owner
       has decided the recovery — re-tag v0.3.0 on a fixed snapshot vs cut v0.3.1 — since moving a
       published tag is an owner call.

@@ -176,10 +176,16 @@ def allowed_file(path: str) -> bool:
 
 
 def allowed_directory(path: str) -> bool:
+    # "lib/tower" itself must be listed: the prefix test below only admits entries UNDER it,
+    # and the real tar emits a member for the directory proper. It was missing after the
+    # native-front -> tower rename while its sibling "lib/std" was listed, and the first real
+    # tarball ever qualified failed here (the e2e fixture used to add no directory members at
+    # all, so this function was never called with these names before that run).
     fixed = {
         "",
         "lib",
         "lib/std",
+        "lib/tower",
     }
     return (
         path in fixed

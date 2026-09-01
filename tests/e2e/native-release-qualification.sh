@@ -361,6 +361,25 @@ else:
             entry.mtime = 0
             bundle.addfile(entry, io.BytesIO(content))
 
+        # The real archive is written by `tar -czf ... -C dist/archive ssc lib README.md`,
+        # which emits a DIRECTORY member for every directory it descends into — `lib/`,
+        # `lib/tower/`, `lib/tower/bin/`, ... A fixture of bare file entries never exercises
+        # `allowed_directory` on those names, and that is exactly how `lib/tower` shipped
+        # missing from its fixed set: every mutation case here stayed green while the first
+        # real tarball failed `archive-layout` on the v0.3.0 dispatch
+        # (BUGS `native-release-qualify-rejects-the-lib-tower-directory-member`).
+        directories = set()
+        for name in files:
+            parts = name.split("/")[:-1]
+            for depth in range(1, len(parts) + 1):
+                directories.add("/".join(parts[:depth]) + "/")
+        for name in sorted(directories):
+            entry = tarfile.TarInfo(name)
+            entry.type = tarfile.DIRTYPE
+            entry.mode = 0o755
+            entry.mtime = 0
+            bundle.addfile(entry)
+
         for name in sorted(files):
             if case == "nonexec-ssc" and name == "ssc":
                 mode = 0o644
