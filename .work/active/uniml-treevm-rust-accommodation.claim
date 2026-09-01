@@ -1,0 +1,11 @@
+slug: uniml-treevm-rust-accommodation
+branch: feature/uniml-treevm-rust-accommodation
+agent: claude-code
+started: 2026-09-01T10:37:51Z
+heartbeat: 2026-09-01T10:37:51Z
+status: claimed-before-planning
+items: uniml-treevm-rust-accommodation
+paths: file:uniml/core/src/main/scala/scalascript/uniml/TreeVm.scala file:BUGS.md file:uniml/SPRINT.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
