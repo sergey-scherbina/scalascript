@@ -453,7 +453,12 @@ object RustCodeWalk:
                  // Tested on the DECLARED type, the same way `renderParams` finds these params.
                  !p.decltpe.exists { case m.Type.Name("StringBuilder") => true; case _ => false } &&
                  !written.contains(p.name.value) &&
-                 !returnsNameDirectly(d.body, p.name.value) => i
+                 !returnsNameDirectly(d.body, p.name.value) &&
+                 // A TCO'd def REASSIGNS its params in the generated loop — Scala never wrote
+                 // them, so `collectDirectWrites` cannot see it. Only the positions every
+                 // self-call passes through unchanged stay `&` (ssc-perf-port-to-main).
+                 (!hasTailCallPath(name, ps.size, d.body) ||
+                   tcoInvariantParamPositions(name, ps.map(_.name.value), d.body).contains(i)) => i
           }.toSet
         }.distinct
         name -> (if perDef.sizeIs == 1 then perDef.head else Set.empty[Int])
@@ -3540,6 +3545,11 @@ object RustCodeWalk:
       // Local-def lambda-lifting: def name -> its captured names, in the FIXED canonical order used
       // both at its own (lifted) parameter list and at every call site that must append them.
       liftedDefExtraArgs: Map[String, List[String]] = Map.empty,
+      // Per-CALLEE: which of its captures its lifted signature takes as `&Vec<…>` — the call
+      // site must agree with THAT signature, not with any scope-global notion of the name
+      // (ssc-perf-port-to-main: `nextSignificant` takes the same capture BY VALUE while its
+      // sibling `scan` takes it by `&`).
+      liftedDefValRefCaptures: Map[String, Set[String]] = Map.empty,
       // `def problem(code: String, message: String, span: SourceSpan, severity: Severity =
       // Severity.Error): Unit = …` (`uniml/yaml`'s `YamlSemanticParser.scala`'s `parse`) — a LOCAL
       // def's OWN trailing default, invisible to the module-wide `_defaultsMap` fill (`collectDefs`
@@ -6133,6 +6143,31 @@ object RustCodeWalk:
 
   /** Check if a term in tail-position is a direct self-call to `defName` with `paramCount` args.
    *  Returns `Some(args)` on match, `None` otherwise. */
+  /** Parameter POSITIONS a tail-recursive def passes through UNCHANGED (the argument is the
+   *  bare parameter itself) in EVERY self-call — such a parameter needs no TCO `mut`/
+   *  reassignment and keeps its `_refParamPos` `&Vec<…>`/`&String` form, which every CALL SITE
+   *  is already built against (ssc-perf-port-to-main: `mut tokens: Vec<…>` in the signature
+   *  versus `&Vec` at all six callers of the TCO'd `nextSignificant`). */
+  private def tcoInvariantParamPositions(name: String, pNames: List[String], body: m.Term): Set[Int] =
+    var calls = List.empty[List[m.Term]]
+    def walkCalls(t: m.Tree): Unit =
+      t match
+        case m.Term.Apply.After_4_6_0(m.Term.Name(n), args)
+            if n == name && args.values.sizeIs == pNames.size =>
+          calls = args.values.toList :: calls
+          args.values.foreach(walkCalls)
+        case other => other.children.foreach(walkCalls)
+    walkCalls(body)
+    if calls.isEmpty then pNames.indices.toSet
+    else
+      pNames.indices.filter { i =>
+        calls.forall { as =>
+          as.lift(i) match
+            case Some(m.Term.Name(an)) => an == pNames(i)
+            case _                     => false
+        }
+      }.toSet
+
   private def isSelfTailCall(defName: String, paramCount: Int, term: m.Term): Option[List[m.Term]] = term match
     case m.Term.Apply.After_4_6_0(m.Term.Name(n), args)
         if n == defName && args.values.size == paramCount =>
@@ -6164,9 +6199,16 @@ object RustCodeWalk:
   ): Either[List[Diagnostic], String] =
     // Curried / using groups flatten into one param list (see renderParams).
     val params = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
-    val rendered = params.map { p =>
+    // `_refParamPos` positions survived the TCO gate above only because every self-call passes
+    // them through unchanged — they take the same `&` form the call sites are built against,
+    // and no `mut` (the loop never reassigns them; see `renderTCOTerm`'s skip).
+    val refPos = _refParamPos.getOrElse(ctx.defName, Set.empty)
+    val rendered = params.zipWithIndex.map { (p, i) =>
       p.decltpe match
-        case Some(t) => mapType(t, ctx.defName, ctx.enumNames).map(r => s"mut ${p.name.value}: $r")
+        case Some(t) => mapType(t, ctx.defName, ctx.enumNames).map { r =>
+          if refPos.contains(i) then s"${p.name.value}: &$r"
+          else s"mut ${p.name.value}: $r"
+        }
         case None    => Left(List(unsupported(
           s"def `${ctx.defName}` parameter `${p.name.value}` has no type annotation"
         )))
@@ -6212,14 +6254,22 @@ object RustCodeWalk:
     directTail match
       case Some(newArgs) =>
         // Emit temp bindings then param assignments to avoid update-order issues.
-        val argResults = newArgs.zipWithIndex.map { case (a, i) =>
+        // A position whose argument IS the bare parameter needs no temp and no reassignment —
+        // and for a `&`-surviving `_refParamPos` parameter it MUST be skipped (there is no
+        // `mut` to assign to). `p = p;` was only ever a no-op for the rest.
+        val passThrough = newArgs.zipWithIndex.collect {
+          case (m.Term.Name(an), i) if paramNames.lift(i).contains(an) => i
+        }.toSet
+        val argResults = newArgs.zipWithIndex.collect { case (a, i) if !passThrough.contains(i) =>
           renderTerm(a, ctx).map(r => (s"_tco_$i", r))
         }
         val (errs, rendered) = argResults.partitionMap(identity)
         if errs.nonEmpty then Left(errs.flatten)
         else
           val lets   = rendered.map { case (tmp, rhs) => s"let $tmp = $rhs;" }.mkString("\n")
-          val assigns = paramNames.zipWithIndex.map { case (p, i) => s"$p = _tco_$i;" }.mkString("\n")
+          val assigns = paramNames.zipWithIndex.collect {
+            case (p, i) if !passThrough.contains(i) => s"$p = _tco_$i;"
+          }.mkString("\n")
           Right(if lets.isEmpty then assigns else s"$lets\n$assigns")
       case None =>
         term match
@@ -7356,7 +7406,16 @@ object RustCodeWalk:
         // an overwrite here is exactly what left `quotedSingle`'s call sites unrecognized as a
         // lifted-def call at all, so they never got `diagnostics` appended:
         // `error[E0061]: this function takes 3 arguments but 2 arguments were supplied`.
-        liftedDefExtraArgs    = ctx.liftedDefExtraArgs ++ orderedCaptures,
+        // EVERY local def gets an entry — an empty capture list for the capture-free ones —
+        // so the lifted-call arm (the only one that reads `liftedDefParamTypes`' `&Vec<…>`
+        // markers) sees ALL their call sites: `headStartIndex`'s capture-free nested `scan`
+        // declares `tokens: Vector[RustLexToken]` explicitly, its signature became
+        // `&Vec<RustLexToken>`, and the OUTER call — routed through the ordinary machinery,
+        // which knows nothing of that table — still passed `(*tokens).clone()`:
+        // `error[E0308]: expected &Vec<_>, found Vec<_>`, 25 sites in one regen
+        // (ssc-perf-port-to-main). Real captures land AFTER the empty seeds and win.
+        liftedDefExtraArgs    = ctx.liftedDefExtraArgs ++
+          localDefs.map(d => d.name.value -> List.empty[String]).toMap ++ orderedCaptures,
         liftedDefNeedsSelf    = ctx.liftedDefNeedsSelf ++ selfNeedingDefs,
         liftedMutableCaptures = ctx.liftedMutableCaptures ++ allMutableCaptures,
         liftedRefCaptures     = ctx.liftedRefCaptures ++ orderedCaptures.toList.flatMap { (_, cs) =>
@@ -7394,6 +7453,9 @@ object RustCodeWalk:
         }.toMap
       )
 
+      // Per-callee signature decisions the OUTER call sites must agree with — see
+      // `Ctx.liftedDefValRefCaptures` (ssc-perf-port-to-main).
+      var valRefCapturesByDef = Map.empty[String, Set[String]]
       val renderedDefs: List[Either[List[Diagnostic], String]] = localDefs.map { d =>
         val myCaptures    = orderedCaptures.getOrElse(d.name.value, Nil)
         val myByRefMut    = myCaptures.filter(varNames.contains).toSet
@@ -7429,7 +7491,10 @@ object RustCodeWalk:
             // SCOPED TO `Vec`, deliberately: it is the measured case, it is unambiguously non-Copy,
             // and a Copy capture (`i64`, `bool`) is cheaper by value than behind a reference. String
             // and HashMap are the obvious next candidates and are left until something measures them.
-            else if t.startsWith("Vec<") then s"$c: &$t"
+            else if t.startsWith("Vec<") then
+              valRefCapturesByDef = valRefCapturesByDef.updated(
+                d.name.value, valRefCapturesByDef.getOrElse(d.name.value, Set.empty) + c)
+              s"$c: &$t"
             else s"$c: $t"
           }
           // Factored out of `paramTypes`' own RHS below so `localOptions` (below that) can build a
@@ -7624,7 +7689,8 @@ object RustCodeWalk:
       if defErrs.nonEmpty then Left(defErrs.flatten)
       else
         val remaining = stats.filterNot { case _: m.Defn.Def => true; case _ => false }
-        Right((defOk, remaining, baseCtx))
+        Right((defOk, remaining, baseCtx.copy(
+          liftedDefValRefCaptures = baseCtx.liftedDefValRefCaptures ++ valRefCapturesByDef)))
 
   private def renderStmt(
       stat: m.Stat, ctx: Ctx
@@ -8051,8 +8117,13 @@ object RustCodeWalk:
           // `r1` has been through `renderTerm`, which derefs a `byRefMut` read to `(*lines)`, and
           // `(*lines)` is a `Vec`, not a `&Vec`: `error[E0308]: expected &Vec<_>, found Vec<_>`.
           val alreadyRefName = arg match
-            case m.Term.Name(an) if ctx.byRefMut.contains(an) => Some(an)
-            case _                                            => None
+            // `ctx.refValueParams` too, not just `byRefMut`: a READ-ONLY `&Vec<…>` parameter
+            // (`_refParamPos`) forwarded into another lifted def's `&Vec` parameter is already
+            // the reference — rendering it went through the deref-on-read (`(*tokens)`), and
+            // wrapping THAT gave `&(*tokens).clone()`'s `Vec`-not-`&Vec` E0308, 25 times in
+            // RustLexer's TCO'd `scan`/`lexWindow` alone (ssc-perf-port-to-main).
+            case m.Term.Name(an) if ctx.byRefMut.contains(an) || ctx.refValueParams.contains(an) => Some(an)
+            case _ => None
           val r =
             if wantsRef then alreadyRefName.getOrElse(s"&$r1")
             else cloneIfMoved(arg, r1, ctx)
@@ -8075,11 +8146,21 @@ object RustCodeWalk:
         // source in this scope` (rustc's own hint names the fix: `self.source`). Prefixed here,
         // the one place this arm ever turns a capture NAME into TEXT.
         val extra = ctx.liftedDefExtraArgs(n).map { c =>
+          if sys.env.contains("SSC_DEBUG_LIFT") then
+            System.err.println(s"LIFTCALL callee=$n cap=$c refValue=${ctx.refValueParams.contains(c)} refCap=${ctx.liftedRefCaptures.contains(c)} byRefMut=${ctx.byRefMut.contains(c)}")
           val selfPrefix = if ctx.trueSelfFields.contains(c) then "self." else ""
           // Checked BEFORE `byRefMut`, which it is a subset of: see `Ctx.refValueParams`. The
           // lifted callee declares this capture by value, so it needs an owned copy — the same
           // `(*x).clone()` `cloneIfMoved` gives a reference read at any other by-value position.
-          if ctx.refValueParams.contains(c) then s"(*$selfPrefix$c).clone()"
+          // The CALLEE's signature decision comes FIRST: when the capture became a `&Vec<…>`
+          // parameter over there, the call site must send a reference regardless of how the
+          // name is held HERE — an already-reference name (refValueParams/byRefMut) forwards
+          // bare, an owned one takes `&` (ssc-perf-port-to-main: `(*tokens).clone()` into a
+          // `&Vec` parameter, 25 E0308s in one regen).
+          if ctx.liftedDefValRefCaptures.getOrElse(n, Set.empty).contains(c) then
+            if ctx.refValueParams.contains(c) || ctx.byRefMut.contains(c) then s"$selfPrefix$c"
+            else s"&$selfPrefix$c"
+          else if ctx.refValueParams.contains(c) then s"(*$selfPrefix$c).clone()"
           else if ctx.byRefMut.contains(c) then s"$selfPrefix$c"
           else if ctx.liftedMutableCaptures.contains(c) then s"&mut $selfPrefix$c"
           // A read-only `Vec` capture takes `&` here instead of a whole-vector `.clone()` — see
@@ -8990,7 +9071,7 @@ object RustCodeWalk:
     // these names is a program that would not compile on any lane. So an unlowered one refuses
     // wherever it appears, and every other field access keeps passing through untouched.
     // (rust-no-paren-member-becomes-a-field-silently.)
-    case m.Term.Select(_, m.Term.Name(meth)) if CollectionOnlyMembers.contains(meth) =>
+    case sel @ m.Term.Select(_, m.Term.Name(meth)) if CollectionOnlyMembers.contains(meth) =>
       // The message deliberately does NOT say "cannot type", which is what it used to say and what
       // sent me looking for an inference pass. Measured 2026-08-13: a TRAIT settles `reverse`,
       // `isEmpty` and `nonEmpty` without any receiver type, and lowering them is four lines. It
@@ -9001,7 +9082,10 @@ object RustCodeWalk:
       // (rust-no-paren-member-needs-receiver-type.)
       Left(List(unsupported(
         s"def `${ctx.defName}` reads `$meth` without parentheses and this lane does not lower it " +
-        s"here; it is a collection member, not a field, and would be emitted as a Rust FIELD access"
+        s"here; it is a collection member, not a field, and would be emitted as a Rust FIELD access" +
+        // The receiver's own SOURCE TEXT and offset — five identical refusals in one 2000-line
+        // def are otherwise a blind bisection (the ssc-perf-port-to-main round measured it).
+        s" (receiver `${sel.qual.syntax.take(60)}` at offset ${sel.pos.start})"
       )))
 
     // Same bug, the PRECISE half: `adapter.id` (`Dialect.scala`'s `register`, `adapter:
