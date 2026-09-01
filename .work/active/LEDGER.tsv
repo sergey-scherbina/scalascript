@@ -1,3 +1,2 @@
-# generation: 3324
+# generation: 3325
 #slug	agent	started	items	paths
-v3-declare-hk-arity-conf-disagree	claude-code	2026-09-01T11:41:06Z	uniml-traitdecl-drops-class-parameters	file:v3/front-diff.sh file:v3/BUGS.md file:v3/SPRINT.md
