@@ -1,0 +1,12 @@
+slug: v3-front-does-not-parse-an-anonymous-given
+branch: feature/v3-front-does-not-parse-an-anonymous-given
+agent: claude-code
+started: 2026-09-01T23:29:14Z
+heartbeat: 2026-09-01T23:29:14Z
+status: claimed-before-planning
+items: v3-front-does-not-parse-an-anonymous-given kr-summon-anonymous-given
+paths: file:v3/src/Parser.scala file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/ScalaSpike.scala file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/SpikeTyped.scala file:uniml/scala/src/test-jvm/scala/scalascript/uniml/dialect/scalascript/SpikeTypedRolesSpec.scala file:v3/uniml/UniFront.scala file:v3/front-diff.sh file:v3/BUGS.md file:v3/SPRINT.md mod:v3/tests/front
+broad: one or two new front fixtures (anonymous-given), names unknown until written
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement

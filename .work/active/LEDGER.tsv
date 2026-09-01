@@ -1,4 +1,5 @@
-# generation: 3352
+# generation: 3353
 #slug	agent	started	items	paths
 smoke-baseline-refresh	claude-code	2026-09-01T21:52:58Z	smoke-baseline-refresh	file:tests/smoke-baseline.tsv file:tests/SPRINT.md file:tests/BUGS.md file:tests/smoke-baseline-harvest.sh file:scripts/smoke-ci.ssc
 uniml-extern-class-members-hoist-to-top-level	claude-code	2026-09-01T22:52:16Z	uniml-extern-class-members-hoist-to-top-level	file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/ScalaSpike.scala file:uniml/scala/src/test-jvm/scala/scalascript/uniml/dialect/scalascript/SpikeTypedRolesSpec.scala file:v3/uniml/UniFront.scala file:v3/front-diff.sh file:v3/BUGS.md file:v3/SPRINT.md
+v3-front-does-not-parse-an-anonymous-given	claude-code	2026-09-01T23:29:14Z	v3-front-does-not-parse-an-anonymous-given kr-summon-anonymous-given	file:v3/src/Parser.scala file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/ScalaSpike.scala file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/SpikeTyped.scala file:uniml/scala/src/test-jvm/scala/scalascript/uniml/dialect/scalascript/SpikeTypedRolesSpec.scala file:v3/uniml/UniFront.scala file:v3/front-diff.sh file:v3/BUGS.md file:v3/SPRINT.md mod:v3/tests/front
