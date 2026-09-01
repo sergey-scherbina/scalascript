@@ -61,23 +61,27 @@ private final case class YamlInstructionProcessor(source: SourceId, limits: Yaml
     else
       val lexed = YamlLexer.scan(source, state, limits)
       val structured = YamlStructure.assign(lexed.tokens)
-      var countDiagnostics: Vector[Diagnostic] = Vector.empty
       val anchorCount = lexed.tokens.count(_.kind == "yaml.anchor")
       val aliasCount = lexed.tokens.count(_.kind == "yaml.alias")
-      if anchorCount > limits.maxAnchors then
-        countDiagnostics = countDiagnostics :+ Diagnostic(
-          "uniml.yaml.limit.anchors",
-          s"YAML source contains $anchorCount anchors; limit is ${limits.maxAnchors}",
-          Severity.Fatal,
-          lexed.tokens.find(_.kind == "yaml.anchor").map(_.span),
-          Some(YamlDialect.id),
-        )
-      if aliasCount > limits.maxAliases then
-        countDiagnostics = countDiagnostics :+ Diagnostic(
-          "uniml.yaml.limit.aliases",
-          s"YAML source contains $aliasCount aliases; limit is ${limits.maxAliases}",
-          Severity.Fatal,
-          lexed.tokens.find(_.kind == "yaml.alias").map(_.span),
-          Some(YamlDialect.id),
-        )
+      val anchorDiagnostics =
+        if anchorCount > limits.maxAnchors then
+          Vector(Diagnostic(
+            "uniml.yaml.limit.anchors",
+            s"YAML source contains $anchorCount anchors; limit is ${limits.maxAnchors}",
+            Severity.Fatal,
+            lexed.tokens.find(_.kind == "yaml.anchor").map(_.span),
+            Some(YamlDialect.id),
+          ))
+        else Vector.empty
+      val aliasDiagnostics =
+        if aliasCount > limits.maxAliases then
+          Vector(Diagnostic(
+            "uniml.yaml.limit.aliases",
+            s"YAML source contains $aliasCount aliases; limit is ${limits.maxAliases}",
+            Severity.Fatal,
+            lexed.tokens.find(_.kind == "yaml.alias").map(_.span),
+            Some(YamlDialect.id),
+          ))
+        else Vector.empty
+      val countDiagnostics = anchorDiagnostics ++ aliasDiagnostics
       ProcessBatch(structured.tokens, lexed.diagnostics ++ structured.diagnostics ++ countDiagnostics)

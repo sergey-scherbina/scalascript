@@ -83,13 +83,15 @@ private[yaml] object YamlTagEnvironment:
     s"$prefix at UTF-16 offset ${failure.offset}: ${failure.message}"
 
   private def words(value: String): Vector[String] =
-    var result: Vector[String] = Vector.empty
-    var cursor = 0
-    while cursor < value.length do
-      while cursor < value.length && isWhitespace(value.charAt(cursor)) do cursor += 1
-      val start = cursor
-      while cursor < value.length && !isWhitespace(value.charAt(cursor)) do cursor += 1
-      if cursor > start then result = result :+ value.substring(start, cursor)
-    result
+    def wsEnd(i: Int): Int = if i < value.length && isWhitespace(value.charAt(i)) then wsEnd(i + 1) else i
+    def wordEnd(i: Int): Int = if i < value.length && !isWhitespace(value.charAt(i)) then wordEnd(i + 1) else i
+    def walk(cursor: Int, result: Vector[String]): Vector[String] =
+      if cursor >= value.length then result
+      else
+        val start = wsEnd(cursor)
+        val stop = wordEnd(start)
+        if stop > start then walk(stop, result :+ value.substring(start, stop))
+        else walk(stop, result)
+    walk(0, Vector.empty)
 
   private def isWhitespace(value: Char): Boolean = value == ' ' || value == '\t'

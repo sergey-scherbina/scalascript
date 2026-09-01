@@ -285,68 +285,68 @@ private[yaml] object YamlLexer:
         if char == ':' then emitted.copy(linePlainScalarActive = false) else emitted
       else scanPlain(s)
 
-    // Line-length and character validation over the RAW input. Local imperative cursors are kept
-    // DELIBERATELY, same argument as json's validNumber: this is a leaf computation — two
-    // straight-line walks whose locals never escape and whose state never flows between fold
-    // steps. The fold above is where cross-step state lived; here a rewrite buys no observable
-    // immutability.
+    // Line-length and character validation over the RAW input. Two straight-line walks; the
+    // earlier entry parked them imperative on the validNumber argument, and the stage-10 closing
+    // pass converted them anyway: item 10 allows parking only on a MEASUREMENT, and a
+    // shape-preserving recursion mirrors the walk exactly as the loop did.
     def validateLines(s0: YamlLexState): YamlLexState =
-      var s = s0
-      var lineStart = 0
-      var cursor = 0
-      var lineNumber = 1
-      while cursor <= input.length do
-        val atEnd = cursor == input.length
-        val atBreak = !atEnd && isBreak(input.charAt(cursor))
-        if atEnd || atBreak then
-          val text = input.substring(lineStart, cursor)
-          val count = Unicode.codePointCount(text)
-          if count > limits.maxLineCodePoints then
-            val start = SourcePosition(codePointOffset(lineStart), lineNumber, 1)
-            val end = SourcePosition(start.offset + count, lineNumber, count + 1)
-            s = report(
-              s,
-              "uniml.yaml.limit.line",
-              s"YAML line exceeds the ${limits.maxLineCodePoints} code-point limit",
-              Severity.Fatal,
-              SourceSpan(source, start, end),
-            )
-          if atBreak then
-            if input.charAt(cursor) == '\r' && cursor + 1 < input.length && input.charAt(cursor + 1) == '\n' then cursor += 1
-            cursor += 1
-            lineStart = cursor
-            lineNumber += 1
-          else cursor += 1
-        else cursor += 1
+      def lines(s: YamlLexState, lineStart: Int, cursor: Int, lineNumber: Int): YamlLexState =
+        if cursor > input.length then s
+        else
+          val atEnd = cursor == input.length
+          val atBreak = !atEnd && isBreak(input.charAt(cursor))
+          if atEnd || atBreak then
+            val text = input.substring(lineStart, cursor)
+            val count = Unicode.codePointCount(text)
+            val s1 =
+              if count > limits.maxLineCodePoints then
+                val start = SourcePosition(codePointOffset(lineStart), lineNumber, 1)
+                val end = SourcePosition(start.offset + count, lineNumber, count + 1)
+                report(
+                  s,
+                  "uniml.yaml.limit.line",
+                  s"YAML line exceeds the ${limits.maxLineCodePoints} code-point limit",
+                  Severity.Fatal,
+                  SourceSpan(source, start, end),
+                )
+              else s
+            if atBreak then
+              val next =
+                if input.charAt(cursor) == '\r' && cursor + 1 < input.length && input.charAt(cursor + 1) == '\n' then cursor + 2
+                else cursor + 1
+              lines(s1, next, next, lineNumber + 1)
+            else lines(s1, lineStart, cursor + 1, lineNumber)
+          else lines(s, lineStart, cursor + 1, lineNumber)
 
-      var surrogate = 0
-      var pos = SourcePosition.Start
-      while surrogate < input.length do
-        val char = input.charAt(surrogate)
-        val width =
-          if Unicode.isHighSurrogate(char) && surrogate + 1 < input.length && Unicode.isLowSurrogate(input.charAt(surrogate + 1)) then 2
-          else 1
-        val lexeme = input.substring(surrogate, surrogate + width)
-        val next = advance(pos, lexeme)
-        if (Unicode.isHighSurrogate(char) && width == 1) || Unicode.isLowSurrogate(char) then
-          s = report(
-            s,
-            "uniml.yaml.invalid-character",
-            "YAML source contains an unpaired UTF-16 surrogate",
-            Severity.Error,
-            SourceSpan(source, pos, next),
-          )
-        else if char < ' ' && char != '\t' && char != '\r' && char != '\n' then
-          s = report(
-            s,
-            "uniml.yaml.invalid-character",
-            f"YAML source contains forbidden control character U+${char.toInt}%04X",
-            Severity.Error,
-            SourceSpan(source, pos, next),
-          )
-        pos = next
-        surrogate += width
-      s
+      def chars(s: YamlLexState, i: Int, pos: SourcePosition): YamlLexState =
+        if i >= input.length then s
+        else
+          val char = input.charAt(i)
+          val width =
+            if Unicode.isHighSurrogate(char) && i + 1 < input.length && Unicode.isLowSurrogate(input.charAt(i + 1)) then 2
+            else 1
+          val lexeme = input.substring(i, i + width)
+          val next = advance(pos, lexeme)
+          val s1 =
+            if (Unicode.isHighSurrogate(char) && width == 1) || Unicode.isLowSurrogate(char) then
+              report(
+                s,
+                "uniml.yaml.invalid-character",
+                "YAML source contains an unpaired UTF-16 surrogate",
+                Severity.Error,
+                SourceSpan(source, pos, next),
+              )
+            else if char < ' ' && char != '\t' && char != '\r' && char != '\n' then
+              report(
+                s,
+                "uniml.yaml.invalid-character",
+                f"YAML source contains forbidden control character U+${char.toInt}%04X",
+                Severity.Error,
+                SourceSpan(source, pos, next),
+              )
+            else s
+          chars(s1, i + width, next)
+      chars(lines(s0, 0, 0, 1), 0, SourcePosition.Start)
 
     // The drive: tail-recursive, so the depth is O(1) on both scalac and Scala.js.
     def drive(s: YamlLexState): YamlLexState =
@@ -392,35 +392,20 @@ private[yaml] object YamlLexer:
     case ','       => "yaml.flow-separator"
     case _         => "yaml.invalid"
 
-  // Position arithmetic over one lexeme. Local imperative cursors kept deliberately — a leaf
-  // computation whose locals never escape (the validNumber argument); the record fold above is
-  // where cross-step state actually flows.
+  // Position arithmetic over one lexeme — the same index recursion Unicode.advance now uses
+  // (this one also folds CRLF as a single line break, which is why it is not that function).
   private def advance(start: SourcePosition, text: String): SourcePosition =
-    var cursor = 0
-    var offset = start.offset
-    var line = start.line
-    var column = start.column
-    while cursor < text.length do
-      val char = text.charAt(cursor)
-      if char == '\r' then
-        if cursor + 1 < text.length && text.charAt(cursor + 1) == '\n' then
-          cursor += 2
-          offset += 2
-        else
-          cursor += 1
-          offset += 1
-        line += 1
-        column = 1
-      else if char == '\n' then
-        cursor += 1
-        offset += 1
-        line += 1
-        column = 1
+    def walk(cursor: Int, offset: Int, line: Int, column: Int): SourcePosition =
+      if cursor >= text.length then SourcePosition(offset, line, column)
       else
-        val width =
-          if Unicode.isHighSurrogate(char) && cursor + 1 < text.length && Unicode.isLowSurrogate(text.charAt(cursor + 1)) then 2
-          else 1
-        cursor += width
-        offset += 1
-        column += 1
-    SourcePosition(offset, line, column)
+        val char = text.charAt(cursor)
+        if char == '\r' then
+          if cursor + 1 < text.length && text.charAt(cursor + 1) == '\n' then walk(cursor + 2, offset + 2, line + 1, 1)
+          else walk(cursor + 1, offset + 1, line + 1, 1)
+        else if char == '\n' then walk(cursor + 1, offset + 1, line + 1, 1)
+        else
+          val width =
+            if Unicode.isHighSurrogate(char) && cursor + 1 < text.length && Unicode.isLowSurrogate(text.charAt(cursor + 1)) then 2
+            else 1
+          walk(cursor + width, offset + 1, line, column + 1)
+    walk(0, start.offset, start.line, start.column)

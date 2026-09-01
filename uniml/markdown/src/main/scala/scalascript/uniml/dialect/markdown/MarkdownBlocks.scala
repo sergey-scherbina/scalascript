@@ -969,8 +969,8 @@ private[markdown] final class MarkdownBlocks(
   private def scanRefDef(lines: Vector[MdLine], index: Int): Option[RefDef] =
     // A definition may not contain a blank line, so the window can never run
     // past the first one — that is also what bounds this scan.
-    var last = index
-    while last < lines.size && !lines(last).isBlank do last += 1
+    def lastAt(i: Int): Int = if i < lines.size && !lines(i).isBlank then lastAt(i + 1) else i
+    val last = lastAt(index)
     if last == index then return None
     val window = lines.slice(index, last)
     val joined = window.iterator.map(_.raw).mkString
@@ -982,49 +982,45 @@ private[markdown] final class MarkdownBlocks(
     /** Whitespace run that may cross at most ONE line ending. -1 when it crosses
       * more, which means a blank line and therefore the end of the definition. */
     def skipWs(from: Int, maxBreaks: Int): Int =
-      var j = from
-      var breaks = 0
-      var stop = false
-      while j < n && !stop do
-        val c = joined.charAt(j)
-        if isSpace(c) then j += 1
-        else if isBreakChar(c) then
-          breaks += 1
-          if breaks > maxBreaks then stop = true
-          else if c == '\r' && j + 1 < n && joined.charAt(j + 1) == '\n' then j += 2
-          else j += 1
-        else stop = true
-      if breaks > maxBreaks then -1 else j
+      def walk(j: Int, breaks: Int): Int =
+        if j >= n then j
+        else
+          val c = joined.charAt(j)
+          if isSpace(c) then walk(j + 1, breaks)
+          else if isBreakChar(c) then
+            if breaks + 1 > maxBreaks then -1
+            else if c == '\r' && j + 1 < n && joined.charAt(j + 1) == '\n' then walk(j + 2, breaks + 1)
+            else walk(j + 1, breaks + 1)
+          else j
+      walk(from, 0)
 
     /** Index just past the line ending that terminates the line holding `at`. */
     def endOfLine(at: Int): Int =
-      var j = at
-      while j < n && !isBreakChar(joined.charAt(j)) do j += 1
+      def toBreak(j: Int): Int = if j < n && !isBreakChar(joined.charAt(j)) then toBreak(j + 1) else j
+      val j = toBreak(at)
       if j < n && joined.charAt(j) == '\r' && j + 1 < n && joined.charAt(j + 1) == '\n' then j + 2
       else if j < n then j + 1
       else j
 
     def onlySpacesTo(from: Int, to: Int): Boolean =
-      var j = from
-      var ok = true
-      while j < to && ok do
-        if !isSpace(joined.charAt(j)) && !isBreakChar(joined.charAt(j)) then ok = false
-        j += 1
-      ok
+      from >= to ||
+        ((isSpace(joined.charAt(from)) || isBreakChar(joined.charAt(from))) && onlySpacesTo(from + 1, to))
 
     if MdChars.indentWidth(joined) >= 4 then return None
     val labelStart = MdChars.indentPrefixLength(joined)
     if labelStart >= n || joined.charAt(labelStart) != '[' then return None
 
-    // label: to the first UNESCAPED `]`; `[Foo*bar\]]` is one label, not two
-    var i = labelStart + 1
-    var labelEnd = -1
-    while i < n && labelEnd < 0 do
-      val c = joined.charAt(i)
-      if c == '\\' && i + 1 < n then i += 2
-      else if c == ']' then labelEnd = i
-      else if c == '[' then return None
-      else i += 1
+    // label: to the first UNESCAPED `]` (-2 marks an inner `[`, which rejects the definition);
+    // `[Foo*bar\]]` is one label, not two
+    def labelEndAt(i: Int): Int =
+      if i >= n then -1
+      else
+        val c = joined.charAt(i)
+        if c == '\\' && i + 1 < n then labelEndAt(i + 2)
+        else if c == ']' then i
+        else if c == '[' then -2
+        else labelEndAt(i + 1)
+    val labelEnd = labelEndAt(labelStart + 1)
     if labelEnd < 0 then return None
     val labelLex = joined.substring(labelStart, labelEnd + 1)
     if labelLex.length > 1002 then return None
@@ -1034,55 +1030,58 @@ private[markdown] final class MarkdownBlocks(
 
     val destStart = skipWs(afterColonStart, 1)
     if destStart < 0 || destStart >= n then return None
-    var destEnd = destStart
-    if joined.charAt(destStart) == '<' then
-      var j = destStart + 1
-      var closed = -1
-      var failed = false
-      while j < n && closed < 0 && !failed do
-        val c = joined.charAt(j)
-        if c == '\\' && j + 1 < n then j += 2
-        else if isBreakChar(c) || c == '<' then failed = true
-        else if c == '>' then closed = j
-        else j += 1
-      if failed || closed < 0 then return None
-      destEnd = closed + 1
-    else
-      var j = destStart
-      var parens = 0
-      var stop = false
-      while j < n && !stop do
-        val c = joined.charAt(j)
-        if c == '\\' && j + 1 < n then j += 2
-        else if isSpace(c) || isBreakChar(c) || c.toInt < 0x20 then stop = true
-        else if c == '(' then { parens += 1; j += 1 }
-        else if c == ')' then { parens -= 1; if parens < 0 then stop = true else j += 1 }
-        else j += 1
-      destEnd = j
-      if destEnd == destStart then return None
+    val destEnd =
+      if joined.charAt(destStart) == '<' then
+        def angleEnd(j: Int): Int = // -1: broke before closing
+          if j >= n then -1
+          else
+            val c = joined.charAt(j)
+            if c == '\\' && j + 1 < n then angleEnd(j + 2)
+            else if isBreakChar(c) || c == '<' then -1
+            else if c == '>' then j
+            else angleEnd(j + 1)
+        val closed = angleEnd(destStart + 1)
+        if closed < 0 then return None
+        closed + 1
+      else
+        def bareEnd(j: Int, parens: Int): Int =
+          if j >= n then j
+          else
+            val c = joined.charAt(j)
+            if c == '\\' && j + 1 < n then bareEnd(j + 2, parens)
+            else if isSpace(c) || isBreakChar(c) || c.toInt < 0x20 then j
+            else if c == '(' then bareEnd(j + 1, parens + 1)
+            else if c == ')' then
+              if parens - 1 < 0 then j else bareEnd(j + 1, parens - 1)
+            else bareEnd(j + 1, parens)
+        val stop = bareEnd(destStart, 0)
+        if stop == destStart then return None
+        stop
 
     // Optional title. It may sit on the NEXT line, may span lines, and must be
     // followed by nothing but whitespace — otherwise it is not a title at all,
     // and the definition is only valid if the destination ended its own line.
     val titleStart = skipWs(destEnd, 1)
-    var titleEnd = -1
-    if titleStart > destEnd && titleStart < n then
-      val open = joined.charAt(titleStart)
-      val close = if open == '(' then ')' else open
-      if open == '"' || open == '\'' || open == '(' then
-        var j = titleStart + 1
-        var found = -1
-        var failed = false
-        while j < n && found < 0 && !failed do
-          val c = joined.charAt(j)
-          if c == '\\' && j + 1 < n then j += 2
-          else if c == '\n' then
-            // a blank line inside a title ends the definition attempt
-            if j + 1 < n && lineIsBlankAt(joined, j + 1) then failed = true else j += 1
-          else if c == close then found = j
-          else if c == open && open == '(' then failed = true
-          else j += 1
-        if !failed && found >= 0 && onlySpacesTo(found + 1, endOfLine(found)) then titleEnd = found + 1
+    val titleEnd =
+      if titleStart > destEnd && titleStart < n then
+        val open = joined.charAt(titleStart)
+        val close = if open == '(' then ')' else open
+        if open == '"' || open == '\'' || open == '(' then
+          def titleClose(j: Int): Int = // -1: never closed, or the attempt failed
+            if j >= n then -1
+            else
+              val c = joined.charAt(j)
+              if c == '\\' && j + 1 < n then titleClose(j + 2)
+              else if c == '\n' then
+                // a blank line inside a title ends the definition attempt
+                if j + 1 < n && lineIsBlankAt(joined, j + 1) then -1 else titleClose(j + 1)
+              else if c == close then j
+              else if c == open && open == '(' then -1
+              else titleClose(j + 1)
+          val found = titleClose(titleStart + 1)
+          if found >= 0 && onlySpacesTo(found + 1, endOfLine(found)) then found + 1 else -1
+        else -1
+      else -1
 
     val (bodyEnd, titleSlice, betweenSlice) =
       if titleEnd > 0 then (titleEnd, joined.substring(titleStart, titleEnd), joined.substring(destEnd, titleStart))
@@ -1091,11 +1090,10 @@ private[markdown] final class MarkdownBlocks(
     if !onlySpacesTo(bodyEnd, lineEnd) then return None
 
     val consumed = joined.substring(0, lineEnd)
-    var linesUsed = 0
-    var acc = 0
-    while acc < lineEnd && linesUsed < window.length do
-      acc += window(linesUsed).raw.length
-      linesUsed += 1
+    def consumedLines(used: Int, acc: Int): Int =
+      if acc < lineEnd && used < window.length then consumedLines(used + 1, acc + window(used).raw.length)
+      else used
+    val linesUsed = consumedLines(0, 0)
     Some(RefDef(
       indent = joined.substring(0, labelStart),
       labelLex = labelLex,
@@ -1109,19 +1107,17 @@ private[markdown] final class MarkdownBlocks(
     )).filter(_.consumedText == consumed)
 
   private def lineIsBlankAt(joined: String, from: Int): Boolean =
-    var j = from
-    while j < joined.length && (joined.charAt(j) == ' ' || joined.charAt(j) == '\t') do j += 1
+    def wsEnd(j: Int): Int =
+      if j < joined.length && (joined.charAt(j) == ' ' || joined.charAt(j) == '\t') then wsEnd(j + 1) else j
+    val j = wsEnd(from)
     j >= joined.length || joined.charAt(j) == '\n' || joined.charAt(j) == '\r'
 
   // ── pure classifiers / helpers (no parsing state) ─────────────────────────
   //
-  // STAGE-10 LEAF HOLDOUT: the scanners from here down (and `scanRefDef` /
-  // `lineIsBlankAt` above) keep their imperative index walks deliberately.
-  // Each is a straight-line grammar walk over ONE short string whose locals
-  // never escape and where no state flows between steps — the "validNumber
-  // argument". scanRefDef in particular mirrors CommonMark 4.7 clause by
-  // clause and its fields are SOURCE SLICES; a conversion should be written
-  // against the spec text, not the current spelling (the Rfc3986 lesson).
+  // Converted var-free in the stage-10 closing pass. The holdout declared here
+  // earlier allowed parking only on a measurement it did not have (v3/BACKLOG.md
+  // item 10); each scan below is the SAME CommonMark clause it always mirrored,
+  // as a recursion instead of a cursor loop — shape and slices unchanged.
 
   private def isLazyContinuation(rest: String): Boolean =
     if rest.forall(c => c == ' ' || c == '\t') then false
@@ -1134,19 +1130,19 @@ private[markdown] final class MarkdownBlocks(
   private def stripBlockquoteMarker(content: String): Option[(String, String)] =
     val lead = MdChars.indentPrefixLength(content)
     if MdChars.indentWidth(content) <= 3 && lead < content.length && content.charAt(lead) == '>' then
-      var end = lead + 1
-      if end < content.length && content.charAt(end) == ' ' then end += 1
-      else if end < content.length && content.charAt(end) == '\t' then end += 1
+      val marker = lead + 1
+      val end =
+        if marker < content.length && (content.charAt(marker) == ' ' || content.charAt(marker) == '\t') then marker + 1
+        else marker
       Some((content.substring(0, end), content.substring(end)))
     else None
 
   private def consumeIndent(content: String, columns: Int): String =
-    var col = 0
-    var i = 0
-    while i < content.length && col < columns && (content.charAt(i) == ' ' || content.charAt(i) == '\t') do
-      col += (if content.charAt(i) == '\t' then 4 - (col % 4) else 1)
-      i += 1
-    content.substring(0, i)
+    def walk(i: Int, col: Int): Int =
+      if i < content.length && col < columns && (content.charAt(i) == ' ' || content.charAt(i) == '\t') then
+        walk(i + 1, col + (if content.charAt(i) == '\t' then 4 - (col % 4) else 1))
+      else i
+    content.substring(0, walk(0, 0))
 
   /** Put back the continuation prefixes that belong INSIDE a piece whose lexeme swallowed the line
     * break — a code span crossing the break is the case that occurs; any inline construct whose
@@ -1168,17 +1164,17 @@ private[markdown] final class MarkdownBlocks(
       // `Vector[String]` + `.mkString` — the portable accumulator (`specs/uniml-portable-gapmap.md`);
       // v2 has no StringBuilder. This one appends BOTH single chars and whole segment prefixes, and
       // a Vector of strings takes either without the two cases needing different code.
-      var out: Vector[String] = Vector.empty
-      var k = breaksSoFar
-      var i = 0
-      while i < lexeme.length do
-        val c = lexeme.charAt(i)
-        out = out :+ c.toString
-        if c == '\n' then
-          k += 1
-          if k < segs.size then out = out :+ segs(k).prefix
-        i += 1
-      (withLexeme(piece, out.mkString), k)
+      def walk(i: Int, k: Int, out: Vector[String]): (Vector[String], Int) =
+        if i >= lexeme.length then (out, k)
+        else
+          val c = lexeme.charAt(i)
+          if c == '\n' then
+            val k1 = k + 1
+            val withPrefix = if k1 < segs.size then out :+ c.toString :+ segs(k1).prefix else out :+ c.toString
+            walk(i + 1, k1, withPrefix)
+          else walk(i + 1, k, out :+ c.toString)
+      val walked = walk(0, breaksSoFar, Vector.empty)
+      (withLexeme(piece, walked._1.mkString), walked._2)
 
   private def pieceLexeme(piece: InlinePiece): String = piece match
     case InlinePiece.Tok(_, lexeme, _, _)      => lexeme
@@ -1201,16 +1197,17 @@ private[markdown] final class MarkdownBlocks(
     scan(s.length)
 
   private def startsAtxHeading(trimmed: String): Boolean =
-    var i = 0
-    while i < trimmed.length && trimmed.charAt(i) == '#' do i += 1
+    val i = countRun(trimmed, '#')
     i >= 1 && i <= 6 && (i == trimmed.length || trimmed.charAt(i) == ' ' || trimmed.charAt(i) == '\t')
 
   private def splitAtxClosing(rest: String): (String, String) =
     // trailing run of #'s preceded by a space is the optional closing sequence
-    var end = rest.length
-    while end > 0 && (rest.charAt(end - 1) == ' ' || rest.charAt(end - 1) == '\t') do end -= 1
-    var hashEnd = end
-    while hashEnd > 0 && rest.charAt(hashEnd - 1) == '#' do hashEnd -= 1
+    def wsStart(e: Int): Int =
+      if e > 0 && (rest.charAt(e - 1) == ' ' || rest.charAt(e - 1) == '\t') then wsStart(e - 1) else e
+    def hashStart(e: Int): Int =
+      if e > 0 && rest.charAt(e - 1) == '#' then hashStart(e - 1) else e
+    val end = wsStart(rest.length)
+    val hashEnd = hashStart(end)
     if hashEnd < end && (hashEnd == 0 || rest.charAt(hashEnd - 1) == ' ' || rest.charAt(hashEnd - 1) == '\t') then
       (rest.substring(0, hashEnd), rest.substring(hashEnd))
     else (rest, "")
@@ -1229,9 +1226,8 @@ private[markdown] final class MarkdownBlocks(
     else None
 
   private def countRun(s: String, c: Char): Int =
-    var i = 0
-    while i < s.length && s.charAt(i) == c do i += 1
-    i
+    def scan(i: Int): Int = if i < s.length && s.charAt(i) == c then scan(i + 1) else i
+    scan(0)
 
   // CommonMark type-6 HTML block tag names.
   private val htmlBlock6Tags: Set[String] = Set(
@@ -1268,10 +1264,10 @@ private[markdown] final class MarkdownBlocks(
     }
 
   private def htmlTagName(t: String): (String, Int) =
-    var i = 1
-    if i < t.length && t.charAt(i) == '/' then i += 1
-    val start = i
-    while i < t.length && (MdChars.isAsciiAlnum(t.charAt(i)) || t.charAt(i) == '-') do i += 1
+    val start = if 1 < t.length && t.charAt(1) == '/' then 2 else 1
+    def nameEnd(i: Int): Int =
+      if i < t.length && (MdChars.isAsciiAlnum(t.charAt(i)) || t.charAt(i) == '-') then nameEnd(i + 1) else i
+    val i = nameEnd(start)
     (MdChars.asciiLower(t.substring(start, i)), i)
 
   private def htmlType6Start(t: String): Boolean =
@@ -1292,19 +1288,22 @@ private[markdown] final class MarkdownBlocks(
     val n = t.length
     if n < 2 || t.charAt(0) != '<' then None
     else
-      var i = 1
-      if i < n && t.charAt(i) == '/' then i += 1
-      if i >= n || !MdChars.isAsciiLetter(t.charAt(i)) then None
+      val nameStart = if 1 < n && t.charAt(1) == '/' then 2 else 1
+      if nameStart >= n || !MdChars.isAsciiLetter(t.charAt(nameStart)) then None
       else
-        while i < n && (MdChars.isAsciiAlnum(t.charAt(i)) || t.charAt(i) == '-') do i += 1
+        def nameEnd(i: Int): Int =
+          if i < n && (MdChars.isAsciiAlnum(t.charAt(i)) || t.charAt(i) == '-') then nameEnd(i + 1) else i
+        val afterName = nameEnd(nameStart)
         // after the tag name only whitespace, '/', or '>' may follow (so e.g.
         // an autolink "<https://x>" is not a tag: ':' is not valid here)
-        if i < n && !(t.charAt(i) == ' ' || t.charAt(i) == '\t' || t.charAt(i) == '/' || t.charAt(i) == '>') then None
+        if afterName < n && !(t.charAt(afterName) == ' ' || t.charAt(afterName) == '\t' || t.charAt(afterName) == '/' || t.charAt(afterName) == '>') then None
         else
-          var ok = true
-          while ok && i < n && t.charAt(i) != '>' do
-            if t.charAt(i) == '<' then ok = false else i += 1
-          if !ok || i >= n || t.charAt(i) != '>' then None else Some(i + 1)
+          def toClose(i: Int): Int = // -1 on a nested '<'
+            if i >= n || t.charAt(i) == '>' then i
+            else if t.charAt(i) == '<' then -1
+            else toClose(i + 1)
+          val i = toClose(afterName)
+          if i < 0 || i >= n || t.charAt(i) != '>' then None else Some(i + 1)
 
   private def isTableStart(lines: Vector[MdLine], index: Int, content: String): Boolean =
     content.contains('|') && index + 1 < lines.size && isTableDelimiter(lines(index + 1).content)
@@ -1327,8 +1326,9 @@ private[markdown] final class MarkdownBlocks(
         val spaces = trimmed.drop(1).takeWhile(ch => ch == ' ' || ch == '\t')
         Some((false, trimmed.substring(0, 1 + spaces.length), 1 + math.max(spaces.length, 1)))
       else
-        var i = 0
-        while i < trimmed.length && i < 9 && MdChars.isAsciiDigit(trimmed.charAt(i)) do i += 1
+        def digitEnd(k: Int): Int =
+          if k < trimmed.length && k < 9 && MdChars.isAsciiDigit(trimmed.charAt(k)) then digitEnd(k + 1) else k
+        val i = digitEnd(0)
         if i >= 1 && i < trimmed.length && (trimmed.charAt(i) == '.' || trimmed.charAt(i) == ')') &&
           (i + 1 == trimmed.length || trimmed.charAt(i + 1) == ' ' || trimmed.charAt(i + 1) == '\t') then
           val markerCore = trimmed.substring(0, i + 1)

@@ -71,6 +71,24 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
       only the KNOWN-RED gap-anon (baseline-identical); verify-uniml-dual-build OK (JS 218 green,
       isolation held).
 
+- [x] uniml-demut-closing — **the leaf zones are converted: uniml's source tree holds ONE var,
+      the deliberately-parked `MarkupCodec._default` (v1-only writers; falls with v1).** 122 leaf
+      vars → 0 across YamlDialect, YamlTagEnvironment, YamlLexer (validateLines/advance),
+      YamlPropertySyntax (the whole Rfc3986UriSyntax object, clause by clause with failure
+      offsets unchanged), YamlSemanticParser (blockHeader, splitProperties, decodeDouble — now
+      pieces+mkString instead of quadratic string concat — parseHexEscape, foldLines, splitLines,
+      stripComment, findKeyColon, allFrom, the json/core float matchers as sentinel chains),
+      MarkdownBlocks (scanRefDef's six scans, the classifiers), and JsonLexer.validNumber — the
+      exemplar itself, its comment now recording the reversal: item 10 permits parking only on a
+      MEASUREMENT, and none of these had one; every conversion is shape-preserving (same clauses,
+      same slices, same sentinels). Gates: lint-portable-subset OK; full uniml `sbt test` +
+      Describe + DiagnoseDialect — first combined run ABORTED with a heap OOM inside
+      Ssc3ProjectionContractSpec that pattern-matched to a regression in the SscCompose fold, but
+      the fold landed in 8e1c1f69a and had passed this spec three times since, and the same log
+      carried a launcher OOM: host memory pressure, not the diff. Rerun ALONE: exit 0, 17 groups,
+      composed pin EXACT (Complete/0/4220 — includes the changed markdown+yaml+json), dialect pin
+      EXACT (41/1791), markdown corpus 607/675 pinned inside the suite.
+
 - [x] uniml-demut-tail — **xml, markup and the bench harness are var-free: 44 → 0 (plus every
       mutable collection in them).** XmlDialect: validateNamespaces' ArrayBuffer stack + two
       HashSets → a recursive walk with Vector-based dedup (the file's own no-Set-on-v2 rule);

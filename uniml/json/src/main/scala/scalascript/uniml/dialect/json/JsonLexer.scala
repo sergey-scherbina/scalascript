@@ -308,32 +308,34 @@ private object JsonLexer:
       isAsciiDigit(char) || (char >= 'a' && char <= 'f') || (char >= 'A' && char <= 'F')
     }
 
-  // The number validator keeps its imperative spelling deliberately: it is a straight-line RFC 8259
-  // grammar walk over a SHORT string (a single number lexeme), its `index` never escapes, and the
-  // `return`-laden shape mirrors the grammar clause by clause. Converting it buys no immutability
-  // anyone can observe — the fold above is where state actually flowed between steps.
+  // RFC 8259 §6's number grammar, one helper per clause with -1 as the failure sentinel each
+  // clause propagates. The earlier entry kept this imperative as "the validNumber argument" —
+  // the exemplar the other holdouts cited — and the stage-10 closing pass converted it anyway:
+  // item 10 allows parking only on a MEASUREMENT, and the clause-per-helper shape mirrors the
+  // grammar exactly as the return-laden loop did.
   private def validNumber(value: String): Boolean =
-    var index = 0
-    if index < value.length && value.charAt(index) == '-' then index += 1
-    if index >= value.length then return false
-    if value.charAt(index) == '0' then
-      index += 1
-      if index < value.length && isAsciiDigit(value.charAt(index)) then return false
-    else if value.charAt(index) >= '1' && value.charAt(index) <= '9' then
-      index += 1
-      while index < value.length && isAsciiDigit(value.charAt(index)) do index += 1
-    else return false
-    if index < value.length && value.charAt(index) == '.' then
-      index += 1
-      val start = index
-      while index < value.length && isAsciiDigit(value.charAt(index)) do index += 1
-      if index == start then return false
-    if index < value.length && (value.charAt(index) == 'e' || value.charAt(index) == 'E') then
-      index += 1
-      if index < value.length && (value.charAt(index) == '+' || value.charAt(index) == '-') then index += 1
-      val start = index
-      while index < value.length && isAsciiDigit(value.charAt(index)) do index += 1
-      if index == start then return false
-    index == value.length
+    def digitsEnd(i: Int): Int =
+      if i < value.length && isAsciiDigit(value.charAt(i)) then digitsEnd(i + 1) else i
+    def intPart(i0: Int): Int =
+      val i = if i0 < value.length && value.charAt(i0) == '-' then i0 + 1 else i0
+      if i >= value.length then -1
+      else if value.charAt(i) == '0' then
+        if i + 1 < value.length && isAsciiDigit(value.charAt(i + 1)) then -1 else i + 1
+      else if value.charAt(i) >= '1' && value.charAt(i) <= '9' then digitsEnd(i + 1)
+      else -1
+    def fracPart(i: Int): Int =
+      if i < 0 then -1
+      else if i < value.length && value.charAt(i) == '.' then
+        val end = digitsEnd(i + 1)
+        if end == i + 1 then -1 else end
+      else i
+    def expPart(i: Int): Int =
+      if i < 0 then -1
+      else if i < value.length && (value.charAt(i) == 'e' || value.charAt(i) == 'E') then
+        val signed = if i + 1 < value.length && (value.charAt(i + 1) == '+' || value.charAt(i + 1) == '-') then i + 2 else i + 1
+        val end = digitsEnd(signed)
+        if end == signed then -1 else end
+      else i
+    expPart(fracPart(intPart(0))) == value.length
 
   private def isAsciiDigit(char: Char): Boolean = char >= '0' && char <= '9'

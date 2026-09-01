@@ -653,38 +653,33 @@ private[yaml] object YamlSemanticParser:
     val (_, rest) = splitPropertiesNoDiagnostic(text)
     if rest.isEmpty || (rest.head != '|' && rest.head != '>') then None
     else
-      var chomping: Option[Char] = None
-      var indentation: Option[Int] = None
-      var cursor = 1
-      var valid = true
-      while cursor < rest.length && !isWs(rest.charAt(cursor)) && rest.charAt(cursor) != '#' do
-        val char = rest.charAt(cursor)
-        if (char == '+' || char == '-') && chomping.isEmpty then chomping = Some(char)
-        else if char >= '1' && char <= '9' && indentation.isEmpty then indentation = Some(char - '0')
-        else valid = false
-        cursor += 1
-      Option.when(valid)((rest.head, chomping, indentation))
+      def walk(cursor: Int, chomping: Option[Char], indentation: Option[Int]): Option[(Option[Char], Option[Int])] =
+        if cursor >= rest.length || isWs(rest.charAt(cursor)) || rest.charAt(cursor) == '#' then
+          Some((chomping, indentation))
+        else
+          val char = rest.charAt(cursor)
+          if (char == '+' || char == '-') && chomping.isEmpty then walk(cursor + 1, Some(char), indentation)
+          else if char >= '1' && char <= '9' && indentation.isEmpty then walk(cursor + 1, chomping, Some(char - '0'))
+          else None
+      walk(1, None, None).map(header => (rest.head, header._1, header._2))
 
   private def splitPropertiesNoDiagnostic(text: String): (Properties, String) =
-    var rest = text.trim
-    var tag: Option[String] = None
-    var anchor: Option[String] = None
-    var continue = true
-    while continue && rest.nonEmpty do
-      if rest.startsWith("!") then
+    def walk(rest: String, tag: Option[String], anchor: Option[String]): (Properties, String) =
+      if rest.isEmpty then Properties(tag, anchor) -> rest
+      else if rest.startsWith("!") then
         val scanned = YamlPropertySyntax.scan(rest, 0, YamlPropertyKind.Tag)
-        tag = Some(rest.substring(0, scanned.end))
-        rest = rest.substring(scanned.end)
-        if scanned.hadSeparation then rest = rest.trim
-        else continue = false
+        val taken = Some(rest.substring(0, scanned.end))
+        val remainder = rest.substring(scanned.end)
+        if scanned.hadSeparation then walk(remainder.trim, taken, anchor)
+        else Properties(taken, anchor) -> remainder
       else if rest.startsWith("&") then
         val scanned = YamlPropertySyntax.scan(rest, 0, YamlPropertyKind.Anchor)
-        anchor = Some(rest.substring(1, scanned.end))
-        rest = rest.substring(scanned.end)
-        if scanned.hadSeparation then rest = rest.trim
-        else continue = false
-      else continue = false
-    Properties(tag, anchor) -> rest
+        val taken = Some(rest.substring(1, scanned.end))
+        val remainder = rest.substring(scanned.end)
+        if scanned.hadSeparation then walk(remainder.trim, tag, taken)
+        else Properties(tag, taken) -> remainder
+      else Properties(tag, anchor) -> rest
+    walk(text.trim, None, None)
 
   private def normalizeTag(tag: String): String = tag match
     case "!!str"   => "tag:yaml.org,2002:str"
@@ -701,60 +696,57 @@ private[yaml] object YamlSemanticParser:
       tag == "tag:yaml.org,2002:float"
 
   private def decodeDouble(text: String): Option[String] =
-    var result = ""
-    var cursor = 0
-    var valid = true
-    while cursor < text.length && valid do
-      val char = text.charAt(cursor)
-      if char != '\\' then
-        result = result + char.toString
-        cursor += 1
-      else if cursor + 1 >= text.length then valid = false
+    // pieces + one mkString rather than repeated string concatenation, same as every other
+    // accumulator in the module; None the moment an escape is malformed
+    def walk(cursor: Int, pieces: Vector[String]): Option[Vector[String]] =
+      if cursor >= text.length then Some(pieces)
       else
-        text.charAt(cursor + 1) match
-          case '0' => result = result + "\u0000"; cursor += 2
-          case 'a' => result = result + "\u0007"; cursor += 2
-          case 'b' => result = result + "\b"; cursor += 2
-          case 't' | '\t' => result = result + "\t"; cursor += 2
-          case 'n' => result = result + "\n"; cursor += 2
-          case 'v' => result = result + "\u000B"; cursor += 2
-          case 'f' => result = result + "\f"; cursor += 2
-          case 'r' => result = result + "\r"; cursor += 2
-          case 'e' => result = result + "\u001B"; cursor += 2
-          case ' ' => result = result + " "; cursor += 2
-          case '"' => result = result + "\""; cursor += 2
-          case '/' => result = result + "/"; cursor += 2
-          case '\\' => result = result + "\\"; cursor += 2
-          case 'N' => result = result + "\u0085"; cursor += 2
-          case '_' => result = result + "\u00A0"; cursor += 2
-          case 'L' => result = result + "\u2028"; cursor += 2
-          case 'P' => result = result + "\u2029"; cursor += 2
-          case 'x' =>
-            parseHexEscape(text, cursor + 2, 2) match
-              case Some(value) => result = result + codePointToString(value); cursor += 4
-              case None        => valid = false
-          case 'u' =>
-            parseHexEscape(text, cursor + 2, 4) match
-              case Some(value) => result = result + codePointToString(value); cursor += 6
-              case None        => valid = false
-          case 'U' =>
-            parseHexEscape(text, cursor + 2, 8) match
-              case Some(value) if value <= 0x10ffff => result = result + codePointToString(value); cursor += 10
-              case _                                => valid = false
-          case _ => valid = false
-    Option.when(valid)(result)
+        val char = text.charAt(cursor)
+        if char != '\\' then walk(cursor + 1, pieces :+ char.toString)
+        else if cursor + 1 >= text.length then None
+        else
+          text.charAt(cursor + 1) match
+            case '0' => walk(cursor + 2, pieces :+ "\u0000")
+            case 'a' => walk(cursor + 2, pieces :+ "\u0007")
+            case 'b' => walk(cursor + 2, pieces :+ "\b")
+            case 't' | '\t' => walk(cursor + 2, pieces :+ "\t")
+            case 'n' => walk(cursor + 2, pieces :+ "\n")
+            case 'v' => walk(cursor + 2, pieces :+ "\u000B")
+            case 'f' => walk(cursor + 2, pieces :+ "\f")
+            case 'r' => walk(cursor + 2, pieces :+ "\r")
+            case 'e' => walk(cursor + 2, pieces :+ "\u001B")
+            case ' ' => walk(cursor + 2, pieces :+ " ")
+            case '"' => walk(cursor + 2, pieces :+ "\"")
+            case '/' => walk(cursor + 2, pieces :+ "/")
+            case '\\' => walk(cursor + 2, pieces :+ "\\")
+            case 'N' => walk(cursor + 2, pieces :+ "\u0085")
+            case '_' => walk(cursor + 2, pieces :+ "\u00A0")
+            case 'L' => walk(cursor + 2, pieces :+ "\u2028")
+            case 'P' => walk(cursor + 2, pieces :+ "\u2029")
+            case 'x' =>
+              parseHexEscape(text, cursor + 2, 2) match
+                case Some(value) => walk(cursor + 4, pieces :+ codePointToString(value))
+                case None        => None
+            case 'u' =>
+              parseHexEscape(text, cursor + 2, 4) match
+                case Some(value) => walk(cursor + 6, pieces :+ codePointToString(value))
+                case None        => None
+            case 'U' =>
+              parseHexEscape(text, cursor + 2, 8) match
+                case Some(value) if value <= 0x10ffff => walk(cursor + 10, pieces :+ codePointToString(value))
+                case _                                => None
+            case _ => None
+    walk(0, Vector.empty).map(_.mkString)
 
   private def parseHexEscape(text: String, start: Int, length: Int): Option[Int] =
     if start + length > text.length then None
     else
-      var value = 0
-      var cursor = start
-      var valid = true
-      while cursor < start + length && valid do
-        val digit = hexDigit(text.charAt(cursor))
-        if digit < 0 then valid = false else value = value * 16 + digit
-        cursor += 1
-      Option.when(valid)(value)
+      def fold(cursor: Int, value: Int): Option[Int] =
+        if cursor >= start + length then Some(value)
+        else
+          val digit = hexDigit(text.charAt(cursor))
+          if digit < 0 then None else fold(cursor + 1, value * 16 + digit)
+      fold(start, 0)
 
   private def codePointToString(value: Int): String =
     if value <= 0xffff then value.toChar.toString
@@ -765,99 +757,84 @@ private[yaml] object YamlSemanticParser:
       high.toString + low.toString
 
   private def foldLines(values: Vector[String]): String =
-    var result = ""
-    var position = 0
-    while position < values.size do
-      val value = values(position)
-      result = result + value
+    values.zipWithIndex.map { (value, position) =>
       if position + 1 < values.size then
-        result = result + (if value.isEmpty || values(position + 1).isEmpty then "\n" else " ")
-      position += 1
-    result
+        value + (if value.isEmpty || values(position + 1).isEmpty then "\n" else " ")
+      else value
+    }.mkString
 
   private def splitLines(input: String): Vector[Line] =
-    var result: Vector[Line] = Vector.empty
-    var cursor = 0
-    var start = 0
-    var line = 1
-    var offset = 0
-    while cursor < input.length do
-      val char = input.charAt(cursor)
-      if char == '\r' || char == '\n' then
-        val breakWidth = if char == '\r' && cursor + 1 < input.length && input.charAt(cursor + 1) == '\n' then 2 else 1
-        val raw = input.substring(start, cursor)
-        val lineBreak = input.substring(cursor, cursor + breakWidth)
-        result = result :+ Line(raw, lineBreak, line, offset)
-        offset += Unicode.codePointCount(raw) + breakWidth
-        cursor += breakWidth
-        start = cursor
-        line += 1
-      else cursor += 1
-    if start < input.length || input.isEmpty then result = result :+ Line(input.substring(start), "", line, offset)
-    result
+    def walk(cursor: Int, start: Int, line: Int, offset: Int, result: Vector[Line]): Vector[Line] =
+      if cursor >= input.length then
+        if start < input.length || input.isEmpty then result :+ Line(input.substring(start), "", line, offset)
+        else result
+      else
+        val char = input.charAt(cursor)
+        if char == '\r' || char == '\n' then
+          val breakWidth = if char == '\r' && cursor + 1 < input.length && input.charAt(cursor + 1) == '\n' then 2 else 1
+          val raw = input.substring(start, cursor)
+          val lineBreak = input.substring(cursor, cursor + breakWidth)
+          walk(cursor + breakWidth, cursor + breakWidth, line + 1, offset + Unicode.codePointCount(raw) + breakWidth,
+            result :+ Line(raw, lineBreak, line, offset))
+        else walk(cursor + 1, start, line, offset, result)
+    walk(0, 0, 1, 0, Vector.empty)
 
   private def stripComment(text: String): String =
-    var single = false
-    var double = false
-    var cursor = 0
-    var comment = -1
-    while cursor < text.length && comment < 0 do
-      text.charAt(cursor) match
-        case '!' | '&' | '*' if !single && !double =>
-          val kind = text.charAt(cursor) match
-            case '!' => YamlPropertyKind.Tag
-            case '&' => YamlPropertyKind.Anchor
-            case _   => YamlPropertyKind.Alias
-          val scanned = YamlPropertySyntax.scan(text, cursor, kind)
-          if scanned.end > cursor then cursor = scanned.end - 1
-        case '\'' if !double =>
-          if single && cursor + 1 < text.length && text.charAt(cursor + 1) == '\'' then cursor += 1
-          else single = !single
-        case '"' if !single => double = !double
-        case '\\' if double && cursor + 1 < text.length => cursor += 1
-        case '#' if !single && !double && (cursor == 0 || isWs(text.charAt(cursor - 1))) => comment = cursor
-        case _ => ()
-      cursor += 1
+    def walk(cursor: Int, single: Boolean, double: Boolean): Int = // the comment's index, or -1
+      if cursor >= text.length then -1
+      else
+        text.charAt(cursor) match
+          case '!' | '&' | '*' if !single && !double =>
+            val kind = text.charAt(cursor) match
+              case '!' => YamlPropertyKind.Tag
+              case '&' => YamlPropertyKind.Anchor
+              case _   => YamlPropertyKind.Alias
+            val scanned = YamlPropertySyntax.scan(text, cursor, kind)
+            walk((if scanned.end > cursor then scanned.end - 1 else cursor) + 1, single, double)
+          case '\'' if !double =>
+            if single && cursor + 1 < text.length && text.charAt(cursor + 1) == '\'' then walk(cursor + 2, single, double)
+            else walk(cursor + 1, !single, double)
+          case '"' if !single => walk(cursor + 1, single, !double)
+          case '\\' if double && cursor + 1 < text.length => walk(cursor + 2, single, double)
+          case '#' if !single && !double && (cursor == 0 || isWs(text.charAt(cursor - 1))) => cursor
+          case _ => walk(cursor + 1, single, double)
+    val comment = walk(0, false, false)
     if comment < 0 then text else text.take(comment)
 
   private def findKeyColon(text: String): Int =
-    var single = false
-    var double = false
-    var flowDepth = 0
-    var cursor = 0
-    var found = -1
-    while cursor < text.length && isWs(text.charAt(cursor)) do cursor += 1
-    var scanningProperties = true
-    while scanningProperties && cursor < text.length do
-      val kind = text.charAt(cursor) match
-        case '!' => Some(YamlPropertyKind.Tag)
-        case '&' => Some(YamlPropertyKind.Anchor)
-        case '*' => Some(YamlPropertyKind.Alias)
-        case _   => None
-      kind match
-        case None => scanningProperties = false
-        case Some(propertyKind) =>
-          val scanned = YamlPropertySyntax.scan(text, cursor, propertyKind)
-          cursor = scanned.end
-          if scanned.hadSeparation then
-            while cursor < text.length && isWs(text.charAt(cursor)) do cursor += 1
-            scanningProperties =
-              propertyKind != YamlPropertyKind.Alias &&
-                cursor < text.length &&
-                (text.charAt(cursor) == '!' || text.charAt(cursor) == '&')
-          else scanningProperties = false
-    while cursor < text.length && found < 0 do
-      text.charAt(cursor) match
-        case '\'' if !double => single = !single
-        case '"' if !single => double = !double
-        case '\\' if double && cursor + 1 < text.length => cursor += 1
-        case '[' | '{' if !single && !double => flowDepth += 1
-        case ']' | '}' if !single && !double => flowDepth = math.max(0, flowDepth - 1)
-        case ':' if !single && !double && flowDepth == 0 &&
-            (cursor + 1 >= text.length || isWs(text.charAt(cursor + 1))) => found = cursor
-        case _ => ()
-      cursor += 1
-    found
+    def wsEnd(cursor: Int): Int =
+      if cursor < text.length && isWs(text.charAt(cursor)) then wsEnd(cursor + 1) else cursor
+    def properties(cursor: Int): Int =
+      if cursor >= text.length then cursor
+      else
+        val kind = text.charAt(cursor) match
+          case '!' => Some(YamlPropertyKind.Tag)
+          case '&' => Some(YamlPropertyKind.Anchor)
+          case '*' => Some(YamlPropertyKind.Alias)
+          case _   => None
+        kind match
+          case None => cursor
+          case Some(propertyKind) =>
+            val scanned = YamlPropertySyntax.scan(text, cursor, propertyKind)
+            if scanned.hadSeparation then
+              val next = wsEnd(scanned.end)
+              if propertyKind != YamlPropertyKind.Alias && next < text.length &&
+                  (text.charAt(next) == '!' || text.charAt(next) == '&') then properties(next)
+              else next
+            else scanned.end
+    def scan(cursor: Int, single: Boolean, double: Boolean, flowDepth: Int): Int =
+      if cursor >= text.length then -1
+      else
+        text.charAt(cursor) match
+          case '\'' if !double => scan(cursor + 1, !single, double, flowDepth)
+          case '"' if !single => scan(cursor + 1, single, !double, flowDepth)
+          case '\\' if double && cursor + 1 < text.length => scan(cursor + 2, single, double, flowDepth)
+          case '[' | '{' if !single && !double => scan(cursor + 1, single, double, flowDepth + 1)
+          case ']' | '}' if !single && !double => scan(cursor + 1, single, double, math.max(0, flowDepth - 1))
+          case ':' if !single && !double && flowDepth == 0 &&
+              (cursor + 1 >= text.length || isWs(text.charAt(cursor + 1))) => cursor
+          case _ => scan(cursor + 1, single, double, flowDepth)
+    scan(properties(wsEnd(0)), false, false, 0)
 
   private def isDigit(c: Char): Boolean = c >= '0' && c <= '9'
   private def isOctDigit(c: Char): Boolean = c >= '0' && c <= '7'
@@ -874,12 +851,7 @@ private[yaml] object YamlSemanticParser:
 
   // all chars in [from, s.length) satisfy pred (zero-or-more; true if from >= length)
   private def allFrom(s: String, from: Int, pred: Char => Boolean): Boolean =
-    var i = from
-    var ok = true
-    while i < s.length && ok do
-      if !pred(s.charAt(i)) then ok = false
-      i += 1
-    ok
+    from >= s.length || (pred(s.charAt(from)) && allFrom(s, from + 1, pred))
 
   private def matchesCoreNull(s: String): Boolean = s == "~" || s == "null" || s == "Null" || s == "NULL"
   private def matchesCoreTrue(s: String): Boolean = s == "true" || s == "True" || s == "TRUE"
@@ -899,48 +871,56 @@ private[yaml] object YamlSemanticParser:
     val body = s.substring(from)
     body == "0" || (body.nonEmpty && body.charAt(0) >= '1' && body.charAt(0) <= '9' && allFrom(body, 1, isDigit))
 
-  // ^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][-+]?[0-9]+)?$
+  // ^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][-+]?[0-9]+)?$ — one helper per regex group,
+  // -1 the failure sentinel each group propagates (the validNumber shape)
   private def matchesJsonFloat(s: String): Boolean =
-    var i = if s.nonEmpty && s.charAt(0) == '-' then 1 else 0
     val n = s.length
-    var ok = i < n
-    if ok then
-      if s.charAt(i) == '0' then i += 1
-      else if s.charAt(i) >= '1' && s.charAt(i) <= '9' then { i += 1; while i < n && isDigit(s.charAt(i)) do i += 1 }
-      else ok = false
-    if ok && i < n && s.charAt(i) == '.' then
-      i += 1; val fs = i; while i < n && isDigit(s.charAt(i)) do i += 1
-      if i == fs then ok = false
-    if ok && i < n && (s.charAt(i) == 'e' || s.charAt(i) == 'E') then
-      i += 1; if i < n && (s.charAt(i) == '+' || s.charAt(i) == '-') then i += 1
-      val es = i; while i < n && isDigit(s.charAt(i)) do i += 1
-      if i == es then ok = false
-    ok && i == n
+    def digitsEnd(i: Int): Int = if i < n && isDigit(s.charAt(i)) then digitsEnd(i + 1) else i
+    def intPart(i: Int): Int =
+      if i >= n then -1
+      else if s.charAt(i) == '0' then i + 1
+      else if s.charAt(i) >= '1' && s.charAt(i) <= '9' then digitsEnd(i + 1)
+      else -1
+    def fracPart(i: Int): Int =
+      if i < 0 then -1
+      else if i < n && s.charAt(i) == '.' then
+        val end = digitsEnd(i + 1)
+        if end == i + 1 then -1 else end
+      else i
+    def expPart(i: Int): Int =
+      if i < 0 then -1
+      else if i < n && (s.charAt(i) == 'e' || s.charAt(i) == 'E') then
+        val signed = if i + 1 < n && (s.charAt(i + 1) == '+' || s.charAt(i + 1) == '-') then i + 2 else i + 1
+        val end = digitsEnd(signed)
+        if end == signed then -1 else end
+      else i
+    val from = if s.nonEmpty && s.charAt(0) == '-' then 1 else 0
+    expPart(fracPart(intPart(from))) == n
 
   // ^(?:[-+]?(?:[0-9]+\.[0-9]*|\.[0-9]+)(?:[eE][-+]?[0-9]+)?|[-+]?[0-9]+[eE][-+]?[0-9]+|[-+]?\.(?:inf|Inf|INF)|\.(?:nan|NaN|NAN))$
   private def matchesCoreFloat(s: String): Boolean =
     if s == ".nan" || s == ".NaN" || s == ".NAN" then true
     else
-      var i = if s.nonEmpty && (s.charAt(0) == '+' || s.charAt(0) == '-') then 1 else 0
+      val i0 = if s.nonEmpty && (s.charAt(0) == '+' || s.charAt(0) == '-') then 1 else 0
       val n = s.length
-      val rest = s.substring(i)
+      val rest = s.substring(i0)
       if rest == ".inf" || rest == ".Inf" || rest == ".INF" then true
+      else if i0 >= n then false
       else
-        var ok = i < n
-        val intStart = i
-        while i < n && isDigit(s.charAt(i)) do i += 1
-        val intDigits = i - intStart
-        var hasDot = false
-        if i < n && s.charAt(i) == '.' then
-          hasDot = true; i += 1; val fs = i
-          while i < n && isDigit(s.charAt(i)) do i += 1
-          val fracDigits = i - fs
-          if intDigits < 1 && fracDigits < 1 then ok = false
-        else if intDigits < 1 then ok = false
-        var hadExp = false
-        if ok && i < n && (s.charAt(i) == 'e' || s.charAt(i) == 'E') then
-          hadExp = true; i += 1; if i < n && (s.charAt(i) == '+' || s.charAt(i) == '-') then i += 1
-          val es = i; while i < n && isDigit(s.charAt(i)) do i += 1
-          if i == es then ok = false
-        if ok && !hasDot && !hadExp then ok = false
-        ok && i == n
+        def digitsEnd(i: Int): Int = if i < n && isDigit(s.charAt(i)) then digitsEnd(i + 1) else i
+        // after the mantissa: an exponent makes the float; otherwise the dot must have
+        def expTail(i: Int, hasDot: Boolean): Boolean =
+          if i < n && (s.charAt(i) == 'e' || s.charAt(i) == 'E') then
+            val signed = if i + 1 < n && (s.charAt(i + 1) == '+' || s.charAt(i + 1) == '-') then i + 2 else i + 1
+            val end = digitsEnd(signed)
+            end != signed && end == n
+          else hasDot && i == n
+        val intEnd = digitsEnd(i0)
+        val intDigits = intEnd - i0
+        if intEnd < n && s.charAt(intEnd) == '.' then
+          val fracEnd = digitsEnd(intEnd + 1)
+          val fracDigits = fracEnd - (intEnd + 1)
+          if intDigits < 1 && fracDigits < 1 then false
+          else expTail(fracEnd, hasDot = true)
+        else if intDigits < 1 then false
+        else expTail(intEnd, hasDot = false)

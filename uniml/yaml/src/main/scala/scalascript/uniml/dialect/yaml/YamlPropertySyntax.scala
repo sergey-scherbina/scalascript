@@ -300,12 +300,10 @@ private[yaml] object YamlPropertySyntax:
   * It validates syntax only: no percent decoding, normalization, DNS, or
   * scheme-specific behavior.
   *
-  * STAGE-10 HOLDOUT, DECLARED FOR THE WHOLE OBJECT: every `var` below is a local cursor in a
-  * straight-line grammar walk over ONE short string — the `validNumber` category. Locals never
-  * escape, no state flows between fold steps, and the walks mirror RFC 3986's productions clause
-  * by clause; rewriting them as recursions would churn a carefully-tested validator for no
-  * observable immutability. If this object is ever revisited, convert against the RFC text, not
-  * against the current spelling. */
+  * Converted var-free in the stage-10 closing pass (the earlier holdout declaration allowed
+  * parking only on a measurement it did not have): each walk below is the SAME clause of
+  * RFC 3986 it always mirrored, spelled as a recursion instead of a cursor loop — the shape,
+  * the failure offsets and the productions are unchanged. */
 private[yaml] object Rfc3986UriSyntax:
   final case class Failure(offset: Int, expected: String)
 
@@ -313,17 +311,16 @@ private[yaml] object Rfc3986UriSyntax:
     if value.isEmpty then Left(Failure(0, "URI scheme"))
     else if !isAlpha(value.charAt(0)) then Left(Failure(0, "ASCII scheme letter"))
     else
-      var cursor = 1
-      var colon = -1
-      var failure: Option[Failure] = None
-      while cursor < value.length && colon < 0 && failure.isEmpty do
-        val char = value.charAt(cursor)
-        if char == ':' then colon = cursor
-        else if isSchemeChar(char) then cursor += 1
-        else failure = Some(Failure(cursor, "URI scheme character or ':'"))
-      if failure.nonEmpty then Left(failure.get)
-      else if colon < 0 then Left(Failure(value.length, "':' after URI scheme"))
-      else
+      def schemeEnd(cursor: Int): Either[Failure, Int] =
+        if cursor >= value.length then Left(Failure(value.length, "':' after URI scheme"))
+        else
+          val char = value.charAt(cursor)
+          if char == ':' then Right(cursor)
+          else if isSchemeChar(char) then schemeEnd(cursor + 1)
+          else Left(Failure(cursor, "URI scheme character or ':'"))
+      schemeEnd(1) match
+       case Left(problem) => Left(problem)
+       case Right(colon) =>
         val fragment = value.indexOf('#', colon + 1)
         val querySearchEnd = if fragment < 0 then value.length else fragment
         val query = indexOf(value, '?', colon + 1, querySearchEnd)
@@ -350,17 +347,14 @@ private[yaml] object Rfc3986UriSyntax:
   def validIpv6(value: String): Boolean =
     if value.isEmpty then false
     else
-      var compression = -1
-      var cursor = 0
-      var valid = true
-      while cursor + 1 < value.length && valid do
-        if value.charAt(cursor) == ':' && value.charAt(cursor + 1) == ':' then
-          if compression >= 0 then valid = false
-          else
-            compression = cursor
-            cursor += 2
-        else cursor += 1
-      if !valid then false
+      // Int.MinValue marks a SECOND `::`, which invalidates the literal outright
+      def findCompression(cursor: Int, compression: Int): Int =
+        if cursor + 1 >= value.length then compression
+        else if value.charAt(cursor) == ':' && value.charAt(cursor + 1) == ':' then
+          if compression >= 0 then Int.MinValue else findCompression(cursor + 2, cursor)
+        else findCompression(cursor + 1, compression)
+      val compression = findCompression(0, -1)
+      if compression == Int.MinValue then false
       else if compression < 0 then
         ipv6SideWeight(value, 0, value.length, allowIpv4 = true) == 8
       else
@@ -371,18 +365,18 @@ private[yaml] object Rfc3986UriSyntax:
   def validIpvFuture(value: String): Boolean =
     if value.length < 4 || (value.charAt(0) != 'v' && value.charAt(0) != 'V') then false
     else
-      var cursor = 1
-      while cursor < value.length && isHex(value.charAt(cursor)) do cursor += 1
-      if cursor == 1 || cursor >= value.length || value.charAt(cursor) != '.' then false
+      def hexEnd(cursor: Int): Int =
+        if cursor < value.length && isHex(value.charAt(cursor)) then hexEnd(cursor + 1) else cursor
+      val afterHex = hexEnd(1)
+      if afterHex == 1 || afterHex >= value.length || value.charAt(afterHex) != '.' then false
       else
-        cursor += 1
-        val payloadStart = cursor
-        var valid = true
-        while cursor < value.length && valid do
-          val char = value.charAt(cursor)
-          valid = isUnreserved(char) || isSubDelimiter(char) || char == ':'
-          cursor += 1
-        valid && cursor > payloadStart
+        val payloadStart = afterHex + 1
+        def payload(cursor: Int): Boolean =
+          if cursor >= value.length then true
+          else
+            val char = value.charAt(cursor)
+            (isUnreserved(char) || isSubDelimiter(char) || char == ':') && payload(cursor + 1)
+        payload(payloadStart) && value.length > payloadStart
 
   private enum Component:
     case PChar, Query, UserInfo, RegName
@@ -394,8 +388,9 @@ private[yaml] object Rfc3986UriSyntax:
   ): Either[Failure, Unit] =
     if start == end then Right(())
     else if start + 1 < end && value.charAt(start) == '/' && value.charAt(start + 1) == '/' then
-      var authorityEnd = start + 2
-      while authorityEnd < end && value.charAt(authorityEnd) != '/' do authorityEnd += 1
+      def authorityEndAt(cursor: Int): Int =
+        if cursor < end && value.charAt(cursor) != '/' then authorityEndAt(cursor + 1) else cursor
+      val authorityEnd = authorityEndAt(start + 2)
       validateAuthority(value, start + 2, authorityEnd) match
         case Left(problem) => Left(problem)
         case Right(_)      => validatePath(value, authorityEnd, end, requireFirstSegment = false)
@@ -411,15 +406,15 @@ private[yaml] object Rfc3986UriSyntax:
       start: Int,
       end: Int,
   ): Either[Failure, Unit] =
-    var at = -1
-    var cursor = start
-    var duplicateAt = -1
-    while cursor < end && duplicateAt < 0 do
-      if value.charAt(cursor) == '@' then
-        if at >= 0 then duplicateAt = cursor else at = cursor
-      cursor += 1
-    if duplicateAt >= 0 then Left(Failure(duplicateAt, "at most one raw '@' in authority"))
-    else
+    // Left(offset of a second raw '@') | Right(the single '@', or -1 when none)
+    def findAt(cursor: Int, at: Int): Either[Int, Int] =
+      if cursor >= end then Right(at)
+      else if value.charAt(cursor) == '@' then
+        if at >= 0 then Left(cursor) else findAt(cursor + 1, cursor)
+      else findAt(cursor + 1, at)
+    findAt(start, -1) match
+     case Left(duplicateAt) => Left(Failure(duplicateAt, "at most one raw '@' in authority"))
+     case Right(at) =>
       val hostStart =
         if at < 0 then start
         else at + 1
@@ -432,8 +427,9 @@ private[yaml] object Rfc3986UriSyntax:
           if hostStart < end && value.charAt(hostStart) == '[' then
             validateBracketedHost(value, hostStart, end)
           else
-            var colon = hostStart
-            while colon < end && value.charAt(colon) != ':' do colon += 1
+            def colonAt(cursor: Int): Int =
+              if cursor < end && value.charAt(cursor) != ':' then colonAt(cursor + 1) else cursor
+            val colon = colonAt(hostStart)
             val hostResult =
               if validIpv4Range(value, hostStart, colon) then Right(())
               else validateComponent(value, hostStart, colon, Component.RegName)
@@ -448,8 +444,9 @@ private[yaml] object Rfc3986UriSyntax:
       start: Int,
       end: Int,
   ): Either[Failure, Unit] =
-    var close = start + 1
-    while close < end && value.charAt(close) != ']' do close += 1
+    def closeAt(cursor: Int): Int =
+      if cursor < end && value.charAt(cursor) != ']' then closeAt(cursor + 1) else cursor
+    val close = closeAt(start + 1)
     if close >= end then Left(Failure(end, "']' after IP literal"))
     else
       val literal = value.substring(start + 1, close)
@@ -465,8 +462,9 @@ private[yaml] object Rfc3986UriSyntax:
       start: Int,
       end: Int,
   ): Either[Failure, Unit] =
-    var cursor = start
-    while cursor < end && isDigit(value.charAt(cursor)) do cursor += 1
+    def digitsEnd(cursor: Int): Int =
+      if cursor < end && isDigit(value.charAt(cursor)) then digitsEnd(cursor + 1) else cursor
+    val cursor = digitsEnd(start)
     if cursor == end then Right(())
     else Left(Failure(cursor, "decimal port digit"))
 
@@ -478,22 +476,19 @@ private[yaml] object Rfc3986UriSyntax:
   ): Either[Failure, Unit] =
     if requireFirstSegment && start >= end then Left(Failure(start, "non-empty path segment"))
     else
-      var firstSegmentEnd = start
-      while firstSegmentEnd < end && value.charAt(firstSegmentEnd) != '/' do firstSegmentEnd += 1
-      if requireFirstSegment && firstSegmentEnd == start then
+      def firstSegmentEndAt(cursor: Int): Int =
+        if cursor < end && value.charAt(cursor) != '/' then firstSegmentEndAt(cursor + 1) else cursor
+      if requireFirstSegment && firstSegmentEndAt(start) == start then
         Left(Failure(start, "non-empty first path segment"))
       else
-        var cursor = start
-        var failure: Option[Failure] = None
-        while cursor < end && failure.isEmpty do
-          if value.charAt(cursor) == '/' then cursor += 1
+        def walk(cursor: Int): Either[Failure, Unit] =
+          if cursor >= end then Right(())
+          else if value.charAt(cursor) == '/' then walk(cursor + 1)
           else
             consumeComponentUnit(value, cursor, end, Component.PChar) match
-              case Left(problem) => failure = Some(problem)
-              case Right(next)   => cursor = next
-        failure match
-          case Some(problem) => Left(problem)
-          case None          => Right(())
+              case Left(problem) => Left(problem)
+              case Right(next)   => walk(next)
+        walk(start)
 
   private def validateComponent(
       value: String,
@@ -501,15 +496,13 @@ private[yaml] object Rfc3986UriSyntax:
       end: Int,
       component: Component,
   ): Either[Failure, Unit] =
-    var cursor = start
-    var failure: Option[Failure] = None
-    while cursor < end && failure.isEmpty do
-      consumeComponentUnit(value, cursor, end, component) match
-        case Left(problem) => failure = Some(problem)
-        case Right(next)   => cursor = next
-    failure match
-      case Some(problem) => Left(problem)
-      case None          => Right(())
+    def walk(cursor: Int): Either[Failure, Unit] =
+      if cursor >= end then Right(())
+      else
+        consumeComponentUnit(value, cursor, end, component) match
+          case Left(problem) => Left(problem)
+          case Right(next)   => walk(next)
+    walk(start)
 
   private def consumeComponentUnit(
       value: String,
@@ -537,26 +530,26 @@ private[yaml] object Rfc3986UriSyntax:
       else Left(Failure(cursor, "RFC 3986 component character"))
 
   private def validIpv4Range(value: String, start: Int, end: Int): Boolean =
-    var cursor = start
-    var components = 0
-    var valid = start < end
-    while cursor < end && valid do
-      val componentStart = cursor
-      var numeric = 0
-      while cursor < end && value.charAt(cursor) != '.' && valid do
-        val char = value.charAt(cursor)
-        if !isDigit(char) then valid = false
+    // end of one dotted component's digit run, or -1 the moment a non-digit appears
+    def digitRunEnd(cursor: Int): Int =
+      if cursor < end && value.charAt(cursor) != '.' then
+        if !isDigit(value.charAt(cursor)) then -1 else digitRunEnd(cursor + 1)
+      else cursor
+    def components(cursor: Int, count: Int): Boolean =
+      val stop = digitRunEnd(cursor)
+      if stop < 0 then false
+      else
+        val length = stop - cursor
+        if length < 1 || length > 3 then false
         else
-          numeric = numeric * 10 + (char - '0')
-          cursor += 1
-      val length = cursor - componentStart
-      if length < 1 || length > 3 || numeric > 255 then valid = false
-      else if length > 1 && value.charAt(componentStart) == '0' then valid = false
-      components += 1
-      if valid && cursor < end then
-        cursor += 1
-        if cursor == end then valid = false
-    valid && components == 4 && cursor == end
+          val numeric = value.substring(cursor, stop).foldLeft(0)((n, c) => n * 10 + (c - '0'))
+          if numeric > 255 then false
+          else if length > 1 && value.charAt(cursor) == '0' then false
+          else if stop < end then
+            if stop + 1 == end then false // a trailing '.' has no component after it
+            else components(stop + 1, count + 1)
+          else count + 1 == 4
+    start < end && components(start, 0)
 
   private def ipv6SideWeight(
       value: String,
@@ -566,33 +559,28 @@ private[yaml] object Rfc3986UriSyntax:
   ): Int =
     if start == end then 0
     else
-      var cursor = start
-      var weight = 0
-      var valid = true
-      while cursor < end && valid do
-        val tokenStart = cursor
-        while cursor < end && value.charAt(cursor) != ':' do cursor += 1
-        val tokenEnd = cursor
-        if tokenStart == tokenEnd then valid = false
+      def tokenEndAt(cursor: Int): Int =
+        if cursor < end && value.charAt(cursor) != ':' then tokenEndAt(cursor + 1) else cursor
+      def hasDot(cursor: Int, stop: Int): Boolean =
+        cursor < stop && (value.charAt(cursor) == '.' || hasDot(cursor + 1, stop))
+      def allHex(cursor: Int, stop: Int): Boolean =
+        cursor >= stop || (isHex(value.charAt(cursor)) && allHex(cursor + 1, stop))
+      def walk(cursor: Int, weight: Int): Int = // -1 the moment a token is invalid
+        val stop = tokenEndAt(cursor)
+        if cursor == stop then -1
         else
-          var dot = tokenStart
-          while dot < tokenEnd && value.charAt(dot) != '.' do dot += 1
-          if dot < tokenEnd then
-            if allowIpv4 && tokenEnd == end && validIpv4Range(value, tokenStart, tokenEnd) then
-              weight += 2
-            else valid = false
-          else
-            val length = tokenEnd - tokenStart
-            var hex = length >= 1 && length <= 4
-            var hexCursor = tokenStart
-            while hexCursor < tokenEnd && hex do
-              hex = isHex(value.charAt(hexCursor))
-              hexCursor += 1
-            if hex then weight += 1 else valid = false
-        if valid && cursor < end then
-          cursor += 1
-          if cursor == end then valid = false
-      if valid then weight else -1
+          val stepped =
+            if hasDot(cursor, stop) then
+              if allowIpv4 && stop == end && validIpv4Range(value, cursor, stop) then weight + 2 else -1
+            else
+              val length = stop - cursor
+              if length >= 1 && length <= 4 && allHex(cursor, stop) then weight + 1 else -1
+          if stepped < 0 then -1
+          else if stop < end then
+            if stop + 1 == end then -1 // a trailing ':' has no group after it
+            else walk(stop + 1, stepped)
+          else stepped
+      walk(start, 0)
 
   private def indexOf(
       value: String,
@@ -600,12 +588,9 @@ private[yaml] object Rfc3986UriSyntax:
       start: Int,
       end: Int,
   ): Int =
-    var cursor = start
-    var found = -1
-    while cursor < end && found < 0 do
-      if value.charAt(cursor) == target then found = cursor
-      cursor += 1
-    found
+    if start >= end then -1
+    else if value.charAt(start) == target then start
+    else indexOf(value, target, start + 1, end)
 
   private def isSchemeChar(value: Char): Boolean =
     isAlpha(value) || isDigit(value) || value == '+' || value == '-' || value == '.'
