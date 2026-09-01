@@ -1,3 +1,43 @@
+## native-release-registry-check-blocked-by-macos15-firewall — linux green, both macs refuse their own loopback
+
+<!-- status: fixed
+     lane: apparatus
+     area: build
+     kind: bug
+     gate: .github/workflows/native-release.yml
+     reported-by: claude-code
+     reported-at: 2026-09-01
+     confirmed: no
+     fixed-in: ae9881826 -->
+
+Third qualification dispatch (`33520292532`): **linux qualification fully green for the first time
+on this tree** — layout, manifests, version, the plugin-search network check, all runtime lanes —
+and both macOS jobs fail the same new way:
+
+    native-release-qualify: FAILED check 'registry-server'
+    --- expected
+    listening within 5s
+    --- actual
+    never came up: b''
+
+**THE RUNNER'S DEFECT, NOT OURS.** macOS 15 runner images ship the Application Firewall blocking
+incoming TCP even on loopback (actions/runner-images#11901, #10924): the qualify script's registry
+server binds 127.0.0.1 and every connect is refused. The empty log is consistent, not mysterious —
+`http.server`'s banner is block-buffered into the redirect while the firewall eats the SYNs, so the
+process is alive and silent. The check was added after v0.2.0 (`b45192115`, the http/https
+URL-protocol regression), so no macOS runner had ever executed it.
+
+**FIX** (`ae9881826`): a macOS-only workflow step runs
+`sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate off` before qualification —
+the documented workaround, on a throwaway CI VM, for loopback-only traffic. In the qualify script
+itself would be wrong: it also runs on developer machines, where a sudo firewall flip is not this
+script's decision to make.
+
+Fourth entry on one road: `native-release-qualify-chmods-a-binary-the-release-no-longer-ships`,
+`native-release-qualify-rejects-the-lib-tower-directory-member`,
+`native-release-qualify-probes-the-removed-search-spelling`, then this — every one living in a path
+that executes only at release time.
+
 ## native-release-qualify-probes-the-removed-search-spelling — the third defect between v0.2.0 and a publishable v0.3.0
 
 <!-- status: fixed
