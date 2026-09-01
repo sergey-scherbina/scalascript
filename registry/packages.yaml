@@ -13,60 +13,60 @@
 # See specs/arch-registry.md for the full schema specification.
 
 - name: io.scalascript/json
-  version: 0.2.1
+  version: 0.3.0
   kind: plugin
   description: "Built-in JSON encoding/decoding for ScalaScript"
   keywords: [json, serialization, codec, parsing]
   backends: [jvm, js]
-  url: "github:sergey-scherbina/scalascript@v0.2.1#json-plugin.sscpkg"
+  url: "github:sergey-scherbina/scalascript@v0.3.0#json-plugin.sscpkg"
   license: Apache-2.0
   author: "ScalaScript Team"
   homepage: "https://scalascript.io/packages/json"
   scala-script-version: ">=1.0"
 
 - name: io.scalascript/http
-  version: 0.2.1
+  version: 0.3.0
   kind: plugin
   description: "HTTP client and server primitives for ScalaScript"
   keywords: [http, web, client, server, rest]
   backends: [jvm, js]
-  url: "github:sergey-scherbina/scalascript@v0.2.1#http-plugin.sscpkg"
+  url: "github:sergey-scherbina/scalascript@v0.3.0#http-plugin.sscpkg"
   license: Apache-2.0
   author: "ScalaScript Team"
   homepage: "https://scalascript.io/packages/http"
   scala-script-version: ">=1.0"
 
 - name: io.scalascript/streams
-  version: 0.2.1
+  version: 0.3.0
   kind: plugin
   description: "Lazy reactive streams and async pipelines for ScalaScript"
   keywords: [streams, reactive, async, pipeline, source, sink]
   backends: [jvm, js]
-  url: "github:sergey-scherbina/scalascript@v0.2.1#streams-plugin.sscpkg"
+  url: "github:sergey-scherbina/scalascript@v0.3.0#streams-plugin.sscpkg"
   license: Apache-2.0
   author: "ScalaScript Team"
   homepage: "https://scalascript.io/packages/streams"
   scala-script-version: ">=1.51"
 
 - name: io.scalascript/actors
-  version: 0.2.1
+  version: 0.3.0
   kind: plugin
   description: "Lightweight actor model for concurrent ScalaScript programs"
   keywords: [actors, concurrency, async, mailbox]
   backends: [jvm, js]
-  url: "github:sergey-scherbina/scalascript@v0.2.1#actors-plugin.sscpkg"
+  url: "github:sergey-scherbina/scalascript@v0.3.0#actors-plugin.sscpkg"
   license: Apache-2.0
   author: "ScalaScript Team"
   homepage: "https://scalascript.io/packages/actors"
   scala-script-version: ">=1.40"
 
 - name: io.scalascript/sql
-  version: 0.2.1
+  version: 0.3.0
   kind: plugin
   description: "SQL database access (PostgreSQL, SQLite) for ScalaScript"
   keywords: [sql, database, postgresql, sqlite, jdbc]
   backends: [jvm]
-  url: "github:sergey-scherbina/scalascript@v0.2.1#sql-plugin.sscpkg"
+  url: "github:sergey-scherbina/scalascript@v0.3.0#sql-plugin.sscpkg"
   license: Apache-2.0
   author: "ScalaScript Team"
   homepage: "https://scalascript.io/packages/sql"
