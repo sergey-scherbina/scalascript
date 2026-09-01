@@ -1,2 +1,3 @@
-# generation: 3309
+# generation: 3310
 #slug	agent	started	items	paths
+uniml-demut-rust	claude-code	2026-09-01T09:16:07Z	uniml-demut-rust	file:uniml/rust/src/main/scala/scalascript/uniml/dialect/rust/RustLexer.scala file:uniml/rust/src/main/scala/scalascript/uniml/dialect/rust/RustDialect.scala file:uniml/SPRINT.md
