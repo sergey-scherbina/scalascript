@@ -46,9 +46,7 @@ private object RustStructure:
 
   /** Index of the next non-trivia token at or after `from`, or `until` when there is none. */
   private def nextSignificant(tokens: Vector[RustLexToken], from: Int, until: Int): Int =
-    var i = from
-    while i < until && isTrivia(tokens(i).kind) do i += 1
-    i
+    if from < until && isTrivia(tokens(from).kind) then nextSignificant(tokens, from + 1, until) else from
 
   /** First token of an item HEAD at or after `from`: whitespace is skipped, but a COMMENT is
     * part of the head — that is how a doc comment ends up inside the chunk it explains.
@@ -62,18 +60,15 @@ private object RustStructure:
   private def headStartIndex(
       tokens: Vector[RustLexToken], from: Int, until: Int, atRangeStart: Boolean,
   ): Int =
-    var i = from
-    var crossed = atRangeStart
-    var result = -1
-    while result < 0 && i < until do
-      val k = tokens(i).kind
-      if k == "rust.ws" then
-        if tokens(i).lexeme.contains("\n") then crossed = true
-        i += 1
-      else if k == "rust.line-comment" || k == "rust.block-comment" then
-        if crossed then result = i else i += 1
-      else result = i
-    if result < 0 then until else result
+    def scan(i: Int, crossed: Boolean): Int =
+      if i >= until then until
+      else
+        val k = tokens(i).kind
+        if k == "rust.ws" then scan(i + 1, crossed || tokens(i).lexeme.contains("\n"))
+        else if k == "rust.line-comment" || k == "rust.block-comment" then
+          if crossed then i else scan(i + 1, crossed)
+        else i
+    scan(from, atRangeStart)
 
   /** Skip a balanced bracket group that OPENS at `from` (`from` must be the opener). Returns the
     * index just past the matching closer, or `until` if it never closes. Used for `#[…]`
@@ -81,43 +76,40 @@ private object RustStructure:
   private def skipBalanced(
       tokens: Vector[RustLexToken], from: Int, until: Int, open: String, close: String,
   ): Int =
-    var i = from
-    var depth = 0
-    var done = false
-    while i < until && !done do
-      if isPunct(tokens(i), open) then depth += 1
+    def scan(i: Int, depth: Int): Int =
+      if i >= until then i
+      else if isPunct(tokens(i), open) then scan(i + 1, depth + 1)
       else if isPunct(tokens(i), close) then
-        depth -= 1
-        if depth == 0 then done = true
-      i += 1
-    i
+        if depth - 1 == 0 then i + 1 else scan(i + 1, depth - 1)
+      else scan(i + 1, depth)
+    scan(from, 0)
 
   /** Walk the item HEAD from `from`: doc comments, attributes and modifiers, in any order and any
     * number. Returns the index of the token that ends the head — the item keyword if this is an
     * item, otherwise whatever else was found. */
   private def skipHead(tokens: Vector[RustLexToken], from: Int, until: Int): Int =
-    var i = nextSignificant(tokens, from, until)
-    var going = true
-    while going && i < until do
-      val t = tokens(i)
-      if isPunct(t, "#") then
-        // `#[…]` and `#![…]` alike: find the bracket group and step over it whole.
-        val br = nextSignificant(tokens, i + 1, until)
-        val br2 = if br < until && isPunct(tokens(br), "!") then nextSignificant(tokens, br + 1, until) else br
-        if br2 < until && isPunct(tokens(br2), "[") then
-          i = nextSignificant(tokens, skipBalanced(tokens, br2, until, "[", "]"), until)
-        else going = false
-      else if t.kind == "rust.ident" && isModifier(t.lexeme) then
-        val after = nextSignificant(tokens, i + 1, until)
-        // `pub(crate)` / `pub(super)` — the visibility qualifier belongs to the modifier.
-        // `extern "C"` — the ABI string likewise.
-        if after < until && isPunct(tokens(after), "(") then
-          i = nextSignificant(tokens, skipBalanced(tokens, after, until, "(", ")"), until)
-        else if after < until && tokens(after).kind == "rust.string" then
-          i = nextSignificant(tokens, after + 1, until)
-        else i = after
-      else going = false
-    i
+    def loop(i: Int): Int =
+      if i >= until then i
+      else
+        val t = tokens(i)
+        if isPunct(t, "#") then
+          // `#[…]` and `#![…]` alike: find the bracket group and step over it whole.
+          val br = nextSignificant(tokens, i + 1, until)
+          val br2 = if br < until && isPunct(tokens(br), "!") then nextSignificant(tokens, br + 1, until) else br
+          if br2 < until && isPunct(tokens(br2), "[") then
+            loop(nextSignificant(tokens, skipBalanced(tokens, br2, until, "[", "]"), until))
+          else i
+        else if t.kind == "rust.ident" && isModifier(t.lexeme) then
+          val after = nextSignificant(tokens, i + 1, until)
+          // `pub(crate)` / `pub(super)` — the visibility qualifier belongs to the modifier.
+          // `extern "C"` — the ABI string likewise.
+          if after < until && isPunct(tokens(after), "(") then
+            loop(nextSignificant(tokens, skipBalanced(tokens, after, until, "(", ")"), until))
+          else if after < until && tokens(after).kind == "rust.string" then
+            loop(nextSignificant(tokens, after + 1, until))
+          else loop(after)
+        else i
+    loop(nextSignificant(tokens, from, until))
 
   /** The item keyword at `kw`, resolved. `const`/`static` are MODIFIERS when a `fn` follows
     * (`const fn new()`), and items otherwise (`const MAX: usize = 8;`) — the same word doing two
@@ -133,67 +125,68 @@ private object RustStructure:
   /** Best-effort item name: the first identifier after the keyword that is not a keyword itself.
     * For `impl` this lands on the trait or type, which is what a reader would cite. */
   private def itemName(tokens: Vector[RustLexToken], kw: Int, until: Int): String =
-    var i = nextSignificant(tokens, kw + 1, until)
+    val at = nextSignificant(tokens, kw + 1, until)
     // `impl<'a, T>` — step over a generic parameter list before the name.
-    if i < until && isPunct(tokens(i), "<") then
-      i = nextSignificant(tokens, skipBalanced(tokens, i, until, "<", ">"), until)
+    val i =
+      if at < until && isPunct(tokens(at), "<") then
+        nextSignificant(tokens, skipBalanced(tokens, at, until, "<", ">"), until)
+      else at
     if i < until && tokens(i).kind == "rust.ident" then tokens(i).lexeme else ""
 
   /** End token index (INCLUSIVE) of the item whose keyword is at `kw`: the `}` that closes its
     * body, or the `;` that ends a body-less declaration. Returns `until - 1` for an item that
     * never closes, so a truncated file still produces a well-formed (if long) last item. */
   private def itemEnd(tokens: Vector[RustLexToken], kw: Int, until: Int): Int =
-    var i = kw
-    var depth = 0
-    var end = -1
-    while i < until && end < 0 do
-      val t = tokens(i)
-      if isPunct(t, "{") then depth += 1
-      else if isPunct(t, "}") then
-        depth -= 1
-        if depth <= 0 then end = i
-      else if isPunct(t, ";") && depth == 0 then end = i
-      i += 1
-    if end < 0 then until - 1 else end
+    def scan(i: Int, depth: Int): Int =
+      if i >= until then until - 1
+      else
+        val t = tokens(i)
+        if isPunct(t, "{") then scan(i + 1, depth + 1)
+        else if isPunct(t, "}") then
+          if depth - 1 <= 0 then i else scan(i + 1, depth - 1)
+        else if isPunct(t, ";") && depth == 0 then i
+        else scan(i + 1, depth)
+    scan(kw, 0)
 
   /** Index just past the opening `{` of the item's body, or -1 when it has none. */
   private def bodyStart(tokens: Vector[RustLexToken], kw: Int, endIdx: Int): Int =
-    var i = kw
-    var found = -1
-    while i <= endIdx && found < 0 do
-      if isPunct(tokens(i), "{") then found = i + 1
-      i += 1
-    found
+    def scan(i: Int): Int =
+      if i > endIdx then -1
+      else if isPunct(tokens(i), "{") then i + 1
+      else scan(i + 1)
+    scan(kw)
 
   /** Every item in `[from, until)`, in source order, parents immediately followed by the items
     * nested in their bodies — which is the order the instruction walk below needs, and is
     * sorted by `start` because a child always starts after its parent's `{`. */
   def collect(tokens: Vector[RustLexToken], from: Int, until: Int, depth: Int): Vector[ItemSpan] =
-    var out: Vector[ItemSpan] = Vector.empty
-    var i = from
-    while i < until do
-      val headStart = headStartIndex(tokens, i, until, i == from)
-      if headStart >= until then i = until
+    def loop(i: Int, out: Vector[ItemSpan]): Vector[ItemSpan] =
+      if i >= until then out
       else
-        val kwRaw = skipHead(tokens, headStart, until)
-        val kw = if kwRaw < until then resolveKeyword(tokens, kwRaw, until) else kwRaw
-        val kind = if kw < until && tokens(kw).kind == "rust.ident" then itemKind(tokens(kw).lexeme) else ""
-        if kind == "" then
-          // Not an item head. Step over whatever this is — a statement, a stray token — up to the
-          // next `;` or the end of a balanced brace group, so the scan resynchronises instead of
-          // treating every following token as a fresh candidate.
-          val skipTo = itemEnd(tokens, headStart, until)
-          i = if skipTo >= headStart then skipTo + 1 else headStart + 1
+        val headStart = headStartIndex(tokens, i, until, i == from)
+        if headStart >= until then out
         else
-          val end = itemEnd(tokens, kw, until)
-          val bs = bodyStart(tokens, kw, end)
-          out = out :+ ItemSpan(headStart, end, kind, itemName(tokens, kw, until), if bs < 0 then -1 else bs - 1)
-          // One nesting level, per the spec: an `impl` or `mod` body holds items a reader cites
-          // directly, deeper nesting produces chunks too small to rank.
-          if depth == 0 && (kind == "rust.impl" || kind == "rust.mod") then
-            if bs >= 0 && bs < end then out = out ++ collect(tokens, bs, end, depth + 1)
-          i = end + 1
-    out
+          val kwRaw = skipHead(tokens, headStart, until)
+          val kw = if kwRaw < until then resolveKeyword(tokens, kwRaw, until) else kwRaw
+          val kind = if kw < until && tokens(kw).kind == "rust.ident" then itemKind(tokens(kw).lexeme) else ""
+          if kind == "" then
+            // Not an item head. Step over whatever this is — a statement, a stray token — up to the
+            // next `;` or the end of a balanced brace group, so the scan resynchronises instead of
+            // treating every following token as a fresh candidate.
+            val skipTo = itemEnd(tokens, headStart, until)
+            loop(if skipTo >= headStart then skipTo + 1 else headStart + 1, out)
+          else
+            val end = itemEnd(tokens, kw, until)
+            val bs = bodyStart(tokens, kw, end)
+            val withItem = out :+ ItemSpan(headStart, end, kind, itemName(tokens, kw, until), if bs < 0 then -1 else bs - 1)
+            // One nesting level, per the spec: an `impl` or `mod` body holds items a reader cites
+            // directly, deeper nesting produces chunks too small to rank.
+            val withKids =
+              if depth == 0 && (kind == "rust.impl" || kind == "rust.mod") && bs >= 0 && bs < end then
+                withItem ++ collect(tokens, bs, end, depth + 1)
+              else withItem
+            loop(end + 1, withKids)
+    loop(from, Vector.empty)
 
 object RustDialect extends DialectAdapter:
   val id: String = "uniml.rust"
@@ -211,6 +204,16 @@ object RustDialect extends DialectAdapter:
   * TOP-LEVEL item — exactly the case the chunker cares about — would lose it. The name is
   * recoverable from the branch's own tokens instead, which is where the chunker reads it.
   */
+/** The Rust emit walk's threaded state (was six `var`s in `stop`). */
+private final case class RustEmit(
+    out: Vector[VmToken],
+    position: SourcePosition,
+    nextTokenId: Long,
+    nextItem: Int,
+    open: Vector[Int],
+    openBody: Vector[Int],
+)
+
 private final case class RustProcessor(source: SourceId) extends Processor[String, SourceChunk, VmToken]:
   def start: String = ""
 
@@ -235,67 +238,57 @@ private final case class RustProcessor(source: SourceId) extends Processor[Strin
     // single token. That is what makes the token stream proportional to the STRUCTURE rather than
     // to the source, and it leaves losslessness untouched: the runs are concatenated, never
     // summarised, so the lexemes still reproduce the file byte for byte.
-    var out: Vector[VmToken] = Vector.empty
-    var position = SourcePosition.Start
-    var nextTokenId = 0L
-    var nextItem = 0
-    // The items currently open, innermost last: `open` holds their end indices and `openBody` the
-    // matching `{` positions. `collect` returns parents immediately before the items nested in
-    // them and every child closes before its parent, so plain stacks are enough — no lookup
-    // structure and no second pass.
-    var open: Vector[Int] = Vector.empty
-    var openBody: Vector[Int] = Vector.empty
-    var i = 0
-    while i < lexed.length do
-      var lexeme = lexed(i).lexeme
-      var kind = lexed(i).kind
-      var instruction: VmInstruction = VmInstruction.Emit()
-      if nextItem < items.length && items(nextItem).start == i then
-        instruction = VmInstruction.Open(items(nextItem).kind)
-        open = open :+ items(nextItem).end
-        openBody = openBody :+ items(nextItem).bodyOpen
-        nextItem += 1
-        i += 1
-      else if open.nonEmpty && open.last == i then
-        instruction = VmInstruction.Close()
-        open = open.dropRight(1)
-        openBody = openBody.dropRight(1)
-        i += 1
-      else if open.nonEmpty && openBody.last >= 0 && i <= openBody.last then
-        // Still in the item's HEAD — its doc comments, attributes and signature, through the `{`.
-        i += 1
+    // The emit walk's state. The items currently open, innermost last: `open` holds their end
+    // indices and `openBody` the matching `{` positions. `collect` returns parents immediately
+    // before the items nested in them and every child closes before its parent, so plain stacks
+    // are enough — no lookup structure and no second pass.
+    def walk(st: RustEmit, i: Int): RustEmit =
+      if i >= lexed.length then st
       else
-        // A BODY, or the gap between two items: one token for the whole run. It ends where the
-        // next item begins or where the enclosing item closes, whichever comes first, so no
-        // boundary token is ever swallowed.
-        var limit = lexed.length
-        if nextItem < items.length && items(nextItem).start < limit then limit = items(nextItem).start
-        if open.nonEmpty && open.last < limit then limit = open.last
-        if limit <= i then i += 1
+        def emit(st2: RustEmit, kind: String, lexeme: String, instruction: VmInstruction, iNext: Int): RustEmit =
+          val startPos = st2.position
+          val endPos = Unicode.advance(startPos, lexeme)
+          val channel =
+            if kind == "rust.ws" then TokenChannel.Trivia
+            else if kind == "rust.line-comment" || kind == "rust.block-comment" then TokenChannel.Comment
+            else TokenChannel.Syntax
+          val token = SourceToken(
+            id = st2.nextTokenId,
+            kind = kind,
+            lexeme = lexeme,
+            span = SourceSpan(source, startPos, endPos),
+            channel = channel,
+          )
+          walk(st2.copy(
+            out = st2.out :+ VmToken(token, instruction),
+            position = endPos,
+            nextTokenId = st2.nextTokenId + 1,
+          ), iNext)
+        if st.nextItem < items.length && items(st.nextItem).start == i then
+          val item = items(st.nextItem)
+          emit(st.copy(nextItem = st.nextItem + 1, open = st.open :+ item.end, openBody = st.openBody :+ item.bodyOpen),
+            lexed(i).kind, lexed(i).lexeme, VmInstruction.Open(item.kind), i + 1)
+        else if st.open.nonEmpty && st.open.last == i then
+          emit(st.copy(open = st.open.dropRight(1), openBody = st.openBody.dropRight(1)),
+            lexed(i).kind, lexed(i).lexeme, VmInstruction.Close(), i + 1)
+        else if st.open.nonEmpty && st.openBody.last >= 0 && i <= st.openBody.last then
+          // Still in the item's HEAD — its doc comments, attributes and signature, through the `{`.
+          emit(st, lexed(i).kind, lexed(i).lexeme, VmInstruction.Emit(), i + 1)
         else
-          // Accumulated as pieces and joined once: `s = s + piece` in a loop would copy the whole
-          // string every time, which is the same shape of quadratic this coalescing exists to
-          // remove.
-          var pieces: Vector[String] = Vector.empty
-          while i < limit do
-            pieces = pieces :+ lexed(i).lexeme
-            i += 1
-          kind = "rust.span"
-          lexeme = pieces.mkString
-      val start = position
-      val end = Unicode.advance(start, lexeme)
-      position = end
-      val channel =
-        if kind == "rust.ws" then TokenChannel.Trivia
-        else if kind == "rust.line-comment" || kind == "rust.block-comment" then TokenChannel.Comment
-        else TokenChannel.Syntax
-      val token = SourceToken(
-        id = nextTokenId,
-        kind = kind,
-        lexeme = lexeme,
-        span = SourceSpan(source, start, end),
-        channel = channel,
-      )
-      nextTokenId += 1
-      out = out :+ VmToken(token, instruction)
-    ProcessBatch(out, Vector.empty)
+          // A BODY, or the gap between two items: one token for the whole run. It ends where the
+          // next item begins or where the enclosing item closes, whichever comes first, so no
+          // boundary token is ever swallowed.
+          val itemLimit =
+            if st.nextItem < items.length && items(st.nextItem).start < lexed.length then items(st.nextItem).start
+            else lexed.length
+          val limit = if st.open.nonEmpty && st.open.last < itemLimit then st.open.last else itemLimit
+          if limit <= i then emit(st, lexed(i).kind, lexed(i).lexeme, VmInstruction.Emit(), i + 1)
+          else
+            // Accumulated as pieces and joined once: `s = s + piece` in a loop would copy the whole
+            // string every time, which is the same shape of quadratic this coalescing exists to
+            // remove.
+            def gather(k: Int, pieces: Vector[String]): Vector[String] =
+              if k < limit then gather(k + 1, pieces :+ lexed(k).lexeme) else pieces
+            emit(st, "rust.span", gather(i, Vector.empty).mkString, VmInstruction.Emit(), limit)
+    val done = walk(RustEmit(Vector.empty, SourcePosition.Start, 0L, 0, Vector.empty, Vector.empty), 0)
+    ProcessBatch(done.out, Vector.empty)

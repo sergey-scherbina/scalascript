@@ -57,6 +57,20 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
       envelope — no urgent knob. Cursor de-mutabilization (stage 10) must re-run this bench per
       module as its perf gate.
 
+- [x] uniml-demut-rust — **the rust module is var-free: 51 → 0.** The lexer's while-spelled
+      end-finders (plainStringEnd/charLiteralEnd/rawStringHashes/rawStringEnd/blockCommentEnd)
+      became recursions; lexWindow's per-token scan is a `TokenAt(kind, end)` classification +
+      tail-recursive walk; the window loop recurses with its doubling retry intact. RustStructure's
+      seven scans are recursions; RustProcessor.stop's six-var emit loop is a `RustEmit` record
+      fold with the pieces-then-mkString coalescing and both quadratic-avoidance comment blocks
+      kept verbatim (the windowing and the head/body split are LOAD-BEARING perf shapes measured
+      on the Rust backend — only the var bookkeeping changed, never the shapes). Gates: full uniml
+      `sbt test` green (17 suite groups, second run alone after a launcher OOM truncated the
+      first — a truncated run is not a verdict). The cargo/emit-rust lane was NOT re-run for this
+      step: its merge script is ephemeral (8fcae093b recreated it), so ONE cargo re-verification
+      over the final tree belongs to the stage-10 closing pass, covering every module conversion
+      at once.
+
 - [x] uniml-demut-scala — **the scala module is var-free: 118 → 0 declarations (every remaining
       `var` in the file is the language keyword inside comments).** Landed in four measured steps,
       each gated: (1) SpikeLex — scan became end-finders + one slice emit (`a12c93409`; the old

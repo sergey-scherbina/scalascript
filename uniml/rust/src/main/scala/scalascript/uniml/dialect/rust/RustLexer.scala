@@ -33,30 +33,26 @@ object RustLexer:
     * string runs to end of input rather than failing: this lexer never rejects, it only ever
     * describes, and the structure pass above decides what a malformed file means. */
   private def plainStringEnd(chars: Vector[Char], from: Int, n: Int): Int =
-    var i = from + 1
-    var closed = false
-    while i < n && !closed do
-      val c = chars(i)
-      if c == '\\' then i += 2
-      else if c == '"' then
-        i += 1
-        closed = true
-      else i += 1
-    if i > n then n else i
+    def scan(i: Int): Int =
+      if i >= n then n
+      else
+        val c = chars(i)
+        if c == '\\' then scan(i + 2)
+        else if c == '"' then i + 1
+        else scan(i + 1)
+    scan(from + 1)
 
   /** End (exclusive) of a char literal opened at `from`. Same escape handling, same
     * run-to-the-end tolerance. */
   private def charLiteralEnd(chars: Vector[Char], from: Int, n: Int): Int =
-    var i = from + 1
-    var closed = false
-    while i < n && !closed do
-      val c = chars(i)
-      if c == '\\' then i += 2
-      else if c == '\'' then
-        i += 1
-        closed = true
-      else i += 1
-    if i > n then n else i
+    def scan(i: Int): Int =
+      if i >= n then n
+      else
+        val c = chars(i)
+        if c == '\\' then scan(i + 2)
+        else if c == '\'' then i + 1
+        else scan(i + 1)
+    scan(from + 1)
 
   /** How many `#` a raw string opened at `from` uses, or -1 when `from` does not start one.
     *
@@ -65,52 +61,36 @@ object RustLexer:
     * (a RAW IDENTIFIER, not a string) is rejected here by requiring the quote, and falls through
     * to the identifier path. */
   private def rawStringHashes(chars: Vector[Char], from: Int, n: Int): Int =
-    var i = from
-    if i < n && chars(i) == 'b' then i += 1
-    if i >= n || chars(i) != 'r' then -1
+    val afterB = if from < n && chars(from) == 'b' then from + 1 else from
+    if afterB >= n || chars(afterB) != 'r' then -1
     else
-      i += 1
-      var hashes = 0
-      while i < n && chars(i) == '#' do
-        hashes += 1
-        i += 1
-      if i < n && chars(i) == '"' then hashes else -1
+      def hashEnd(i: Int): Int = if i < n && chars(i) == '#' then hashEnd(i + 1) else i
+      val he = hashEnd(afterB + 1)
+      if he < n && chars(he) == '"' then he - (afterB + 1) else -1
 
   /** End (exclusive) of the raw string opened at `from` with `hashes` hashes. */
   private def rawStringEnd(chars: Vector[Char], from: Int, n: Int, hashes: Int): Int =
-    var i = from
-    if i < n && chars(i) == 'b' then i += 1
-    i += 1 // 'r'
-    i += hashes
-    i += 1 // opening quote
-    var closed = false
-    while i < n && !closed do
-      if chars(i) == '"' then
-        var k = i + 1
-        var matched = 0
-        while matched < hashes && k < n && chars(k) == '#' do
-          matched += 1
-          k += 1
-        if matched == hashes then
-          i = k
-          closed = true
-        else i += 1
-      else i += 1
-    if i > n then n else i
+    val afterB = if from < n && chars(from) == 'b' then from + 1 else from
+    val bodyStart = afterB + 1 + hashes + 1 // 'r', the hashes, the opening quote
+    def hashRun(k: Int, matched: Int): Int =
+      if matched < hashes && k < n && chars(k) == '#' then hashRun(k + 1, matched + 1) else k
+    def scan(i: Int): Int =
+      if i >= n then n
+      else if chars(i) == '"' then
+        val k = hashRun(i + 1, 0)
+        if k - (i + 1) == hashes then k else scan(i + 1)
+      else scan(i + 1)
+    scan(bodyStart)
 
   /** End (exclusive) of a block comment opened at `from`, honouring Rust's NESTING. */
   private def blockCommentEnd(chars: Vector[Char], from: Int, n: Int): Int =
-    var i = from + 2
-    var depth = 1
-    while i < n && depth > 0 do
-      if i + 1 < n && chars(i) == '/' && chars(i + 1) == '*' then
-        depth += 1
-        i += 2
-      else if i + 1 < n && chars(i) == '*' && chars(i + 1) == '/' then
-        depth -= 1
-        i += 2
-      else i += 1
-    if i > n then n else i
+    def scan(i: Int, depth: Int): Int =
+      if i >= n then n
+      else if depth == 0 then i
+      else if i + 1 < n && chars(i) == '/' && chars(i + 1) == '*' then scan(i + 2, depth + 1)
+      else if i + 1 < n && chars(i) == '*' && chars(i + 1) == '/' then scan(i + 2, depth - 1)
+      else scan(i + 1, depth)
+    scan(from + 2, 1)
 
   /** Is the quote at `from` a LIFETIME (`'a`, `'static`, `'_`) rather than a char literal?
     *
@@ -164,26 +144,22 @@ object RustLexer:
     */
   def lex(text: String): Vector[RustLexToken] =
     val total = text.length
-    var out: Vector[RustLexToken] = Vector.empty
-    var pos = 0
-    while pos < total do
-      var span = WindowCodeUnits
-      var placed = false
-      while !placed do
+    def place(pos: Int, span: Int, out: Vector[RustLexToken]): Vector[RustLexToken] =
+      if pos >= total then out
+      else
         val atEof = pos + span >= total
         val end = if atEof then total else pos + span
         val window = lexWindow(text.substring(pos, end), atEof)
-        if window.consumed > 0 then
-          out = out ++ window.tokens
-          pos += window.consumed
-          placed = true
+        if window.consumed > 0 then place(pos + window.consumed, WindowCodeUnits, out ++ window.tokens)
         else if atEof then
           // Unreachable: at end of input every token is complete, and `pos < total` guarantees the
           // window is non-empty, so at least one token is always emitted. Kept as a spin guard.
-          pos = total
-          placed = true
-        else span = span * 2
-    out
+          out
+        else place(pos, span * 2, out)
+    place(0, WindowCodeUnits, Vector.empty)
+
+  /** One token's classification: its kind and END index in the window. */
+  private final case class TokenAt(kind: String, end: Int)
 
   private def lexWindow(text: String, atEof: Boolean): WindowLex =
     // INDEX THE CODE UNITS, NOT THE STRING: `charAt`/`length` are O(1) on the JVM but O(i) on the
@@ -191,68 +167,45 @@ object RustLexer:
     // `toVector` pays that conversion once and every index after it is a vector index.
     val chars = text.toVector
     val n = chars.length
-    var out: Vector[RustLexToken] = Vector.empty
-    var consumed = 0
-    var i = 0
-    var stop = false
-    while i < n && !stop do
-      val start = i
-      val c = chars(i)
-      var kind = "rust.punct"
-      val hashes = if c == 'r' || c == 'b' then rawStringHashes(chars, i, n) else -1
-      if isSpace(c) then
-        kind = "rust.ws"
-        while i < n && isSpace(chars(i)) do i += 1
-      else if c == '/' && i + 1 < n && chars(i + 1) == '/' then
-        kind = "rust.line-comment"
-        // Stops BEFORE the newline, which the following whitespace token then carries — so a
-        // line comment never swallows the line break that ends it.
-        while i < n && chars(i) != '\n' do i += 1
-      else if c == '/' && i + 1 < n && chars(i + 1) == '*' then
-        kind = "rust.block-comment"
-        i = blockCommentEnd(chars, i, n)
-      else if hashes >= 0 then
-        kind = "rust.string"
-        i = rawStringEnd(chars, i, n, hashes)
-      else if c == '"' then
-        kind = "rust.string"
-        i = plainStringEnd(chars, i, n)
-      else if c == 'b' && i + 1 < n && chars(i + 1) == '"' then
-        kind = "rust.string"
-        i = plainStringEnd(chars, i + 1, n)
-      else if c == 'b' && i + 2 < n && chars(i + 1) == '\'' then
-        kind = "rust.char"
-        i = charLiteralEnd(chars, i + 1, n)
-      else if c == '\'' && isLifetime(chars, i, n) then
-        kind = "rust.lifetime"
-        i += 1
-        while i < n && isIdentPart(chars(i)) do i += 1
-      else if c == '\'' then
-        kind = "rust.char"
-        i = charLiteralEnd(chars, i, n)
-      else if isDigit(c) then
-        kind = "rust.number"
-        i += 1
-        var going = true
-        while i < n && going do
-          val d = chars(i)
-          // A `.` continues the number only when a digit follows, so `1.0` is one token while
-          // the `..` in `0..n` stays punctuation and cannot be mistaken for part of a literal.
-          if isIdentPart(d) then i += 1
-          else if d == '.' && i + 1 < n && isDigit(chars(i + 1)) then i += 1
-          else going = false
-      else if isIdentStart(c) then
-        kind = "rust.ident"
-        while i < n && isIdentPart(chars(i)) do i += 1
-      else i += 1
-      // Every branch above advances `i` by at least one, so this cannot spin.
-      //
-      // A token ending AT the window edge may be a token that was cut in half — an identifier
-      // whose rest is in the next window, a block comment whose `*/` is further on — so it is
-      // dropped and the caller retries with more source. At end of input there is nothing more to
-      // wait for and every token stands.
-      if !atEof && i >= n then stop = true
+    def spaceEnd(i: Int): Int = if i < n && isSpace(chars(i)) then spaceEnd(i + 1) else i
+    def lineCommentEnd(i: Int): Int = if i < n && chars(i) != '\n' then lineCommentEnd(i + 1) else i
+    def identEnd(i: Int): Int = if i < n && isIdentPart(chars(i)) then identEnd(i + 1) else i
+    def numberEnd(i: Int): Int =
+      if i >= n then i
       else
-        out = out :+ RustLexToken(kind, text.substring(start, i))
-        consumed = i
-    WindowLex(out, consumed)
+        val d = chars(i)
+        // A `.` continues the number only when a digit follows, so `1.0` is one token while
+        // the `..` in `0..n` stays punctuation and cannot be mistaken for part of a literal.
+        if isIdentPart(d) then numberEnd(i + 1)
+        else if d == '.' && i + 1 < n && isDigit(chars(i + 1)) then numberEnd(i + 1)
+        else i
+    def tokenAt(i: Int): TokenAt =
+      val c = chars(i)
+      val hashes = if c == 'r' || c == 'b' then rawStringHashes(chars, i, n) else -1
+      if isSpace(c) then TokenAt("rust.ws", spaceEnd(i + 1))
+      // A line comment stops BEFORE the newline, which the following whitespace token then
+      // carries — so a line comment never swallows the line break that ends it.
+      else if c == '/' && i + 1 < n && chars(i + 1) == '/' then TokenAt("rust.line-comment", lineCommentEnd(i))
+      else if c == '/' && i + 1 < n && chars(i + 1) == '*' then TokenAt("rust.block-comment", blockCommentEnd(chars, i, n))
+      else if hashes >= 0 then TokenAt("rust.string", rawStringEnd(chars, i, n, hashes))
+      else if c == '"' then TokenAt("rust.string", plainStringEnd(chars, i, n))
+      else if c == 'b' && i + 1 < n && chars(i + 1) == '"' then TokenAt("rust.string", plainStringEnd(chars, i + 1, n))
+      else if c == 'b' && i + 2 < n && chars(i + 1) == '\'' then TokenAt("rust.char", charLiteralEnd(chars, i + 1, n))
+      else if c == '\'' && isLifetime(chars, i, n) then TokenAt("rust.lifetime", identEnd(i + 1))
+      else if c == '\'' then TokenAt("rust.char", charLiteralEnd(chars, i, n))
+      else if isDigit(c) then TokenAt("rust.number", numberEnd(i + 1))
+      else if isIdentStart(c) then TokenAt("rust.ident", identEnd(i))
+      else TokenAt("rust.punct", i + 1)
+    // Every classification above ends at least one past its start, so the walk cannot spin.
+    //
+    // A token ending AT the window edge may be a token that was cut in half — an identifier
+    // whose rest is in the next window, a block comment whose `*/` is further on — so it is
+    // dropped and the caller retries with more source. At end of input there is nothing more to
+    // wait for and every token stands.
+    def walk(i: Int, out: Vector[RustLexToken], consumed: Int): WindowLex =
+      if i >= n then WindowLex(out, consumed)
+      else
+        val t = tokenAt(i)
+        if !atEof && t.end >= n then WindowLex(out, consumed)
+        else walk(t.end, out :+ RustLexToken(t.kind, text.substring(i, t.end)), t.end)
+    walk(0, Vector.empty, 0)
