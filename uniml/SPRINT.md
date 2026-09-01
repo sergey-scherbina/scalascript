@@ -57,6 +57,12 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
       envelope — no urgent knob. Cursor de-mutabilization (stage 10) must re-run this bench per
       module as its perf gate.
 
+- [x] uniml-demut-md-longestrun — **the markdown module is now var-free outside the declared
+      Blocks leaf zone: `MdLine.longestRun` 3 → 0.** The straggler the md-lexer entry's "19 → 0"
+      missed (its count came from the pre-conversion survey sites). Run-end + scan recursions,
+      same shape as every other end-finder. Gates: unimlMarkdown/test 59/59 (corpus 607/675
+      exact), lint-portable-subset OK.
+
 - [x] uniml-demut-md-blocks-inlines — **the heavy pair is done: MarkdownBlocks 76 → 37 (all 37 in
       the declared leaf zone), MarkdownInlines 48 → 0.** Blocks: the 17 parse-state vars are one
       16-field `BlockState` (`refs` left the state — collectReferences is a pure pre-pass whose Map
