@@ -1,3 +1,2 @@
-# generation: 3296
+# generation: 3297
 #slug	agent	started	items	paths
-uniml-demut-yaml-property	claude-code	2026-09-01T07:53:30Z	uniml-yaml-property-syntax-folds-and-parks	file:uniml/yaml/src/main/scala/scalascript/uniml/dialect/yaml/YamlPropertySyntax.scala file:uniml/SPRINT.md
