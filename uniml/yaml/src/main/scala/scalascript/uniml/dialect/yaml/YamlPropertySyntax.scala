@@ -52,22 +52,21 @@ private[yaml] object YamlPropertySyntax:
         Some(YamlPropertyFailure(0, s"expected '$expected'")),
       )
     else
-      var end = start + 1
-      if kind == YamlPropertyKind.Tag &&
-          end < input.length &&
-          input.charAt(end) == '<' then
-        end += 1
-        var closed = false
-        while end < input.length && !closed && !isSeparation(input.charAt(end)) do
-          if input.charAt(end) == '>' then
-            end += 1
-            closed = true
-          else end += 1
-      else
-        while end < input.length &&
-            !isSeparation(input.charAt(end)) &&
-            !isFlow(input.charAt(end)) do
-          end += 1
+      // Pure end-finders, the lexer's idiom: recursion over an index, since each loop's stop
+      // condition differs. verbatimEnd stops AFTER a '>' (consuming it) or at separation/end;
+      // plainEnd stops at separation or flow.
+      def verbatimEnd(at: Int): Int =
+        if at >= input.length || isSeparation(input.charAt(at)) then at
+        else if input.charAt(at) == '>' then at + 1
+        else verbatimEnd(at + 1)
+      def plainEnd(at: Int): Int =
+        if at < input.length && !isSeparation(input.charAt(at)) && !isFlow(input.charAt(at)) then plainEnd(at + 1)
+        else at
+      val end =
+        if kind == YamlPropertyKind.Tag &&
+            start + 1 < input.length &&
+            input.charAt(start + 1) == '<' then verbatimEnd(start + 2)
+        else plainEnd(start + 1)
 
       val boundary = boundaryAt(input, end)
       val spelling = input.substring(start, end)
@@ -171,26 +170,20 @@ private[yaml] object YamlPropertySyntax:
   def validHandle(value: String): Boolean =
     if value == "!" || value == "!!" then true
     else
-      var cursor = 1
-      var valid = value.length >= 3 && value.charAt(0) == '!' && value.last == '!'
-      while cursor < value.length - 1 && valid do
-        valid = isHandleChar(value.charAt(cursor))
-        cursor += 1
-      valid
+      value.length >= 3 && value.charAt(0) == '!' && value.last == '!' &&
+        (1 until value.length - 1).forall(cursor => isHandleChar(value.charAt(cursor)))
 
   private def validateUnits(
       value: String,
       tagCharacters: Boolean,
   ): Either[YamlPropertyFailure, Unit] =
-    var cursor = 0
-    var failure: Option[YamlPropertyFailure] = None
-    while cursor < value.length && failure.isEmpty do
-      consumeUriUnit(value, cursor, tagCharacters) match
-        case Left(problem) => failure = Some(problem)
-        case Right(next)   => cursor = next
-    failure match
-      case Some(problem) => Left(problem)
-      case None          => Right(())
+    // The unit consumer returns the NEXT cursor, so the walk is recursion on it directly.
+    def walk(cursor: Int): Either[YamlPropertyFailure, Unit] =
+      if cursor >= value.length then Right(())
+      else consumeUriUnit(value, cursor, tagCharacters) match
+        case Left(problem) => Left(problem)
+        case Right(next)   => walk(next)
+    walk(0)
 
   private def consumeUriUnit(
       value: String,
@@ -217,23 +210,22 @@ private[yaml] object YamlPropertySyntax:
   ): Either[YamlPropertyFailure, Unit] =
     if value.isEmpty then Left(YamlPropertyFailure(0, s"a YAML $label name cannot be empty"))
     else
-      var cursor = 0
-      var failure: Option[YamlPropertyFailure] = None
-      while cursor < value.length && failure.isEmpty do
-        val char = value.charAt(cursor)
-        if isFlow(char) || isSeparation(char) || char == '\uFEFF' then
-          failure = Some(YamlPropertyFailure(cursor, s"invalid character in YAML $label name"))
-        else if Unicode.isHighSurrogate(char) &&
-            cursor + 1 < value.length &&
-            Unicode.isLowSurrogate(value.charAt(cursor + 1)) then
-          cursor += 2
-        else if Unicode.isHighSurrogate(char) || Unicode.isLowSurrogate(char) then
-          failure = Some(YamlPropertyFailure(cursor, s"invalid UTF-16 in YAML $label name"))
-        else if isNsChar(char.toInt) then cursor += 1
-        else failure = Some(YamlPropertyFailure(cursor, s"non-printable character in YAML $label name"))
-      failure match
-        case Some(problem) => Left(problem)
-        case None          => Right(())
+      // Stride 2 over a well-formed surrogate pair, 1 otherwise — index recursion, the lexer's shape.
+      def walk(cursor: Int): Either[YamlPropertyFailure, Unit] =
+        if cursor >= value.length then Right(())
+        else
+          val char = value.charAt(cursor)
+          if isFlow(char) || isSeparation(char) || char == '\uFEFF' then
+            Left(YamlPropertyFailure(cursor, s"invalid character in YAML $label name"))
+          else if Unicode.isHighSurrogate(char) &&
+              cursor + 1 < value.length &&
+              Unicode.isLowSurrogate(value.charAt(cursor + 1)) then
+            walk(cursor + 2)
+          else if Unicode.isHighSurrogate(char) || Unicode.isLowSurrogate(char) then
+            Left(YamlPropertyFailure(cursor, s"invalid UTF-16 in YAML $label name"))
+          else if isNsChar(char.toInt) then walk(cursor + 1)
+          else Left(YamlPropertyFailure(cursor, s"non-printable character in YAML $label name"))
+      walk(0)
 
   private def tagRanges(
       input: String,
@@ -306,7 +298,14 @@ private[yaml] object YamlPropertySyntax:
 
 /** Portable, allocation-bounded validator for the RFC 3986 `URI` production.
   * It validates syntax only: no percent decoding, normalization, DNS, or
-  * scheme-specific behavior. */
+  * scheme-specific behavior.
+  *
+  * STAGE-10 HOLDOUT, DECLARED FOR THE WHOLE OBJECT: every `var` below is a local cursor in a
+  * straight-line grammar walk over ONE short string — the `validNumber` category. Locals never
+  * escape, no state flows between fold steps, and the walks mirror RFC 3986's productions clause
+  * by clause; rewriting them as recursions would churn a carefully-tested validator for no
+  * observable immutability. If this object is ever revisited, convert against the RFC text, not
+  * against the current spelling. */
 private[yaml] object Rfc3986UriSyntax:
   final case class Failure(offset: Int, expected: String)
 

@@ -57,6 +57,15 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
       envelope — no urgent knob. Cursor de-mutabilization (stage 10) must re-run this bench per
       module as its perf gate.
 
+- [~] uniml-demut-yaml-property — **YamlPropertySyntax: the yaml side converts (10 vars), the RFC
+      object PARKS as a declared whole-object holdout (30 vars).** scan's two end-finding loops
+      became verbatimEnd/plainEnd (the lexer's idiom); validHandle a forall; validateUnits a
+      recursion on the cursor the unit consumer already returns; validateAnchorLike stride-2/1
+      index recursion. `Rfc3986UriSyntax` is parked WITH THE RATIONALE AT THE OBJECT: every var is
+      a local cursor in a straight-line grammar walk over one short string — the validNumber
+      category — and the walks mirror RFC 3986 clause by clause, so a rewrite would churn a
+      carefully-tested validator for no observable immutability. The note says how to revisit:
+      against the RFC text, not the current spelling. 61/61 JVM + 60/60 JS, lint OK.
 - [~] uniml-demut-yaml-projection — **YamlProjection is var-free: 16 → 0, including the recursive
       cloner.** validateCst's first-violation-only `reject` became an orElse chain (that IS its
       semantics); validate's visit threads a ValidateWalk record where anchors and both counters
