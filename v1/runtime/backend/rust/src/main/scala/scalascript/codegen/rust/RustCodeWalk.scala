@@ -1632,6 +1632,11 @@ object RustCodeWalk:
   // precedent) rather than a Ctx field: the Ctx that reaches `cloneIfMoved` is rebuilt/copied
   // along enough paths that a threaded field proved lossy in practice.
   private var _ownedFieldMoves: Map[String, Set[(String, String)]] = Map.empty
+  // Per-def LOCALS safe to MOVE at their textually LAST use: local name -> `pos.start` of the
+  // ONE occurrence allowed to drop its clone (`ssc-local-last-use-move`) — see
+  // `collectLocalLastUses`. Same keying and same module-level-table reasoning as
+  // `_ownedFieldMoves` just above.
+  private var _localLastUseMoves: Map[String, Map[String, Int]] = Map.empty
 
   /** `(ownerName, memberName) -> mapped Rust return type` — the OWNER-QUALIFIED twin of
    *  `_returnTypes` above, for a call whose CALLEE is itself qualified (`PureMarkupCodec.
@@ -4178,6 +4183,8 @@ object RustCodeWalk:
                             .map(_.name.value).toSet
                           _ownedFieldMoves = _ownedFieldMoves.updated(
                             name, collectSingleReadOwnedFields(d.body, ps))
+                          _localLastUseMoves = _localLastUseMoves.updated(
+                            name, collectLocalLastUses(d.body, ps))
                           ps
                         },
                         rustFnNames = rustFnNames,
@@ -4864,6 +4871,18 @@ object RustCodeWalk:
                 (ctx.defParams.contains(r) ||
                  (looksLikeBinding(r) && !ctx.loopExempt.contains(r)))))
     arg match
+      // `Stepped { state: VmState { stack: stack, … } }` — a LOCAL's textually LAST use MOVES
+      // instead of cloning (`ssc-local-last-use-move`). Keyed by exact source position, so every
+      // EARLIER read of the same name still clones; re-guarded on the rendering context here
+      // because the collector cannot see it (a lifted def's body renders under the OUTER def's
+      // name, and a closure/while body may run again after this position has "passed").
+      case nm @ m.Term.Name(n)
+          if _localLastUseMoves.getOrElse(ctx.defName, Map.empty).get(n).contains(nm.pos.start)
+            && !ctx.defParams.contains(n) && !ctx.byRefMut.contains(n)
+            && !ctx.closureParams.contains(n)
+            && !ctx.inClosure && !ctx.inWhileLoop
+            && !rendered.contains("(") && !rendered.contains(".") =>
+        rendered
       case m.Term.Name(n)
           if needs(n) && !rendered.matches(raw"-?\d+i64|-?\d+\.\d+f64|true|false") =>
         s"$rendered.clone()"
@@ -4955,6 +4974,136 @@ object RustCodeWalk:
     fieldReads.filter { kv =>
       kv._2 == 1 && lastBareAt.getOrElse(kv._1._1, -1) < firstFieldAt.getOrElse(kv._1, Int.MaxValue)
     }.keySet.toSet
+
+  /** LOCALS a def may MOVE at their textually LAST use: local name -> `pos.start` of that one
+   *  occurrence (`ssc-local-last-use-move`). Textual position order over-approximates execution
+   *  order except in exactly three constructs — loops (repeat), lambdas (deferred/repeated), and
+   *  lifted local defs (deferred to their call sites) — so: an occurrence inside a loop or
+   *  lambda is recorded but can never BE the move; a nested def's body is NO direct use at all,
+   *  and instead every CALL of a nested def counts as a use of everything it transitively
+   *  captures, at the call's position; a nested def mentioned OUTSIDE call position (eta-
+   *  expansion, higher-order argument) poisons its captures outright, because its calls are then
+   *  untrackable. A name declared more than once anywhere in the body (shadowing — nested
+   *  `val`s, match-arm binders, closure and nested-def params all count), a `lazy val`, or a def
+   *  param (those belong to `_ownedFieldMoves`) never qualifies. Match arms and if/else branches
+   *  need no care: an occurrence at max textual position in a branch either executes last or
+   *  not at all. A later WRITE is no obstacle in Rust (assigning into a moved-out local is
+   *  legal), but an assignment LHS is still recorded as a non-bare use — conservative, it only
+   *  ever suppresses a move. */
+  private def collectLocalLastUses(body: m.Term, params: Set[String]): Map[String, Int] =
+    // Pass 1: declarations, shadowing, and the lifted local defs.
+    var declCount  = Map.empty[String, Int]
+    var disqual    = Set.empty[String]
+    var nestedDefs = Map.empty[String, m.Defn.Def]
+    def bump(n: String): Unit = declCount = declCount.updated(n, declCount.getOrElse(n, 0) + 1)
+    def collectDecls(t: m.Tree, inNested: Boolean): Unit =
+      t match
+        case d: m.Defn.Def =>
+          if !inNested then nestedDefs = nestedDefs.updated(d.name.value, d)
+          disqual = disqual ++
+            d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value)
+          d.children.foreach(collectDecls(_, inNested = true))
+        case v: m.Defn.Val =>
+          val ns = v.pats.collect { case m.Pat.Var(m.Term.Name(n)) => n }
+          ns.foreach(bump)
+          if inNested || v.mods.exists { case _: m.Mod.Lazy => true; case _ => false } then
+            disqual = disqual ++ ns
+          v.children.foreach(collectDecls(_, inNested))
+        case v: m.Defn.Var =>
+          val ns = v.pats.collect { case m.Pat.Var(m.Term.Name(n)) => n }
+          ns.foreach(bump)
+          if inNested then disqual = disqual ++ ns
+          v.children.foreach(collectDecls(_, inNested))
+        case c: m.Case =>
+          disqual = disqual ++ patBoundNames(c.pat)
+          c.children.foreach(collectDecls(_, inNested))
+        case f: m.Term.Function =>
+          disqual = disqual ++ f.paramClause.values.map(_.name.value)
+          f.children.foreach(collectDecls(_, inNested))
+        case other => other.children.foreach(collectDecls(_, inNested))
+    collectDecls(body, inNested = false)
+    val candidates: Set[String] =
+      declCount.filter { kv => kv._2 == 1 }.keySet.toSet
+        .diff(disqual).diff(params).filter(looksLikeBinding)
+    if candidates.isEmpty then Map.empty
+    else
+      // Pass 2: each lifted def's captured candidates, transitively through nested-def mentions.
+      def namesIn(t: m.Tree): Set[String] =
+        var out = Set.empty[String]
+        def w(x: m.Tree): Unit =
+          x match
+            case m.Term.Name(n) => out = out + n
+            case _              => ()
+          x.children.foreach(w)
+        w(t)
+        out
+      var captures = Map.empty[String, Set[String]]
+      nestedDefs.foreach { (dn, d) => captures = captures.updated(dn, namesIn(d.body) & candidates) }
+      var changed = true
+      while changed do
+        changed = false
+        nestedDefs.foreach { (dn, d) =>
+          val mentioned = namesIn(d.body) & nestedDefs.keySet
+          val widened   = captures(dn) ++ mentioned.flatMap(mn => captures.getOrElse(mn, Set.empty))
+          if widened.size > captures(dn).size then
+            captures = captures.updated(dn, widened)
+            changed = true
+        }
+      // Pass 3: occurrences OUTSIDE nested-def bodies, flagged by loop/lambda context. Keep only
+      // the max-position use per name; a position tie (a call-site charge landing on the same
+      // offset) collapses to non-bare, which suppresses the move.
+      final case class Use(pos: Int, bare: Boolean, safe: Boolean)
+      var uses   = Map.empty[String, Use]
+      var poison = Set.empty[String]
+      def record(n: String, pos: Int, bare: Boolean, safe: Boolean): Unit =
+        if candidates.contains(n) then
+          uses.get(n) match
+            case None                    => uses = uses.updated(n, Use(pos, bare, safe))
+            case Some(u) if u.pos < pos  => uses = uses.updated(n, Use(pos, bare, safe))
+            case Some(u) if u.pos == pos => uses = uses.updated(n, Use(pos, bare = false, safe = false))
+            case _                       => ()
+      def walkUses(t: m.Tree, safe: Boolean): Unit =
+        t match
+          case _: m.Defn.Def             => ()
+          // BINDER positions are not uses — and they cannot be skipped by TYPE (`case _: m.Pat`),
+          // because `Term.Name` itself extends `Pat` (the compiler proves it: that spelling made
+          // the bare-name case below unreachable and no use was ever recorded). Skip the pattern
+          // SLOTS structurally instead and walk only the value sides.
+          case v: m.Defn.Val             => walkUses(v.rhs, safe)
+          case v: m.Defn.Var             => walkUses(v.body, safe)
+          case c: m.Case =>
+            c.cond.foreach(walkUses(_, safe))
+            walkUses(c.body, safe)
+          case g: m.Enumerator.Generator => walkUses(g.rhs, safe)
+          case w: m.Term.While           => w.children.foreach(walkUses(_, safe = false))
+          case f: m.Term.For             => f.children.foreach(walkUses(_, safe = false))
+          case f: m.Term.ForYield        => f.children.foreach(walkUses(_, safe = false))
+          case f: m.Term.Function        => f.children.foreach(walkUses(_, safe = false))
+          case f: m.Term.PartialFunction => f.children.foreach(walkUses(_, safe = false))
+          case a: m.Term.Assign =>
+            a.lhs match
+              case nm @ m.Term.Name(n) =>
+                record(n, nm.pos.start, bare = false, safe)
+                walkUses(a.rhs, safe)
+              case _ => a.children.foreach(walkUses(_, safe))
+          case sel @ m.Term.Select(m.Term.Name(root), _) =>
+            record(root, sel.pos.start, bare = false, safe)
+            sel.children.drop(1).foreach(walkUses(_, safe))
+          case nm @ m.Term.Name(n) =>
+            if nestedDefs.contains(n) then
+              val isCallee = nm.parent.exists {
+                case ap: m.Term.Apply => ap.fun eq nm
+                case _                => false
+              }
+              if isCallee then
+                captures.getOrElse(n, Set.empty).foreach(c => record(c, nm.pos.start, bare = false, safe))
+              else poison = poison ++ captures.getOrElse(n, Set.empty)
+            else record(n, nm.pos.start, bare = true, safe)
+          case other => other.children.foreach(walkUses(_, safe))
+      walkUses(body, safe = true)
+      var out = Map.empty[String, Int]
+      uses.foreach { (n, u) => if u.bare && u.safe && !poison.contains(n) then out = out.updated(n, u.pos) }
+      out
 
   /** Names a `while` body makes fresh on every iteration: the ones it DECLARES, plus the ones it
    *  REASSIGNS. Both are exempt from the in-loop clone rule — a declared name is rebound each

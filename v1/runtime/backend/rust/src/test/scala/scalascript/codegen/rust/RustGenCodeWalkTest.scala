@@ -1746,6 +1746,76 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(g.contains("emit(lexeme.clone()"), s"the lifted-def call must clone a multi-use argument:\n$g")
 
+  test("a local's textually LAST use MOVES instead of cloning"):
+    // `Stepped { state: VmState { stack: stack.clone(), topEdges: topEdges.clone(), … } }` in the
+    // tree VM's `step` (`ssc-local-last-use-move`): the returned constructor cloned every local it
+    // hands back AT ITS LAST USE — two O(document) copies per token that bought nothing. The move
+    // is keyed by exact source position: the mid-body append still works on the owned value, and
+    // only the final constructor read drops its clone.
+    val src =
+      """```scalascript
+        |case class Res(items: Vector[String], n: Long)
+        |
+        |def wrap(x: String): Res =
+        |  var items: Vector[String] = Vector()
+        |  items = items :+ x
+        |  Res(items, 1L)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("items: items,"),
+      s"a local's last use in the returned constructor must move, not clone:\n$g")
+
+  test("a lifted-def call AFTER a local's last plain read keeps the clone"):
+    // The soundness case for `ssc-local-last-use-move`: `flush()` captures `acc` (rendered as a
+    // `&mut` parameter the CALL SITE supplies), so the call is a USE of `acc` at the call's
+    // position — later than the constructor read. Moving at the read would hand `flush` a
+    // moved-out local: `error[E0382]`. The call-site charge keeps the read cloning.
+    val src =
+      """```scalascript
+        |case class Snap(items: Vector[String], n: Long)
+        |
+        |def scan(text: String): Long =
+        |  var acc: Vector[String] = Vector()
+        |  var total: Long = 0
+        |
+        |  def flush(): Unit =
+        |    total += acc.length
+        |
+        |  acc = acc :+ text
+        |  val snapshot = Snap(acc, 0L)
+        |  flush()
+        |  total + snapshot.n
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("acc.clone()"),
+      s"a local read before a capturing lifted-def call must keep its clone:\n$g")
+
+  test("a local whose last use sits inside a `while` body keeps the clone"):
+    // A loop body runs again after its textual position has "passed", so the max-position use
+    // being inside `while` disqualifies the move — the same "may run many times" fact
+    // `cloneIfMoved`'s own `inWhileLoop` clause guards, re-checked in the collector.
+    val src =
+      """```scalascript
+        |case class Box(items: Vector[String])
+        |
+        |def spin(x: String): Long =
+        |  var buf: Vector[String] = Vector()
+        |  buf = buf :+ x
+        |  var i: Long = 0
+        |  var n: Long = 0
+        |  while i < 3 do
+        |    val b = Box(buf)
+        |    n += b.items.length
+        |    i += 1
+        |  n
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("buf.clone()") || g.contains("(buf).clone()"),
+      s"a by-value read inside a loop must keep its clone:\n$g")
+
   test("`xs :+ x` clones a multi-use appended element"):
     // `attributes = attributes :+ attribute` then `attribute` read again afterward (`uniml/xml`'s
     // `Doc.scala`'s `scan`: `format!("… '{}'", attribute)`) — the one-element array literal
@@ -2580,8 +2650,11 @@ class RustGenCodeWalkTest extends AnyFunSuite:
       s"a ctor field declared Char must unwrap .0:\n$g")
     assert(g.contains("Some((c.clone()).0)"),
       s"Some(...) around an SscChar value must unwrap .0:\n$g")
-    assert(g.contains("((c.clone()).0, i)"),
-      s"a tuple-literal element yielding SscChar must unwrap .0:\n$g")
+    // `((c).0, i)`, not `((c.clone()).0, i)`: the tuple's third element is `c`'s textually LAST
+    // use, so `ssc-local-last-use-move` drops that one clone (tuples evaluate left-to-right; the
+    // two earlier reads above keep theirs) — the unwrap itself is still what this test pins.
+    assert(g.contains("((c).0, i)"),
+      s"a tuple-literal element yielding SscChar must unwrap .0 (and may move at last use):\n$g")
 
   test("`opt.exists(p)` clones a multi-use Option before the consuming is_some_and"):
     // `tag.exists(...)`, read again LATER in the same `if/else` chain (`plainScalar`,
