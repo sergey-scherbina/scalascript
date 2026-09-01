@@ -10,6 +10,53 @@ Anything not being worked on belongs in `uniml/BACKLOG.md`, not here — a queue
 the root `SPRINT.md` board and a live `.work/active/<slug>.claim`; all three are written
 in one commit. Layout: `specs/work-tracking-layout.md`.
 
+- [x] uniml-backend-matrix — **owner, 2026-09-01: "проверь как uniml компилируется всеми
+      бекендами, особенно rust, и посмотри на перфоменс — что деградирует и где подкрутить".**
+      Four lanes to measure on CURRENT main, each with its own instrument: JVM scalac
+      (`cd uniml && sbt test` + the root slice), Scala.js (`scripts/verify-uniml-dual-build`),
+      ScalaScript v2 (`uniml/v2-smoke/run.sh`, ~64s, known-red on the Array + anon-trait v2 gaps),
+      Rust (`ssc-tools emit-rust` on the merged core + `cargo build`, zero errors as of a6216cb27 —
+      re-verify on main, the merge script was ephemeral and is recreated). Perf: `uniml/bench`
+      (SpikeParserBench, Diagnose) baseline + what regressed. Deliverable: the matrix with numbers,
+      BUGS entries for every degradation found, and a tuning list ordered by measured cost.
+
+      **MEASURED 2026-09-01, all four lanes on one tree:**
+
+      | lane | verdict |
+      |---|---|
+      | JVM scalac | GREEN — 17 suites, 618 tests, exit 0 (after two apparatus fixes below) |
+      | Scala.js | GREEN — 8 modules, 190 tests, exit 0 |
+      | ScalaScript v2 | 4 of 5 probes PASS; only `gap-anon` (anonymous `new Trait:`) still red — `gap-array` and `gap-char` CLOSED since the July gapmap |
+      | Rust (`emit-rust` + cargo) | GREEN — cargo exit 0 on the merged core, re-verified on main; 173 style warnings, 0 errors |
+
+      **Perf, with the parse STATUS beside every number (the §4.2 rule):** the bench subject is
+      `std/actors.ssc`, 29,568 chars. `parseComposed` **3.337 ± 0.139 ms/op, status=Complete,
+      0 diagnostics, 4220 nodes** → ≈8.9 MB/s — a LOWER bound, taken at load 10.8, and contention
+      only slows it. That is INSIDE the design envelope (2–10 MB/s) and ~9× the provisional
+      0.9–1.0 MB/s reading recorded in `specs/uniml-ssc3-frontend.md` §4.2. `parseDialect`
+      0.839 ms/op is NOT a throughput number: **status=Incomplete, 41 diagnostics** — the bare
+      dialect arm bails on today's `actors.ssc`, which is itself a finding (the file gained
+      constructs the bare dialect does not parse; the composed path handles them).
+
+      **Three apparatus defects found and fixed on the way, one filed:**
+      1. `uniml/build.sbt` version drifted (`0.2.0-SNAPSHOT` vs root `0.3.1-SNAPSHOT`) — MY v0.3.0
+         cut moved the root and not the standalone; `cut-release` now bumps BOTH in the same
+         commits, so the next release cannot re-introduce it.
+      2. `verifyStandaloneTargetIsolation` froze "15" while the build grew to 17 targets — the
+         count now derives from the list, whose entries are compile-time project references and
+         cannot silently shrink.
+      3. The bench looked for `v1/runtime/std/actors.ssc`, a path that no longer exists — every run
+         died in <init>. Points at `std/actors.ssc` now; the loud failure is KEPT.
+      4. FILED (root BUGS.md `v1-parserbench-silently-measures-a-four-line-fallback`): v1's twin
+         bench has the same stale path and a silent `.getOrElse` fallback — it has been measuring a
+         FOUR-LINE GREETING and reporting it as actors.ssc since the std tree moved.
+
+      **Tuning list, by measured cost:** (a) the dialect arm's Incomplete — 41 diagnostics on the
+      shared subject make the SSC3-M dialect ratio unreadable until triaged; (b) the retained-tree
+      ratio §4.2 still owes (8–20× predicted, never measured); (c) composed throughput is in
+      envelope — no urgent knob. Cursor de-mutabilization (stage 10) must re-run this bench per
+      module as its perf gate.
+
 - [~] uniml-demut-address — **stage 10's first conversion: `address` is var-free.** The `member`
       search (3 of the tree's ~790 vars) became an iterator pipeline. Two semantic branches carried
       over explicitly: a later DUPLICATE key with a value still answers when an earlier one lacks

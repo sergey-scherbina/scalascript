@@ -22,7 +22,7 @@ ThisBuild / scalaVersion := "3.8.3"
 // consumer's build. Measured 2026-08-05 by publishing from both and listing ~/.ivy2/local.
 // Kept in step with `build.sbt` lines 2-3 by `UnimlCoordinatesSpec`, which reads them.
 ThisBuild / organization := "io.scalascript"
-ThisBuild / version      := "0.2.0-SNAPSHOT"
+ThisBuild / version      := "0.3.1-SNAPSHOT"
 
 // Publishing metadata, so a released artifact says what it is and where it came from. The root
 // build declares none of this; when it publishes for real it should read from the same source.
@@ -307,9 +307,15 @@ lazy val root = project
       }
       val collisions =
         resolved.groupBy(_._2).toVector.filter(_._2.size > 1).sortBy(_._1.toString)
+      // The invariant is DISTINCTNESS, and it is checked against the list's own size rather than a
+      // frozen count. The frozen 15 was written when the build had 15 standalone targets and went
+      // stale the moment more were added (17 today: address, and the xml pair) — failing the whole
+      // suite for a number that only restated the list's length. The list itself cannot silently
+      // shrink: its entries are compile-time project references, so a removed project breaks this
+      // check's own compilation. A global freeze that makes adding one module ratify nothing and
+      // fail everything is the shape the corpus baseline already abandoned.
       if (
-        resolved.size != 15 ||
-        resolved.map(_._2).distinct.size != 15 ||
+        resolved.map(_._2).distinct.size != resolved.size ||
         invalidSuffix.nonEmpty ||
         collisions.nonEmpty
       ) {
@@ -319,12 +325,12 @@ lazy val root = project
         }.mkString("\n")
         sys.error(
           "Standalone UniML target isolation failed.\n" +
-            s"Expected 15 distinct paths ending in target/standalone; resolved:\n$paths\n" +
+            s"Expected ${resolved.size} distinct paths ending in target/standalone; resolved:\n$paths\n" +
             (if (duplicatePaths.isEmpty) "" else s"Collisions:\n$duplicatePaths\n")
         )
       }
       streams.value.log.info(
-        "Standalone UniML target isolation: 15 distinct target/standalone namespaces",
+        s"Standalone UniML target isolation: ${resolved.size} distinct target/standalone namespaces",
       )
     },
     Test / test := ((Test / test) dependsOn verifyStandaloneTargetIsolation).value,

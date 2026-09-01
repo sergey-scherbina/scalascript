@@ -104,12 +104,20 @@ trap cleanup EXIT
 
 bump_version() {
   local target="$1"
-  sed -i.bak -E "s/^(ThisBuild \/ version[[:space:]]*:=[[:space:]]*)\"[^\"]+\"/\1\"$target\"/" "$wt/build.sbt"
-  rm -f "$wt/build.sbt.bak"
-  if ! grep -qE "^ThisBuild / version[[:space:]]*:=[[:space:]]*\"$target\"" "$wt/build.sbt"; then
-    echo "cut-release: failed to rewrite build.sbt's version line to \"$target\" — no 'ThisBuild / version := \"...\"' found?" >&2
-    exit 1
-  fi
+  # BOTH build definitions, not just the root. uniml/build.sbt is a STANDALONE build over the same
+  # sources, and its own UnimlCoordinatesSpec fails when the two versions drift — measured
+  # 2026-09-01, the first `cd uniml && sbt test` after v0.3.0: the root had moved to
+  # 0.3.1-SNAPSHOT and standalone still said 0.2.0-SNAPSHOT, "the same sources would publish as
+  # two versions of one artifact". This script was the writer that moved one and not the other.
+  local f
+  for f in "$wt/build.sbt" "$wt/uniml/build.sbt"; do
+    sed -i.bak -E "s/^(ThisBuild \/ version[[:space:]]*:=[[:space:]]*)\"[^\"]+\"/\1\"$target\"/" "$f"
+    rm -f "$f.bak"
+    if ! grep -qE "^ThisBuild / version[[:space:]]*:=[[:space:]]*\"$target\"" "$f"; then
+      echo "cut-release: failed to rewrite $f's version line to \"$target\" — no 'ThisBuild / version := \"...\"' found?" >&2
+      exit 1
+    fi
+  done
 }
 
 bump_version "$version"
@@ -120,7 +128,7 @@ bump_version "$version"
 # them there), skipping the commit is correct and the tag should still be created against
 # whatever main already has.
 if ! git -C "$wt" diff --quiet -- build.sbt registry/packages.yaml; then
-  git -C "$wt" add build.sbt registry/packages.yaml
+  git -C "$wt" add build.sbt uniml/build.sbt registry/packages.yaml
   git -C "$wt" commit -q -m "release: cut $tag"
   git -C "$wt" push -q origin HEAD:main
 fi
@@ -128,7 +136,7 @@ git -C "$wt" tag "$tag"
 git -C "$wt" push -q origin "$tag"
 
 bump_version "$next_snapshot"
-git -C "$wt" add build.sbt
+git -C "$wt" add build.sbt uniml/build.sbt
 git -C "$wt" commit -q -m "release: resume development at $next_snapshot"
 git -C "$wt" push -q origin HEAD:main
 

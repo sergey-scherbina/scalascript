@@ -21,7 +21,7 @@ import scalascript.uniml.ssc.SscCompose
   *
   * A number here is meaningless without the parse's STATUS. §4.2's first reading was 14.18 MB/s
   * and was measuring a parse that bailed out with 85 diagnostics — it rewarded the parser for not
-  * working. `sbt "unimlBench/Jmh/run -i 1 -wi 0 -f 1 .*describe.*"` prints the shape of both
+  * working. `sbt "unimlBench/runMain scalascript.uniml.bench.Describe"` prints the shape of both
   * parses; run it beside any timing.
   */
 @State(Scope.Thread)
@@ -48,13 +48,18 @@ object SpikeParserBench:
   // java.nio rather than os-lib: UniML carries no third-party dependency (charter invariant I-1),
   // and a benchmark is not a reason to open that door.
   def readActors: String =
-    val relative = java.nio.file.Paths.get("v1", "runtime", "std", "actors.ssc")
+    // `std/actors.ssc` — the std tree moved out of `v1/runtime/` after this bench was written, and
+    // the old path made every run die in <init> ("cannot find v1/runtime/std/actors.ssc"), measured
+    // 2026-09-01. Dying loudly was CORRECT and is kept: v1's own ParserBench has a silent fallback
+    // for the same move and has been measuring a four-line greeting since (filed in
+    // v1/lang/core-bench). A bench whose subject vanished must refuse, not improvise.
+    val relative = java.nio.file.Paths.get("std", "actors.ssc")
     val start = java.nio.file.Paths.get(sys.props("user.dir")).toAbsolutePath.normalize()
     Iterator.iterate(start)(_.getParent).takeWhile(_ != null).take(6)
       .map(_.resolve(relative))
       .find(java.nio.file.Files.isRegularFile(_))
       .map(p => new String(java.nio.file.Files.readAllBytes(p), java.nio.charset.StandardCharsets.UTF_8))
-      .getOrElse(sys.error("SSC3-M: cannot find v1/runtime/std/actors.ssc — the bench must measure the SAME file as v1's ParserBench"))
+      .getOrElse(sys.error("SSC3-M: cannot find std/actors.ssc — the bench must measure the SAME file as v1's ParserBench"))
 
   /** Not a benchmark: prints what each parse actually produced, so a timing is never read without
     * the status beside it. Run with `sbt "unimlBench/runMain scalascript.uniml.bench.Describe"`. */

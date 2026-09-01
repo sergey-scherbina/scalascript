@@ -16,6 +16,43 @@ scripts/bugs-report --no-gate              # open entries with no regression gat
 
 Newest first.
 
+## v1-parserbench-silently-measures-a-four-line-fallback — the std tree moved and the bench improvised
+
+<!-- status: open
+     lane: apparatus
+     area: build
+     kind: bug
+     gate: none — the fix IS deleting the fallback, after which the failure is loud
+     reported-by: claude-code
+     reported-at: 2026-09-01
+     confirmed: yes -->
+
+`v1/lang/core-bench`'s `ParserBench` (and `CompilerBench` beside it, same resolution) reads its
+subject as `<ancestor>/runtime/std/actors.ssc`. The std tree moved out of `v1/runtime/` — the file
+lives at `std/actors.ssc` today, and `v1/runtime/std/` does not exist. On the miss the bench does
+not fail: it substitutes a **four-line greeting snippet** via `.getOrElse(...)` and benchmarks
+that.
+
+**So every ParserBench number taken since the move measures the parse of four lines and reports it
+as the parse of `actors.ssc`.** Nothing says so: no warning, exit 0, plausible-looking (very fast)
+figures. This is the flattering-number trap in institutional form — the same shape as the 14.18 MB/s
+reading `specs/uniml-ssc3-frontend.md` §4.2 records, where a parse that bailed with 85 diagnostics
+rewarded the parser for not working.
+
+Found 2026-09-01 while fixing UniML's twin bench, which looks for the same stale path and — this is
+the contrast that makes the case — **fails loudly**, which is why its breakage was found and v1's
+was not. `SpikeParserBench`'s comment says the two must measure the SAME file for the SSC3-M ratio
+to mean anything; today one measures `std/actors.ssc` (fixed) and the other measures a string
+literal.
+
+**Root entry rather than a module one** because `v1/lang/core-bench` has no BUGS.md and the defect
+also poisons a cross-module comparison (the UniML/v1 parser ratio).
+
+**The fix is two lines and one deletion**: point the relative path at `std/actors.ssc` and DELETE
+the fallback — a bench whose subject vanished must refuse, not improvise. Not fixed here because v1
+files are outside this claim's scope; filed instead, with the uniml side already fixed as the
+pattern to copy.
+
 ## typed-pattern-misses-a-subtype-reached-through-an-intermediate-trait — `case _: Animal` does not match a `Dog extends Mammal extends Animal`
 
 <!-- status: fixed
