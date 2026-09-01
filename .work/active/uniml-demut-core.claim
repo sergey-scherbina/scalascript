@@ -1,0 +1,11 @@
+slug: uniml-demut-core
+branch: feature/uniml-demut-core
+agent: claude-code
+started: 2026-09-01T09:22:24Z
+heartbeat: 2026-09-01T09:22:24Z
+status: claimed-before-planning
+items: uniml-demut-core
+paths: file:uniml/core/src/main/scala/scalascript/uniml/TreeVm.scala file:uniml/core/src/main/scala/scalascript/uniml/Source.scala file:uniml/core/src/main/scala/scalascript/uniml/UniML.scala file:uniml/core/src/main/scala/scalascript/uniml/dialect/Literal.scala file:uniml/core/src/main/scala/scalascript/uniml/Tree.scala file:uniml/SPRINT.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
