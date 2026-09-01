@@ -1,3 +1,2 @@
-# generation: 3304
+# generation: 3305
 #slug	agent	started	items	paths
-uniml-demut-md-blocks-inlines	claude-code	2026-09-01T08:15:54Z	uniml-demut-md-blocks-inlines	file:uniml/markdown/src/main/scala/scalascript/uniml/dialect/markdown/MarkdownBlocks.scala file:uniml/markdown/src/main/scala/scalascript/uniml/dialect/markdown/MarkdownInlines.scala file:uniml/SPRINT.md
