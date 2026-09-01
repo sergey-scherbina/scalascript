@@ -26,10 +26,24 @@ worked on belongs in `tests/BACKLOG.md`. Layout: [`../specs/work-tracking-layout
       unexercised checks against the full JVM CLI: `run --v1` 84, `compile-jvm` non-empty
       artifact, `plugin search` exit 0 naming the fixture package.
       FOURTH defect, dispatch 33520292532: LINUX QUALIFY FULLY GREEN, both macOS jobs fail
-      `registry-server: never came up` — macOS-15 runner images ship the Application Firewall
-      blocking incoming TCP even on loopback (actions/runner-images#11901/#10924; the check was
-      added after v0.2.0, so macOS never ran it). Fix: a macOS-only workflow step disables the
-      firewall (`socketfilterfw --setglobalstate off`) before qualification.
+      `registry-server: never came up`. FIRST ATTEMPT (`ae9881826`, socketfilterfw disable)
+      DID NOT WORK — dispatch 33528612417 re-failed identically on both macOS runners with the
+      firewall off, proving the real blocker is macOS 15's separate "Local Network" TCC
+      permission (actions/runner-images#10924), not the Application Firewall (#11901), and
+      GitHub tracks that one open with no scriptable grant. OWNER DECISION (asked directly):
+      soften the check on macOS only — `SSC_RELEASE_NETWORK_CHECK_OPTIONAL=1` (workflow sets it
+      for `runner.os == 'macOS'`) turns "never came up" into a WARN + continue instead of a
+      FAILED check; linux keeps the hard gate. Verified both branches directly (force the
+      never-came-up path): WARN+exit 0 with the flag, FAILED+exit 1 without. socketfilterfw step
+      kept as harmless defense-in-depth against the OTHER (different) known issue, comment
+      corrected to say it did not fix this one.
+      **Local builds proved the archives themselves are fine while chasing this**: JVM archive
+      (`dist/ssc-jvm.tar.gz`, `sbt cli/installBin`) and a real native `ssc-macos-arm64` image
+      (`sbt cli/installBin pluginHost/assembly cli/nativeImageArgv` + native-image, GraalVM
+      21.0.11 via sdkman, 2m23s) both built and passed `native-release-qualify` run ISOLATED
+      the same way the workflow isolates it: `QUALIFIED artifact=ssc-macos-arm64 vm=84 asm=84
+      plugin-host=ready`. The macOS network gap is the CI RUNNER's environment, not the shipped
+      bytes.
       *Done when:* the workflow fix is on main, the bug is filed with the landed SHA, and the owner
       has decided the recovery — re-tag v0.3.0 on a fixed snapshot vs cut v0.3.1 — since moving a
       published tag is an owner call.
