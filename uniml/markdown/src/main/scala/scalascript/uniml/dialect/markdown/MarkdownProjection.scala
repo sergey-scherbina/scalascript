@@ -61,7 +61,8 @@ object MarkdownProjection:
         case UniNode.Token(t) if t.kind == MdKind.Title       => acc.copy(title = Some(stripTitle(t.lexeme)))
         case _ => acc
     }
-    if acc.label.isEmpty then None else Some(MarkdownBlock.LinkDefinition(acc.label, acc.dest, acc.title))
+    val accLabel: String = acc.label
+    if accLabel.isEmpty then None else Some(MarkdownBlock.LinkDefinition(acc.label, acc.dest, acc.title))
 
   // ── blocks ────────────────────────────────────────────────────────────
 
@@ -151,14 +152,14 @@ object MarkdownProjection:
     edges.collect {
       case UniEdge(_, UniNode.Token(t)) if t.kind == MdKind.CodeContent || (t.kind == MdKind.LineBreak && t.channel == TokenChannel.Embedded) =>
         t.lexeme
-    }.mkString
+    }.mkString("")
 
   private def concatTokens(edges: Vector[UniEdge], kind: String): String =
     def walk(buf: Vector[String], node: UniNode): Vector[String] = node match
       case UniNode.Token(t) if t.kind == kind || (t.kind == MdKind.LineBreak && t.channel == TokenChannel.Embedded) => buf :+ t.lexeme
       case UniNode.Branch(_, es, _, _) => es.foldLeft(buf)((b, e) => walk(b, e.child))
       case _ => buf
-    edges.foldLeft(Vector.empty[String])((b, e) => walk(b, e.child)).mkString
+    edges.foldLeft(Vector.empty[String])((b, e) => walk(b, e.child)).mkString("")
 
   private def projectTable(edges: Vector[UniEdge]): MarkdownBlock =
     val rows = edges.collect { case UniEdge(_, UniNode.Token(t)) if t.kind == MdKind.TableRow => t.lexeme }
@@ -345,7 +346,7 @@ object MarkdownProjection:
     def walk(buf: Vector[String], node: UniNode): Vector[String] = node match
       case UniNode.Token(t)            => buf :+ t.lexeme
       case UniNode.Branch(_, es, _, _) => es.foldLeft(buf)((b, e) => walk(b, e.child))
-    edges.filterNot(isLinkStructural).foldLeft(Vector.empty[String])((b, e) => walk(b, e.child)).mkString
+    edges.filterNot(isLinkStructural).foldLeft(Vector.empty[String])((b, e) => walk(b, e.child)).mkString("")
 
   // ── decoding helpers ────────────────────────────────────────────────────
 
@@ -381,7 +382,7 @@ object MarkdownProjection:
           if semi >= 0 && decoded != s.substring(i, semi + 1) then walk(semi + 1, buf :+ decoded)
           else walk(i + 1, buf :+ "&")
         else walk(i + 1, buf :+ s.substring(i, i + 1))
-      walk(0, Vector.empty).mkString
+      walk(0, Vector.empty).mkString("")
 
   private def unescape(s: String): String =
     if !s.contains('\\') then s
@@ -391,7 +392,7 @@ object MarkdownProjection:
         else if s.charAt(i) == '\\' && i + 1 < s.length && MdChars.isAsciiPunctuation(s.charAt(i + 1)) then
           walk(i + 2, buf :+ s.substring(i + 1, i + 2))
         else walk(i + 1, buf :+ s.substring(i, i + 1))
-      walk(0, Vector.empty).mkString
+      walk(0, Vector.empty).mkString("")
 
   /** The WHATWG HTML5 named character references, generated from the pinned
     * snapshot in `uniml/corpus/markdown/whatwg-entities.json`. It replaced a

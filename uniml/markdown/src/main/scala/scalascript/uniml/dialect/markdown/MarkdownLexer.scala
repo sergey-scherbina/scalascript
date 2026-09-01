@@ -108,7 +108,7 @@ private[markdown] object MdLine:
     // pays that conversion ONCE, and every index after it is a vector index. Identical
     // semantics on both lanes: `Vector[Char]` is code UNITS, exactly what `charAt` yields, so
     // surrogate pairs still arrive as two elements and `chars.length == text.length`.
-    val chars = text.toVector
+    val chars: Vector[Char] = text.toVector  // annotated: captured by the lifted `split`
     // Tail recursion over (index, lineStart, lines) — the same walk, and CRITICALLY the same
     // complexity: every access is still a Vector index (O(1)) and every slice per LINE, so the
     // O(n²) this comment block describes cannot come back through this conversion. Tail-position
@@ -117,12 +117,12 @@ private[markdown] object MdLine:
       if index >= chars.length then (lines, lineStart)
       else chars(index) match
         case '\n' =>
-          split(index + 1, index + 1, lines :+ MdLine(chars.slice(lineStart, index).mkString, "\n"))
+          split(index + 1, index + 1, lines :+ MdLine(chars.slice(lineStart, index).mkString(""), "\n"))
         case '\r' =>
           if index + 1 < chars.length && chars(index + 1) == '\n' then
-            split(index + 2, index + 2, lines :+ MdLine(chars.slice(lineStart, index).mkString, "\r\n"))
+            split(index + 2, index + 2, lines :+ MdLine(chars.slice(lineStart, index).mkString(""), "\r\n"))
           else
-            split(index + 1, index + 1, lines :+ MdLine(chars.slice(lineStart, index).mkString, "\r"))
+            split(index + 1, index + 1, lines :+ MdLine(chars.slice(lineStart, index).mkString(""), "\r"))
         case _ => split(index + 1, lineStart, lines)
     val splitResult = split(0, 0, Vector.empty)
     val lines = splitResult._1
@@ -144,7 +144,7 @@ private[markdown] object MdLine:
     // text still comes from the source, never from a Char) while calling `substring` once per
     // line, which is what takes the total from O(n²) to O(n) on a backend whose `substring` is
     // not O(1). It also drops the per-line `mkString` and the `Vector[String]` accumulator.
-    if lineStart < chars.length then lines :+ MdLine(chars.drop(lineStart).mkString, "") else lines
+    if lineStart < chars.length then lines :+ MdLine(chars.drop(lineStart).mkString(""), "") else lines
 
 /** Shared character classification following CommonMark 0.31.2 §2.1. */
 private[markdown] object MdChars:
@@ -174,7 +174,7 @@ private[markdown] object MdChars:
     }
     if !needs then s
     else
-      // `Vector[String]` + `.mkString`, not `StringBuilder`: v2 has no StringBuilder, and this is
+      // `Vector[String]` + `.mkString("")`, not `StringBuilder`: v2 has no StringBuilder, and this is
       // the accumulation shape `specs/uniml-portable-gapmap.md` settled on and `JsonLexer` already
       // ships. `Char.toString` is the portable char→String step — `String.valueOf(c)` is NOT: a
       // capitalized receiver lowers to an effect operation on v2 and yields
@@ -182,7 +182,7 @@ private[markdown] object MdChars:
       (0 until s.length).foldLeft(Vector.empty[String]) { (out, k) =>
         val c = s.charAt(k)
         out :+ (if c >= 'A' && c <= 'Z' then (c + 32).toChar else c).toString
-      }.mkString
+      }.mkString("")
 
   /** CommonMark's link-label fold: Unicode, but NOT locale-dependent.
     *
@@ -206,7 +206,7 @@ private[markdown] object MdChars:
         if c >= 'A' && c <= 'Z' then (c + 32).toChar
         else if c < 128 then c
         else Character.toLowerCase(c)).toString
-    }.mkString
+    }.mkString("")
 
   def isAsciiWhitespace(c: Char): Boolean =
     c == ' ' || c == '\t' || c == '\n' || c == VerticalTab || c == FormFeed || c == '\r'

@@ -31,9 +31,20 @@ object Limits:
 final case class VmFrame(kind: String, role: Option[String], edges: Vector[UniEdge], openingSpan: SourceSpan)
 
 /** The whole VM state, threaded immutably by the driver — `TreeVm` itself has no
-  * mutable fields. */
+  * mutable fields.
+  *
+  * INVARIANT (hot-top): when `stack` is non-empty, the OPEN top frame's real edges live in
+  * `topEdges`, and `stack.last.edges` is an empty placeholder; frames below the top hold their
+  * edges in place. When `stack` is empty, `topEdges` is empty. Why: attaching a token appends
+  * to the top frame on EVERY token, and rebuilding that frame each time
+  * (`stack.dropRight(1) :+ frame.copy(edges = edges :+ e)`) is O(frame size) per token in any
+  * lowering with array-backed vectors — measured quadratic on single-frame documents (the
+  * `uniml-single-frame-residual-superlinear` finding: 64 KB as 6400 short lines cost 29 s
+  * against 0.25 s as 100 long lines, pure line-count square). With the top's edges held
+  * separately, the hot path is a plain self-append, which lowers to an O(1) push. */
 final case class VmState(
     stack: Vector[VmFrame],
+    topEdges: Vector[UniEdge],
     nodeCount: Long,
     lastTokenId: Option[Long],
     diagnosticCount: Int,
@@ -43,13 +54,14 @@ final case class VmState(
 )
 
 object VmState:
-  val initial: VmState = VmState(Vector.empty, 0L, None, 0, diagnosticLimitReported = false, finished = false, halted = false)
+  val initial: VmState = VmState(Vector.empty, Vector.empty, 0L, None, 0, diagnosticLimitReported = false, finished = false, halted = false)
 
 /** `step`/`stop`'s working state: the `VmState` fields being edited plus the batch
   * being built. TOP LEVEL because v2 does not lower type decls nested in a class
   * body (the same hoist the markdown dialect documents on `OpenLeaf`). */
 private final case class VmWork(
     stack: Vector[VmFrame],
+    topEdges: Vector[UniEdge],
     nodeCount: Long,
     lastTokenId: Option[Long],
     diagCount: Int,
@@ -75,7 +87,7 @@ final case class TreeVm(limits: Limits = Limits.default) extends Processor[VmSta
     if state.finished then Stepped(state, ProcessBatch(Vector.empty, Vector(TreeVm.finishedDiagnostic)))
     else if state.halted then Stepped(state, ProcessBatch.empty)
     else
-      val w0 = VmWork(state.stack, state.nodeCount, state.lastTokenId, state.diagnosticCount,
+      val w0 = VmWork(state.stack, state.topEdges, state.nodeCount, state.lastTokenId, state.diagnosticCount,
         state.diagnosticLimitReported, state.halted, Vector.empty, Vector.empty)
 
       val done = preflight(state.stack, state.nodeCount, input) match
@@ -88,9 +100,9 @@ final case class TreeVm(limits: Limits = Limits.default) extends Processor[VmSta
           val w1 = validated.copy(lastTokenId = Some(input.token.id))
           input.instruction match
             case VmInstruction.Open(kind, role) =>
-              w1.copy(
-                nodeCount = w1.nodeCount + 2L,
-                stack = w1.stack :+ VmFrame(kind, role, Vector(UniEdge(None, UniNode.Token(input.token))), input.token.span))
+              pushFrame(w1.copy(nodeCount = w1.nodeCount + 2L),
+                VmFrame(kind, role, Vector.empty, input.token.span),
+                Vector(UniEdge(None, UniNode.Token(input.token))))
 
             case VmInstruction.Emit(role) =>
               attachToken(w1.copy(nodeCount = w1.nodeCount + 1L), role, UniNode.Token(input.token))
@@ -104,7 +116,7 @@ final case class TreeVm(limits: Limits = Limits.default) extends Processor[VmSta
                   val counted = w1.copy(nodeCount = w1.nodeCount + 1L + open.size)
                   val closedBefore = closeBefore.foldLeft(counted)((w, _) => closeFrame(w))
                   val opened = open.foldLeft(closedBefore)((w, spec) =>
-                    w.copy(stack = w.stack :+ VmFrame(spec.kind, spec.role, Vector.empty, input.token.span)))
+                    pushFrame(w, VmFrame(spec.kind, spec.role, Vector.empty, input.token.span), Vector.empty))
                   val emitted = attachToken(opened, role, UniNode.Token(input.token))
                   closeAfter.foldLeft(emitted)((w, _) => closeFrame(w))
 
@@ -141,13 +153,12 @@ final case class TreeVm(limits: Limits = Limits.default) extends Processor[VmSta
                       details = Vector("expected" -> expected, "actual" -> frame.kind),
                     ), haltOnLimit = true)
                   case _ =>
-                    // pop the frame we just extended
-                    val closed = extended.stack.last
-                    attach(extended.copy(stack = extended.stack.dropRight(1)),
-                      TreeVm.buildBranch(closed, Origin.SourceBacked), closed.role)
+                    // pop the frame we just extended; its real edges are in `topEdges`
+                    val branch = TreeVm.buildBranch(frame, extended.topEdges, Origin.SourceBacked)
+                    attachClosed(extended.copy(stack = extended.stack.dropRight(1)), branch, frame.role)
 
       Stepped(
-        VmState(done.stack, done.nodeCount, done.lastTokenId, done.diagCount, done.diagLimitReported,
+        VmState(done.stack, done.topEdges, done.nodeCount, done.lastTokenId, done.diagCount, done.diagLimitReported,
           finished = false, halted = done.halted),
         ProcessBatch(done.roots, done.diags),
       )
@@ -155,7 +166,7 @@ final case class TreeVm(limits: Limits = Limits.default) extends Processor[VmSta
   def stop(state: VmState): ProcessBatch[UniNode] =
     if state.finished then ProcessBatch(Vector.empty, Vector(TreeVm.finishedDiagnostic))
     else
-      val done = drainUnclosed(VmWork(state.stack, state.nodeCount, state.lastTokenId, state.diagnosticCount,
+      val done = drainUnclosed(VmWork(state.stack, state.topEdges, state.nodeCount, state.lastTokenId, state.diagnosticCount,
         state.diagnosticLimitReported, state.halted, Vector.empty, Vector.empty))
       ProcessBatch(done.roots, done.diags)
 
@@ -179,38 +190,57 @@ final case class TreeVm(limits: Limits = Limits.default) extends Processor[VmSta
       ))
     else w
 
-  private def addTop(w: VmWork, edge: UniEdge): VmWork =
-    val top = w.stack.last
-    w.copy(stack = w.stack.dropRight(1) :+ VmFrame(top.kind, top.role, top.edges :+ edge, top.openingSpan))
+  // ── The hot-top invariant's working set (see VmState's doc). `addTop` is the PER-TOKEN
+  // path and must stay a plain self-append — that is the whole point of the invariant. The
+  // O(frame) copies move to frame OPEN/CLOSE, which happen once per frame, not per token. ──
 
-  private def attach(w: VmWork, branch: UniNode.Branch, role: Option[String]): VmWork =
-    if w.stack.nonEmpty then addTop(w, UniEdge(role, branch)) else w.copy(roots = w.roots :+ branch)
+  private def addTop(w: VmWork, edge: UniEdge): VmWork =
+    w.copy(topEdges = w.topEdges :+ edge)
 
   private def attachToken(w: VmWork, role: Option[String], tokenNode: UniNode): VmWork =
     if w.stack.nonEmpty then addTop(w, UniEdge(role, tokenNode)) else w.copy(roots = w.roots :+ tokenNode)
 
+  /** Push a NEW top frame: the previous top (if any) takes its real edges back into the
+    * stack, and `topEdges` becomes the new frame's. O(previous top's size), once per open. */
+  private def pushFrame(w: VmWork, frame: VmFrame, newTopEdges: Vector[UniEdge]): VmWork =
+    val stack: Vector[VmFrame] = w.stack
+    if stack.nonEmpty then
+      val top = stack.last
+      w.copy(
+        stack = w.stack.dropRight(1)
+          :+ VmFrame(top.kind, top.role, w.topEdges, top.openingSpan) :+ frame,
+        topEdges = newTopEdges)
+    else w.copy(stack = w.stack :+ frame, topEdges = newTopEdges)
+
+  /** Attach a closed branch to the frame that just became top — pulling that frame's edges
+    * out into `topEdges` (restoring the invariant), or to the roots when the stack emptied. */
+  private def attachClosed(w: VmWork, branch: UniNode.Branch, role: Option[String]): VmWork =
+    val stack: Vector[VmFrame] = w.stack
+    if stack.nonEmpty then
+      val parent = stack.last
+      w.copy(
+        stack = w.stack.dropRight(1)
+          :+ VmFrame(parent.kind, parent.role, Vector.empty, parent.openingSpan),
+        topEdges = parent.edges :+ UniEdge(role, branch))
+    else w.copy(roots = w.roots :+ branch, topEdges = Vector.empty)
+
   private def closeFrame(w: VmWork): VmWork =
     val frame = w.stack.last
-    attach(w.copy(stack = w.stack.dropRight(1)), TreeVm.buildBranch(frame, Origin.SourceBacked), frame.role)
+    val branch = TreeVm.buildBranch(frame, w.topEdges, Origin.SourceBacked)
+    attachClosed(w.copy(stack = w.stack.dropRight(1)), branch, frame.role)
 
   private def drainUnclosed(w: VmWork): VmWork =
     if w.stack.isEmpty then w
     else
       val frame = w.stack.last
+      val branch = TreeVm.buildBranch(frame, w.topEdges, Origin.Synthetic(s"unclosed:${frame.kind}"))
       val recorded = recordWork(w.copy(stack = w.stack.dropRight(1)), Diagnostic(
         code = "uniml.vm.unclosed-node",
         message = s"unclosed '${frame.kind}' node at end of input",
         severity = Severity.Error,
         span = Some(frame.openingSpan),
       ), haltOnLimit = false)
-      val branch = TreeVm.buildBranch(frame, Origin.Synthetic(s"unclosed:${frame.kind}"))
-      // collection-typed local for the same backend reason as `countedStack` in step
-      val recordedStack: Vector[VmFrame] = recorded.stack
-      if recordedStack.nonEmpty then
-        val top = recordedStack.last
-        drainUnclosed(recorded.copy(stack = recorded.stack.dropRight(1) :+
-          VmFrame(top.kind, top.role, top.edges :+ UniEdge(frame.role, branch), top.openingSpan)))
-      else drainUnclosed(recorded.copy(roots = recorded.roots :+ branch))
+      drainUnclosed(attachClosed(recorded, branch, frame.role))
 
   private def preflight(stack: Vector[VmFrame], nodeCount: Long, input: VmToken): Option[Diagnostic] =
     val token = input.token
@@ -303,14 +333,16 @@ object TreeVm:
     span = None,
   )
 
-  private def buildBranch(frame: VmFrame, origin: Origin): UniNode.Branch =
-    val end = frame.edges.lastOption match
+  private def buildBranch(frame: VmFrame, edges: Vector[UniEdge], origin: Origin): UniNode.Branch =
+    // `edges` passed explicitly: under the hot-top invariant the top frame's real edges live
+    // in `topEdges`, not in the frame value on the stack.
+    val end = edges.lastOption match
       case Some(UniEdge(_, UniNode.Token(token)))          => token.span.end
       case Some(UniEdge(_, UniNode.Branch(_, _, span, _))) => span.end
       case None                                            => frame.openingSpan.end
     UniNode.Branch(
       kind = frame.kind,
-      edges = frame.edges,
+      edges = edges,
       span = SourceSpan(frame.openingSpan.source, frame.openingSpan.start, end),
       origin = origin,
     )
