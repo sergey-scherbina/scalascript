@@ -1637,6 +1637,13 @@ object RustCodeWalk:
   // `collectLocalLastUses`. Same keying and same module-level-table reasoning as
   // `_ownedFieldMoves` just above.
   private var _localLastUseMoves: Map[String, Map[String, Int]] = Map.empty
+  // Per-def POSITIONS of field reads safe to MOVE out of an owned LOCAL — the local-variable twin
+  // of `_ownedFieldMoves`, for `val stepped = vm.step(…); vmState = stepped.state` inside the
+  // parse driver's per-token loop: `stepped.state.clone()` deep-copied the whole accumulated
+  // VmState per token. Keyed by the Select node's `pos.start`, NOT by name: UniML_parse declares
+  // `stepped` in TWO sibling loops, and a name key would see that as shadowing and drop both.
+  // See `collectSingleReadLocalFields` for the scope rule that makes this sound in loops.
+  private var _localFieldMovePos: Map[String, Set[Int]] = Map.empty
 
   /** `(ownerName, memberName) -> mapped Rust return type` — the OWNER-QUALIFIED twin of
    *  `_returnTypes` above, for a call whose CALLEE is itself qualified (`PureMarkupCodec.
@@ -4185,6 +4192,8 @@ object RustCodeWalk:
                             name, collectSingleReadOwnedFields(d.body, ps))
                           _localLastUseMoves = _localLastUseMoves.updated(
                             name, collectLocalLastUses(d.body, ps))
+                          _localFieldMovePos = _localFieldMovePos.updated(
+                            name, collectSingleReadLocalFields(d.body, ps))
                           ps
                         },
                         rustFnNames = rustFnNames,
@@ -4921,6 +4930,15 @@ object RustCodeWalk:
             && !ctx.inClosure && !ctx.inWhileLoop
             && !rendered.contains("(") =>
         rendered
+      // `val stepped = vm.step(vmState, token); vmState = stepped.state` — the LOCAL twin of the
+      // param case above (`_localFieldMovePos`, POSITION-keyed): sound inside a loop/lambda
+      // precisely because the collector required the declaration to sit in the SAME innermost
+      // body, where the binding is fresh per pass — hence no `inWhileLoop`/`inClosure` guard.
+      case sel @ m.Term.Select(m.Term.Name(root), m.Term.Name(_))
+          if _localFieldMovePos.getOrElse(ctx.defName, Set.empty).contains(sel.pos.start)
+            && !ctx.byRefMut.contains(root)
+            && !rendered.contains("(") =>
+        rendered
       case sel: m.Term.Select if !rendered.contains("(") && (selectRoot(sel).exists(needs) || needs(rendered)) =>
         s"$rendered.clone()"
       // `definitionOf(node.asInstanceOf[UniNode.Branch])` — `renderTerm`'s own `.asInstanceOf[T]`
@@ -5104,6 +5122,128 @@ object RustCodeWalk:
       var out = Map.empty[String, Int]
       uses.foreach { (n, u) => if u.bare && u.safe && !poison.contains(n) then out = out.updated(n, u.pos) }
       out
+
+  /** The LOCAL-variable twin of `collectSingleReadOwnedFields`: POSITIONS of `local.field` reads
+   *  that may MOVE (`ssc-local-last-use-move`, quadratic #4 — `val stepped = vm.step(vmState,
+   *  token); vmState = stepped.state` deep-cloned the whole accumulated VmState per token in the
+   *  parse driver). A read qualifies when its local is declared exactly once as a simple
+   *  `val`/`var` (per SCOPE — see below), never mentioned in a lifted local def's body (a `&mut`
+   *  capture forbids partial moves), never read bare after the first field read of that
+   *  instance, and the field is read exactly ONCE — plus one rule the param version never
+   *  needed: the read must sit in the SAME innermost loop/lambda body as the declaration.
+   *  Inside that shared body the binding is fresh per iteration/invocation, so the partial move
+   *  is what an owner would write by hand; a read one loop deeper, or a decl outside the read's
+   *  loop, would see iteration N's moved-out value on iteration N+1 and is disqualified.
+   *
+   *  The result is keyed by the Select node's `pos.start`, not by name: UniML_parse declares
+   *  `stepped` in TWO sibling per-token loops, and a name key would read that as shadowing and
+   *  drop both. Several declarations of one name are allowed only when their innermost scopes
+   *  are pairwise DISJOINT (sibling loop bodies); each use is attributed to the declaration
+   *  whose scope contains it, and a use outside every such scope disqualifies the name. */
+  private def collectSingleReadLocalFields(body: m.Term, params: Set[String]): Set[Int] =
+    var scopes = List.empty[(Int, Int)]
+    def collectScopes(t: m.Tree): Unit =
+      t match
+        case n: m.Term.While           => scopes = (n.pos.start, n.pos.end) :: scopes
+        case n: m.Term.For             => scopes = (n.pos.start, n.pos.end) :: scopes
+        case n: m.Term.ForYield        => scopes = (n.pos.start, n.pos.end) :: scopes
+        case n: m.Term.Function        => scopes = (n.pos.start, n.pos.end) :: scopes
+        case n: m.Term.PartialFunction => scopes = (n.pos.start, n.pos.end) :: scopes
+        case _                         => ()
+      t.children.foreach(collectScopes)
+    collectScopes(body)
+    def innermost(pos: Int): Option[(Int, Int)] =
+      var best: Option[(Int, Int)] = None
+      scopes.foreach { s =>
+        if s._1 <= pos && pos < s._2 && best.forall(b => (s._2 - s._1) < (b._2 - b._1)) then
+          best = Some(s)
+      }
+      best
+    var declsOf  = Map.empty[String, List[Int]]
+    var declName = Map.empty[Int, String]
+    var disqual  = Set.empty[String]
+    def collectDecls(t: m.Tree, inNested: Boolean): Unit =
+      t match
+        case d: m.Defn.Def =>
+          // Any name a lifted local def's body mentions is (potentially) a `&mut` capture — a
+          // partial move out of it anywhere in the outer body is then unsound. Poison them all.
+          def names(x: m.Tree): Unit =
+            x match
+              case m.Term.Name(n) => disqual = disqual + n
+              case _              => ()
+            x.children.foreach(names)
+          names(d.body)
+          d.children.foreach(collectDecls(_, inNested = true))
+        case v: m.Defn.Val =>
+          v.pats match
+            case List(pv @ m.Pat.Var(m.Term.Name(n))) =>
+              if inNested then disqual = disqual + n
+              else
+                declsOf  = declsOf.updated(n, pv.pos.start :: declsOf.getOrElse(n, Nil))
+                declName = declName.updated(pv.pos.start, n)
+            case ps => ps.foreach(p => disqual = disqual ++ patBoundNames(p))
+          v.children.foreach(collectDecls(_, inNested))
+        case v: m.Defn.Var =>
+          v.pats match
+            case List(pv @ m.Pat.Var(m.Term.Name(n))) =>
+              if inNested then disqual = disqual + n
+              else
+                declsOf  = declsOf.updated(n, pv.pos.start :: declsOf.getOrElse(n, Nil))
+                declName = declName.updated(pv.pos.start, n)
+            case ps => ps.foreach(p => disqual = disqual ++ patBoundNames(p))
+          v.children.foreach(collectDecls(_, inNested))
+        case other => other.children.foreach(collectDecls(_, inNested))
+    collectDecls(body, inNested = false)
+    declsOf.foreach { (n, ds) =>
+      if ds.length > 1 then
+        val rs = ds.map(innermost)
+        val ok = rs.forall(_.nonEmpty) && {
+          val v = rs.map(_.get)
+          var disjoint = true
+          for i <- v.indices; j <- v.indices if i < j do
+            if v(i)._1 < v(j)._2 && v(j)._1 < v(i)._2 then disjoint = false
+          disjoint
+        }
+        if !ok then disqual = disqual + n
+    }
+    def declFor(n: String, pos: Int): Option[Int] =
+      declsOf.get(n).flatMap { ds =>
+        if ds.length == 1 then Some(ds.head)
+        else ds.find(dp => innermost(dp).exists(r => r._1 <= pos && pos < r._2))
+      }
+    var fieldReads   = Map.empty[(Int, String), Int]
+    var firstFieldAt = Map.empty[(Int, String), Int]
+    var scopeOk      = Map.empty[(Int, String), Boolean]
+    var lastBareAt   = Map.empty[Int, Int]
+    def walkU(t: m.Tree): Unit =
+      t match
+        case sel @ m.Term.Select(m.Term.Name(p), m.Term.Name(f))
+            if declsOf.contains(p) && !params.contains(p) =>
+          declFor(p, sel.pos.start) match
+            case Some(dp) =>
+              val key = (dp, f)
+              fieldReads = fieldReads.updated(key, fieldReads.getOrElse(key, 0) + 1)
+              if !firstFieldAt.contains(key) then firstFieldAt = firstFieldAt.updated(key, sel.pos.start)
+              val ok = innermost(sel.pos.start) == innermost(dp)
+              scopeOk = scopeOk.updated(key, scopeOk.getOrElse(key, true) && ok)
+            case None => disqual = disqual + p
+        case nm @ m.Term.Name(p) if declsOf.contains(p) =>
+          declFor(p, nm.pos.start) match
+            case Some(dp) =>
+              lastBareAt = lastBareAt.updated(dp, math.max(lastBareAt.getOrElse(dp, -1), nm.pos.start))
+            case None => disqual = disqual + p
+        case other => other.children.foreach(walkU)
+    walkU(body)
+    var out = Set.empty[Int]
+    fieldReads.foreach { (key, count) =>
+      val n = declName.get(key._1)
+      if count == 1
+         && n.exists(nm => !disqual.contains(nm) && !params.contains(nm) && looksLikeBinding(nm))
+         && scopeOk.getOrElse(key, false)
+         && lastBareAt.getOrElse(key._1, -1) < firstFieldAt.getOrElse(key, Int.MaxValue)
+      then out = out + firstFieldAt(key)
+    }
+    out
 
   /** Names a `while` body makes fresh on every iteration: the ones it DECLARES, plus the ones it
    *  REASSIGNS. Both are exempt from the in-loop clone rule — a declared name is rebound each

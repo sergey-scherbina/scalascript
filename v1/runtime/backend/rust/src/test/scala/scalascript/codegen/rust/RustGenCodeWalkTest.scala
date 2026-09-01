@@ -1816,6 +1816,60 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(g.contains("buf.clone()") || g.contains("(buf).clone()"),
       s"a by-value read inside a loop must keep its clone:\n$g")
 
+  test("a single-read field of a loop-local MOVES when decl and read share the loop body"):
+    // `val stepped = vm.step(vmState, token); vmState = stepped.state` in `UniML.parse`'s
+    // per-token driver loop (`ssc-local-last-use-move`, quadratic #4): `stepped.state.clone()`
+    // deep-copied the whole accumulated VmState per token. `stepped` is fresh each iteration and
+    // never read whole, so the partial move is safe INSIDE the loop — position-keyed, since the
+    // real driver declares `stepped` in two sibling loops and a name key would drop both.
+    val src =
+      """```scalascript
+        |case class St(items: Vector[String])
+        |case class Out(state: St, emitted: Vector[String])
+        |
+        |def advance(s: St, x: String): Out =
+        |  Out(St(s.items :+ x), Vector(x))
+        |
+        |def drive(xs: Vector[String]): St =
+        |  var st = St(Vector())
+        |  var seen: Vector[String] = Vector()
+        |  for x <- xs do
+        |    val stepped = advance(st, x)
+        |    st = stepped.state
+        |    seen = seen ++ stepped.emitted
+        |  st
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(!g.contains("stepped.state.clone()"),
+      s"a single-read field of a loop-local must move, not clone:\n$g")
+
+  test("a field read inside a loop of a local declared OUTSIDE it keeps the clone"):
+    // The scope rule of the case above: read one loop deeper than the declaration would see
+    // iteration N's moved-out value on iteration N+1 — `error[E0382]` — so it must keep cloning
+    // even though the field is read only once syntactically. Spelled with `while`, not `for`:
+    // the `for`-loop rendering has a PRE-EXISTING clone gap for outer locals read by value
+    // (`needs`'s own comment names it — loopExempt widened only the `while` site), so a `for`
+    // spelling would pin that latent bug, not this pass's scope rule.
+    val src =
+      """```scalascript
+        |case class St(items: Vector[String])
+        |
+        |def leak(xs: Vector[String]): Long =
+        |  val boxed = St(Vector("a"))
+        |  var n: Long = 0
+        |  var i: Long = 0
+        |  while i < 3 do
+        |    val cur = St(boxed.items)
+        |    n += cur.items.length
+        |    i += 1
+        |  n
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("boxed.items.clone()") || g.contains("(boxed.items).clone()"),
+      s"a field read in a deeper loop than its decl must keep its clone:\n$g")
+
   test("`xs :+ x` clones a multi-use appended element"):
     // `attributes = attributes :+ attribute` then `attribute` read again afterward (`uniml/xml`'s
     // `Doc.scala`'s `scan`: `format!("… '{}'", attribute)`) — the one-element array literal
