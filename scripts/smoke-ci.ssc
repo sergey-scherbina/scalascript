@@ -1515,7 +1515,13 @@ def main() =
     val suffix =
       if check.optional && !runOptional then "  (optional — SSC_SMOKE_OPTIONAL=1 to run)"
       else showSeconds(outcome.tenths)
-    println(mark + pad(outcome.name, 34) + suffix)
+    // A name of 34+ characters fills the whole column and the duration GLUES to it —
+    // `claim-activity-overrides-heartbeat0.0s` — which no whitespace-splitting reader can parse:
+    // smoke-baseline-harvest silently produced no row for exactly the two checks whose names
+    // overflow, so they stayed unbaselined while shorter siblings were measured. Guarantee one
+    // separating space; short names keep the historic column byte-for-byte.
+    val nameCol = if outcome.name.length >= 34 then outcome.name + " " else pad(outcome.name, 34)
+    println(mark + nameCol + suffix)
     if !outcome.ok then
       // The exit code first: 124 is the timeout guard firing, 127 a command that could not start,
       // 137 a kill (OOM on a runner). Those three are answered by the number alone, and reading

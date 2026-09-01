@@ -104,7 +104,11 @@ REF = int(os.environ["REF_PROBE"])
 # condition under which the fit does not describe the machine. Better to drop the sample than to
 # normalise by a line that does not apply to it.
 PROBE = re.compile(r'host probe (\d+)ms \(100 process spawns; budget derived from it\)')
-CHECK = re.compile(r'\b(?:ok|FAIL)\s+([a-z0-9][a-z0-9-]+)\s+([0-9.]+)s')
+# The name column is 34 wide and a 34+-char name GLUES to its duration (no separator) in every
+# log written before the smoke-ci printer fix — so the name is non-greedy, the separator optional,
+# and the duration anchored to the line end, which parses both the historic glued form and the
+# fixed one.
+CHECK = re.compile(r'\b(?:ok|FAIL)\s+([a-z0-9][a-z0-9-]+?)\s*([0-9]+\.[0-9])s\s*$', re.M)
 TOTAL = re.compile(r'checks: (\d+)/\d+ green\s+([0-9.]+)s of (\d+)s')
 
 def factor(p):                      # cost on host p, relative to the reference host
@@ -225,6 +229,7 @@ smoke-ci — 3 checks across 2 declared modules, budget 719s, host probe 141ms (
   ok   alpha                              10.0s
   ok   beta                                0.0s
   ok   gamma                              90.0s
+  ok   claim-activity-overrides-heartbeat0.0s
 checks: 3/3 green    100.0s of 719s budget
 FIX
   cat > "$work/pinned.txt" <<'FIX'
@@ -244,6 +249,13 @@ $out"
 $out"
   grep -qE "^beta	0	" <<<"$out" || die "self-test: a 0.0s check must keep its measured 0.0 rather than
 be imputed an average — that imputation is the defect this table exists to remove:
+$out"
+  # A 34+-character name fills the printer's column and the duration GLUES to it (no separator) in
+  # every log written before the smoke-ci printer fix — the two checks whose names overflow had NO
+  # baseline row while every shorter sibling was measured. The parser must split the glued form.
+  grep -qE "^claim-activity-overrides-heartbeat	0	" <<<"$out" || die "self-test: a glued
+name+duration line (34+-char name, no separator) was not parsed — the overflow shape stayed
+unbaselined once already:
 $out"
   # The clamp is the reason the probe is read rather than inverted, so assert it BITES: at probe 141,
   # below the clamp floor, a 90.0s check must normalise to more than 90.0s (the reference host is
