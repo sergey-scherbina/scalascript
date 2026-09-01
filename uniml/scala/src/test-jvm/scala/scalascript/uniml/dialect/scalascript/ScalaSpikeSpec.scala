@@ -95,6 +95,68 @@ final class ScalaSpikeSpec extends AnyFunSuite:
     assert(arrow.kind == "spike.infix" && opOf(arrow) == "->")
   }
 
+  // ══ id-infix application — `b add 2` is `b.add(2)`, and the guards that keep it from ═══════
+  //    swallowing legal source. v3/BUGS.md `infix-application-does-not-reach-a-declared-class-method`.
+  //
+  // The node is `spike.rangeop` for every id-infix word, `to`/`until` included: it lowers to
+  // `lhs.word(rhs)` on both paths, which is what an id-infix application MEANS. So these read the
+  // same role names the range tests do.
+
+  /** the id-infix operator words in a program, in tree order — empty when the arm did not fire */
+  private def idInfixOps(text: String): Vector[String] =
+    parse(text).roots.flatMap(r => allBranches(r, "spike.rangeop"))
+      .map(b => childWithRole(b, "range.op").collect { case UniNode.Token(t) => t.lexeme }.getOrElse("?"))
+
+  test("id-infix: `b add 2` is an application of the declared method, not a parse error") {
+    val n = defBody(parse("def main(): Int = b add 2")).asInstanceOf[UniNode.Branch]
+    assert(n.kind == "spike.rangeop")
+    assert(childWithRole(n, "range.op").collect { case UniNode.Token(t) => t.lexeme }.contains("add"))
+    assert(kindOf(childWithRole(n, "range.lhs").get) == "spike.id")
+    assert(kindOf(childWithRole(n, "range.rhs").get) == "spike.int")
+    assert(parse("def main(): Int = b add 2").diagnostics.isEmpty)
+  }
+
+  test("id-infix is LEFT-associative: `a f b g c` is `(a f b) g c`") {
+    val outer = defBody(parse("def main(): Int = a f b g c")).asInstanceOf[UniNode.Branch]
+    assert(childWithRole(outer, "range.op").collect { case UniNode.Token(t) => t.lexeme }.contains("g"))
+    val inner = childWithRole(outer, "range.lhs").get.asInstanceOf[UniNode.Branch]
+    assert(inner.kind == "spike.rangeop")
+    assert(childWithRole(inner, "range.op").collect { case UniNode.Token(t) => t.lexeme }.contains("f"))
+  }
+
+  test("id-infix: `to` and `until` still take the arm above, unchanged") {
+    assert(idInfixOps("def main(): Int = 1 to 5") == Vector("to"))
+    assert(idInfixOps("def main(): Int = 1 until 5") == Vector("until"))
+  }
+
+  // ── the guards. Each of these is legal source that the arm must NOT claim, and each one is a
+  //    control: without its guard the arm fires and the assertion fails.
+
+  test("guard — a NEWLINE separates two statements: `a` then `b` is not `a.b()`") {
+    assert(idInfixOps("def main(): Int =\n  a\n  b") == Vector.empty)
+  }
+
+  test("guard — the right operand must start on the operator's own line") {
+    assert(idInfixOps("def main(): Int =\n  a f\n  b") == Vector.empty)
+  }
+
+  test("guard — a reserved word is not an operator: `for … yield`, `try … catch`") {
+    assert(idInfixOps("def main(): Int = for x <- xs yield x") == Vector.empty)
+    assert(idInfixOps("def main(): Int = try f() catch case e: E => 0") == Vector.empty)
+    assert(idInfixOps("def main(): Int =\n  var n = 1\n  n") == Vector.empty)
+  }
+
+  test("guard — an UPPERCASE name stays a constructor reference, not an operator") {
+    assert(idInfixOps("def main(): Int = a Foo b") == Vector.empty)
+  }
+
+  test("guard — the right operand must start an atom: `a b - c` is not `a.b(-c)`") {
+    // `b` is in operator position and `-` follows it, so ONLY the operand-kind guard withholds the
+    // arm here. Written as `a - c` this test asserted nothing: no identifier is in operator
+    // position at all, so it passed with every guard removed.
+    assert(idInfixOps("def main(): Int = a b - c") == Vector.empty)
+  }
+
   test("`(1 + 2) * 3` — parens override precedence") {
     val mul = defBody(parse("def main(): Int = (1 + 2) * 3")).asInstanceOf[UniNode.Branch]
     assert(mul.kind == "spike.infix" && opOf(mul) == "*")

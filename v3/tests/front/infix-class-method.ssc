@@ -1,0 +1,13 @@
+case class Box(v: Int):
+  def add(other: Int): Int = v + other
+  def scaleBy(k: Int): Int = v * k
+
+def two(a: Int, b: Int): Int = a + b
+
+val b = Box(40)
+println(b.add(2))
+println(b add 2)
+println(b scaleBy 3)
+println(Box(1) add 2)
+println(two(1, 2))
+println(1 to 3)
