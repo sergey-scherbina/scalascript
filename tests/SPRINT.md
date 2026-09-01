@@ -19,6 +19,12 @@ worked on belongs in `tests/BACKLOG.md`. Layout: [`../specs/work-tracking-layout
       built tars with no directory members at all, so the gate was green on fixtures and wrong
       on the only real input. Fixture now emits directory members like real tar (plant proved:
       unfixed script fails the happy case exactly like CI); script lists `lib/tower`.
+      THIRD defect, dispatch 33516592493: the network check still probed top-level `ssc search`,
+      which `b04ecd237` deliberately moved to `ssc plugin search` — the binary read `search` as a
+      file (`Error: File not found: search`). Qualify now probes `plugin search`; fixture argv
+      updated (its exit-64 fall-through makes a stale spelling loud). Pre-verified the remaining
+      unexercised checks against the full JVM CLI: `run --v1` 84, `compile-jvm` non-empty
+      artifact, `plugin search` exit 0 naming the fixture package.
       *Done when:* the workflow fix is on main, the bug is filed with the landed SHA, and the owner
       has decided the recovery — re-tag v0.3.0 on a fixed snapshot vs cut v0.3.1 — since moving a
       published tag is an owner call.

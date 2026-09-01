@@ -637,7 +637,12 @@ if [[ $registry_up -ne 1 ]]; then
   fail_check "registry-server" "listening within 5s" "never came up: $(file_repr "$QUALIFY_TMP/registry-server.log")"
 fi
 
-run_process search runtime "$RUN_DIR" "$SSC_EXE" search --refresh \
+# `plugin search`, not `search`: b04ecd237 deliberately moved the top-level command under
+# `ssc plugin` ("ssc search moved to ssc plugin search", specs/arch-registry.md §8) and this
+# script kept probing the removed spelling — the binary read `search` as a FILE to run and the
+# third qualification dispatch failed with `Error: File not found: search`. Flags and both
+# asserted output shapes are unchanged by the move (verified against the full JVM CLI).
+run_process search runtime "$RUN_DIR" "$SSC_EXE" plugin search --refresh \
   --registry "http://127.0.0.1:$REGISTRY_PORT/packages.yaml" network-check
 kill "$REGISTRY_SERVER_PID" 2>/dev/null || true
 wait "$REGISTRY_SERVER_PID" 2>/dev/null || true

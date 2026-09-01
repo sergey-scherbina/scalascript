@@ -256,10 +256,12 @@ println(answer)'
   esac
 fi
 
-# `search --refresh --registry <url> network-check` — the network-protocol check
+# `plugin search --refresh --registry <url> network-check` — the network-protocol check
 # (native-image-has-no-http-url-protocol). The URL is not inspected: this fixture proves the
-# QUALIFY SCRIPT's own assertions, not that a real registry answered.
-if [ "$#" -eq 5 ] && [ "$1" = "search" ] && [ "$2" = "--refresh" ] && [ "$3" = "--registry" ] && [ "$5" = "network-check" ]; then
+# QUALIFY SCRIPT's own assertions, not that a real registry answered. The spelling matches
+# b04ecd237's move of top-level `search` under `ssc plugin`; the fall-through below exits 64 on
+# any other argv, so a qualify script probing a stale spelling fails these cases loudly.
+if [ "$#" -eq 6 ] && [ "$1" = "plugin" ] && [ "$2" = "search" ] && [ "$3" = "--refresh" ] && [ "$4" = "--registry" ] && [ "$6" = "network-check" ]; then
   case "$fixture_mode" in
     search-exit) exit 9 ;;
     search-stdout) printf "No packages found for 'network-check'.\\n"; exit 0 ;;
