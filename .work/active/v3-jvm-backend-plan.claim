@@ -3,9 +3,9 @@ branch: feature/v3-jvm-backend-plan
 agent: claude-code
 started: 2026-09-01T20:32:45Z
 heartbeat: 2026-09-01T20:32:45Z
-status: claimed-before-planning
+status: document drafted, shipping its probes
 items: v3-stage-12-jvm-backend-plan
-paths: file:v3/specs/70-jvm-backend.md
+paths: file:v3/specs/70-jvm-backend.md dir:v3/tests/jvm-backend-probe
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
