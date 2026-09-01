@@ -1,2 +1,3 @@
-# generation: 3289
+# generation: 3290
 #slug	agent	started	items	paths
+uniml-demut-yaml-lexer	claude-code	2026-09-01T07:12:40Z	uniml-yaml-lexer-becomes-a-pure-fold	file:uniml/yaml/src/main/scala/scalascript/uniml/dialect/yaml/YamlLexer.scala file:uniml/SPRINT.md
