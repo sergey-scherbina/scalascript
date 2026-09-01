@@ -1,2 +1,3 @@
-# generation: 3301
+# generation: 3302
 #slug	agent	started	items	paths
+uniml-demut-md-projection	claude-code	2026-09-01T08:11:14Z	uniml-demut-md-projection	file:uniml/markdown/src/main/scala/scalascript/uniml/dialect/markdown/MarkdownProjection.scala file:uniml/SPRINT.md
