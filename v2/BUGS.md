@@ -66,6 +66,88 @@ runtime under test are HEAD's. The launcher's own STALE BUILD warning is about o
 from the day it lands, and the fixture that covers the two v3 fronts
 (`v3/tests/front/infix-class-method.ssc`) is deliberately not in the corpus for that reason. The
 gate arrives with the fix.
+## rust-backend-member-read-through-local-val — `.isEmpty`/`.nonEmpty` through a record-typed local val is refused
+
+<!-- status: fixed
+     lane: v2-rust
+     area: codegen
+     kind: bug
+     gate: v1/runtime/backend/rust/src/test/scala/scalascript/codegen/rust/RustGenCodeWalkTest.scala + the merged-uniml cargo measure (18 -> 0)
+     fixed-in: 651378ef8 -->
+
+**FIXED 2026-09-01 (`651378ef8`), and one line of the original diagnosis below is corrected
+here rather than left standing:** the `|w: /* Type */, spec|` quoted below as "the placeholder
+emitted verbatim" was never emitted code — it is rustc's own E0282 SUGGESTION
+(`suggested_replacement` in the JSON diagnostics) rendered into the log's help line. The emitter
+emitted untyped `|w, _|`; everything else in the entry stands. The campaign (six mechanisms —
+local-val ctor prepass, ctorNameOfExpr growth incl. `.copy`/`.last`/call-return/fold-chain,
+fold accumulator typing+annotation, the TCO structural-dispatch fix that also cured the dropped
+`val top`, sibling self-aliases for method VALUES, Option::filter's `&T` shim) took the merged
+demutabilized uniml/core from 18 cargo errors to ZERO, and the downstream
+`feature/treevm-top-edges` core slice from red-by-~86-classes to ONE distinct error, filed as
+`rust-backend-self-alias-closure-rejects-a-temp-borrow`. Moved here from the root BUGS.md —
+`lane: v2-rust` routes to this file.
+
+### Original report (superseded 2026-09-01)
+
+
+The Rust backend resolves a chained member call through a PARAMETER (`def f(w: W) =
+w.stack.nonEmpty` compiles) but NOT through a record-typed LOCAL VAL — even an ANNOTATED one:
+`val recorded: W = w; recorded.stack.nonEmpty` fails with `reads nonEmpty without parentheses …
+would be emitted as a Rust FIELD access`. Minimal pair measured 2026-09-01
+(/tmp/uniml-merge/dw-*.scala): paramdirect 0 errors, valalias/valcopy 1 error; binding the FIELD
+into a collection-typed local first (`val stack: Vector[Int] = w.stack; stack.nonEmpty`) compiles.
+First diagnosed as "lifted local defs lose their return type" (the markdown `refDefAt` comment's
+family) — the local-def shape does fail, but the minimal pair shows the gap is the LOCAL-VAL
+member read itself; the lifted def is one producer of such locals, not the cause.
+
+A relative of the same table gap: a lifted local def CAPTURING an untyped local (`val chars =
+text.toVector` then `def walk(i: Int)…` reading `chars`) is refused with "cannot infer its type —
+give it an explicit type annotation", fixed by annotating the captured val.
+
+Accommodations used in uniml/core (each commented at the site): TreeVm binds `counted.stack` /
+`recorded.stack` into `Vector[VmFrame]`-typed locals; Source annotates the hoisted `chars`.
+Fix belongs in the backend: record local vals' types (or at least annotated ones) in the
+resolution table.
+
+THE DEEPER RELATIVE, measured on the demutabilized uniml/core's cargo build (2026-09-01, 18
+errors): FOLD-LAMBDA PARAMETER TYPES are never inferred — the emitted Rust reads
+`|w: /* Type */, spec| { w.copy(…) }`, the placeholder verbatim — so everything inside a
+`foldLeft` lambda over a record type is untyped: `.copy` emits as a literal method call
+(E0599 ×7), a named-arg copy renders positional (`recorded.copy(true)`), locals bound from
+`.last` inside such lambdas vanish (`cannot find value top` ×4), and a METHOD passed
+eta-expanded to `foldLeft(…)(reframeClose)` emits as a bare name (E0425 ×2). Standalone
+probes: a plain `w.copy(n = …)` on a param lowers fine (cp-pubcopy/cp-privcopy, 0 errors);
+the failures need the fold-lambda context. Repro: /tmp/uniml-merge/merged-noproc.scala +
+cargo-final.log. This is the follow-up campaign the stage-10 closing entry queues: the
+demutabilized shapes are fold-heavy by design, and the backend types folds only through
+collection element types it already knows.
+
+## rust-backend-self-alias-closure-rejects-a-temp-borrow — `&Vec::new()` through a sibling alias is E0716
+
+<!-- status: open
+     lane: v2-rust
+     area: codegen
+     kind: bug
+     gate: none yet — repro is the downstream feature/treevm-top-edges core slice (scratch ds-merged.scala); a backend fixture should pin it -->
+
+The ONE error left on `feature/treevm-top-edges`'s core slice after the fold-typing campaign
+(`651378ef8`) took it from red-by-~86-classes. Their `TreeVm.pushFrame` helper is called from a
+fold lambda, so the call goes through the sibling self-alias this backend binds
+(`let pushFrame = |__a0, __a1, __a2| self.pushFrame(__a0, __a1, __a2);`), and one argument is a
+TEMPORARY borrow:
+
+    pushFrame(w.clone(), VmFrame { … }, &Vec::new())
+    error[E0716]: temporary value dropped while borrowed — argument requires that borrow lasts for `'1`
+
+A DIRECT call accepts `&Vec::new()` fine (the temporary lives to the end of the statement); the
+closure alias's inferred parameter lifetimes are what reject it. Candidate fixes: bind the
+temporary to a `let` before the call when an argument is a `&`-wrapped non-name; or make the
+alias take that parameter owned and borrow inside (needs the alias generator to know which params
+are `&`-typed — it currently knows only arity, `_paramTypes` has the strings). Not chased in the
+campaign: it is one call shape on a branch that is still in flight, and the owner of that branch
+may also just pass a named empty vec.
+
 
 ## f-records-no-supertype-for-a-declared-class-or-trait — the parent direction was not answerable
 

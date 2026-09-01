@@ -16,47 +16,6 @@ scripts/bugs-report --no-gate              # open entries with no regression gat
 
 Newest first.
 
-## rust-backend-member-read-through-local-val — `.isEmpty`/`.nonEmpty` through a record-typed local val is refused
-
-<!-- status: open
-     lane: v2-rust
-     area: codegen
-     kind: bug
-     gate: none — the accommodations in uniml/core (TreeVm, Source) document the shape; a backend fixture should pin it -->
-
-The Rust backend resolves a chained member call through a PARAMETER (`def f(w: W) =
-w.stack.nonEmpty` compiles) but NOT through a record-typed LOCAL VAL — even an ANNOTATED one:
-`val recorded: W = w; recorded.stack.nonEmpty` fails with `reads nonEmpty without parentheses …
-would be emitted as a Rust FIELD access`. Minimal pair measured 2026-09-01
-(/tmp/uniml-merge/dw-*.scala): paramdirect 0 errors, valalias/valcopy 1 error; binding the FIELD
-into a collection-typed local first (`val stack: Vector[Int] = w.stack; stack.nonEmpty`) compiles.
-First diagnosed as "lifted local defs lose their return type" (the markdown `refDefAt` comment's
-family) — the local-def shape does fail, but the minimal pair shows the gap is the LOCAL-VAL
-member read itself; the lifted def is one producer of such locals, not the cause.
-
-A relative of the same table gap: a lifted local def CAPTURING an untyped local (`val chars =
-text.toVector` then `def walk(i: Int)…` reading `chars`) is refused with "cannot infer its type —
-give it an explicit type annotation", fixed by annotating the captured val.
-
-Accommodations used in uniml/core (each commented at the site): TreeVm binds `counted.stack` /
-`recorded.stack` into `Vector[VmFrame]`-typed locals; Source annotates the hoisted `chars`.
-Fix belongs in the backend: record local vals' types (or at least annotated ones) in the
-resolution table.
-
-THE DEEPER RELATIVE, measured on the demutabilized uniml/core's cargo build (2026-09-01, 18
-errors): FOLD-LAMBDA PARAMETER TYPES are never inferred — the emitted Rust reads
-`|w: /* Type */, spec| { w.copy(…) }`, the placeholder verbatim — so everything inside a
-`foldLeft` lambda over a record type is untyped: `.copy` emits as a literal method call
-(E0599 ×7), a named-arg copy renders positional (`recorded.copy(true)`), locals bound from
-`.last` inside such lambdas vanish (`cannot find value top` ×4), and a METHOD passed
-eta-expanded to `foldLeft(…)(reframeClose)` emits as a bare name (E0425 ×2). Standalone
-probes: a plain `w.copy(n = …)` on a param lowers fine (cp-pubcopy/cp-privcopy, 0 errors);
-the failures need the fold-lambda context. Repro: /tmp/uniml-merge/merged-noproc.scala +
-cargo-final.log. This is the follow-up campaign the stage-10 closing entry queues: the
-demutabilized shapes are fold-heavy by design, and the backend types folds only through
-collection element types it already knows.
-
-
 ## v1-quoted-macro-preproc-comment-apostrophe — a prose apostrophe in a comment derailed the quoted-macro preprocessor
 
 <!-- status: fixed
