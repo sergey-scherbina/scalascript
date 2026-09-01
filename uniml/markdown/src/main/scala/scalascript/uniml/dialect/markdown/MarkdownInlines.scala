@@ -26,21 +26,16 @@ private[markdown] object MarkdownInlines:
     * whitespace to a single space, case-fold (approximated by lower-casing). */
   def normalizeLabel(raw: String): String =
     val trimmed = raw.trim
-    var builder: Vector[String] = Vector.empty
-    var inSpace = false
-    // Index loop + `substring` slice, not `foreach`/`c.toString`: ScalaScript v2 has
+    // Index walk + `substring` slice, not `foreach`/`c.toString`: ScalaScript v2 has
     // no Char box, so `c.toString` yields the code point's decimal digits — slicing
     // the source is exactly `charAt(i).toString` on the JVM (surrogates included).
-    var li = 0
-    while li < trimmed.length do
-      val c = trimmed.charAt(li)
-      if MdChars.isUnicodeWhitespace(c) then inSpace = true
+    def walk(li: Int, builder: Vector[String], inSpace: Boolean): Vector[String] =
+      if li >= trimmed.length then builder
+      else if MdChars.isUnicodeWhitespace(trimmed.charAt(li)) then walk(li + 1, builder, true)
       else
-        if inSpace && builder.nonEmpty then builder = builder :+ " "
-        inSpace = false
-        builder = builder :+ trimmed.substring(li, li + 1)
-      li += 1
-    MdChars.foldCase(builder.mkString)
+        val spaced = if inSpace && builder.nonEmpty then builder :+ " " else builder
+        walk(li + 1, spaced :+ trimmed.substring(li, li + 1), false)
+    MdChars.foldCase(walk(0, Vector.empty, false).mkString)
 
   def parse(content: String, refs: Map[String, LinkRef], profile: MarkdownProfile): Vector[InlinePiece] =
     val atoms = tokenize(content, refs, profile)
@@ -68,169 +63,140 @@ private[markdown] object MarkdownInlines:
 
   // ── tokenization ──────────────────────────────────────────────────────
 
+  /** The tokenizer in flight: finished nodes plus the pending literal-text run. */
+  private final case class TokState(nodes: Vector[WNode], pending: Vector[String])
+
   private def tokenize(content: String, refs: Map[String, LinkRef], profile: MarkdownProfile): Vector[WNode] =
-    var nodes: Vector[WNode] = Vector.empty
-    var pending: Vector[String] = Vector.empty
-    var i = 0
     val n = content.length
     val gfm = profile == MarkdownProfile.Gfm
     val scala = profile == MarkdownProfile.ScalaScript
 
-    def flushText(): Unit =
-      if pending.nonEmpty then
-        nodes = nodes :+ text(pending.mkString)
-        pending = Vector.empty
+    def flushText(st: TokState): TokState =
+      if st.pending.nonEmpty then TokState(st.nodes :+ text(st.pending.mkString), Vector.empty)
+      else st
 
-    while i < n do
-      val c = content.charAt(i)
-      c match
-        case '\n' | '\r' =>
-          // line ending within a content unit: hard break if preceded by 2+ spaces or a backslash
-          val ending =
-            if c == '\r' && i + 1 < n && content.charAt(i + 1) == '\n' then "\r\n" else content.substring(i, i + 1)
-          val pend = pending.mkString
-          val hard = pend.endsWith("  ") || pend.endsWith("\\")
-          if hard && pend.endsWith("\\") then
-            // strip the trailing backslash into a hard-break marker
-            pending = pending.dropRight(1)
-            flushText()
-            nodes = nodes :+ WFixed(Vector(Tok(MdKind.HardBreak, "\\" + ending, None, TokenChannel.Syntax)))
-          else
-            flushText()
-            nodes = nodes :+ WFixed(Vector(Tok(if hard then MdKind.HardBreak else MdKind.SoftBreak, ending, None, if hard then TokenChannel.Syntax else TokenChannel.Trivia)))
-          i += ending.length
+    def emitFixed(st: TokState, node: WNode): TokState =
+      val flushed = flushText(st)
+      flushed.copy(nodes = flushed.nodes :+ node)
 
-        case '\\' =>
-          if i + 1 < n && MdChars.isAsciiPunctuation(content.charAt(i + 1)) then
-            flushText()
-            nodes = nodes :+ WFixed(Vector(Tok(MdKind.Escape, content.substring(i, i + 2), None, TokenChannel.Syntax)))
-            i += 2
-          else
-            pending = pending :+ "\\"
-            i += 1
+    def walk(st: TokState, i: Int): TokState =
+      if i >= n then flushText(st)
+      else
+        val c = content.charAt(i)
+        c match
+          case '\n' | '\r' =>
+            // line ending within a content unit: hard break if preceded by 2+ spaces or a backslash
+            val ending =
+              if c == '\r' && i + 1 < n && content.charAt(i + 1) == '\n' then "\r\n" else content.substring(i, i + 1)
+            val pend = st.pending.mkString
+            val hard = pend.endsWith("  ") || pend.endsWith("\\")
+            if hard && pend.endsWith("\\") then
+              // strip the trailing backslash into a hard-break marker
+              val stripped = st.copy(pending = st.pending.dropRight(1))
+              walk(emitFixed(stripped, WFixed(Vector(Tok(MdKind.HardBreak, "\\" + ending, None, TokenChannel.Syntax)))), i + ending.length)
+            else
+              walk(emitFixed(st, WFixed(Vector(Tok(if hard then MdKind.HardBreak else MdKind.SoftBreak, ending, None, if hard then TokenChannel.Syntax else TokenChannel.Trivia)))), i + ending.length)
 
-        case '`' =>
-          val runLen = runLength(content, i, '`')
-          val closeAt = findBacktickClose(content, i + runLen, runLen)
-          closeAt match
-            case Some(start) =>
-              flushText()
-              val openLex = content.substring(i, i + runLen)
-              val inner = content.substring(i + runLen, start)
-              val closeLex = content.substring(start, start + runLen)
-              var pieces: Vector[InlinePiece] = Vector.empty
-              pieces = pieces :+ Open(MdBranch.CodeSpan, MdKind.BacktickRun, openLex, Some("delimiter.open"))
-              if inner.nonEmpty then pieces = pieces :+ Tok(MdKind.CodeContent, inner, Some("code"), TokenChannel.Embedded)
-              pieces = pieces :+ Close(MdBranch.CodeSpan, MdKind.BacktickRun, closeLex, Some("delimiter.close"))
-              nodes = nodes :+ WFixed(pieces)
-              i = start + runLen
-            case None =>
-              pending = pending :+ content.substring(i, i + runLen)
-              i += runLen
+          case '\\' =>
+            if i + 1 < n && MdChars.isAsciiPunctuation(content.charAt(i + 1)) then
+              walk(emitFixed(st, WFixed(Vector(Tok(MdKind.Escape, content.substring(i, i + 2), None, TokenChannel.Syntax)))), i + 2)
+            else
+              walk(st.copy(pending = st.pending :+ "\\"), i + 1)
 
-        case '<' =>
-          scanAngle(content, i) match
-            case Some((kind, endEx)) =>
-              flushText()
-              val lex = content.substring(i, endEx)
-              val (mdKind, role, channel) = kind match
-                case AngleKind.Autolink => (MdKind.Autolink, Some("autolink"), TokenChannel.Syntax)
-                case AngleKind.Html     => (MdKind.Html, Some("html"), TokenChannel.Embedded)
-              nodes = nodes :+ WFixed(Vector(Tok(mdKind, lex, role, channel)))
-              i = endEx
-            case None =>
-              pending = pending :+ "<"
-              i += 1
+          case '`' =>
+            val runLen = runLength(content, i, '`')
+            findBacktickClose(content, i + runLen, runLen) match
+              case Some(start) =>
+                val openLex = content.substring(i, i + runLen)
+                val inner = content.substring(i + runLen, start)
+                val closeLex = content.substring(start, start + runLen)
+                val pieces =
+                  Vector[InlinePiece](Open(MdBranch.CodeSpan, MdKind.BacktickRun, openLex, Some("delimiter.open"))) ++
+                    (if inner.nonEmpty then Vector[InlinePiece](Tok(MdKind.CodeContent, inner, Some("code"), TokenChannel.Embedded)) else Vector.empty) :+
+                    Close(MdBranch.CodeSpan, MdKind.BacktickRun, closeLex, Some("delimiter.close"))
+                walk(emitFixed(st, WFixed(pieces)), start + runLen)
+              case None =>
+                walk(st.copy(pending = st.pending :+ content.substring(i, i + runLen)), i + runLen)
 
-        case '&' =>
-          scanEntity(content, i) match
-            case Some(endEx) =>
-              flushText()
-              nodes = nodes :+ WFixed(Vector(Tok(MdKind.Entity, content.substring(i, endEx), Some("entity"), TokenChannel.Syntax)))
-              i = endEx
-            case None =>
-              pending = pending :+ "&"
-              i += 1
+          case '<' =>
+            scanAngle(content, i) match
+              case Some((kind, endEx)) =>
+                val lex = content.substring(i, endEx)
+                val (mdKind, role, channel) = kind match
+                  case AngleKind.Autolink => (MdKind.Autolink, Some("autolink"), TokenChannel.Syntax)
+                  case AngleKind.Html     => (MdKind.Html, Some("html"), TokenChannel.Embedded)
+                walk(emitFixed(st, WFixed(Vector(Tok(mdKind, lex, role, channel)))), endEx)
+              case None =>
+                walk(st.copy(pending = st.pending :+ "<"), i + 1)
 
-        case '$' if scala && i + 1 < n && content.charAt(i + 1) == '{' =>
-          scanExpression(content, i) match
-            case Some(endEx) =>
-              flushText()
-              val open = content.substring(i, i + 2)
-              val inner = content.substring(i + 2, endEx - 1)
-              val close = content.substring(endEx - 1, endEx)
-              var pieces: Vector[InlinePiece] = Vector.empty
-              pieces = pieces :+ Open(MdBranch.Expression, MdKind.ExpressionOpen, open, Some("delimiter.open"))
-              if inner.nonEmpty then pieces = pieces :+ Tok(MdKind.ExpressionContent, inner, Some("expression"), TokenChannel.Embedded)
-              pieces = pieces :+ Close(MdBranch.Expression, MdKind.ExpressionClose, close, Some("delimiter.close"))
-              nodes = nodes :+ WFixed(pieces)
-              i = endEx
-            case None =>
-              pending = pending :+ "$"
-              i += 1
+          case '&' =>
+            scanEntity(content, i) match
+              case Some(endEx) =>
+                walk(emitFixed(st, WFixed(Vector(Tok(MdKind.Entity, content.substring(i, endEx), Some("entity"), TokenChannel.Syntax)))), endEx)
+              case None =>
+                walk(st.copy(pending = st.pending :+ "&"), i + 1)
 
-        case '!' if i + 1 < n && content.charAt(i + 1) == '[' =>
-          tryLink(content, i, image = true, refs, profile) match
-            case Some((node, endEx)) =>
-              flushText()
-              nodes = nodes :+ node
-              i = endEx
-            case None =>
-              pending = pending :+ "!"
-              i += 1
+          case '$' if scala && i + 1 < n && content.charAt(i + 1) == '{' =>
+            scanExpression(content, i) match
+              case Some(endEx) =>
+                val open = content.substring(i, i + 2)
+                val inner = content.substring(i + 2, endEx - 1)
+                val close = content.substring(endEx - 1, endEx)
+                val pieces =
+                  Vector[InlinePiece](Open(MdBranch.Expression, MdKind.ExpressionOpen, open, Some("delimiter.open"))) ++
+                    (if inner.nonEmpty then Vector[InlinePiece](Tok(MdKind.ExpressionContent, inner, Some("expression"), TokenChannel.Embedded)) else Vector.empty) :+
+                    Close(MdBranch.Expression, MdKind.ExpressionClose, close, Some("delimiter.close"))
+                walk(emitFixed(st, WFixed(pieces)), endEx)
+              case None =>
+                walk(st.copy(pending = st.pending :+ "$"), i + 1)
 
-        case '[' =>
-          tryLink(content, i, image = false, refs, profile) match
-            case Some((node, endEx)) =>
-              flushText()
-              nodes = nodes :+ node
-              i = endEx
-            case None =>
-              pending = pending :+ "["
-              i += 1
+          case '!' if i + 1 < n && content.charAt(i + 1) == '[' =>
+            tryLink(content, i, image = true, refs, profile) match
+              case Some((node, endEx)) => walk(emitFixed(st, node), endEx)
+              case None                => walk(st.copy(pending = st.pending :+ "!"), i + 1)
 
-        case '*' | '_' =>
-          flushText()
-          nodes = nodes :+ delimiterRun(content, i, c)
-          i += runLength(content, i, c)
+          case '[' =>
+            tryLink(content, i, image = false, refs, profile) match
+              case Some((node, endEx)) => walk(emitFixed(st, node), endEx)
+              case None                => walk(st.copy(pending = st.pending :+ "["), i + 1)
 
-        case '~' if gfm =>
-          flushText()
-          nodes = nodes :+ delimiterRun(content, i, c)
-          i += runLength(content, i, c)
+          case '*' | '_' =>
+            walk(emitFixed(st, delimiterRun(content, i, c)), i + runLength(content, i, c))
 
-        case _ if gfm && isExtendedAutolinkStart(content, i, pending) =>
-          // GFM 6.9 extended autolinks. An `@` looks BACKWARD: the local part is
-          // already in `pending` — and possibly in nodes BEFORE it, because `_`
-          // is a legal local-part character that the emphasis scanner has
-          // already split off as a delimiter run. `a.b-c_d@a.b` is exactly that
-          // case, and without walking back through those nodes it produced a
-          // link over `d@a.b` alone: worse than not matching at all.
-          val (dropNodes, keepText, localPart) =
-            if content.charAt(i) == '@' then emailLocalBackscan(nodes, pending)
-            else (0, "", "")
-          extendedAutolink(content, i, localPart) match
-            case Some((backtrack, lexeme, _)) =>
-              if backtrack > 0 then
-                if dropNodes > 0 then nodes = nodes.dropRight(dropNodes)
-                pending = if keepText.isEmpty then Vector.empty else Vector(keepText)
-              flushText()
-              // the role says WHICH autolink form this is; the destination is
-              // derived from the lexeme in the projection, so the token carries
-              // no data the source does not already hold
-              nodes = nodes :+ WFixed(Vector(
-                Tok(MdKind.Autolink, lexeme, Some("extended"), TokenChannel.Syntax)
-              ))
-              i = i - backtrack + lexeme.length
-            case None =>
-              pending = pending :+ content.substring(i, i + 1)
-              i += 1
+          case '~' if gfm =>
+            walk(emitFixed(st, delimiterRun(content, i, c)), i + runLength(content, i, c))
 
-        case _ =>
-          pending = pending :+ content.substring(i, i + 1)
-          i += 1
-    flushText()
-    nodes
+          case _ if gfm && isExtendedAutolinkStart(content, i, st.pending) =>
+            // GFM 6.9 extended autolinks. An `@` looks BACKWARD: the local part is
+            // already in `pending` — and possibly in nodes BEFORE it, because `_`
+            // is a legal local-part character that the emphasis scanner has
+            // already split off as a delimiter run. `a.b-c_d@a.b` is exactly that
+            // case, and without walking back through those nodes it produced a
+            // link over `d@a.b` alone: worse than not matching at all.
+            val (dropNodes, keepText, localPart) =
+              if content.charAt(i) == '@' then emailLocalBackscan(st.nodes, st.pending)
+              else (0, "", "")
+            extendedAutolink(content, i, localPart) match
+              case Some((backtrack, lexeme, _)) =>
+                val adjusted =
+                  if backtrack > 0 then
+                    TokState(
+                      if dropNodes > 0 then st.nodes.dropRight(dropNodes) else st.nodes,
+                      if keepText.isEmpty then Vector.empty else Vector(keepText))
+                  else st
+                // the role says WHICH autolink form this is; the destination is
+                // derived from the lexeme in the projection, so the token carries
+                // no data the source does not already hold
+                walk(emitFixed(adjusted, WFixed(Vector(
+                  Tok(MdKind.Autolink, lexeme, Some("extended"), TokenChannel.Syntax)
+                ))), i - backtrack + lexeme.length)
+              case None =>
+                walk(st.copy(pending = st.pending :+ content.substring(i, i + 1)), i + 1)
+
+          case _ =>
+            walk(st.copy(pending = st.pending :+ content.substring(i, i + 1)), i + 1)
+
+    walk(TokState(Vector.empty, Vector.empty), 0).nodes
 
   // ── GFM extended autolinks (6.9) ────────────────────────────────────────
 
@@ -277,12 +243,14 @@ private[markdown] object MarkdownInlines:
   ): Option[(Int, String, String)] =
     if local.isEmpty then None
     else
-      var j = at + 1
-      while j < content.length && isEmailDomainChar(content.charAt(j)) do j += 1
+      def domainEnd(j: Int): Int =
+        if j < content.length && isEmailDomainChar(content.charAt(j)) then domainEnd(j + 1) else j
       // A trailing `.` is sentence punctuation after the address. A trailing `-`
       // or `_` is NOT trimmed: GFM says the address is invalid, so `a@b-` links
       // nothing rather than linking `a@b`.
-      while j > at + 1 && content.charAt(j - 1) == '.' do j -= 1
+      def dropDots(j: Int): Int =
+        if j > at + 1 && content.charAt(j - 1) == '.' then dropDots(j - 1) else j
+      val j = dropDots(domainEnd(at + 1))
       val domain = content.substring(at + 1, j)
       if !validEmailDomain(domain) then None
       else
@@ -300,21 +268,20 @@ private[markdown] object MarkdownInlines:
       case WFixed(Vector(Tok(MdKind.Text, lexeme, _, _))) => Some(lexeme)
       case d: WDelim if d.ch == '_'                       => Some(d.lexeme)
       case _                                              => None
-    var chunk = pending.mkString
-    var cut = chunk.length
-    while cut > 0 && isEmailLocalChar(chunk.charAt(cut - 1)) do cut -= 1
-    var local = chunk.substring(cut)
-    var keep = chunk.substring(0, cut)
-    var drop = 0
-    var exhausted = cut == 0
-    while exhausted && drop < nodes.length && localTextOf(nodes(nodes.length - 1 - drop)).isDefined do
-      chunk = localTextOf(nodes(nodes.length - 1 - drop)).get
-      cut = chunk.length
-      while cut > 0 && isEmailLocalChar(chunk.charAt(cut - 1)) do cut -= 1
-      local = chunk.substring(cut) + local
-      keep = chunk.substring(0, cut)
-      drop += 1
-      exhausted = cut == 0
+    // index where the trailing run of legal local-part characters begins
+    def localCut(chunk: String): Int =
+      def scan(cut: Int): Int =
+        if cut > 0 && isEmailLocalChar(chunk.charAt(cut - 1)) then scan(cut - 1) else cut
+      scan(chunk.length)
+    def back(drop: Int, local: String, keep: String, exhausted: Boolean): (Int, String, String) =
+      if exhausted && drop < nodes.length && localTextOf(nodes(nodes.length - 1 - drop)).isDefined then
+        val chunk = localTextOf(nodes(nodes.length - 1 - drop)).get
+        val cut = localCut(chunk)
+        back(drop + 1, chunk.substring(cut) + local, chunk.substring(0, cut), cut == 0)
+      else (drop, keep, local)
+    val chunk0 = pending.mkString
+    val cut0 = localCut(chunk0)
+    val (drop, keep, local) = back(0, chunk0.substring(cut0), chunk0.substring(0, cut0), cut0 == 0)
     if keep.nonEmpty && !validEmailPredecessor(keep.charAt(keep.length - 1)) then (0, "", "")
     else (drop, keep, local)
 
@@ -342,43 +309,38 @@ private[markdown] object MarkdownInlines:
     * cuts an extended autolink. Returns the exclusive end, or None when the
     * domain itself is not valid. */
   private def domainAndPath(content: String, from: Int): Option[Int] =
-    var j = from
-    while j < content.length && isEmailDomainChar(content.charAt(j)) do j += 1
-    val domain = content.substring(from, j)
+    def domainEnd(j: Int): Int =
+      if j < content.length && isEmailDomainChar(content.charAt(j)) then domainEnd(j + 1) else j
+    val de = domainEnd(from)
+    val domain = content.substring(from, de)
     val segments = domain.split("\\.", -1).toVector
     if segments.length < 2 || segments.take(segments.length - 1).exists(_.isEmpty) then None
     else
       // the rest of the URL runs to whitespace; `<` always ends it
-      while j < content.length && !MdChars.isUnicodeWhitespace(content.charAt(j)) && content.charAt(j) != '<' do j += 1
-      Some(j)
+      def pathEnd(j: Int): Int =
+        if j < content.length && !MdChars.isUnicodeWhitespace(content.charAt(j)) && content.charAt(j) != '<' then pathEnd(j + 1) else j
+      Some(pathEnd(de))
 
   /** GFM's three trailing rules, applied until a pass changes nothing: strip
     * `?!.,:*_~`; strip an unbalanced `)`; strip a whole trailing `&entity;`. */
   private def trimAutolinkTail(raw: String): String =
-    var s = raw
-    var changed = true
-    while changed && s.nonEmpty do
-      changed = false
-      val last = s.charAt(s.length - 1)
-      if "?!.,:*_~".indexOf(last) >= 0 then
-        s = s.substring(0, s.length - 1); changed = true
-      else if last == ')' then
-        // closing parens are kept while they are matched by an opening one
-        var opens = 0
-        var closes = 0
-        var k = 0
-        while k < s.length do
-          if s.charAt(k) == '(' then opens += 1 else if s.charAt(k) == ')' then closes += 1
-          k += 1
-        if closes > opens then { s = s.substring(0, s.length - 1); changed = true }
-      else if last == ';' then
-        var k = s.length - 2
-        // Entity names are ASCII alphanumeric per HTML5, so this is narrower than the host test on
-        // purpose as well as tableless: `&café;` was never an entity reference.
-        while k >= 0 && UniAlphabet.isAsciiAlnum(s.charAt(k)) do k -= 1
-        if k >= 0 && s.charAt(k) == '&' && k < s.length - 2 then
-          s = s.substring(0, k); changed = true
-    s
+    def pass(s: String): String =
+      if s.isEmpty then s
+      else
+        val last = s.charAt(s.length - 1)
+        if "?!.,:*_~".indexOf(last) >= 0 then pass(s.substring(0, s.length - 1))
+        else if last == ')' then
+          // closing parens are kept while they are matched by an opening one
+          if s.count(_ == ')') > s.count(_ == '(') then pass(s.substring(0, s.length - 1)) else s
+        else if last == ';' then
+          // Entity names are ASCII alphanumeric per HTML5, so this is narrower than the host test on
+          // purpose as well as tableless: `&café;` was never an entity reference.
+          def nameStart(k: Int): Int =
+            if k >= 0 && UniAlphabet.isAsciiAlnum(s.charAt(k)) then nameStart(k - 1) else k
+          val k = nameStart(s.length - 2)
+          if k >= 0 && s.charAt(k) == '&' && k < s.length - 2 then pass(s.substring(0, k)) else s
+        else s
+    pass(raw)
 
 
   private def delimiterRun(content: String, start: Int, ch: Char): WDelim =
@@ -399,19 +361,18 @@ private[markdown] object MarkdownInlines:
     WDelim(content.substring(start, start + len), ch, canOpen, canClose)
 
   private def runLength(content: String, start: Int, ch: Char): Int =
-    var i = start
-    while i < content.length && content.charAt(i) == ch do i += 1
-    i - start
+    def scan(i: Int): Int =
+      if i < content.length && content.charAt(i) == ch then scan(i + 1) else i
+    scan(start) - start
 
   private def findBacktickClose(content: String, from: Int, runLen: Int): Option[Int] =
-    var i = from
-    while i < content.length do
-      if content.charAt(i) == '`' then
+    def scan(i: Int): Option[Int] =
+      if i >= content.length then None
+      else if content.charAt(i) == '`' then
         val len = runLength(content, i, '`')
-        if len == runLen then return Some(i)
-        i += len
-      else i += 1
-    None
+        if len == runLen then Some(i) else scan(i + len)
+      else scan(i + 1)
+    scan(from)
 
   // ── links / images ──────────────────────────────────────────────────────
 
@@ -441,7 +402,7 @@ private[markdown] object MarkdownInlines:
         // inline destination: [text](dest "title")
         if cursor < content.length && content.charAt(cursor) == '(' then
           parseInlineDestination(content, cursor) match
-            case Some((_, _, destTitleSpans, endEx)) =>
+            case Some((destTitleSpans, endEx)) =>
               Some(buildLink(content, start, labelStart = textStart, labelEnd = labelEnd,
                 labelText, image, destTitleSpans, endEx, refs, profile) -> endEx)
             case None => tryReference(content, start, textStart, labelEnd, labelText, image, refs, profile)
@@ -492,20 +453,19 @@ private[markdown] object MarkdownInlines:
       spans: DestTitleSpans, endEx: Int, refs: Map[String, LinkRef], profile: MarkdownProfile,
   ): WNode =
     val branch = if image then MdBranch.Image else MdBranch.Link
-    var pieces: Vector[InlinePiece] = Vector.empty
-    def slice(kind: String, from: Int, to: Int, role: String, ch: TokenChannel): Unit =
-      if from < to then pieces = pieces :+ Tok(kind, content.substring(from, to), Some(role), ch)
-    pieces = pieces :+ Open(branch, MdKind.LinkOpen, content.substring(start, labelStart), Some("delimiter.open"))
-    pieces = pieces ++ parse(labelText, refs, profile)
-    pieces = pieces :+ Tok(MdKind.LinkClose, content.substring(labelEnd, labelEnd + 1), Some("label.close"), TokenChannel.Syntax)
-    // (dest "title") — every source slice is emitted so nothing is lost
-    slice(MdKind.DestOpen, labelEnd + 1, spans.destStart, "dest.open", TokenChannel.Syntax)
-    slice(MdKind.Destination, spans.destStart, spans.destEnd, "destination", TokenChannel.Syntax)
-    slice(MdKind.Indent, spans.destEnd, spans.titleStart, "space", TokenChannel.Trivia)
-    slice(MdKind.Title, spans.titleStart, spans.titleEnd, "title", TokenChannel.Syntax)
-    slice(MdKind.Indent, spans.titleEnd, spans.closeStart, "space", TokenChannel.Trivia)
-    pieces = pieces :+ Close(branch, MdKind.DestClose, content.substring(spans.closeStart, endEx), Some("dest.close"))
-    WFixed(pieces)
+    def slice(kind: String, from: Int, to: Int, role: String, ch: TokenChannel): Vector[InlinePiece] =
+      if from < to then Vector(Tok(kind, content.substring(from, to), Some(role), ch)) else Vector.empty
+    WFixed(
+      (Vector[InlinePiece](Open(branch, MdKind.LinkOpen, content.substring(start, labelStart), Some("delimiter.open"))) ++
+        parse(labelText, refs, profile) :+
+        Tok(MdKind.LinkClose, content.substring(labelEnd, labelEnd + 1), Some("label.close"), TokenChannel.Syntax)) ++
+        // (dest "title") — every source slice is emitted so nothing is lost
+        slice(MdKind.DestOpen, labelEnd + 1, spans.destStart, "dest.open", TokenChannel.Syntax) ++
+        slice(MdKind.Destination, spans.destStart, spans.destEnd, "destination", TokenChannel.Syntax) ++
+        slice(MdKind.Indent, spans.destEnd, spans.titleStart, "space", TokenChannel.Trivia) ++
+        slice(MdKind.Title, spans.titleStart, spans.titleEnd, "title", TokenChannel.Syntax) ++
+        slice(MdKind.Indent, spans.titleEnd, spans.closeStart, "space", TokenChannel.Trivia) :+
+        Close(branch, MdKind.DestClose, content.substring(spans.closeStart, endEx), Some("dest.close")))
 
   private def buildRefLink(
       content: String, start: Int, labelStart: Int, labelEnd: Int,
@@ -513,79 +473,79 @@ private[markdown] object MarkdownInlines:
       refs: Map[String, LinkRef], profile: MarkdownProfile,
   ): WNode =
     val branch = if image then MdBranch.Image else MdBranch.Link
-    var pieces: Vector[InlinePiece] = Vector.empty
-    pieces = pieces :+ Open(branch, MdKind.LinkOpen, content.substring(start, labelStart), Some("delimiter.open"))
-    pieces = pieces ++ parse(labelText, refs, profile)
-    pieces = pieces :+ Close(branch, MdKind.ReferenceLabel, content.substring(labelEnd, endEx), Some("reference"))
-    WFixed(pieces)
+    WFixed(
+      (Vector[InlinePiece](Open(branch, MdKind.LinkOpen, content.substring(start, labelStart), Some("delimiter.open"))) ++
+        parse(labelText, refs, profile)) :+
+        Close(branch, MdKind.ReferenceLabel, content.substring(labelEnd, endEx), Some("reference")))
 
   private final case class DestTitleSpans(
       destStart: Int, destEnd: Int, titleStart: Int, titleEnd: Int, closeStart: Int)
 
-  /** Parses `(dest "title")` starting at the `(`; returns (dest, title, spans, endExclusive). */
-  private def parseInlineDestination(content: String, open: Int): Option[(String, Option[String], DestTitleSpans, Int)] =
-    var i = open + 1
+  /** Parses `(dest "title")` starting at the `(`; returns (spans, endExclusive).
+    * The spans are SOURCE SLICES and are all the caller reads — the old decoded
+    * dest/title return values were computed and then discarded at the only call
+    * site, so they are gone. */
+  private def parseInlineDestination(content: String, open: Int): Option[(DestTitleSpans, Int)] =
     val n = content.length
-    while i < n && MdChars.isUnicodeWhitespace(content.charAt(i)) do i += 1
-    val destStart = i
-    // destination: <...> or a run of non-space, balanced parens
-    var dest = ""
-    if i < n && content.charAt(i) == '<' then
-      val end = content.indexOf('>', i + 1)
-      if end < 0 || content.substring(i + 1, end).contains('\n') then return None
-      dest = content.substring(i + 1, end)
-      i = end + 1
-    else
-      var depth = 0
-      var sb: Vector[String] = Vector.empty
-      var done = false
-      while i < n && !done do
-        val c = content.charAt(i)
-        if c == '\\' && i + 1 < n then { sb = sb :+ content.substring(i, i + 1) :+ content.substring(i + 1, i + 2); i += 2 }
-        else if MdChars.isUnicodeWhitespace(c) then done = true
-        else if c == '(' then { depth += 1; sb = sb :+ content.substring(i, i + 1); i += 1 }
-        else if c == ')' then
-          if depth == 0 then done = true else { depth -= 1; sb = sb :+ content.substring(i, i + 1); i += 1 }
-        else { sb = sb :+ content.substring(i, i + 1); i += 1 }
-      dest = sb.mkString
-    val destEnd = i
-    while i < n && MdChars.isUnicodeWhitespace(content.charAt(i)) do i += 1
-    var titleStart = i
-    var titleEnd = i
-    var title: Option[String] = None
-    if i < n && (content.charAt(i) == '"' || content.charAt(i) == '\'' || content.charAt(i) == '(') then
-      val open2 = content.charAt(i)
-      val close2 = if open2 == '(' then ')' else open2
-      val end = content.indexOf(close2, i + 1)
-      if end < 0 then return None
-      titleStart = i
-      titleEnd = end + 1
-      title = Some(content.substring(i + 1, end))
-      i = end + 1
-    while i < n && MdChars.isUnicodeWhitespace(content.charAt(i)) do i += 1
-    if i >= n || content.charAt(i) != ')' then None
-    else Some((dest, title, DestTitleSpans(destStart, destEnd, titleStart, titleEnd, i), i + 1))
+    def skipWs(i: Int): Int =
+      if i < n && MdChars.isUnicodeWhitespace(content.charAt(i)) then skipWs(i + 1) else i
+    val destStart = skipWs(open + 1)
+    // destination: <...> or a run of non-space, balanced parens (escapes skip
+    // their escaped char so `\)` neither closes nor unbalances)
+    val destEndOpt: Option[Int] =
+      if destStart < n && content.charAt(destStart) == '<' then
+        val end = content.indexOf('>', destStart + 1)
+        if end < 0 || content.substring(destStart + 1, end).contains('\n') then None
+        else Some(end + 1)
+      else
+        def bare(i: Int, depth: Int): Int =
+          if i >= n then i
+          else
+            val c = content.charAt(i)
+            if c == '\\' && i + 1 < n then bare(i + 2, depth)
+            else if MdChars.isUnicodeWhitespace(c) then i
+            else if c == '(' then bare(i + 1, depth + 1)
+            else if c == ')' then
+              if depth == 0 then i else bare(i + 1, depth - 1)
+            else bare(i + 1, depth)
+        Some(bare(destStart, 0))
+    destEndOpt match
+      case None => None
+      case Some(destEnd) =>
+        val afterDest = skipWs(destEnd)
+        val titleEndOpt: Option[(Int, Int)] =
+          if afterDest < n && (content.charAt(afterDest) == '"' || content.charAt(afterDest) == '\'' || content.charAt(afterDest) == '(') then
+            val open2 = content.charAt(afterDest)
+            val close2 = if open2 == '(' then ')' else open2
+            val end = content.indexOf(close2, afterDest + 1)
+            if end < 0 then None else Some((afterDest, end + 1))
+          else Some((afterDest, afterDest))
+        titleEndOpt match
+          case None => None
+          case Some((titleStart, titleEnd)) =>
+            val closeStart = skipWs(titleEnd)
+            if closeStart >= n || content.charAt(closeStart) != ')' then None
+            else Some((DestTitleSpans(destStart, destEnd, titleStart, titleEnd, closeStart), closeStart + 1))
 
   /** Finds the matching `]` for a `[` whose content starts at `from`, honoring
     * nested brackets, escapes and code spans. Returns the index of `]`. */
   private def matchBracket(content: String, from: Int): Option[Int] =
-    var i = from
-    var depth = 0
     val n = content.length
-    while i < n do
-      val c = content.charAt(i)
-      c match
-        case '\\' if i + 1 < n => i += 2
-        case '`' =>
-          val len = runLength(content, i, '`')
-          findBacktickClose(content, i + len, len) match
-            case Some(closeAt) => i = closeAt + len
-            case None          => i += len
-        case '[' => depth += 1; i += 1
-        case ']' =>
-          if depth == 0 then return Some(i) else { depth -= 1; i += 1 }
-        case _ => i += 1
-    None
+    def scan(i: Int, depth: Int): Option[Int] =
+      if i >= n then None
+      else
+        content.charAt(i) match
+          case '\\' if i + 1 < n => scan(i + 2, depth)
+          case '`' =>
+            val len = runLength(content, i, '`')
+            findBacktickClose(content, i + len, len) match
+              case Some(closeAt) => scan(closeAt + len, depth)
+              case None          => scan(i + len, depth)
+          case '[' => scan(i + 1, depth + 1)
+          case ']' =>
+            if depth == 0 then Some(i) else scan(i + 1, depth - 1)
+          case _ => scan(i + 1, depth)
+    scan(from, 0)
 
   // ── angle brackets: autolink vs raw HTML ─────────────────────────────────
 
@@ -652,11 +612,14 @@ private[markdown] object MarkdownInlines:
     * is TEXT, not a closing tag. */
   private def scanClosingTag(content: String, start: Int): Option[Int] =
     val n = content.length
-    var i = start + 2
-    if i >= n || !MdChars.isAsciiLetter(content.charAt(i)) then return None
-    while i < n && (MdChars.isAsciiAlnum(content.charAt(i)) || content.charAt(i) == '-') do i += 1
-    while i < n && MdChars.isUnicodeWhitespace(content.charAt(i)) do i += 1
-    if i < n && content.charAt(i) == '>' then Some(i + 1) else None
+    def nameEnd(i: Int): Int =
+      if i < n && (MdChars.isAsciiAlnum(content.charAt(i)) || content.charAt(i) == '-') then nameEnd(i + 1) else i
+    def wsEnd(i: Int): Int =
+      if i < n && MdChars.isUnicodeWhitespace(content.charAt(i)) then wsEnd(i + 1) else i
+    if start + 2 >= n || !MdChars.isAsciiLetter(content.charAt(start + 2)) then None
+    else
+      val i = wsEnd(nameEnd(start + 2))
+      if i < n && content.charAt(i) == '>' then Some(i + 1) else None
 
   /** CommonMark 6.6's open-tag grammar, which the old scan did not have at all —
     * it took everything up to the next `>` that held no `<`. That accepted
@@ -666,75 +629,76 @@ private[markdown] object MarkdownInlines:
     * injecting it into the document. */
   private def scanOpenTag(content: String, start: Int): Option[Int] =
     val n = content.length
-    var i = start + 1
-    if i >= n || !MdChars.isAsciiLetter(content.charAt(i)) then return None
-    while i < n && (MdChars.isAsciiAlnum(content.charAt(i)) || content.charAt(i) == '-') do i += 1
-    var ok = true
-    var done = false
-    while !done && ok do
-      val wsStart = i
-      while i < n && MdChars.isUnicodeWhitespace(content.charAt(i)) do i += 1
-      if i < n && content.charAt(i) == '>' then { done = true }
-      else if i + 1 < n && content.charAt(i) == '/' && content.charAt(i + 1) == '>' then { i += 1; done = true }
-      else if i == wsStart then ok = false // an attribute must be preceded by whitespace
+    def wsEnd(i: Int): Int =
+      if i < n && MdChars.isUnicodeWhitespace(content.charAt(i)) then wsEnd(i + 1) else i
+    def tagNameEnd(i: Int): Int =
+      if i < n && (MdChars.isAsciiAlnum(content.charAt(i)) || content.charAt(i) == '-') then tagNameEnd(i + 1) else i
+    def attrNameEnd(i: Int): Int =
+      if i < n && (MdChars.isAsciiAlnum(content.charAt(i)) || "_.:-".indexOf(content.charAt(i)) >= 0) then attrNameEnd(i + 1) else i
+    def unquotedEnd(i: Int): Int =
+      if i < n && !MdChars.isUnicodeWhitespace(content.charAt(i)) && "\"'=<>`".indexOf(content.charAt(i)) < 0 then unquotedEnd(i + 1) else i
+    // one attribute (or the tag close) per round; running off the end fails the
+    // next round's checks, which is how the old loop's `i >= n` bail behaved
+    def attrs(i0: Int): Option[Int] =
+      val i1 = wsEnd(i0)
+      if i1 < n && content.charAt(i1) == '>' then Some(i1 + 1)
+      else if i1 + 1 < n && content.charAt(i1) == '/' && content.charAt(i1 + 1) == '>' then Some(i1 + 2)
+      else if i1 == i0 then None // an attribute must be preceded by whitespace
       else
         // attribute name
-        val nameStart = i
-        if i < n && (MdChars.isAsciiLetter(content.charAt(i)) || content.charAt(i) == '_' || content.charAt(i) == ':') then
-          i += 1
-          while i < n && (MdChars.isAsciiAlnum(content.charAt(i)) || "_.:-".indexOf(content.charAt(i)) >= 0) do i += 1
-        if i == nameStart then ok = false
+        val nameEnd =
+          if i1 < n && (MdChars.isAsciiLetter(content.charAt(i1)) || content.charAt(i1) == '_' || content.charAt(i1) == ':') then
+            attrNameEnd(i1 + 1)
+          else i1
+        if nameEnd == i1 then None
         else
-          val afterName = i
-          while i < n && MdChars.isUnicodeWhitespace(content.charAt(i)) do i += 1
-          if i < n && content.charAt(i) == '=' then
-            i += 1
-            while i < n && MdChars.isUnicodeWhitespace(content.charAt(i)) do i += 1
-            if i >= n then ok = false
+          val afterName = wsEnd(nameEnd)
+          if afterName < n && content.charAt(afterName) == '=' then
+            val valPos = wsEnd(afterName + 1)
+            if valPos >= n then None
             else
-              val q = content.charAt(i)
+              val q = content.charAt(valPos)
               if q == '\'' || q == '"' then
-                val close = content.indexOf(q.toInt, i + 1)
-                if close < 0 then ok = false else i = close + 1
+                val close = content.indexOf(q.toInt, valPos + 1)
+                if close < 0 then None else attrs(close + 1)
               else
-                val valStart = i
-                while i < n && !MdChars.isUnicodeWhitespace(content.charAt(i)) &&
-                  "\"'=<>`".indexOf(content.charAt(i)) < 0 do i += 1
-                if i == valStart then ok = false
-          else i = afterName // valueless attribute
-      if i >= n then ok = false
-    if ok && done && i < n && content.charAt(i) == '>' then Some(i + 1) else None
+                val valEnd = unquotedEnd(valPos)
+                if valEnd == valPos then None else attrs(valEnd)
+          else attrs(nameEnd) // valueless attribute
+    if start + 1 >= n || !MdChars.isAsciiLetter(content.charAt(start + 1)) then None
+    else attrs(tagNameEnd(start + 1))
 
   private def scanEntity(content: String, start: Int): Option[Int] =
     val n = content.length
-    if start + 1 >= n then return None
-    if content.charAt(start + 1) == '#' then
-      var i = start + 2
-      if i < n && (content.charAt(i) == 'x' || content.charAt(i) == 'X') then
-        i += 1
-        val hexStart = i
-        while i < n && isHex(content.charAt(i)) do i += 1
+    def hexEnd(i: Int): Int = if i < n && isHex(content.charAt(i)) then hexEnd(i + 1) else i
+    def decEnd(i: Int): Int = if i < n && MdChars.isAsciiDigit(content.charAt(i)) then decEnd(i + 1) else i
+    def nameEnd(i: Int): Int = if i < n && MdChars.isAsciiAlnum(content.charAt(i)) then nameEnd(i + 1) else i
+    if start + 1 >= n then None
+    else if content.charAt(start + 1) == '#' then
+      val i0 = start + 2
+      if i0 < n && (content.charAt(i0) == 'x' || content.charAt(i0) == 'X') then
+        val hexStart = i0 + 1
+        val i = hexEnd(hexStart)
         if i > hexStart && i - hexStart <= 6 && i < n && content.charAt(i) == ';' then Some(i + 1) else None
       else
-        val decStart = i
-        while i < n && MdChars.isAsciiDigit(content.charAt(i)) do i += 1
-        if i > decStart && i - decStart <= 7 && i < n && content.charAt(i) == ';' then Some(i + 1) else None
+        val i = decEnd(i0)
+        if i > i0 && i - i0 <= 7 && i < n && content.charAt(i) == ';' then Some(i + 1) else None
     else
-      var i = start + 1
-      while i < n && MdChars.isAsciiAlnum(content.charAt(i)) do i += 1
+      val i = nameEnd(start + 1)
       if i > start + 1 && i < n && content.charAt(i) == ';' then Some(i + 1) else None
 
   private def scanExpression(content: String, start: Int): Option[Int] =
     // ${ ... } with brace nesting; bounded to the content unit
-    var i = start + 2
-    var depth = 1
     val n = content.length
-    while i < n && depth > 0 do
-      content.charAt(i) match
-        case '{' => depth += 1; i += 1
-        case '}' => depth -= 1; i += 1
-        case _   => i += 1
-    if depth == 0 then Some(i) else None
+    def scan(i: Int, depth: Int): Option[Int] =
+      if depth == 0 then Some(i)
+      else if i >= n then None
+      else
+        content.charAt(i) match
+          case '{' => scan(i + 1, depth + 1)
+          case '}' => scan(i + 1, depth - 1)
+          case _   => scan(i + 1, depth)
+    scan(start + 2, 1)
 
   private def isHex(c: Char): Boolean =
     MdChars.isAsciiDigit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
@@ -742,19 +706,18 @@ private[markdown] object MarkdownInlines:
   // ── emphasis / strong / strikethrough (delimiter algorithm) ──────────────
 
   private def processEmphasis(input: Vector[WNode]): Vector[WNode] =
-    var nodes = input
-    var closerIdx = 0
-    while closerIdx < nodes.size do
-      nodes(closerIdx) match
+    // scan back for an opener of the same char
+    def findOpener(nodes: Vector[WNode], closer: WDelim, idx: Int): Int =
+      if idx < 0 then -1
+      else nodes(idx) match
+        case opener: WDelim if opener.ch == closer.ch && opener.canOpen && opener.lexeme.nonEmpty =>
+          if compatible(opener, closer) then idx else findOpener(nodes, closer, idx - 1)
+        case _ => findOpener(nodes, closer, idx - 1)
+    def loop(nodes: Vector[WNode], closerIdx: Int): Vector[WNode] =
+      if closerIdx >= nodes.size then nodes
+      else nodes(closerIdx) match
         case closer: WDelim if closer.canClose && closer.lexeme.nonEmpty =>
-          // scan back for an opener of the same char
-          var openerIdx = closerIdx - 1
-          var found = -1
-          while openerIdx >= 0 && found < 0 do
-            nodes(openerIdx) match
-              case opener: WDelim if opener.ch == closer.ch && opener.canOpen && opener.lexeme.nonEmpty =>
-                if compatible(opener, closer) then found = openerIdx else openerIdx -= 1
-              case _ => openerIdx -= 1
+          val found = findOpener(nodes, closer, closerIdx - 1)
           if found >= 0 then
             val opener = nodes(found).asInstanceOf[WDelim]
             val use = if opener.lexeme.length >= 2 && closer.lexeme.length >= 2 then 2 else 1
@@ -772,14 +735,14 @@ private[markdown] object MarkdownInlines:
               (Open(branch, kind, openLex, Some("delimiter.open")) +: inner) :+
                 Close(branch, kind, closeLex, Some("delimiter.close")))
             // splice: [..opener), reduced-opener, wrap, reduced-closer, (closer..]
-            // — dropping only the inner nodes between opener and closer
-            nodes = nodes.take(found) ++ Vector(newOpener, wrap, newCloser) ++ nodes.drop(closerIdx + 1)
-            // reprocess from just after the opener to catch further matches
-            closerIdx = found + 1
-            // emptied delimiters are dropped lazily on flatten
-          else closerIdx += 1
-        case _ => closerIdx += 1
-    nodes
+            // — dropping only the inner nodes between opener and closer.
+            // Reprocess from just after the opener to catch further matches;
+            // each match strictly shortens the two runs, so this terminates.
+            // Emptied delimiters are dropped lazily on flatten.
+            loop(nodes.take(found) ++ Vector(newOpener, wrap, newCloser) ++ nodes.drop(closerIdx + 1), found + 1)
+          else loop(nodes, closerIdx + 1)
+        case _ => loop(nodes, closerIdx + 1)
+    loop(input, 0)
 
   /** CommonMark "rule of three": if either delimiter can both open and close,
     * the sum of the two run lengths must not be a multiple of three (unless both

@@ -57,7 +57,34 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
       envelope — no urgent knob. Cursor de-mutabilization (stage 10) must re-run this bench per
       module as its perf gate.
 
-- [~] uniml-demut-md-projection — **MarkdownProjection is var-free: 19 → 0.** No new shapes were
+- [x] uniml-demut-md-blocks-inlines — **the heavy pair is done: MarkdownBlocks 76 → 37 (all 37 in
+      the declared leaf zone), MarkdownInlines 48 → 0.** Blocks: the 17 parse-state vars are one
+      16-field `BlockState` (`refs` left the state — collectReferences is a pure pre-pass whose Map
+      threads through `run(lines, refs)` as a parameter); every emitter is `BlockState =>
+      BlockState`; the line loop, HTML/table/front-matter scans and the container-stack walk are
+      tail recursion; seven top-level records (BlockStep, ContainerMatch, ContainerScan,
+      ConsumeStep, ParaEmitStep, PendingFold, RefsAcc) because v2 doesn't lower plain-class-nested
+      type decls. Leaf zone documented at the classifier section: scanRefDef (mirrors CommonMark
+      4.7 clause-by-clause; convert against the spec text, not the spelling) plus the one-string
+      scanners. Inlines went to ZERO: tokenize is a tail-recursive walk over `TokState`,
+      processEmphasis's index-reset loop is `loop(nodes, found + 1)` (terminates because every
+      match strictly shortens both runs), scanOpenTag's attribute grammar is one-attribute-per-
+      round recursion, and the rest are end-finders. Two cleanups with evidence: the dead
+      `then ()` guard line in openBlockquoteAndReprocess dropped; parseInlineDestination's
+      dest/title were computed-then-DISCARDED at the only call site (grep: one caller,
+      `case Some((_, _, spans, end))`), so the return narrowed to (spans, endEx) and the identity
+      `sb` accumulation went with it. Gates: unimlMarkdown/test 59/59 first-compile after EACH
+      file (corpus == 607/675 exact, twice), full uniml `sbt test` exit 0 all suites green (a
+      first combined run hit a launcher OOM that `| tail` masked to exit 0 — rerun alone, clean),
+      unimlMarkdownJs/test 52/52, lint-portable-subset OK. Suite wall-clock 566→597ms single
+      runs — noise; markdown has no JMH bench. Markdown module remaining: 40 vars — the 37-var
+      Blocks leaf zone plus 3 in `MdLine.longestRun` (MarkdownLexer.scala), which the md-lexer
+      entry's "19 → 0" missed because that count was of the pre-conversion survey's sites; it is
+      outside this claim's paths, so it goes to the next markdown claim as a one-scan end-finder
+      conversion. Next: scala dialect (134, with SpikeParserBench before/after), rust (56),
+      core (40), xml (31), markup (12).
+
+- [x] uniml-demut-md-projection — **MarkdownProjection is var-free: 19 → 0.** No new shapes were
       needed — all four came off the shelf: fold-with-record for project's blocks/references split
       (`ProjectAcc`) and definitionOf (`DefnAcc`, foreach's last-token-wins preserved by copy,
       collectDefinitions' FIRST-definition-wins preserved by the contains guard); walk-returns-
