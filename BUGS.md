@@ -16,6 +16,33 @@ scripts/bugs-report --no-gate              # open entries with no regression gat
 
 Newest first.
 
+## v1-quoted-macro-preproc-comment-apostrophe — a prose apostrophe in a comment derailed the quoted-macro preprocessor
+
+<!-- status: fixed
+     lane: v1
+     area: front
+     kind: bug
+     gate: v1/lang/core/src/test/scala/scalascript/parser/QuotedMacroPreprocessorTest.scala
+     fixed-in: 16b1d0a83 -->
+
+`preprocessQuotedMacros`' outer loop skipped strings and (since 35107ed97's char-literal fix)
+char literals, but had NO comment case. An apostrophe in ordinary prose — `/** the VM's stack */`
+— hit the char-literal case, `skipChar` hunted for a closing `'` across lines and stopped at the
+first quote of a later `s"… '${frame.kind}' …"` string; the scan resumed INSIDE that string and
+rewrote its `${…}` hole into `__ssc_macro_error__("…")` mid-literal. Symptom: `` `)` expected but
+`macro` found `` at a column past the end of its line — far from the defect, with no `${`/`'{`
+near the reported position. The char-literal fix EXPOSED it: before 35107ed97 a bare `'` was
+copied as an ordinary character, so comments were harmless.
+
+Repro (5 lines): a block or line comment containing `'` + any later string with a quote-adjacent
+interpolation hole; `ssc-tools emit-rust` on it. Found when stage-10's cargo re-verification ran
+emit-rust over `uniml/core` and TreeVm.scala's doc comments ("the VM's stack") refused to parse —
+first misread as a stage-10 regression until an A/B on the PRE-conversion TreeVm text failed
+identically on the current toolchain.
+
+Fix: `skipComment` in the outer loop (`//` to EOL; `/* … */` nested, as the language nests them).
+Three regression tests mirror the repro shape, including end-to-end `parseScalaWithDiagnostic`.
+
 ## v1-parserbench-silently-measures-a-four-line-fallback — the std tree moved and the bench improvised
 
 <!-- status: open
