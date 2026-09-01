@@ -1,2 +1,3 @@
-# generation: 3291
+# generation: 3292
 #slug	agent	started	items	paths
+uniml-demut-yaml-structure	claude-code	2026-09-01T07:20:41Z	uniml-yaml-structure-becomes-folds	file:uniml/yaml/src/main/scala/scalascript/uniml/dialect/yaml/YamlStructure.scala file:uniml/SPRINT.md
