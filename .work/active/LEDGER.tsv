@@ -1,3 +1,3 @@
 # generation: 3308
 #slug	agent	started	items	paths
-uniml-demut-scala	claude-code	2026-09-01T08:38:37Z	uniml-demut-scala	file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/ScalaSpike.scala file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/SpikeTyped.scala file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/SpikeAst.scala file:uniml/scala/src/main/scala/scalascript/uniml/ssc/SscCompose.scala file:uniml/SPRINT.md
+uniml-demut-scala	claude-code	2026-09-01T08:38:37Z	uniml-demut-scala	file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/ScalaSpike.scala file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/SpikeTyped.scala file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/SpikeAst.scala file:uniml/scala/src/main/scala/scalascript/uniml/ssc/SscCompose.scala file:uniml/SPRINT.md file:uniml/bench/src/main/scala/scalascript/uniml/bench/DiagnoseDialect.scala
