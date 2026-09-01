@@ -57,6 +57,16 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
       envelope — no urgent knob. Cursor de-mutabilization (stage 10) must re-run this bench per
       module as its perf gate.
 
+- [~] uniml-demut-yaml-lexer — **yaml's lexer joins the fold: 30 vars → 10.** A 17-field
+      YamlLexState record threaded step-wise; every scanner split into a PURE END-FINDER over the
+      input (blankEnd, singleQuotedEnd, doubleQuotedEnd, blockHeaderEnd, plainEnd, lineEnd — index
+      recursion, since strides vary) plus one state transition. emitRange stays the single site
+      where the five line-tracking flags move, with the else-if chain's semantics carried into
+      guarded copy fields. The 10 remaining vars are TWO documented leaf holdouts — validateLines
+      (two straight-line validation walks) and advance (position arithmetic over one lexeme) —
+      the validNumber argument: locals never escape, no state flows between fold steps.
+      Measured: 61/61 JVM + 60/60 JS, lint OK, warm wall 3.89–3.97s vs 3.78–3.79s baseline
+      (~3%, below alarm; the suite measures far more than the lexer). Stated, not hidden.
 - [~] uniml-demut-json-rest — **the json module is done: 38 vars → 1.** JsonProjection's six var
       clusters became folds/recursions, each shape chosen for a reason written in place: tail
       recursion where the imperative walk STOPPED at the first failure (a fold would keep visiting
