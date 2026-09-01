@@ -3919,8 +3919,23 @@ object RustCodeWalk:
     val binds =
       usedF.map(f => s"let ${rustIdent(f)} = self.${rustIdent(f)}.clone();") ++
       usedM.map { (s, n) =>
+        // A reference-typed parameter left UNANNOTATED gets an early-bound lifetime tied to the
+        // alias binding itself, so a temporary passed at a nested call site (a fold lambda handing
+        // `&Vec::new()` through the alias) is E0716 "temporary value dropped while borrowed" —
+        // while the same call DIRECT on `self` compiles. The explicit type makes the lifetime
+        // late-bound and the alias accepts exactly what the method itself accepts. Annotated only
+        // at the `_refParamPos` positions — where the emitted signature is `&`-typed; `_paramTypes`
+        // holds the BASE type there, so the `&` is prepended here. A by-value annotation buys
+        // nothing and `_paramTypes` can hold shapes that are not literal Rust types for them.
+        val declared = _paramTypes.getOrElse(s, Nil)
+        val refPos   = _refParamPos.getOrElse(s, Set.empty)
+        val ps = (0 until n).map { i =>
+          declared.lift(i).filter(t => t.nonEmpty && refPos.contains(i)) match
+            case Some(t) => s"__a$i: ${if t.startsWith("&") then t else s"&$t"}"
+            case None    => s"__a$i"
+        }.mkString(", ")
         val as = (0 until n).map(i => s"__a$i").mkString(", ")
-        s"let ${rustIdent(s)} = |$as| self.${rustIdent(s)}($as);"
+        s"let ${rustIdent(s)} = |$ps| self.${rustIdent(s)}($as);"
       }
     val body =
       if binds.isEmpty then withSelf
