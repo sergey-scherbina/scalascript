@@ -5,7 +5,7 @@ started: 2026-09-01T22:52:16Z
 heartbeat: 2026-09-01T22:52:16Z
 status: claimed-before-planning
 items: uniml-extern-class-members-hoist-to-top-level
-paths: file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/ScalaSpike.scala file:uniml/scala/src/test-jvm/scala/scalascript/uniml/dialect/scalascript/SpikeTypedRolesSpec.scala file:v3/front-diff.sh file:v3/BUGS.md file:v3/SPRINT.md
+paths: file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/ScalaSpike.scala file:uniml/scala/src/test-jvm/scala/scalascript/uniml/dialect/scalascript/SpikeTypedRolesSpec.scala file:v3/uniml/UniFront.scala file:v3/front-diff.sh file:v3/BUGS.md file:v3/SPRINT.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
