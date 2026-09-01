@@ -50,36 +50,54 @@ private[yaml] object YamlStructure:
       Result(assigned, validateFlow(tokens))
 
   private def streamAndDocuments(tokens: Vector[SourceToken]): Vector[Range] =
-    var result: Vector[Range] = Vector.empty
-    result = result :+ Range("yaml.stream", None, 0, tokens.size - 1, 0)
+    val stream = Range("yaml.stream", None, 0, tokens.size - 1, 0)
     val documentStarts = tokens.indices.filter(index => tokens(index).kind == "yaml.document-start").toVector
-    if documentStarts.isEmpty then result = result :+ Range("yaml.document", Some("stream.document"), 0, tokens.size - 1, 1)
-    else
-      val meaningfulBeforeFirst = tokens.take(documentStarts.head).exists(token =>
-        token.channel == TokenChannel.Syntax && token.kind != "yaml.directive"
-      )
-      val starts =
-        if meaningfulBeforeFirst then 0 +: documentStarts
-        else 0 +: documentStarts.tail
-      starts.indices.foreach { position =>
-        val start = starts(position)
-        val end = if position + 1 < starts.size then starts(position + 1) - 1 else tokens.size - 1
-        if start <= end then result = result :+ Range("yaml.document", Some("stream.document"), start, end, 1)
-      }
-    result
+    val documents =
+      if documentStarts.isEmpty then Vector(Range("yaml.document", Some("stream.document"), 0, tokens.size - 1, 1))
+      else
+        val meaningfulBeforeFirst = tokens.take(documentStarts.head).exists(token =>
+          token.channel == TokenChannel.Syntax && token.kind != "yaml.directive"
+        )
+        val starts =
+          if meaningfulBeforeFirst then 0 +: documentStarts
+          else 0 +: documentStarts.tail
+        starts.indices.toVector.flatMap { position =>
+          val start = starts(position)
+          val end = if position + 1 < starts.size then starts(position + 1) - 1 else tokens.size - 1
+          if start <= end then Vector(Range("yaml.document", Some("stream.document"), start, end, 1))
+          else Vector.empty
+        }
+    stream +: documents
+
+  // The fold's accumulator, one field per former var. A named record rather than a tuple, so no
+  // lambda has to destructure one (the v2 rule this file already records).
+  private final case class BlockAcc(
+      result: Vector[Range],
+      frames: Vector[BlockFrame],
+      previousLineEnd: Int,
+  )
 
   private def blockRanges(tokens: Vector[SourceToken]): Vector[Range] =
-    var result: Vector[Range] = Vector.empty
-    var frames: Vector[BlockFrame] = Vector.empty
     val byLine = tokens.indices.groupBy(index => tokens(index).span.start.line).toVector.sortBy(_._1)
-    var previousLineEnd = 0
 
-    def closeTop(end: Int): Unit =
-      val frame = frames.last
-      frames = frames.dropRight(1)
-      result = result :+ Range(frame.kind, frame.role, frame.start, math.max(frame.start, end), 2 + frames.size)
+    // The imperative closeTop popped `frames` and appended to `result`; the rank reads the stack
+    // size AFTER the pop, and that order is load-bearing — preserved by computing on `popped`.
+    def closeTop(acc: BlockAcc, end: Int): BlockAcc =
+      val frame = acc.frames.last
+      val popped = acc.frames.dropRight(1)
+      BlockAcc(
+        acc.result :+ Range(frame.kind, frame.role, frame.start, math.max(frame.start, end), 2 + popped.size),
+        popped,
+        acc.previousLineEnd,
+      )
 
-    byLine.foreach { pair =>
+    // Each `while frames.nonEmpty && <cond> do closeTop(...)` becomes drainWhile with the same
+    // predicate — the predicate sees the CURRENT stack each round, exactly as the loop did.
+    def drainWhile(acc: BlockAcc, end: Int, keepDraining: Vector[BlockFrame] => Boolean): BlockAcc =
+      if acc.frames.nonEmpty && keepDraining(acc.frames) then drainWhile(closeTop(acc, end), end, keepDraining)
+      else acc
+
+    def feedLine(acc: BlockAcc, pair: (Int, IndexedSeq[Int])): BlockAcc =
       // `pair._2` rather than a `(_, rawIndices)` destructuring lambda param:
       // ScalaScript v2 does not auto-destructure a tuple lambda parameter.
       val rawIndices = pair._2
@@ -93,80 +111,98 @@ private[yaml] object YamlStructure:
       val marker = significant.headOption.exists(index =>
         tokens(index).kind == "yaml.document-start" || tokens(index).kind == "yaml.document-end"
       )
-      if marker then
-        while frames.nonEmpty do closeTop(previousLineEnd)
-      else if significant.nonEmpty then
-        val indentation = indices.headOption.filter(index => tokens(index).kind == "yaml.indentation")
-          .map(index => tokens(index).lexeme.takeWhile(_ == ' ').length).getOrElse(0)
-        while frames.nonEmpty && frames.last.indent > indentation do closeTop(previousLineEnd)
-        val kind = lineKind(significant, tokens)
-        if frames.nonEmpty && frames.last.indent == indentation && kind.exists(_ != frames.last.kind) then
-          closeTop(previousLineEnd)
-        kind.foreach { value =>
-          val alreadyOpen = frames.lastOption.exists(frame => frame.indent == indentation && frame.kind == value)
-          if !alreadyOpen then
-            val role = frames.lastOption.map { parent =>
-              if parent.kind == "yaml.sequence" then "sequence.item" else "mapping.value"
-            }.orElse(Some("document.value"))
-            frames = frames :+ BlockFrame(indentation, value, role, significant.head, lineEnd)
-        }
-        frames = frames.map(_.copy(last = lineEnd))
-      else frames = frames.map(_.copy(last = lineEnd))
-      previousLineEnd = lineEnd
-    }
-    while frames.nonEmpty do closeTop(frames.last.last)
-    result
+      val stepped =
+        if marker then drainWhile(acc, acc.previousLineEnd, _ => true)
+        else if significant.nonEmpty then
+          val indentation = indices.headOption.filter(index => tokens(index).kind == "yaml.indentation")
+            .map(index => tokens(index).lexeme.takeWhile(_ == ' ').length).getOrElse(0)
+          val drained = drainWhile(acc, acc.previousLineEnd, frames => frames.last.indent > indentation)
+          val kind = lineKind(significant, tokens)
+          val kindClosed =
+            if drained.frames.nonEmpty && drained.frames.last.indent == indentation &&
+              kind.exists(_ != drained.frames.last.kind)
+            then closeTop(drained, drained.previousLineEnd)
+            else drained
+          val opened = kind.fold(kindClosed) { value =>
+            val alreadyOpen = kindClosed.frames.lastOption.exists(frame => frame.indent == indentation && frame.kind == value)
+            if !alreadyOpen then
+              val role = kindClosed.frames.lastOption.map { parent =>
+                if parent.kind == "yaml.sequence" then "sequence.item" else "mapping.value"
+              }.orElse(Some("document.value"))
+              kindClosed.copy(frames = kindClosed.frames :+ BlockFrame(indentation, value, role, significant.head, lineEnd))
+            else kindClosed
+          }
+          opened.copy(frames = opened.frames.map(_.copy(last = lineEnd)))
+        else acc.copy(frames = acc.frames.map(_.copy(last = lineEnd)))
+      stepped.copy(previousLineEnd = lineEnd)
+
+    val walked = byLine.foldLeft(BlockAcc(Vector.empty, Vector.empty, 0))(feedLine)
+    // The final drain closes each frame at ITS OWN `last` — the imperative loop re-read
+    // `frames.last.last` every round, so the predicate form keeps that per-round read.
+    def drainFinal(acc: BlockAcc): BlockAcc =
+      if acc.frames.nonEmpty then drainFinal(closeTop(acc, acc.frames.last.last)) else acc
+    drainFinal(walked).result
 
   private def lineKind(significant: IndexedSeq[Int], tokens: Vector[SourceToken]): Option[String] =
     significant.headOption.flatMap { first =>
       if tokens(first).kind == "yaml.sequence-indicator" then Some("yaml.sequence")
       else
-        var flowDepth = 0
-        val hasBlockColon = significant.exists { index =>
-          val token = tokens(index)
-          if token.kind == "yaml.flow-open" then flowDepth += 1
-          val isColon = token.kind == "yaml.value-indicator" && flowDepth == 0
-          if token.kind == "yaml.flow-close" then flowDepth = math.max(0, flowDepth - 1)
-          isColon
-        }
+        // The imperative original threaded flowDepth through an `exists` via side effects; here the
+        // depth is an explicit recursion parameter, and the early exit is the recursion stopping.
+        def blockColonAt(position: Int, flowDepth: Int): Boolean =
+          if position >= significant.length then false
+          else
+            val token = tokens(significant(position))
+            val opened = if token.kind == "yaml.flow-open" then flowDepth + 1 else flowDepth
+            if token.kind == "yaml.value-indicator" && opened == 0 then true
+            else
+              val closed = if token.kind == "yaml.flow-close" then math.max(0, opened - 1) else opened
+              blockColonAt(position + 1, closed)
+        val hasBlockColon = blockColonAt(0, 0)
         // `if … then Some … else None` rather than `Option.when(…)(…)`: the curried
         // `Option.when` companion is not portable to ScalaScript v2. Same result.
         if hasBlockColon then Some("yaml.mapping") else None
     }
 
+  // Accumulator as a named record, not a tuple: the fold's lambda must not destructure a tuple
+  // parameter (v2 does not auto-destructure one — the rule this file already records for foreach).
+  private final case class FlowAcc(result: Vector[Range], stack: Vector[(Char, Int)])
+
   private def flowRanges(tokens: Vector[SourceToken]): Vector[Range] =
-    var result: Vector[Range] = Vector.empty
-    var stack: Vector[(Char, Int)] = Vector.empty
-    tokens.indices.foreach { index =>
+    tokens.indices.foldLeft(FlowAcc(Vector.empty, Vector.empty)) { (acc, index) =>
       tokens(index).lexeme match
-        case "[" | "{" => stack = stack :+ (tokens(index).lexeme.charAt(0), index)
+        case "[" | "{" => acc.copy(stack = acc.stack :+ (tokens(index).lexeme.charAt(0), index))
         // Guard is INSIDE the body (not `case … if stack.nonEmpty`): ScalaScript v2
         // does not support a guard on an alternation pattern (`A | B if …`).
         case "]" | "}" =>
-          if stack.nonEmpty then
+          if acc.stack.nonEmpty then
             val expected = if tokens(index).lexeme == "]" then '[' else '{'
-            if stack.last._1 == expected then
+            if acc.stack.last._1 == expected then
               // `._1`/`._2` rather than a `val (open, start) = …` tuple-pattern binding:
               // ScalaScript v2 does not destructure a tuple in a val pattern.
-              val open = stack.last._1
-              val start = stack.last._2
-              stack = stack.dropRight(1)
+              val open = acc.stack.last._1
+              val start = acc.stack.last._2
+              val popped = acc.stack.dropRight(1)
               val kind = if open == '[' then "yaml.sequence.flow" else "yaml.mapping.flow"
-              result = result :+ Range(kind, Some(flowRole(stack.lastOption.map(_._1))), start, index, 100 + stack.size)
-        case _ => ()
-    }
-    result
+              FlowAcc(
+                acc.result :+ Range(kind, Some(flowRole(popped.lastOption.map(_._1))), start, index, 100 + popped.size),
+                popped,
+              )
+            else acc
+          else acc
+        case _ => acc
+    }.result
+
+  private final case class ValidateAcc(diagnostics: Vector[Diagnostic], stack: Vector[(Char, SourceToken)])
 
   private def validateFlow(tokens: Vector[SourceToken]): Vector[Diagnostic] =
-    var diagnostics: Vector[Diagnostic] = Vector.empty
-    var stack: Vector[(Char, SourceToken)] = Vector.empty
-    tokens.foreach { token =>
+    val walked = tokens.foldLeft(ValidateAcc(Vector.empty, Vector.empty)) { (acc, token) =>
       token.lexeme match
-        case "[" | "{" => stack = stack :+ (token.lexeme.charAt(0), token)
+        case "[" | "{" => acc.copy(stack = acc.stack :+ (token.lexeme.charAt(0), token))
         case "]" | "}" =>
           val expected = if token.lexeme == "]" then '[' else '{'
-          if stack.isEmpty || stack.last._1 != expected then
-            diagnostics = diagnostics :+ Diagnostic(
+          if acc.stack.isEmpty || acc.stack.last._1 != expected then
+            acc.copy(diagnostics = acc.diagnostics :+ Diagnostic(
               "uniml.yaml.unexpected-flow-close",
               // NOT `s"… '${token.lexeme}' …"`: a string-interpolation splice immediately
               // wrapped in a bare `'…'` (no other text between the quote and the `${`) trips
@@ -180,16 +216,16 @@ private[yaml] object YamlStructure:
               Severity.Error,
               Some(token.span),
               Some(YamlDialect.id),
-            )
-          else stack = stack.dropRight(1)
-        case _ => ()
+            ))
+          else acc.copy(stack = acc.stack.dropRight(1))
+        case _ => acc
     }
-    stack.foreach { pair =>
+    walked.diagnostics ++ walked.stack.map { pair =>
       // `pair._1`/`._2` rather than a `(delimiter, token)` destructuring lambda
       // param — v2 does not auto-destructure a tuple lambda parameter.
       val delimiter = pair._1
       val token = pair._2
-      diagnostics = diagnostics :+ Diagnostic(
+      Diagnostic(
         "uniml.yaml.unclosed-flow",
         s"unclosed YAML flow delimiter '$delimiter'",
         Severity.Error,
@@ -197,7 +233,6 @@ private[yaml] object YamlStructure:
         Some(YamlDialect.id),
       )
     }
-    diagnostics
 
   private def flowRole(parent: Option[Char]): String = parent match
     case Some('[') => "sequence.item"

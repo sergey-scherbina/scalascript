@@ -57,6 +57,15 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
       envelope — no urgent knob. Cursor de-mutabilization (stage 10) must re-run this bench per
       module as its perf gate.
 
+- [~] uniml-demut-yaml-structure — **YamlStructure is var-free: 9 → 0.** streamAndDocuments became
+      pure construction; lineKind's flowDepth (threaded through an `exists` via SIDE EFFECTS in the
+      original) became an explicit recursion parameter with the early exit as the recursion
+      stopping; flowRanges/validateFlow are foldLefts over NAMED accumulator records — not tuples,
+      because the file's own v2 rules forbid destructuring a tuple lambda parameter; blockRanges'
+      (result, frames, previousLineEnd) is a BlockAcc fold where each `while … do closeTop` became
+      drainWhile with the same per-round predicate, closeTop's rank-after-pop order preserved by
+      computing on `popped`, and the final drain re-reading `frames.last.last` each round as the
+      loop did. 61/61 JVM + 60/60 JS, lint OK.
 - [~] uniml-demut-yaml-lexer — **yaml's lexer joins the fold: 30 vars → 10.** A 17-field
       YamlLexState record threaded step-wise; every scanner split into a PURE END-FINDER over the
       input (blankEnd, singleQuotedEnd, doubleQuotedEnd, blockHeaderEnd, plainEnd, lineEnd — index
