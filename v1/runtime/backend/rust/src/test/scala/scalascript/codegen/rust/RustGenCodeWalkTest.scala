@@ -1682,16 +1682,44 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     // FIELD projection, not a bare name) partially moves `name`, and the struct-update's own
     // `..name` spread — reading `name` as a whole right after — can no longer borrow it:
     // `error[E0382]: borrow of partially moved value: name`.
+    // The WHOLE-VALUE read AFTER the field read is the premise (the real site reads `..name`
+    // last), so the fixture orders it that way: the owned-field-move pass rightly lets a field
+    // MOVE when every bare use of the param comes BEFORE it, so an early bare use would no
+    // longer pin this clone.
     val src =
       """```scalascript
         |case class QName(localName: String, prefix: Option[String])
         |
         |def resolve(name: QName, bindings: Map[String, String]): QName =
-        |  QName(localName = name.localName, prefix = name.prefix.flatMap(bindings.get))
+        |  val pfx = name.prefix.flatMap(bindings.get)
+        |  val keep = name
+        |  QName(localName = keep.localName, prefix = pfx)
         |```
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(g.contains("name.prefix.clone().and_then"), s"the field-select receiver must be cloned:\n$g")
+
+  test("a single-read field of a never-read-whole owned param MOVES instead of cloning"):
+    // `var topEdges = state.topEdges` in the tree VM's `step` (`ssc-owned-field-move`): the
+    // generated code cloned an accumulated edge list on entry and again on exit — per token —
+    // which kept single-frame parses quadratic AFTER the source-side hot-top fix. Each field of
+    // `state` is read exactly once and `state` is never read whole, so a partial move is what an
+    // owner would write by hand.
+    val src =
+      """```scalascript
+        |case class St(stack: Vector[String], count: Long)
+        |
+        |def step(state: St): St =
+        |  var stack = state.stack
+        |  var count = state.count
+        |  stack = stack :+ "x"
+        |  count += 1L
+        |  St(stack, count)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(!g.contains("state.stack.clone()"),
+      s"a single-read owned field must move, not clone:\n$g")
 
   test("a call to a lifted local def clones a multi-use argument"):
     // `emitKnownRange(start, lexeme, …)` then `lexeme` read again at the tail of the SAME function

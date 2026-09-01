@@ -1627,6 +1627,11 @@ object RustCodeWalk:
    *  `__self.scanRefDef((*lines).clone(), …)` copies it once per LINE. */
   private var _refParamPos: Map[String, Set[Int]] = Map.empty
   private var _returnTypes: Map[String, String] = Map.empty
+  // Per-def (param, field) pairs safe to MOVE out of an owned by-value parameter — see
+  // `collectSingleReadOwnedFields`. A module-level table keyed by def name (the `_returnTypes`
+  // precedent) rather than a Ctx field: the Ctx that reaches `cloneIfMoved` is rebuilt/copied
+  // along enough paths that a threaded field proved lossy in practice.
+  private var _ownedFieldMoves: Map[String, Set[(String, String)]] = Map.empty
 
   /** `(ownerName, memberName) -> mapped Rust return type` — the OWNER-QUALIFIED twin of
    *  `_returnTypes` above, for a call whose CALLEE is itself qualified (`PureMarkupCodec.
@@ -4168,8 +4173,13 @@ object RustCodeWalk:
                         localFns = collectLocalFns(d, userDefs),
                         localOptions = collectLocalOptions(d.body,
                           Ctx(intrinsics, userDefs, ctorMap, topVals, name, effectfulDefs)),
-                        defParams = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
-                          .map(_.name.value).toSet,
+                        defParams = {
+                          val ps = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
+                            .map(_.name.value).toSet
+                          _ownedFieldMoves = _ownedFieldMoves.updated(
+                            name, collectSingleReadOwnedFields(d.body, ps))
+                          ps
+                        },
                         rustFnNames = rustFnNames,
                         multiUse = collectMultiUse(d.body) -- collectCopyNames(d),
                         // A def's OWN signals win over a module-level one of the same name — that is
@@ -4881,6 +4891,17 @@ object RustCodeWalk:
       // already (checked bare, `!rendered.contains("(")`, exactly like the ordinary field-
       // projection case above) — asking `needs` about IT TOO catches this rewritten shape without
       // duplicating `_ambiguousTopValNames`/`topValEmitName`'s own lookup here.
+      // `let mut topEdges = state.topEdges;` — a single-read field of an owned by-value param
+      // MOVES out (partial move) instead of cloning: the owner is never read whole and this
+      // field never again, so the clone bought nothing but an O(field) copy — per call.
+      case m.Term.Select(m.Term.Name(root), m.Term.Name(field))
+          if _ownedFieldMoves.getOrElse(ctx.defName, Set.empty).contains((root, field))
+            && ctx.defParams.contains(root)
+            && !ctx.byRefMut.contains(root)
+            && !ctx.refValueParams.contains(root)
+            && !ctx.inClosure && !ctx.inWhileLoop
+            && !rendered.contains("(") =>
+        rendered
       case sel: m.Term.Select if !rendered.contains("(") && (selectRoot(sel).exists(needs) || needs(rendered)) =>
         s"$rendered.clone()"
       // `definitionOf(node.asInstanceOf[UniNode.Branch])` — `renderTerm`'s own `.asInstanceOf[T]`
@@ -4903,6 +4924,38 @@ object RustCodeWalk:
    *  enough signal to widen the check to every local, not just params, without reopening the
    *  original bug: `error: expected pattern, found =` from `let - = -.clone(); let Vector =
    *  Vector.clone(); …`. */
+  /** (param, field) pairs safe to MOVE out of an owned by-value parameter: every use of `param`
+   *  in the body is a plain `param.field` projection (never the bare name — a bare read passes
+   *  or returns the WHOLE value, and any later partial move would fight it), and each distinct
+   *  field is read at most once. Conservative on purpose: one bare use of the param, or a second
+   *  read of the same field, disqualifies the param entirely. `byRefMut`/`refValueParams` roots
+   *  are excluded at the USE site (`cloneIfMoved`) since those are not owned here. */
+  private def collectSingleReadOwnedFields(body: m.Term, params: Set[String]): Set[(String, String)] =
+    // Positions matter: a BARE use that comes AFTER a field read would see a partially moved
+    // value, so it disqualifies the param — but a bare use BEFORE every field read (the tree
+    // VM's early `if state.finished then Stepped(state, …)` returns) has already taken its own
+    // clone by the time any move happens, and partial moves after it are fine.
+    var fieldReads   = Map.empty[(String, String), Int]
+    var firstFieldAt = Map.empty[(String, String), Int]
+    var lastBareAt   = Map.empty[String, Int]
+    def walk(t: m.Tree): Unit =
+      t match
+        case sel @ m.Term.Select(m.Term.Name(p), m.Term.Name(f)) if params.contains(p) =>
+          fieldReads = fieldReads.updated((p, f), fieldReads.getOrElse((p, f), 0) + 1)
+          if !firstFieldAt.contains((p, f)) then firstFieldAt = firstFieldAt.updated((p, f), sel.pos.start)
+        case nm @ m.Term.Name(p) if params.contains(p) =>
+          lastBareAt = lastBareAt.updated(p, math.max(lastBareAt.getOrElse(p, -1), nm.pos.start))
+        case other => other.children.foreach(walk)
+    walk(body)
+    // A plain `filter`, deliberately NOT `fieldReads.collect { case ((p, f), 1) => … }`: that
+    // spelling silently DROPPED the first map entry here (observed with two single-read fields —
+    // only the second survived), while this filter over the same map returns both. Whatever the
+    // underlying pattern-match quirk is, the imperative spelling is the one whose behaviour was
+    // verified.
+    fieldReads.filter { kv =>
+      kv._2 == 1 && lastBareAt.getOrElse(kv._1._1, -1) < firstFieldAt.getOrElse(kv._1, Int.MaxValue)
+    }.keySet.toSet
+
   /** Names a `while` body makes fresh on every iteration: the ones it DECLARES, plus the ones it
    *  REASSIGNS. Both are exempt from the in-loop clone rule — a declared name is rebound each
    *  pass, and a reassigned one is overwritten each pass, so neither can be a value moved out on
