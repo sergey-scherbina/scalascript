@@ -1,0 +1,11 @@
+slug: v3-declare-hk-arity-conf-disagree
+branch: feature/v3-declare-hk-arity-conf-disagree
+agent: claude-code
+started: 2026-09-01T11:41:06Z
+heartbeat: 2026-09-01T11:41:06Z
+status: claimed-before-planning
+items: uniml-traitdecl-drops-class-parameters
+paths: file:v3/front-diff.sh file:v3/BUGS.md file:v3/SPRINT.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
