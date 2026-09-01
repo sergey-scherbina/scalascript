@@ -99,15 +99,16 @@ object SscCompose:
       .trim
       .takeWhile(c => !UniAlphabet.isWhitespace(c))
 
+  /** The compose walk's state, threaded instead of mutated: the fences seen, the front
+    * matter, the accumulated diagnostics and the worst completion status so far. */
+  private final case class ComposeAcc(
+      fences: Vector[Fence], front: Option[String],
+      diags: Vector[Diagnostic], worst: CompletionStatus):
+    def worsen(s: CompletionStatus): ComposeAcc =
+      if s.ordinal > worst.ordinal then copy(worst = s) else this
+
   def parse(source: String, registry: DialectRegistry = builtins): Composed =
     val md = Markdown.parse(SourceInput.fromString(SourceId("ssc:file"), source), MarkdownProfile.ScalaScript)
-    var fences = Vector.empty[Fence]
-    var front  = Option.empty[String]
-    var diags  = md.diagnostics
-    var worst  = md.status
-
-    def worsen(s: CompletionStatus): Unit =
-      if s.ordinal > worst.ordinal then worst = s
 
     /** Positions of a child parse, in the FILE's coordinates.
       *
@@ -121,27 +122,24 @@ object SscCompose:
       *
       * Built as an index over the body so the remap is one lookup per position
       * rather than a rescan, and walked by CODE POINT so a surrogate pair is
-      * advanced whole. */
-    def positionIndex(body: String, start: SourcePosition): Array[SourcePosition] =
-      val index = Array.fill(body.length + 1)(start)
-      var pos = start
-      var i = 0
-      while i < body.length do
-        // A surrogate pair is two chars, anything else is one — the same rule `Unicode` already
-        // applies when it advances a position, and tableless unlike `Character.charCount`.
-        val width =
-          if Unicode.isHighSurrogate(body.charAt(i)) && i + 1 < body.length &&
-            Unicode.isLowSurrogate(body.charAt(i + 1))
-          then 2
-          else 1
-        var k = 0
-        while k < width do { index(i + k) = pos; k += 1 }
-        pos = Unicode.advance(pos, body.substring(i, i + width))
-        i += width
-      index(body.length) = pos
-      index
+      * advanced whole. index(i) is char i's position; index(body.length) the end. */
+    def positionIndex(body: String, start: SourcePosition): Vector[SourcePosition] =
+      def walk(i: Int, pos: SourcePosition, acc: Vector[SourcePosition]): Vector[SourcePosition] =
+        if i >= body.length then acc :+ pos
+        else
+          // A surrogate pair is two chars, anything else is one — the same rule `Unicode` already
+          // applies when it advances a position, and tableless unlike `Character.charCount`.
+          val width =
+            if Unicode.isHighSurrogate(body.charAt(i)) && i + 1 < body.length &&
+              Unicode.isLowSurrogate(body.charAt(i + 1))
+            then 2
+            else 1
+          walk(i + width, Unicode.advance(pos, body.substring(i, i + width)),
+            acc ++ Vector.fill(width)(pos))
+      walk(0, start, Vector.empty)
 
-    def inject(b: UniNode.Branch, dropRole: String, body: String, adapter: DialectAdapter, id: String): UniNode.Branch =
+    def inject(acc: ComposeAcc, b: UniNode.Branch, dropRole: String, body: String,
+               adapter: DialectAdapter, id: String): (ComposeAcc, UniNode.Branch) =
       val sub = UniML.parse(SourceInput.fromString(SourceId(id), body), adapter)
       // where this body sits in the file: the first token carrying the dropped role
       val bodyStart = b.edges.collectFirst {
@@ -163,11 +161,10 @@ object SscCompose:
             roots = sub.roots.map(node),
             diagnostics = sub.diagnostics.map(d => d.copy(span = d.span.map(span))),
           )
-      diags = diags ++ remapped.diagnostics
-      worsen(remapped.status)
+      val acc1 = acc.copy(diags = acc.diags ++ remapped.diagnostics).worsen(remapped.status)
       // SPLICE the subtree where the body was, do not append it. Appending put the injected code
       // after the closing fence marker, so an in-order walk of the composed tree reconstructed the
-      // right characters in the WRONG ORDER — `\u0060\u0060\u0060` before the code instead of after. The
+      // right characters in the WRONG ORDER — the fence marker before the code instead of after. The
       // dialect's own losslessness spec cannot see this: it parses a bare dialect with no injection
       // at all. Found by consuming the published artifact from outside the build and checking
       // round-trip there.
@@ -187,9 +184,9 @@ object SscCompose:
       // bodies, measured before touching this line.
       val inj = remapped.roots.map(r => UniEdge(Some(tagOf(adapter)), r))
       val before = if at < 0 then kept.length else b.edges.take(at).count(e => !e.role.contains(dropRole))
-      b.copy(edges = kept.take(before) ++ inj ++ kept.drop(before))
+      (acc1, b.copy(edges = kept.take(before) ++ inj ++ kept.drop(before)))
 
-    def transform(n: UniNode): UniNode = n match
+    def transform(acc: ComposeAcc, n: UniNode): (ComposeAcc, UniNode) = n match
       // ONLY a fenced block. An INDENTED code block is a `markdown.code-block` too, with no info
       // string, so it used to fall through to the untyped-fence default and be parsed as
       // ScalaScript — a four-space-indented table or program output handed to the compiler front.
@@ -197,7 +194,7 @@ object SscCompose:
       // per-line indent token, so replacing the body with one subtree cannot preserve the order,
       // and the indents ended up behind the code. Six corpus files failed exactly that way.
       case b: UniNode.Branch if b.kind == "markdown.code-block" && !b.edges.exists(_.role.contains("fence.open")) =>
-        b
+        (acc, b)
       case b: UniNode.Branch if b.kind == "markdown.code-block" =>
         val lang = infoOf(b)
         val code = textOfRole(b, "code") // raw, lossless fence body — trailing EOL included
@@ -212,25 +209,33 @@ object SscCompose:
         // column of the breadth probe came from: 33 fences, 52 diagnostics, none of them ever
         // compiled by any lane. `Lang.isParseable` in v1 knows only the three names, and
         // `isProgramCode` is `isParseable(lang) && !isDocOnly`.
-        if lang.isEmpty || docAttr(b) then b
+        if lang.isEmpty || docAttr(b) then (acc, b)
         else registry.get(lang) match
           case Some(adapter) =>
-            fences = fences :+ Fence(lang, code, Some(adapter.id))
-            inject(b, "code", code, adapter, "ssc:fence") // trailing EOL is tolerated
+            val acc1 = acc.copy(fences = acc.fences :+ Fence(lang, code, Some(adapter.id)))
+            inject(acc1, b, "code", code, adapter, "ssc:fence") // trailing EOL is tolerated
           case None =>
-            fences = fences :+ Fence(lang, code, None)
-            b // a fence naming no registered dialect stays inert — no dialect reinterprets it
+            // a fence naming no registered dialect stays inert — no dialect reinterprets it
+            (acc.copy(fences = acc.fences :+ Fence(lang, code, None)), b)
       case b: UniNode.Branch if b.kind == "markdown.front-matter" =>
         val yaml = textOfRole(b, "yaml")
-        front = Some(yaml)
+        val acc1 = acc.copy(front = Some(yaml))
         registry.get("yaml") match
-          case Some(adapter) => inject(b, "yaml", yaml, adapter, "ssc:frontmatter")
-          case None          => b
+          case Some(adapter) => inject(acc1, b, "yaml", yaml, adapter, "ssc:frontmatter")
+          case None          => (acc1, b)
       case b: UniNode.Branch =>
-        b.copy(edges = b.edges.map(e => e.copy(child = transform(e.child))))
-      case t => t
+        val folded = b.edges.foldLeft((acc, Vector.empty[UniEdge])) { case ((a, es), e) =>
+          val (a2, child) = transform(a, e.child)
+          (a2, es :+ e.copy(child = child))
+        }
+        (folded._1, b.copy(edges = folded._2))
+      case t => (acc, t)
 
-    var roots = md.roots.map(transform)
+    val walked = md.roots.foldLeft((ComposeAcc(Vector.empty, None, md.diagnostics, md.status), Vector.empty[UniNode])) {
+      case ((a, rs), r) =>
+        val (a2, r2) = transform(a, r)
+        (a2, rs :+ r2)
+    }
 
     // ── BARE mode ────────────────────────────────────────────────────────────────────────────
     // Fences have been OPTIONAL in this project since 2026-07-09: a `.ssc` with no fence is the
@@ -256,50 +261,59 @@ object SscCompose:
     // The first version tested `no scalascript fence`, which also fires on a file whose fences are
     // all JSON, or on prose that happens to carry no heading. Measured: corpus diagnostics went
     // 75 -> 7,188 and a `json` fence started being read as ScalaScript. The census I took said
-    // 89 files have no ``` AT ALL; the predicate I then wrote said something much wider, and the
+    // 89 files have no fence AT ALL; the predicate I then wrote said something much wider, and the
     // corpus is what caught the gap between them.
     def hasHeading(n: UniNode): Boolean = n match
       case b: UniNode.Branch => b.kind.contains("heading") || b.edges.exists(e => hasHeading(e.child))
       case _                 => false
 
-    if fences.isEmpty && !roots.exists(hasHeading) then
-      registry.get("scalascript").foreach { adapter =>
-        // everything after the front matter, which stays as it is
-        val frontEnd = roots.collectFirst {
-          case b: UniNode.Branch if b.kind == "markdown.front-matter" => b.span.end
-        }
-        val startPos = frontEnd.getOrElse(SourcePosition.Start)
-        val body = source.substring(math.min(startPos.offset, source.length))
-        if body.nonEmpty then
-          val sub = UniML.parse(SourceInput.fromString(SourceId("ssc:bare"), body), adapter)
-          val index = positionIndex(body, startPos)
-          def at(p: SourcePosition): SourcePosition =
-            index(math.min(math.max(p.offset, 0), body.length))
-          def remapSpan(sp: SourceSpan): SourceSpan =
-            SourceSpan(SourceId("ssc:file"), at(sp.start), at(sp.end))
-          def remap(n: UniNode): UniNode = n match
-            case UniNode.Token(t)  => UniNode.Token(t.copy(span = remapSpan(t.span)))
-            case b: UniNode.Branch =>
-              b.copy(edges = b.edges.map(e => e.copy(child = remap(e.child))), span = remapSpan(b.span))
-          sub.roots.headOption.foreach { r =>
-            val kept = roots.filter {
-              case b: UniNode.Branch => b.kind == "markdown.front-matter"
-              case _                 => false
-            }
-            roots = kept :+ remap(r)
-            // Tagged `<bare>`, NOT "" — an empty info string means an UNTAGGED FENCE, and the
-            // breadth gate keeps tagged and untagged apart precisely so a change cannot be
-            // credited to the wrong population. A bare file is a third thing: a whole file of
-            // declared code, not a fence at all. Filing it under "" would have hidden it inside
-            // the bucket that exists to hold prose.
-            fences = fences :+ Fence("<bare>", body, Some(adapter.id))
-            diags = diags ++ sub.diagnostics
-            worsen(sub.status)
+    def bareMode(acc: ComposeAcc, roots: Vector[UniNode]): (ComposeAcc, Vector[UniNode]) =
+      registry.get("scalascript") match
+        case None => (acc, roots)
+        case Some(adapter) =>
+          // everything after the front matter, which stays as it is
+          val frontEnd = roots.collectFirst {
+            case b: UniNode.Branch if b.kind == "markdown.front-matter" => b.span.end
           }
-      }
+          val startPos = frontEnd.getOrElse(SourcePosition.Start)
+          val body = source.substring(math.min(startPos.offset, source.length))
+          if body.isEmpty then (acc, roots)
+          else
+            val sub = UniML.parse(SourceInput.fromString(SourceId("ssc:bare"), body), adapter)
+            val index = positionIndex(body, startPos)
+            def at(p: SourcePosition): SourcePosition =
+              index(math.min(math.max(p.offset, 0), body.length))
+            def remapSpan(sp: SourceSpan): SourceSpan =
+              SourceSpan(SourceId("ssc:file"), at(sp.start), at(sp.end))
+            def remap(n: UniNode): UniNode = n match
+              case UniNode.Token(t)  => UniNode.Token(t.copy(span = remapSpan(t.span)))
+              case b: UniNode.Branch =>
+                b.copy(edges = b.edges.map(e => e.copy(child = remap(e.child))), span = remapSpan(b.span))
+            sub.roots.headOption match
+              case None => (acc, roots)
+              case Some(r) =>
+                val kept = roots.filter {
+                  case b: UniNode.Branch => b.kind == "markdown.front-matter"
+                  case _                 => false
+                }
+                // Tagged `<bare>`, NOT "" — an empty info string means an UNTAGGED FENCE, and the
+                // breadth gate keeps tagged and untagged apart precisely so a change cannot be
+                // credited to the wrong population. A bare file is a third thing: a whole file of
+                // declared code, not a fence at all. Filing it under "" would have hidden it inside
+                // the bucket that exists to hold prose.
+                val acc1 = acc.copy(
+                  fences = acc.fences :+ Fence("<bare>", body, Some(adapter.id)),
+                  diags = acc.diags ++ sub.diagnostics,
+                ).worsen(sub.status)
+                (acc1, kept :+ remap(r))
+
+    val (acc, roots) =
+      if walked._1.fences.isEmpty && !walked._2.exists(hasHeading) then bareMode(walked._1, walked._2)
+      else walked
+
     val span = roots.headOption match
       case Some(b: UniNode.Branch) => b.span
       case Some(UniNode.Token(t))  => t.span
       case None                    => SourceSpan(SourceId("ssc:file"), SourcePosition.Start, SourcePosition.Start)
     val fileRoot = UniNode.Branch("ssc.file", roots.map(r => UniEdge(None, r)), span, Origin.Synthetic("ssc.compose"))
-    Composed(fileRoot, fences, front, diags, worst)
+    Composed(fileRoot, acc.fences, acc.front, acc.diags, acc.worst)

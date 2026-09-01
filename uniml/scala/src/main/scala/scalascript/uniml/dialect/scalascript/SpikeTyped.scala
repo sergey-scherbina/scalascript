@@ -95,18 +95,16 @@ object SpikeTyped:
     * `v3/rewrite-gate.sh` compares the trees they build. Before this existed the projection put the
     * COMMA in the list — `["Shape", ",", "Circle"]` against v3's `["Shape", "Circle"]` — which the
     * gate's spelling check is exactly what caught. */
+  private final case class ArgSplit(out: Vector[String], cur: Vector[String], depth: Int)
   private def typeArgList(lexemes: Vector[String]): Vector[String] =
-    var out = Vector.empty[String]
-    val cur = new StringBuilder
-    var depth = 0
-    lexemes.foreach { t =>
-      if t == "[" then { depth += 1; cur.append(t) }
-      else if t == "]" then { depth -= 1; cur.append(t) }
-      else if t == "," && depth == 0 then { out = out :+ cur.toString.trim; cur.setLength(0) }
-      else cur.append(t)
+    val done = lexemes.foldLeft(ArgSplit(Vector.empty, Vector.empty, 0)) { (a, t) =>
+      if t == "[" then a.copy(depth = a.depth + 1, cur = a.cur :+ t)
+      else if t == "]" then a.copy(depth = a.depth - 1, cur = a.cur :+ t)
+      else if t == "," && a.depth == 0 then ArgSplit(a.out :+ a.cur.mkString.trim, Vector.empty, a.depth)
+      else a.copy(cur = a.cur :+ t)
     }
-    val last = cur.toString.trim
-    (if last.isEmpty then out else out :+ last).filter(_.nonEmpty)
+    val last = done.cur.mkString.trim
+    (if last.isEmpty then done.out else done.out :+ last).filter(_.nonEmpty)
 
   private def allByRole(n: UniNode, role: String): Vector[UniNode] =
     kids(n).collect { case (Some(r), c) if r == role => c }
@@ -205,32 +203,31 @@ object SpikeTyped:
     * that name. This is the walk the reference performs (`ScalaSpike.scala:2419` for defs, :2448
     * for case classes). Collecting each role independently and zipping would pair the wrong type
     * with the wrong parameter as soon as one parameter omits a default and another has one. */
+  private final case class ParamAcc(
+      out: Vector[Param], cur: Option[(String, SourceSpan)],
+      tpe: Option[TypeRef], dflt: Option[Expr], isUsing: Boolean, byName: Boolean):
+    def flushed: Vector[Param] =
+      out ++ cur.map((nm, sp) => Param(nm, tpe, dflt, isUsing, sp, byName)).toVector
+
   private def slots(n: UniNode, nameRole: String, typeRoles: Set[String], dfltRole: String): Vector[Param] =
-    val out = Vector.newBuilder[Param]
-    var cur: Option[(String, SourceSpan)] = None
-    var tpe: Option[TypeRef] = None
-    var dflt: Option[Expr] = None
-    var isUsing = false
-    var byName = false
-    def flush(): Unit = cur.foreach((nm, sp) => out += Param(nm, tpe, dflt, isUsing, sp, byName))
-    kids(n).foreach { (role, c) =>
+    kids(n).foldLeft(ParamAcc(Vector.empty, None, None, None, false, false)) { case (a, (role, c)) =>
       role match
         case Some(r) if r == nameRole =>
-          flush(); cur = Some((lex(c), span(c))); tpe = None; dflt = None; isUsing = false; byName = false
+          ParamAcc(a.flushed, Some((lex(c), span(c))), None, None, false, false)
         case Some(r) if typeRoles.contains(r) =>
-          tpe = Some(typeRef(c)); if r.endsWith("usingtype") then isUsing = true
+          a.copy(tpe = Some(typeRef(c)), isUsing = a.isUsing || r.endsWith("usingtype"))
         // A `using` parameter's TYPE ARGUMENTS, appended to the type it belongs to as they
         // arrive. `Show` and `Show[A]` are the same head and different types, and resolution
         // matches on the whole of it.
         case Some("def.typearg") =>
-          tpe = tpe.map { t =>
+          a.copy(tpe = a.tpe.map { t =>
             val txt = if t.text.endsWith("]") then t.text.dropRight(1) + "," + lex(c) + "]"
                       else t.text + "[" + lex(c) + "]"
             TypeRef(txt, t.span)
-          }
+          })
         // The arrow the grammar now keeps. It arrives BEFORE the type, which is why it is read as
         // its own role rather than inferred from `tpe`.
-        case Some(r) if r.endsWith("byname") => byName = true
+        case Some(r) if r.endsWith("byname") => a.copy(byName = true)
         // VARARGS. Carried in the type TEXT rather than as a field on `Param`, because the text is
         // already what every consumer reads and `def.typearg` directly above rewrites it the same
         // way. `T*` is `List[T]` at Tier 0; the marker exists so the CALL SITE can collect its
@@ -238,12 +235,10 @@ object SpikeTyped:
         //
         // AFTER the type and after its arguments, so `tpe` is already the whole of `List[Int]`.
         case Some(r) if r.endsWith("vararg") =>
-          tpe = tpe.map(t => TypeRef(t.text + "*", t.span))
-        case Some(r) if r == dfltRole => dflt = Some(expr(c))
-        case _                        => ()
-    }
-    flush()
-    out.result()
+          a.copy(tpe = a.tpe.map(t => TypeRef(t.text + "*", t.span)))
+        case Some(r) if r == dfltRole => a.copy(dflt = Some(expr(c)))
+        case _                        => a
+    }.flushed
 
   /** One `x <- xs if p`. Two or more binders mean a TUPLE binder — the dialect records them flat
     * and lets the count carry that, so the projection does the same rather than inventing a shape

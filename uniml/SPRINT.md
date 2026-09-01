@@ -57,18 +57,27 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
       envelope — no urgent knob. Cursor de-mutabilization (stage 10) must re-run this bench per
       module as its perf gate.
 
-- [ ] uniml-demut-scala — plan: the scala module (ScalaSpike 101 vars, SpikeTyped 7, SpikeAst 2,
-      SscCompose 8), the module SpikeParserBench measures, so the bench IS the perf gate.
-      BASELINE (this host, this session, paired): parseComposed 3.847±0.089 ms/op, parseDialect
-      0.844±0.022 ms/op, Describe: composed Complete/0 diags/4220 nodes, dialect Incomplete/41
-      diags/1791 nodes — all four numbers must survive the conversion unchanged (the 41 is a
-      pinned shape, not a target). Phased inside one claim: (1) the lexer's pos/line/col/id
-      machine → state-record fold; (2) local `var more/depth/go` while-loops in the descent
-      functions → recursion (independent of the cursor: each round re-reads the cursor); (3) the
-      `Cur` class (p, diags builder, pdepth, blockCols — four mutable pieces) → immutable cursor
-      threaded via monomorphic Parsed* records, the yaml-semantic idiom at 4× the size; then
-      SpikeTyped/SscCompose/SpikeAst. Gates per phase: uniml `sbt test` (scala suites incl. the
-      218-test suite), Describe shape pin, bench after phase 3, lint-portable-subset.
+- [x] uniml-demut-scala — **the scala module is var-free: 118 → 0 declarations (every remaining
+      `var` in the file is the language keyword inside comments).** Landed in four measured steps,
+      each gated: (1) SpikeLex — scan became end-finders + one slice emit (`a12c93409`; the old
+      StringBuilders either duplicated the slice or were explicitly discarded); (2a) SpikeProject/
+      SpikeEmit — interp scanners to recursions, one fieldDefaultPairs helper for three walks,
+      placeholder counter threaded, rows rebinds (`050eb269e`); (2b) THE CURSOR — the mutable Cur
+      class rewritten as an immutable case class with St(cursor, value) threading through all ~65
+      parse functions (`2ab420c85`). First-splice compile; the Describe pin caught the one real
+      divergence (43 vs 41 dialect diags) and the new DiagnoseDialect dump named it: the
+      type-ascription branch's "nothing consumed" test rode the OLD cursor's trivia-migration
+      accident (whitespace after the colon meant never-reset, colon silently swallowed —
+      front-matter `version: 1.8.0` depends on it). Reproduced deliberately with the reason in
+      place; after the fix the dialect-arm diagnostics are BYTE-IDENTICAL (41, same lines/messages).
+      (3) SpikeTyped's slots/typeArgList folds; SscCompose's side-effecting transform closure →
+      ComposeAcc threading, positionIndex Array → Vector build. Gates at every step: unimlScala/test
+      218/218 with whole-repo reconstruction + 100% coverage, full uniml sbt test, Describe pin
+      EXACT (Complete/0/4220, Incomplete/41/1791). PERF (the module SpikeParserBench measures,
+      paired same-host): composed 3.609±0.123 vs baseline 3.847±0.089 ms/op, dialect 0.800±0.013 vs
+      0.844±0.022 — the immutable cursor is ~5% FASTER, i.e. within noise and decisively not
+      slower; nothing to park.
+
 - [x] uniml-demut-md-longestrun — **the markdown module is now var-free outside the declared
       Blocks leaf zone: `MdLine.longestRun` 3 → 0.** The straggler the md-lexer entry's "19 → 0"
       missed (its count came from the pre-conversion survey sites). Run-end + scan recursions,
