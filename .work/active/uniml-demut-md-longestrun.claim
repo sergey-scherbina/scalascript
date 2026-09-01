@@ -1,0 +1,11 @@
+slug: uniml-demut-md-longestrun
+branch: feature/uniml-demut-md-longestrun
+agent: claude-code
+started: 2026-09-01T08:36:48Z
+heartbeat: 2026-09-01T08:36:48Z
+status: claimed-before-planning
+items: uniml-demut-md-longestrun
+paths: file:uniml/markdown/src/main/scala/scalascript/uniml/dialect/markdown/MarkdownLexer.scala file:uniml/SPRINT.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
