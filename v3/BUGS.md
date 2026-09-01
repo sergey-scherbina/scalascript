@@ -261,13 +261,14 @@ one-argument SYMBOLIC name through `arithOp`, which is where the two models meet
 
 ## infix-application-does-not-reach-a-declared-class-method — `b add 2` fails where `b.add(2)` works
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      kind: bug
      area: runtime
-     gate: v3/infix-front-split-gate.sh
+     gate: v3/tests/front/infix-class-method.ssc
      found-by: claude-code
-     found-at: 2026-08-19 -->
+     found-at: 2026-08-19
+     fixed-in: 8f26b983f -->
 
 **THE SAME CALL, TWO SPELLINGS, TWO ANSWERS:**
 
@@ -385,6 +386,54 @@ deliberately cold run straight after rebuilding the classpath, and ONE unexplain
 first invocation that has not reproduced. The failure path is conservative — an unrecognised message
 is a FAIL, not a pass — so an unexplained red is the gate declining to certify a state it does not
 know, which is the direction to be wrong in.
+
+
+### CLOSED 2026-09-01 — the other front got the general arm, and the gate that pinned this is gone
+
+`ScalaSpike.infixLoop` knew exactly two id-infix words, `to` and `until`, hardcoded. That was not
+uniml being behind the reference front: `v2/lib/ssc1-front.ssc0:1901-1909` stops at the same two, so
+**both fronts of the older lane have this gap and only v3's own parser had closed it.** `8f26b983f`
+adds an arm below the existing one for any plain identifier.
+
+**It needed no lowering, projection or Ast change, and that is a fact about the node rather than
+luck.** `spike.rangeop` is misnamed: it lowers to `mkApp(mkSel(lhs, word), [rhs])` on the Core IR
+path and to `RangeOp` -> `Expr.Bin(op, …)` in the typed projection
+(`v3/uniml/UniFront.scala:698`) — `lhs.word(rhs)`, which is what an id-infix application MEANS, and
+which is exactly the node v3's `Lower` arm from `92e90e34e` already serves. The kind keeps its
+spelling; renaming it would move byte-exact CST pins for a cosmetic gain.
+
+**THE GUARDS ARE THE WORK, and the control says every one of them is load-bearing.** The lexer has
+ELEVEN keywords, so `yield`, `catch`, `finally`, `var`, `with`, `object` and the rest reach the
+infix loop as ordinary `spike.id`. Four guards hold them off: a lowercase `spike.id` operator, not
+in a reserved-word set, on the same line as the left operand's end, with a right operand that
+begins on that line and can start an atom. Neutralising all four and re-running
+`unimlScala/testOnly *ScalaSpikeSpec` fails the five new guard tests **and five PRE-EXISTING ones**
+— `offside: indented def body`, `offside: a leading-operator continuation line`, the
+`var`/assign/`while` projection and both for-comprehension desugarings. That is the difference
+between guards that prevent regressions and guards that describe them.
+
+**THE GATE THAT PINNED THIS DEFECT IS RETIRED, WHICH IS WHAT ITS OWN HEADER ASKED FOR.**
+`v3/infix-front-split-gate.sh` proved the two fronts DISAGREE by toggling `v3/.jars/uniml.cp`
+itself, the only shape that worked while a plain fixture was green in a built tree and red in a
+fresh one. With the fronts agreeing, the variable it controlled stops being a variable:
+`v3/tests/front/infix-class-method.ssc` is now run by `front-diff.sh` (which compares the two
+FRONTS) and by `exec-gate.sh` (which compares the two LANES), both in `v3.yml`. The gate is deleted
+and its `Check` removed from `scripts/smoke-ci.ssc` with the reason written at the site, so the
+assertion moved rather than vanished.
+
+**Measured on `8f26b983f`:** the entry's own reproducer prints 42/42 with the classpath present AND
+absent; `front-diff.sh` GREEN — **89** fixtures, 2 fronts, agree **88**, the new fixture having
+joined the population, and the corpus disagreement set is exactly the five declared rows, unmoved;
+`exec-gate.sh` GREEN — 99 cases, both lanes agree, `infix-class-method -> 42/42/120/3/3/List(1, 2, 3)`
+among them; `unimlScala/test` 226/226; jit-gate, bench-corpus-gate, front-capability-gate, selftest, front-gate,
+front-report-gate, prelude-gate, bridge-gate, parity-gate, walker-gate, rewrite-gate, loader-gate,
+effects-gate, extension-gate and regex-subset-gate all GREEN.
+
+**AND THE OTHER LANE IS WORSE THAN THIS ENTRY ASSUMED.** Every version of this entry described the
+gap as a REFUSAL. On v2 it is not: `println(b add 2)` compiles, exits 0 and prints `Box(40)` —
+the argument silently loses ` add 2`. Filed as `v2/BUGS.md`
+`v2-front-drops-an-id-infix-application-and-prints-the-receiver`, and it is why the fixture for this
+entry lives in `v3/tests/front` rather than `tests/conformance`.
 
 
 ## v3-front-diff-ceiling-is-derived-by-word-counting-and-a-comment-changes-it — 23, 76 or 83 for one list

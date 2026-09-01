@@ -4522,7 +4522,7 @@ which refuses at the PARSER — `expected ')' to close call [spike.expected]` �
 looked up. Reproduced in this worktree with `v3/.jars/uniml.cp` built: v3's own front prints 42/42,
 the spike front refuses at 5:17.
 
-- [~] **A general id-infix arm in `ScalaSpike.infixLoop`.** The spike knows exactly two id-infix
+- [x] **A general id-infix arm in `ScalaSpike.infixLoop`.** The spike knows exactly two id-infix
   words, `to` and `until`, hardcoded — an exact mirror of `v2/lib/ssc1-front.ssc0:1901-1909`, which
   also knows only those two. So this is not "uniml is behind the reference front"; **both fronts of
   the older lane have the same gap**, and only v3's own parser closed it.
@@ -4546,14 +4546,41 @@ the spike front refuses at 5:17.
   absent; `v3/front-diff.sh` green with BOTH fronts runnable and its disagreement set unchanged;
   `v3/exec-gate.sh` green on both lanes; the uniml suite (`sbt test`) and the dialect/composed pins
   unmoved; `scripts/smoke-ci` green.
-- [~] **Retire `v3/infix-front-split-gate.sh` for a plain fixture.** That gate PINS the defect and
+- [x] **Retire `v3/infix-front-split-gate.sh` for a plain fixture.** That gate PINS the defect and
   says so in its own header: it goes red when the gap closes, and its instruction is to replace it
   with a fixture rather than to delete the assertion. Once both fronts lower this, a
   `v3/tests/front` fixture with an `.expected` is runnable by `exec-gate.sh` on BOTH lanes — the
   thing that was impossible while the fronts disagreed, and the reason no fixture existed.
   *Done when:* the gate file is gone, the fixture passes on both lanes, and no gate references the
   removed script.
-- [~] **File the v2 half.** `ssc1-front.ssc0` still knows only `to`/`until`, so after this lands a
+- [x] **File the v2 half.** `ssc1-front.ssc0` still knows only `to`/`until`, so after this lands a
   program using id-infix compiles on both v3 fronts and is refused by v2 — a NEW two-front pair,
   recorded rather than left for the next agent to rediscover. This is why the fixture goes in
   `v3/tests/front` and NOT in `tests/conformance`: a corpus case would be red on every v2 lane.
+
+**Measured, on `8f26b983f`.** The arm landed; `to`/`until` untouched. `unimlScala/test` **226/226**,
+including eight new cases. `v3/front-diff.sh` GREEN — **89** fixtures, 2 fronts, agree **88**: the
+new fixture joined the population and the two fronts agree on it, which is the assertion the retired
+gate used to make by hand. Corpus disagreements exactly the five declared rows, unmoved.
+`v3/exec-gate.sh` GREEN — **99** cases, both lanes agree, `infix-class-method -> 42/42/120/3/3/List(1, 2, 3)`
+ among them. jit-gate, bench-corpus-gate, front-capability-gate, selftest, front-gate, front-report-gate, prelude-gate,
+bridge-gate, parity-gate, walker-gate, rewrite-gate, loader-gate, effects-gate, extension-gate and
+regex-subset-gate: GREEN. `bugs-index-gate.sh` OK (1270 entries, 0 problems). `scripts/smoke-ci`
+**125/125 green**, 1452 s of a 2132 s budget, on a worktree built with `./install.sh --dev` — 125
+and not 126 because the retired check is the one that left.
+
+**THE GUARDS WERE CONTROLLED, NOT ASSUMED.** Neutralising all four and re-running the spec fails the
+five new guard tests **and five pre-existing ones** — `offside: indented def body`, `offside: a
+leading-operator continuation line`, the `var`/assign/`while` projection and both for-comprehension
+desugarings. Without that run the guards would have been four plausible conditions; with it they are
+four measured ones, and the pre-existing failures are the evidence that the arm without them would
+have broken shipped behaviour rather than merely admitted too much.
+
+**THE v2 HALF TURNED OUT TO BE A DIFFERENT AND WORSE BUG THAN EVERY ACCOUNT OF IT.** This entry, and
+`v3/BUGS.md` before it, called the other front's behaviour a REFUSAL. Measured: `println(b add 2)`
+on v2 compiles, exits 0 and prints `Box(40)` — the argument silently loses ` add 2`. The same
+expression in statement position IS refused (`_err` sentinel), and with two arguments it produces
+`arity: 1 expected, 2 given`, so the sentinel machinery works everywhere except the one position
+where the answer comes out wrong. Filed as `v2/BUGS.md`
+`v2-front-drops-an-id-infix-application-and-prints-the-receiver`, `confirmed: yes`, with the
+argument that the silent drop is repairable WITHOUT the feature and should be repaired first.
