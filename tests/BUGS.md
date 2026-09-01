@@ -66,7 +66,7 @@ that executes only at release time.
 ## smoke-printer-glues-a-long-check-name-to-its-duration — a 34+-char name fills the column and the time sticks to it
 
 <!-- status: fixed
-     lane: tests
+     lane: apparatus
      area: build
      kind: bug
      gate: tests/smoke-baseline-harvest.sh --self-test (glued-line case; negative control: the old parser exits 1 on it)
