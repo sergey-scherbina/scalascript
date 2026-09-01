@@ -57,6 +57,18 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
       envelope — no urgent knob. Cursor de-mutabilization (stage 10) must re-run this bench per
       module as its perf gate.
 
+- [ ] uniml-demut-scala — plan: the scala module (ScalaSpike 101 vars, SpikeTyped 7, SpikeAst 2,
+      SscCompose 8), the module SpikeParserBench measures, so the bench IS the perf gate.
+      BASELINE (this host, this session, paired): parseComposed 3.847±0.089 ms/op, parseDialect
+      0.844±0.022 ms/op, Describe: composed Complete/0 diags/4220 nodes, dialect Incomplete/41
+      diags/1791 nodes — all four numbers must survive the conversion unchanged (the 41 is a
+      pinned shape, not a target). Phased inside one claim: (1) the lexer's pos/line/col/id
+      machine → state-record fold; (2) local `var more/depth/go` while-loops in the descent
+      functions → recursion (independent of the cursor: each round re-reads the cursor); (3) the
+      `Cur` class (p, diags builder, pdepth, blockCols — four mutable pieces) → immutable cursor
+      threaded via monomorphic Parsed* records, the yaml-semantic idiom at 4× the size; then
+      SpikeTyped/SscCompose/SpikeAst. Gates per phase: uniml `sbt test` (scala suites incl. the
+      218-test suite), Describe shape pin, bench after phase 3, lint-portable-subset.
 - [x] uniml-demut-md-longestrun — **the markdown module is now var-free outside the declared
       Blocks leaf zone: `MdLine.longestRun` 3 → 0.** The straggler the md-lexer entry's "19 → 0"
       missed (its count came from the pre-conversion survey sites). Run-end + scan recursions,

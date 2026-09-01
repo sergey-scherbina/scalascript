@@ -66,9 +66,8 @@ object SpikeLex:
     // The lexeme is the SOURCE SLICE (see the caller), so widening the munch cannot lose a
     // character; only the MEANING is decided here.
     val n = text.length
-    var k = i
-    while k < n && isOpChar(text.charAt(k)) do k += 1
-    val raw = text.substring(i, k)
+    def opEnd(k: Int): Int = if k < n && isOpChar(text.charAt(k)) then opEnd(k + 1) else k
+    val raw = text.substring(i, opEnd(i))
     // Two lex-time REWRITES survive, and they are statements about meaning rather than munching:
     // in v2 every Seq is a Cons-list, so `xs ::: ys` IS `xs ++ ys` and `x +: xs` IS `x :: xs`
     // (ssc1-front.ssc0:385/428). Everything else means itself, including an operator this dialect
@@ -80,281 +79,248 @@ object SpikeLex:
     (meaning, raw.length)
 
   private def isHexDigit(c: Char): Boolean = UniAlphabet.isHexDigit(c)
-  private def hexVal(c: Char): Long =
-    if c >= '0' && c <= '9' then (c - '0').toLong
-    else if c >= 'a' && c <= 'f' then (c - 'a' + 10).toLong
-    else (c - 'A' + 10).toLong
+
+  /** The lexer state: index/line/column plus the next token id and the emitted tokens.
+    * Every token's lexeme is a SOURCE SLICE `[start, end)` — the old StringBuilders either
+    * duplicated the slice or were explicitly discarded (`val _ = sb`) — so each branch only
+    * computes its END index and `emitTo` does the rest. */
+  private final case class LexSt(i: Int, line: Int, col: Int, id: Long, out: Vector[SourceToken])
 
   def scan(src: SourceId, text: String): Vector[SourceToken] =
-    val out = Vector.newBuilder[SourceToken]
-    var i = 0
-    var line = 1
-    var col = 1
-    var id = 0L
     val n = text.length
-    def pos = SourcePosition(i, line, col)
-    def advance(c: Char): Unit =
-      if c == '\n' then { line += 1; col = 1 } else col += 1
-      i += 1
-    def emit(kind: String, start: SourcePosition, lexeme: String, chan: TokenChannel): Unit =
-      out += SourceToken(id, kind, lexeme, SourceSpan(src, start, pos), chan)
-      id += 1
-    while i < n do
-      val c = text.charAt(i)
-      val start = pos
-      if c == ' ' || c == '\t' || c == '\n' || c == '\r' then
-        val sb = new StringBuilder
-        while i < n && (text.charAt(i) == ' ' || text.charAt(i) == '\t' || text.charAt(i) == '\n' || text.charAt(i) == '\r') do
-          sb.append(text.charAt(i)); advance(text.charAt(i))
-        emit("spike.ws", start, sb.toString, TokenChannel.Trivia)
-      else if UniAlphabet.isDigit(c) then
-        // Number lexer — matches ssc1-front (v2/lib/ssc1-front.ssc0:295-338):
-        //   • hex 0x/0X → the DECIMAL value string (strip trailing L/l Long suffix)
-        //   • decimal: `_` digit-separators stripped from the lexeme; `d.d` or `1e10`/`1.0e100`
-        //     exponent → float; otherwise int with a trailing L/l suffix stripped.
-        val numStart = i
-        if c == '0' && i + 1 < n && (text.charAt(i + 1) == 'x' || text.charAt(i + 1) == 'X')
-           && i + 2 < n && isHexDigit(text.charAt(i + 2)) then
-          advance(text.charAt(i)); advance(text.charAt(i)) // consume `0x`
-          var hv = 0L
-          while i < n && isHexDigit(text.charAt(i)) do { hv = hv * 16 + hexVal(text.charAt(i)); advance(text.charAt(i)) }
-          if i < n && (text.charAt(i) == 'L' || text.charAt(i) == 'l') then advance(text.charAt(i))
-          val _ = hv // the VALUE is recomputed by SpikeNum.decode from the raw slice
-          emit("spike.int", start, text.substring(numStart, i), TokenChannel.Syntax)
-        else
-          val sb = new StringBuilder
-          // digit run, `_` separators consumed but not kept
-          while i < n && (UniAlphabet.isDigit(text.charAt(i)) || text.charAt(i) == '_') do
-            { if UniAlphabet.isDigit(text.charAt(i)) then sb.append(text.charAt(i)); advance(text.charAt(i)) }
-          // optional scientific exponent `e`/`E` [`+`/`-`] digits (appended to the lexeme)
-          def scanExponent(): Boolean =
-            if i < n && (text.charAt(i) == 'e' || text.charAt(i) == 'E') then
-              val signLen = if i + 1 < n && (text.charAt(i + 1) == '+' || text.charAt(i + 1) == '-') then 1 else 0
-              if i + 1 + signLen < n && UniAlphabet.isDigit(text.charAt(i + 1 + signLen)) then
-                sb.append(text.charAt(i)); advance(text.charAt(i))               // `e`/`E`
-                if signLen == 1 then { sb.append(text.charAt(i)); advance(text.charAt(i)) }
-                while i < n && (UniAlphabet.isDigit(text.charAt(i)) || text.charAt(i) == '_') do
-                  { if UniAlphabet.isDigit(text.charAt(i)) then sb.append(text.charAt(i)); advance(text.charAt(i)) }
-                true
-              else false
-            else false
-          // `1.5` is a float; `1.field` (dot NOT followed by a digit) stays int + `.` + selector
-          // `0d` / `1.5f` / `3D` — Scala's FLOAT SUFFIX, which this lexer knew nothing about. The
-          // digit run stopped at the letter, so `val a: Double = 0d` lexed as the integer `0`
-          // followed by the identifier `d`, and the statement after it read as a bare name. Three
-          // corpus cases came out with more statements than they had, which is the shape that
-          // hides: the tree is well-formed and says something the source did not.
-          // The lookahead guard keeps `2fooBar` — not a literal in any Scala — from being read as
-          // one; the suffix must be the LAST character of the token.
-          def scanFloatSuffix(): Boolean =
-            val c1 = if i < n then text.charAt(i) else ' '
-            if (c1 == 'f' || c1 == 'F' || c1 == 'd' || c1 == 'D')
-               && !(i + 1 < n && isSpikeIdPart(text.charAt(i + 1))) then
-              advance(c1); true
-            else false
-          if i + 1 < n && text.charAt(i) == '.' && UniAlphabet.isDigit(text.charAt(i + 1)) then
-            sb.append('.'); advance('.')
-            while i < n && (UniAlphabet.isDigit(text.charAt(i)) || text.charAt(i) == '_') do
-              { if UniAlphabet.isDigit(text.charAt(i)) then sb.append(text.charAt(i)); advance(text.charAt(i)) }
-            scanExponent()
-            scanFloatSuffix()
-            emit("spike.float", start, text.substring(numStart, i), TokenChannel.Syntax)
-          else if scanExponent() then // `1e10` (no decimal point) is still a float
-            scanFloatSuffix()
-            emit("spike.float", start, text.substring(numStart, i), TokenChannel.Syntax)
-          else if scanFloatSuffix() then // `0d`, `3F` — a float with no point and no exponent
-            emit("spike.float", start, text.substring(numStart, i), TokenChannel.Syntax)
-          else
-            if i < n && (text.charAt(i) == 'L' || text.charAt(i) == 'l') then advance(text.charAt(i)) // Long suffix
-            val _ = sb // the VALUE is recomputed by SpikeNum.decode from the raw slice
-            emit("spike.int", start, text.substring(numStart, i), TokenChannel.Syntax)
-      else if isSpikeIdStart(c) then
-        val sb = new StringBuilder
-        while i < n && isSpikeIdPart(text.charAt(i)) do { sb.append(text.charAt(i)); advance(text.charAt(i)) }
-        val w = sb.toString
-        val idKind = if keywords(w) then "spike.kw" else if UniAlphabet.isTypeNameStart(w.head) then "spike.uid" else "spike.id"
-        emit(idKind, start, w, TokenChannel.Syntax)
-      else if c == '/' && i + 1 < n && text.charAt(i + 1) == '/' then
-        // line comment → trivia (parser skips it via skipTrivia); lossless, text kept in the token
-        val sb = new StringBuilder
-        while i < n && text.charAt(i) != '\n' do { sb.append(text.charAt(i)); advance(text.charAt(i)) }
-        emit("spike.ws", start, sb.toString, TokenChannel.Trivia)
-      else if c == '/' && i + 1 < n && text.charAt(i + 1) == '*' then
-        // block comment → trivia, and it NESTS, as it does in Scala.
-        //
-        // It used to stop at the FIRST `*/`, matching ssc1-front's skipBlockComment. For
-        // `/* a /* b */ c */` that left ` c */` to be lexed as code, and the failure surfaced as
-        // `missing.right` — a complaint about an operator, several tokens past the construct that
-        // actually broke.
-        //
-        // This makes the dialect MORE PERMISSIVE than the reference front, deliberately: v3
-        // supports nesting because Scala does, and ssc1-front's gap is shared rather than
-        // authoritative here. The divergence is in the only safe direction — strictly more input
-        // parses — so no file that parses today can stop parsing, and the corpus counts are checked
-        // rather than assumed.
-        //
-        // Losslessness is untouched: the comment remains ONE trivia token holding its text
-        // verbatim; only where that token ends has changed.
-        val sb = new StringBuilder
-        sb.append('/'); advance('/'); sb.append('*'); advance('*')
-        var depth = 1
-        while i < n && depth > 0 do
-          if text.charAt(i) == '/' && i + 1 < n && text.charAt(i + 1) == '*' then
-            depth += 1
-            sb.append('/'); advance('/'); sb.append('*'); advance('*')
-          else if text.charAt(i) == '*' && i + 1 < n && text.charAt(i + 1) == '/' then
-            depth -= 1
-            sb.append('*'); advance('*'); sb.append('/'); advance('/')
-          else { sb.append(text.charAt(i)); advance(text.charAt(i)) }
-        emit("spike.ws", start, sb.toString, TokenChannel.Trivia)
-      else if isOpChar(c) then
-        val opStart = i
-        val (op, width) = opAt(text, i)
-        var k = 0
-        while k < width do { advance(text.charAt(i)); k += 1 }
-        val kind = op match
-          case "=" => "spike.eq"
-          case ":" => "spike.colon"
-          case _   => "spike.op"
-        // The lexeme is the SOURCE SLICE, not `op`. `opAt` REWRITES two operators —
-        // `:::`→`++` and `+:`→`::` — mirroring ssc1-front's lex-time rewrite, and a
-        // rewritten lexeme is one the source cannot be rebuilt from: `xs ::: ys` came
-        // back as `xs ++ ys`, one character short. The rewrite is a statement about
-        // MEANING (in v2 every Seq is a Cons-list, so `:::` IS `++`), so it belongs
-        // where meaning is read — `SpikeOp.meaning`, used by the precedence table and
-        // the projection.
-        emit(kind, start, text.substring(opStart, i), TokenChannel.Syntax)
-      else if c == '"' then
-        // string literal → spike.str whose lexeme is the RAW SOURCE SLICE, quotes and
-        // escapes included. It used to hold the DECODED value ("mirrors ssc1-front
-        // buildStr"), which is convenient for the projection and fatal for the CST: the
-        // quotes and every `\n` never reached the tree, so a source with strings could
-        // not be reconstructed. Decoding is `SpikeStr.decode`, applied where the
-        // projection needs a VALUE — the same split Markdown uses, where the CST is
-        // canonical and `MarkdownProjection` unescapes.
-        val strStart = i
-        val sb = new StringBuilder
-        if i + 2 < n && text.charAt(i + 1) == '"' && text.charAt(i + 2) == '"' then
-          advance('"'); advance('"'); advance('"')
-          while i < n && !(i + 2 < n && text.charAt(i) == '"' && text.charAt(i + 1) == '"' && text.charAt(i + 2) == '"') do
-            sb.append(text.charAt(i)); advance(text.charAt(i))
-          // A run of MORE THAN THREE quotes closes with its LAST three; the extras are
-          // CONTENT. `""" aria-invalid="true""""` ends with four, because the content
-          // itself ends in `"`. Closing on the first three left a stray quote that opened a
-          // new string and mis-lexed the rest of the file — 20 diagnostics in
-          // examples/std-ui/textarea.ssc, all of them from this one character.
-          while i + 3 < n && text.charAt(i) == '"' && text.charAt(i + 1) == '"' &&
-            text.charAt(i + 2) == '"' && text.charAt(i + 3) == '"' do
-            sb.append(text.charAt(i)); advance(text.charAt(i))
-          if i + 2 < n then { advance('"'); advance('"'); advance('"') }
-        else
-          advance('"')
-          while i < n && text.charAt(i) != '"' do
-            if text.charAt(i) == '\\' && i + 1 < n then
-              val e = text.charAt(i + 1)
-              sb.append(if e == 'n' then '\n' else if e == 't' then '\t' else e)
-              advance('\\'); advance(e)
-            // AND ONLY IN AN INTERPOLATION, which is what the character BEFORE the opening quote
-            // says: `s"…"`, `html"…"`, `f"…"` have an identifier there, a plain `"…"` does not.
-            // `${` is special ONLY in an interpolated string — in a plain one it is the two
-            // characters `$` and `{`, exactly as in Scala.
-            //
-            // `holeCloses` alone was not enough and the miss was narrow: it stops the look-ahead at
-            // a NEWLINE, so a plain string whose `${` and a later `}` sit on ONE LINE still took
-            // this branch. `"<code>${" + escapeHtml(s) + "}</code>"` — real code, in
-            // `tests/conformance/markdown-html.ssc` — collapsed into a SINGLE string literal
-            // holding `<code>${" + escapeHtml(s) + "}</code>`, a well-formed tree of the wrong
-            // program, printing `<code>${" + x + "}</code>` where every other lane prints
-            // `<code>${X}</code>`. The comment below already described this failure for the
-            // across-lines case; this is the same one, inside a line.
-            else if text.charAt(i) == '$' && i + 1 < n && text.charAt(i + 1) == '{' &&
-                    strStart > 0 && isSpikeIdPart(text.charAt(strStart - 1)) &&
-                    holeCloses(text, i + 2, n) then
-              // copy a balanced `${ … }` verbatim so its inner quotes don't end the string
-              // (matches ssc1-front scanStr → scanInterpEnd); the parts split later, in projection.
-              //
-              // ONLY WHEN THE HOLE ACTUALLY CLOSES, which `holeCloses` decides by LOOKING AHEAD.
-              // Without that guard this branch ran for EVERY string, and a plain `"${"` — two
-              // ordinary characters, in a program that is writing a hole rather than using one —
-              // sent the scan hunting a `}` that was not there. It ran to the END OF THE FILE.
-              //
-              // The symptom was six lines away and named the wrong construct:
-              // `v3/src/Lexer.scala:262` writes `raw = raw + "${"`, and the file was refused at
-              // line 268 with "expected statement, found 'then'". Worse where it happened to find
-              // a `}` later: `"${"` followed by `"}"` two lines down SILENTLY SWALLOWED the code
-              // between them and produced a well-formed tree of the wrong program.
-              sb.append('$'); advance('$')
-              sb.append('{'); advance('{')
-              var depth = 1
-              while depth > 0 && i < n do
-                val ch = text.charAt(i)
-                if ch == '{' then depth += 1 else if ch == '}' then depth -= 1
-                sb.append(ch); advance(ch)
-            else { sb.append(text.charAt(i)); advance(text.charAt(i)) }
-          if i < n then advance('"')
-        emit("spike.str", start, text.substring(strStart, i), TokenChannel.Syntax)
-      else if c == '`' then
-        // Scala's escaped identifier — `` `type` `` lets a keyword be a name. The lexer had
-        // no case for it, so the backtick fell through to a one-char token and every
-        // parameter list holding one desynced. The lexeme is the SOURCE SLICE, backticks
-        // included, so the CST still reconstructs; stripping them for the PROJECTED name is
-        // a separate question, and the parse is what breadth measures.
-        val tickStart = i
-        advance('`')
-        while i < n && text.charAt(i) != '`' do advance(text.charAt(i))
-        if i < n then advance('`')
-        emit("spike.id", start, text.substring(tickStart, i), TokenChannel.Syntax)
-      else if c == '\'' then
-        val chStart = i
-        // char literal 'x' / '\n' / '\uXXXX' → spike.int whose lexeme is the RAW SLICE. The
-        // VM still treats chars as CODES (scodeAt, `'a' == c`, ssc1-front.ssc0:361-374) — the
-        // code is computed by SpikeNum.decode, so the CST keeps the quotes and the escape.
-        // Like ssc1-front, every `'` is assumed to open a char literal (fixed 3/4/8-char forms).
-        if i + 1 < n && text.charAt(i + 1) == '\\' then
-          val e = if i + 2 < n then text.charAt(i + 2) else '\u0000'
-          val width = if e == 'u' then 8 else 4
-          var k = 0; while k < width && i < n do { advance(text.charAt(i)); k += 1 }
-          emit("spike.int", start, text.substring(chStart, i), TokenChannel.Syntax)
-        // A char literal only when the quote actually CLOSES. Taking three characters
-        // unconditionally lexed `'x)` as the "char" `'x)` and `'{ ` as `'{ ` — both `spike.int`,
-        // both nonsense — which is how Scala 3's quote forms arrived at the parser as numbers.
-        else if i + 2 < n && text.charAt(i + 2) == '\'' then
-          var k = 0; while k < 3 && i < n do { advance(text.charAt(i)); k += 1 }
-          emit("spike.int", start, text.substring(chStart, i), TokenChannel.Syntax)
-        // `'{ … }` — a Scala 3 quote block. The quote is its own token so the brace that follows
-        // is the ordinary `{` every block parser already knows.
-        else if i + 1 < n && text.charAt(i + 1) == '{' then
-          advance(text.charAt(i))
-          emit("spike.quote", start, "'", TokenChannel.Syntax)
-        // `'x` — a quoted name (an `Expr` reference in a macro). Not a char: no closing quote.
-        else if i + 1 < n && isSpikeIdStart(text.charAt(i + 1)) then
-          val sb = new StringBuilder
-          sb.append(text.charAt(i)); advance(text.charAt(i))
-          while i < n && isSpikeIdPart(text.charAt(i)) do { sb.append(text.charAt(i)); advance(text.charAt(i)) }
-          emit("spike.qname", start, sb.toString, TokenChannel.Syntax)
-        else
-          var k = 0; while k < 3 && i < n do { advance(text.charAt(i)); k += 1 }
-          emit("spike.int", start, text.substring(chStart, i), TokenChannel.Syntax)
+    // line/col advanced over the half-open slice [from, to): the per-char cursor rule
+    // (a newline bumps the line and resets the column) applied to a whole run at once.
+    def lineColTo(from: Int, to: Int, line: Int, col: Int): (Int, Int) =
+      if from >= to then (line, col)
+      else if text.charAt(from) == '\n' then lineColTo(from + 1, to, line + 1, 1)
+      else lineColTo(from + 1, to, line, col + 1)
+    def emitTo(st: LexSt, kind: String, end: Int, chan: TokenChannel): LexSt =
+      val lc = lineColTo(st.i, end, st.line, st.col)
+      val endPos = SourcePosition(end, lc._1, lc._2)
+      LexSt(end, lc._1, lc._2, st.id + 1,
+        st.out :+ SourceToken(st.id, kind, text.substring(st.i, end),
+          SourceSpan(src, SourcePosition(st.i, st.line, st.col), endPos), chan))
+
+    def isWsChar(c: Char): Boolean = c == ' ' || c == '\t' || c == '\n' || c == '\r'
+    def wsEnd(k: Int): Int = if k < n && isWsChar(text.charAt(k)) then wsEnd(k + 1) else k
+    def idEnd(k: Int): Int = if k < n && isSpikeIdPart(text.charAt(k)) then idEnd(k + 1) else k
+    def digitsEnd(k: Int): Int =
+      if k < n && (UniAlphabet.isDigit(text.charAt(k)) || text.charAt(k) == '_') then digitsEnd(k + 1) else k
+    def hexEnd(k: Int): Int = if k < n && isHexDigit(text.charAt(k)) then hexEnd(k + 1) else k
+    // optional scientific exponent `e`/`E` [`+`/`-`] digits; None when the shape is not there
+    def exponentEnd(k: Int): Option[Int] =
+      if k < n && (text.charAt(k) == 'e' || text.charAt(k) == 'E') then
+        val signLen = if k + 1 < n && (text.charAt(k + 1) == '+' || text.charAt(k + 1) == '-') then 1 else 0
+        if k + 1 + signLen < n && UniAlphabet.isDigit(text.charAt(k + 1 + signLen)) then
+          Some(digitsEnd(k + 1 + signLen))
+        else None
+      else None
+    // `0d` / `1.5f` / `3D` — Scala's FLOAT SUFFIX, which this lexer knew nothing about. The
+    // digit run stopped at the letter, so `val a: Double = 0d` lexed as the integer `0`
+    // followed by the identifier `d`, and the statement after it read as a bare name. Three
+    // corpus cases came out with more statements than they had, which is the shape that
+    // hides: the tree is well-formed and says something the source did not.
+    // The lookahead guard keeps `2fooBar` — not a literal in any Scala — from being read as
+    // one; the suffix must be the LAST character of the token.
+    def floatSuffixEnd(k: Int): Option[Int] =
+      val c1 = if k < n then text.charAt(k) else ' '
+      if (c1 == 'f' || c1 == 'F' || c1 == 'd' || c1 == 'D')
+         && !(k + 1 < n && isSpikeIdPart(text.charAt(k + 1))) then Some(k + 1)
+      else None
+
+    def walk(st: LexSt): LexSt =
+      if st.i >= n then st
       else
-        val kind = c match
-          case '(' => "spike.lparen"
-          case ')' => "spike.rparen"
-          case '{' => "spike.lbrace"
-          case '}' => "spike.rbrace"
-          case ',' => "spike.comma"
-          case ';' => "spike.semi"
-          case '.' => "spike.dot"
-          case '[' => "spike.lbracket"
-          case ']' => "spike.rbracket"
-          case '@' => "spike.at"
-          // `$` opens a Scala 3 splice — `${ e }` or `$x`. It was `spike.junk`, which is how the
-          // parser came to report "unexpected token '$' in expression" on a construct the
-          // reference front runs.
-          case '$' => "spike.splice"
-          case _   => "spike.junk"
-        advance(c)
-        emit(kind, start, c.toString, TokenChannel.Syntax)
-    out.result()
+        val c = text.charAt(st.i)
+        if isWsChar(c) then
+          walk(emitTo(st, "spike.ws", wsEnd(st.i + 1), TokenChannel.Trivia))
+        else if UniAlphabet.isDigit(c) then
+          // Number lexer — matches ssc1-front (v2/lib/ssc1-front.ssc0:295-338):
+          //   • hex 0x/0X → the DECIMAL value string (strip trailing L/l Long suffix)
+          //   • decimal: `_` digit-separators stripped from the lexeme; `d.d` or `1e10`/`1.0e100`
+          //     exponent → float; otherwise int with a trailing L/l suffix stripped.
+          // (The VALUE is recomputed by SpikeNum.decode from the raw slice.)
+          if c == '0' && st.i + 1 < n && (text.charAt(st.i + 1) == 'x' || text.charAt(st.i + 1) == 'X')
+             && st.i + 2 < n && isHexDigit(text.charAt(st.i + 2)) then
+            val h = hexEnd(st.i + 2)
+            val end = if h < n && (text.charAt(h) == 'L' || text.charAt(h) == 'l') then h + 1 else h
+            walk(emitTo(st, "spike.int", end, TokenChannel.Syntax))
+          else
+            val d1 = digitsEnd(st.i)
+            // `1.5` is a float; `1.field` (dot NOT followed by a digit) stays int + `.` + selector
+            if d1 + 1 < n && text.charAt(d1) == '.' && UniAlphabet.isDigit(text.charAt(d1 + 1)) then
+              val d2 = digitsEnd(d1 + 1)
+              val d3 = exponentEnd(d2).getOrElse(d2)
+              walk(emitTo(st, "spike.float", floatSuffixEnd(d3).getOrElse(d3), TokenChannel.Syntax))
+            else exponentEnd(d1) match
+              case Some(e1) => // `1e10` (no decimal point) is still a float
+                walk(emitTo(st, "spike.float", floatSuffixEnd(e1).getOrElse(e1), TokenChannel.Syntax))
+              case None => floatSuffixEnd(d1) match
+                case Some(f1) => // `0d`, `3F` — a float with no point and no exponent
+                  walk(emitTo(st, "spike.float", f1, TokenChannel.Syntax))
+                case None =>
+                  val end = if d1 < n && (text.charAt(d1) == 'L' || text.charAt(d1) == 'l') then d1 + 1 else d1 // Long suffix
+                  walk(emitTo(st, "spike.int", end, TokenChannel.Syntax))
+        else if isSpikeIdStart(c) then
+          val end = idEnd(st.i)
+          val w = text.substring(st.i, end)
+          val idKind = if keywords(w) then "spike.kw" else if UniAlphabet.isTypeNameStart(w.head) then "spike.uid" else "spike.id"
+          walk(emitTo(st, idKind, end, TokenChannel.Syntax))
+        else if c == '/' && st.i + 1 < n && text.charAt(st.i + 1) == '/' then
+          // line comment → trivia (parser skips it via skipTrivia); lossless, text kept in the token
+          def lineEnd(k: Int): Int = if k < n && text.charAt(k) != '\n' then lineEnd(k + 1) else k
+          walk(emitTo(st, "spike.ws", lineEnd(st.i), TokenChannel.Trivia))
+        else if c == '/' && st.i + 1 < n && text.charAt(st.i + 1) == '*' then
+          // block comment → trivia, and it NESTS, as it does in Scala.
+          //
+          // It used to stop at the FIRST `*/`, matching ssc1-front's skipBlockComment. For
+          // `/* a /* b */ c */` that left ` c */` to be lexed as code, and the failure surfaced as
+          // `missing.right` — a complaint about an operator, several tokens past the construct that
+          // actually broke.
+          //
+          // This makes the dialect MORE PERMISSIVE than the reference front, deliberately: v3
+          // supports nesting because Scala does, and ssc1-front's gap is shared rather than
+          // authoritative here. The divergence is in the only safe direction — strictly more input
+          // parses — so no file that parses today can stop parsing, and the corpus counts are checked
+          // rather than assumed.
+          //
+          // Losslessness is untouched: the comment remains ONE trivia token holding its text
+          // verbatim; only where that token ends has changed.
+          def blockEnd(k: Int, depth: Int): Int =
+            if depth == 0 || k >= n then k
+            else if text.charAt(k) == '/' && k + 1 < n && text.charAt(k + 1) == '*' then blockEnd(k + 2, depth + 1)
+            else if text.charAt(k) == '*' && k + 1 < n && text.charAt(k + 1) == '/' then blockEnd(k + 2, depth - 1)
+            else blockEnd(k + 1, depth)
+          walk(emitTo(st, "spike.ws", blockEnd(st.i + 2, 1), TokenChannel.Trivia))
+        else if isOpChar(c) then
+          val opInfo = opAt(text, st.i)
+          val kind = opInfo._1 match
+            case "=" => "spike.eq"
+            case ":" => "spike.colon"
+            case _   => "spike.op"
+          // The lexeme is the SOURCE SLICE, not the meaning. `opAt` REWRITES two operators —
+          // `:::`→`++` and `+:`→`::` — mirroring ssc1-front's lex-time rewrite, and a
+          // rewritten lexeme is one the source cannot be rebuilt from: `xs ::: ys` came
+          // back as `xs ++ ys`, one character short. The rewrite is a statement about
+          // MEANING (in v2 every Seq is a Cons-list, so `:::` IS `++`), so it belongs
+          // where meaning is read — `SpikeOp.meaning`, used by the precedence table and
+          // the projection.
+          walk(emitTo(st, kind, st.i + opInfo._2, TokenChannel.Syntax))
+        else if c == '"' then
+          // string literal → spike.str whose lexeme is the RAW SOURCE SLICE, quotes and
+          // escapes included. It used to hold the DECODED value ("mirrors ssc1-front
+          // buildStr"), which is convenient for the projection and fatal for the CST: the
+          // quotes and every `\n` never reached the tree, so a source with strings could
+          // not be reconstructed. Decoding is `SpikeStr.decode`, applied where the
+          // projection needs a VALUE — the same split Markdown uses, where the CST is
+          // canonical and `MarkdownProjection` unescapes.
+          val strStart = st.i
+          if st.i + 2 < n && text.charAt(st.i + 1) == '"' && text.charAt(st.i + 2) == '"' then
+            def tripleBody(k: Int): Int =
+              if k >= n then k
+              else if k + 2 < n && text.charAt(k) == '"' && text.charAt(k + 1) == '"' && text.charAt(k + 2) == '"' then k
+              else tripleBody(k + 1)
+            // A run of MORE THAN THREE quotes closes with its LAST three; the extras are
+            // CONTENT. `""" aria-invalid="true""""` ends with four, because the content
+            // itself ends in `"`. Closing on the first three left a stray quote that opened a
+            // new string and mis-lexed the rest of the file — 20 diagnostics in
+            // examples/std-ui/textarea.ssc, all of them from this one character.
+            def extraQuotes(k: Int): Int =
+              if k + 3 < n && text.charAt(k) == '"' && text.charAt(k + 1) == '"' &&
+                 text.charAt(k + 2) == '"' && text.charAt(k + 3) == '"' then extraQuotes(k + 1)
+              else k
+            val b = extraQuotes(tripleBody(strStart + 3))
+            val end = if b + 2 < n then b + 3 else b
+            walk(emitTo(st, "spike.str", end, TokenChannel.Syntax))
+          else
+            // A `${` is special ONLY IN AN INTERPOLATION, which is what the character BEFORE the
+            // opening quote says: `s"…"`, `html"…"`, `f"…"` have an identifier there, a plain
+            // `"…"` does not — in a plain one it is the two characters `$` and `{`, exactly as in
+            // Scala. `holeCloses` alone was not enough and the miss was narrow: it stops the
+            // look-ahead at a NEWLINE, so a plain string whose `${` and a later `}` sit on ONE
+            // LINE still took the interpolation branch. `"<code>${" + escapeHtml(s) + "}</code>"`
+            // — real code, in `tests/conformance/markdown-html.ssc` — collapsed into a SINGLE
+            // string literal holding a well-formed tree of the wrong program.
+            //
+            // A balanced `${ … }` is copied verbatim so its inner quotes don't end the string
+            // (matches ssc1-front scanStr → scanInterpEnd); the parts split later, in projection.
+            // ONLY WHEN THE HOLE ACTUALLY CLOSES, which `holeCloses` decides by LOOKING AHEAD.
+            // Without that guard this branch ran for EVERY string, and a plain `"${"` — two
+            // ordinary characters, in a program that is writing a hole rather than using one —
+            // sent the scan hunting a `}` that was not there. It ran to the END OF THE FILE.
+            // Worse where it happened to find a `}` later: `"${"` followed by `"}"` two lines
+            // down SILENTLY SWALLOWED the code between them.
+            def holeEnd(j: Int, depth: Int): Int =
+              if depth == 0 || j >= n then j
+              else
+                val ch = text.charAt(j)
+                holeEnd(j + 1, if ch == '{' then depth + 1 else if ch == '}' then depth - 1 else depth)
+            def strBody(k: Int): Int =
+              if k >= n then k
+              else
+                val ch = text.charAt(k)
+                if ch == '"' then k
+                else if ch == '\\' && k + 1 < n then strBody(k + 2)
+                else if ch == '$' && k + 1 < n && text.charAt(k + 1) == '{' &&
+                        strStart > 0 && isSpikeIdPart(text.charAt(strStart - 1)) &&
+                        holeCloses(text, k + 2, n) then
+                  strBody(holeEnd(k + 2, 1))
+                else strBody(k + 1)
+            val b = strBody(strStart + 1)
+            val end = if b < n then b + 1 else b
+            walk(emitTo(st, "spike.str", end, TokenChannel.Syntax))
+        else if c == '`' then
+          // Scala's escaped identifier — `` `type` `` lets a keyword be a name. The lexer had
+          // no case for it, so the backtick fell through to a one-char token and every
+          // parameter list holding one desynced. The lexeme is the SOURCE SLICE, backticks
+          // included, so the CST still reconstructs; stripping them for the PROJECTED name is
+          // a separate question, and the parse is what breadth measures.
+          def tickEnd(k: Int): Int = if k < n && text.charAt(k) != '`' then tickEnd(k + 1) else k
+          val b = tickEnd(st.i + 1)
+          val end = if b < n then b + 1 else b
+          walk(emitTo(st, "spike.id", end, TokenChannel.Syntax))
+        else if c == '\'' then
+          // char literal 'x' / '\n' / '\uXXXX' → spike.int whose lexeme is the RAW SLICE. The
+          // VM still treats chars as CODES (scodeAt, `'a' == c`, ssc1-front.ssc0:361-374) — the
+          // code is computed by SpikeNum.decode, so the CST keeps the quotes and the escape.
+          // Like ssc1-front, every `'` is assumed to open a char literal (fixed 3/4/8-char forms).
+          if st.i + 1 < n && text.charAt(st.i + 1) == '\\' then
+            val e = if st.i + 2 < n then text.charAt(st.i + 2) else '\u0000'
+            val width = if e == 'u' then 8 else 4
+            walk(emitTo(st, "spike.int", math.min(st.i + width, n), TokenChannel.Syntax))
+          // A char literal only when the quote actually CLOSES. Taking three characters
+          // unconditionally lexed `'x)` as the "char" `'x)` and `'{ ` as `'{ ` — both `spike.int`,
+          // both nonsense — which is how Scala 3's quote forms arrived at the parser as numbers.
+          else if st.i + 2 < n && text.charAt(st.i + 2) == '\'' then
+            walk(emitTo(st, "spike.int", st.i + 3, TokenChannel.Syntax))
+          // `'{ … }` — a Scala 3 quote block. The quote is its own token so the brace that follows
+          // is the ordinary `{` every block parser already knows.
+          else if st.i + 1 < n && text.charAt(st.i + 1) == '{' then
+            walk(emitTo(st, "spike.quote", st.i + 1, TokenChannel.Syntax))
+          // `'x` — a quoted name (an `Expr` reference in a macro). Not a char: no closing quote.
+          else if st.i + 1 < n && isSpikeIdStart(text.charAt(st.i + 1)) then
+            walk(emitTo(st, "spike.qname", idEnd(st.i + 1), TokenChannel.Syntax))
+          else
+            walk(emitTo(st, "spike.int", math.min(st.i + 3, n), TokenChannel.Syntax))
+        else
+          val kind = c match
+            case '(' => "spike.lparen"
+            case ')' => "spike.rparen"
+            case '{' => "spike.lbrace"
+            case '}' => "spike.rbrace"
+            case ',' => "spike.comma"
+            case ';' => "spike.semi"
+            case '.' => "spike.dot"
+            case '[' => "spike.lbracket"
+            case ']' => "spike.rbracket"
+            case '@' => "spike.at"
+            // `$` opens a Scala 3 splice — `${ e }` or `$x`. It was `spike.junk`, which is how the
+            // parser came to report "unexpected token '$' in expression" on a construct the
+            // reference front runs.
+            case '$' => "spike.splice"
+            case _   => "spike.junk"
+          walk(emitTo(st, kind, st.i + 1, TokenChannel.Syntax))
+    walk(LexSt(0, 1, 1, 0L, Vector.empty)).out
 
 extension (n: Node)
   private def withRole(role: String): Node = n match
@@ -403,21 +369,16 @@ private[scalascript] object SpikeOp:
   * Nesting is counted so `${ f(x) { y } }` still closes at the right brace, and a `\"` inside the
   * hole does not end the search — an escaped quote is content. */
 private[scalascript] def holeCloses(text: String, from: Int, n: Int): Boolean =
-  var i = from
-  var depth = 1
-  var answer = false
-  var stop = false
-  while !stop && i < n do
-    val ch = text.charAt(i)
-    if ch == '\\' && i + 1 < n then i += 2
+  def scan(i: Int, depth: Int): Boolean =
+    if i >= n then false
     else
-      if ch == '{' then depth += 1
-      else if ch == '}' then
-        depth -= 1
-        if depth == 0 then { answer = true; stop = true }
-      else if ch == '\n' then stop = true
-      i += 1
-  answer
+      val ch = text.charAt(i)
+      if ch == '\\' && i + 1 < n then scan(i + 2, depth)
+      else if ch == '{' then scan(i + 1, depth + 1)
+      else if ch == '}' then depth == 1 || scan(i + 1, depth - 1)
+      else if ch == '\n' then false
+      else scan(i + 1, depth)
+  scan(from, 1)
 
 private[scalascript] object SpikeEsc:
   def simple(e: Char): Char = e match
@@ -433,10 +394,9 @@ private[scalascript] object SpikeNum:
   def decode(lex: String): String =
     if lex.startsWith("'") then charCode(lex).toString
     else if lex.startsWith("0x") || lex.startsWith("0X") then
-      var v = 0L
-      var i = 2
-      while i < lex.length && isHex(lex.charAt(i)) do { v = v * 16 + hex(lex.charAt(i)); i += 1 }
-      v.toString
+      def fold(i: Int, v: Long): Long =
+        if i < lex.length && isHex(lex.charAt(i)) then fold(i + 1, v * 16 + hex(lex.charAt(i))) else v
+      fold(2, 0L).toString
     else
       val stripped = lex.filter(_ != '_')
       // `L`/`l` is the Long suffix; `f`/`F`/`d`/`D` the float ones. All are TYPE marks, not part of
@@ -472,32 +432,30 @@ private[scalascript] object SpikeStr:
       val body =
         val b = lex.stripPrefix("\"")
         if b.endsWith("\"") then b.dropRight(1) else b
-      val sb = new StringBuilder
-      var i = 0
       val n = body.length
-      while i < n do
-        val c = body.charAt(i)
-        if c == '\\' && i + 1 < n then
-          val e = body.charAt(i + 1)
-          // `\uXXXX` — four hex digits, the one escape that is not a single character. The char
-          // decoder had it and this one did not, so `"\u0041"` came out as the six characters.
-          if e == 'u' && i + 5 < n && (2 to 5).forall(k => UniAlphabet.isHexDigit(body.charAt(i + k))) then
-            var v = 0
-            var k = 2
-            while k <= 5 do { v = (v << 4) | hexOf(body.charAt(i + k)); k += 1 }
-            sb.append(v.toChar); i += 6
-          else
-            sb.append(SpikeEsc.simple(e))
-            i += 2
-        else if c == '$' && i + 1 < n && body.charAt(i + 1) == '{' then
-          sb.append("${"); i += 2
-          var depth = 1
-          while depth > 0 && i < n do
-            val ch = body.charAt(i)
-            if ch == '{' then depth += 1 else if ch == '}' then depth -= 1
-            sb.append(ch); i += 1
-        else { sb.append(c); i += 1 }
-      sb.toString
+      def hole(i: Int, depth: Int, acc: Vector[String]): (Int, Vector[String]) =
+        if depth == 0 || i >= n then (i, acc)
+        else
+          val ch = body.charAt(i)
+          val d = if ch == '{' then depth + 1 else if ch == '}' then depth - 1 else depth
+          hole(i + 1, d, acc :+ ch.toString)
+      def walk(i: Int, acc: Vector[String]): Vector[String] =
+        if i >= n then acc
+        else
+          val c = body.charAt(i)
+          if c == '\\' && i + 1 < n then
+            val e = body.charAt(i + 1)
+            // `\uXXXX` — four hex digits, the one escape that is not a single character. The char
+            // decoder had it and this one did not, so `"\u0041"` came out as the six characters.
+            if e == 'u' && i + 5 < n && (2 to 5).forall(k => UniAlphabet.isHexDigit(body.charAt(i + k))) then
+              val v = (2 to 5).foldLeft(0)((a, k) => (a << 4) | hexOf(body.charAt(i + k)))
+              walk(i + 6, acc :+ v.toChar.toString)
+            else walk(i + 2, acc :+ SpikeEsc.simple(e).toString)
+          else if c == '$' && i + 1 < n && body.charAt(i + 1) == '{' then
+            val stepped = hole(i + 2, 1, acc :+ "${")
+            walk(stepped._1, stepped._2)
+          else walk(i + 1, acc :+ c.toString)
+      walk(0, Vector.empty).mkString
 
 object SpikeParse:
   final case class Parsed(tree: Node, diagnostics: Vector[Diagnostic])
