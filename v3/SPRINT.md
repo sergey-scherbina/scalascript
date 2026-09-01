@@ -4584,3 +4584,31 @@ expression in statement position IS refused (`_err` sentinel), and with two argu
 where the answer comes out wrong. Filed as `v2/BUGS.md`
 `v2-front-drops-an-id-infix-application-and-prints-the-receiver`, `confirmed: yes`, with the
 argument that the silent drop is repairable WITHOUT the feature and should be repaired first.
+
+## v3-jvm-backend-plan (claim `v3-jvm-backend-plan`) — stage 12's first deliverable: the JVM fork, decided on evidence
+
+`v3/BACKLOG.md` stage 12 sequences v3's own backends JVM → JS → Rust → Swift → Python → R and says
+the first deliverable is **a plan document per target, starting with JVM: bytecode directly à la
+v2's `backend-jvm-bytecode`, or source-level à la `run-jvm` — put to the owner with measured
+trade-offs before code.** This claim writes that document. NO backend code.
+
+- [~] **`v3/specs/70-jvm-backend.md`.** The fork as the backlog states it is a two-way choice, and
+  the first thing to check was whether both arms are even admissible under invariant I-1 ("the
+  kernel — lexer, AST, IR, verifier, **backends** — builds with an empty `libraryDependencies`").
+  They are not on equal terms: v2's bytecode lane depends on `org.ow2.asm:asm:9.7` and v1's source
+  lane needs a Scala compiler at run time, which is the dependency `toolchain-gate.sh` exists to
+  keep out. So the document states THREE candidates, not two, and the third — Java source compiled
+  in-process by the JDK's own `javax.tools.JavaCompiler` — exists only because I-1 forced the
+  question.
+  *Evidence it must carry, all of it measured in this claim rather than reasoned:* the class-file
+  version boundary for skipping `StackMapTable`, probed with hand-written class files; whether the
+  JDK's own compiler is reachable in-process and what happens on an image without `jdk.compiler`;
+  the line counts of both prior arts; and what v3's IR passes already do that both prior arts had
+  to build for themselves.
+  *Done when:* the document exists, every number in it names the command that produced it, the
+  recommendation is stated with its reason, and the questions that are genuinely the owner's are
+  asked as questions rather than answered by default.
+- [~] **Ask, do not assume.** P-4.1 says default to deciding; the backlog entry says this specific
+  choice goes to the owner. The document therefore decides everything evidence can decide and
+  leaves exactly the questions evidence cannot: what the JVM target is FOR (an AOT `.jar` from
+  `translate`, or also an in-process run lane), and where `Prim` is answered on that target.
