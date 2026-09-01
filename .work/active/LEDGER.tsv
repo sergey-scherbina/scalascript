@@ -1,3 +1,2 @@
-# generation: 3294
+# generation: 3295
 #slug	agent	started	items	paths
-uniml-demut-yaml-projection	claude-code	2026-09-01T07:25:02Z	uniml-yaml-projection-becomes-folds	file:uniml/yaml/src/main/scala/scalascript/uniml/dialect/yaml/YamlProjection.scala file:uniml/SPRINT.md
