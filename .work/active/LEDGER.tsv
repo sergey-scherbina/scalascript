@@ -1,2 +1,3 @@
-# generation: 3315
+# generation: 3316
 #slug	agent	started	items	paths
+uniml-demut-closing	claude-code	2026-09-01T10:09:34Z	uniml-demut-closing	file:uniml/yaml/src/main/scala/scalascript/uniml/dialect/yaml/YamlDialect.scala file:uniml/yaml/src/main/scala/scalascript/uniml/dialect/yaml/YamlTagEnvironment.scala file:uniml/yaml/src/main/scala/scalascript/uniml/dialect/yaml/YamlLexer.scala file:uniml/yaml/src/main/scala/scalascript/uniml/dialect/yaml/YamlPropertySyntax.scala file:uniml/yaml/src/main/scala/scalascript/uniml/dialect/yaml/YamlSemanticParser.scala file:uniml/markdown/src/main/scala/scalascript/uniml/dialect/markdown/MarkdownBlocks.scala file:uniml/json/src/main/scala/scalascript/uniml/dialect/json/JsonLexer.scala file:uniml/SPRINT.md

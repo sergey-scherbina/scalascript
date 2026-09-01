@@ -1,0 +1,11 @@
+slug: uniml-demut-closing
+branch: feature/uniml-demut-closing
+agent: claude-code
+started: 2026-09-01T10:09:34Z
+heartbeat: 2026-09-01T10:09:34Z
+status: claimed-before-planning
+items: uniml-demut-closing
+paths: file:uniml/yaml/src/main/scala/scalascript/uniml/dialect/yaml/YamlDialect.scala file:uniml/yaml/src/main/scala/scalascript/uniml/dialect/yaml/YamlTagEnvironment.scala file:uniml/yaml/src/main/scala/scalascript/uniml/dialect/yaml/YamlLexer.scala file:uniml/yaml/src/main/scala/scalascript/uniml/dialect/yaml/YamlPropertySyntax.scala file:uniml/yaml/src/main/scala/scalascript/uniml/dialect/yaml/YamlSemanticParser.scala file:uniml/markdown/src/main/scala/scalascript/uniml/dialect/markdown/MarkdownBlocks.scala file:uniml/json/src/main/scala/scalascript/uniml/dialect/json/JsonLexer.scala file:uniml/SPRINT.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
