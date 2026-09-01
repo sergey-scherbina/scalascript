@@ -57,6 +57,17 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
       envelope — no urgent knob. Cursor de-mutabilization (stage 10) must re-run this bench per
       module as its perf gate.
 
+- [~] uniml-demut-yaml-projection — **YamlProjection is var-free: 16 → 0, including the recursive
+      cloner.** validateCst's first-violation-only `reject` became an orElse chain (that IS its
+      semantics); validate's visit threads a ValidateWalk record where anchors and both counters
+      reset PER DOCUMENT while diagnostics survive; resolve's cloneValue — a recursive cloner that
+      mutated four outer vars — returns a named `Cloned(state, value)` record (not a tuple: the
+      file's v2 rules forbid destructuring one), with three semantics carried explicitly: anchor
+      registration at node ENTRY before the node count; EVERY sequence/mapping child cloned even
+      after a failure, so later children's counters and diagnostics still accumulate; key cloned
+      first, value always, both threaded. The SOURCE-ORDERED alias comment (paid for by
+      uniml-yaml-alias-resolution-last-wins) was eaten by the splice and RESTORED — caught by
+      grepping for it, not by luck. 61/61 JVM + 60/60 JS, lint OK.
 - [~] uniml-demut-yaml-structure — **YamlStructure is var-free: 9 → 0.** streamAndDocuments became
       pure construction; lineKind's flowDepth (threaded through an `exists` via SIDE EFFECTS in the
       original) became an explicit recursion parameter with the early exit as the recursion
