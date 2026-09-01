@@ -44,6 +44,19 @@ worked on belongs in `tests/BACKLOG.md`. Layout: [`../specs/work-tracking-layout
       the same way the workflow isolates it: `QUALIFIED artifact=ssc-macos-arm64 vm=84 asm=84
       plugin-host=ready`. The macOS network gap is the CI RUNNER's environment, not the shipped
       bytes.
+      FIFTH finding (owner's own inspection of the local builds, not a dispatch failure):
+      `ssc-jvm.tar.gz` was missing README.md entirely and wrapped every entry in a `bin/` prefix
+      the native archives never had (`tar -czf dist/ssc-jvm.tar.gz bin`, since the job was
+      written — not a stage-10-era regression). The launcher only needs `lib/` to be a SIBLING of
+      itself, never assumes the directory is literally named "bin", so this was safe to flatten:
+      archive now stages `dist/archive-jvm/` (launchers + `lib/` + `README.md`) and tars it
+      root-level, matching every native archive's shape exactly (`03ddaea3c`). README.md's own
+      download instructions updated (`./bin/ssc-tools` → `./ssc-tools`); the isolation-qualify
+      step's two `$isolated/bin/ssc-tools` calls and a new `test -s "$isolated/README.md"`
+      updated to match. Verified locally: rebuilt `ssc-jvm.tar.gz`, `tar -tzf` shows `ssc
+      ssc-provider ssc-standard ssc-tools lib/ README.md` at archive root (0 leftover `^bin/`
+      entries), extracted in isolation and ran `./ssc-tools --version` / `run` successfully.
+      64/64 + 40/40 e2e green again.
       *Done when:* the workflow fix is on main, the bug is filed with the landed SHA, and the owner
       has decided the recovery — re-tag v0.3.0 on a fixed snapshot vs cut v0.3.1 — since moving a
       published tag is an owner call.
