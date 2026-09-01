@@ -1,3 +1,72 @@
+## v2-front-drops-an-id-infix-application-and-prints-the-receiver — `println(b add 2)` compiles, exits 0 and prints `Box(40)`
+
+<!-- status: open
+     lane: native
+     area: front
+     kind: bug
+     gate: none yet — a conformance case would need the fix to exist first
+     reported-by: claude-code
+     reported-at: 2026-09-01
+     confirmed: yes -->
+
+**A SILENT WRONG ANSWER, not a refusal, and every account of this gap so far said "refusal".**
+
+```scalascript
+case class Box(v: Int):
+  def add(other: Int): Int = v + other
+
+val b = Box(40)
+println(b add 2)
+println("B")
+```
+
+    Box(40)
+    B
+    exit 0
+
+The argument loses ` add 2` entirely. No diagnostic, no `_err`, no non-zero exit.
+
+**IT IS THE ARGUMENT POSITION SPECIFICALLY**, which is what makes it silent — the same expression
+elsewhere is caught:
+
+| shape | v2 |
+|---|---|
+| `val r = b add 2` | REFUSED — `structural CoreIR contains parser sentinel _err` |
+| `println(b add 2)` | **prints `Box(40)`, exit 0** |
+| `println("x", b add 2)` | `arity: 1 expected, 2 given` — a misleading message about a real parse gap |
+
+So the `_err` sentinel guard, which is exactly the machinery that should catch this, does its job in
+statement position and never sees the argument case. Row 1 is the honest behaviour; row 2 is the
+defect; row 3 says the residue is being counted as a second argument rather than reported.
+
+**THE UNDERLYING GAP is that `parseInfix` knows two id-infix words and no more.**
+`v2/lib/ssc1-front.ssc0:1901-1909` handles `until` and `to` and returns `pr(lhs, toks)` for every
+other identifier, so `b add 2` yields `b` and leaves ` add 2` in the token stream for whoever is
+next. Scala's rule is that ANY identifier in that position is an application: `b add 2` is
+`b.add(2)`.
+
+**Both other fronts of this compiler now do it.** v3's own front since `92e90e34e`; the UniML spike
+front since `c41b4f029`, which added an arm below the `to`/`until` one for any plain identifier and
+whose guards — a lowercase `spike.id` operator, not a reserved word, on the left operand's line,
+with an operand that begins on that line and can start an atom — are the part worth copying, since
+this front has the same problem of a small keyword set. That fix closed
+`v3/BUGS.md infix-application-does-not-reach-a-declared-class-method`; this entry is the third
+front, found while closing it.
+
+**Two repairs, and they are separable.** The silent drop is the urgent one and does not need the
+feature: whatever leaves an unconsumed `add 2` behind should reach the `_err` sentinel in argument
+position as it does in statement position, so the program is REFUSED rather than answered wrongly.
+The feature — the general id-infix arm — is the second, and only it makes the program run.
+
+**Measured on the toolchain built from `6146a12f4`, and that is a valid measurement for this
+question**: `git diff 6146a12f4..HEAD -- v2/lib/ssc1-front.ssc0 v2/src` is empty, so the front and
+runtime under test are HEAD's. The launcher's own STALE BUILD warning is about other paths.
+
+**No gate yet, said plainly.** A `tests/conformance` case for this would be red on every v2 lane
+from the day it lands, and the fixture that covers the two v3 fronts
+(`v3/tests/front/infix-class-method.ssc`) is deliberately not in the corpus for that reason. The
+gate arrives with the fix.
+
 ## f-records-no-supertype-for-a-declared-class-or-trait — the parent direction was not answerable
 
 <!-- status: fixed
