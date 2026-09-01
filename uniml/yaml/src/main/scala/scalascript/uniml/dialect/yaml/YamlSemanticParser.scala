@@ -736,7 +736,7 @@ private[yaml] object YamlSemanticParser:
                 case Some(value) if value <= 0x10ffff => walk(cursor + 10, pieces :+ codePointToString(value))
                 case _                                => None
             case _ => None
-    walk(0, Vector.empty).map(_.mkString)
+    walk(0, Vector.empty).map(_.mkString(""))
 
   private def parseHexEscape(text: String, start: Int, length: Int): Option[Int] =
     if start + length > text.length then None
@@ -761,7 +761,7 @@ private[yaml] object YamlSemanticParser:
       if position + 1 < values.size then
         value + (if value.isEmpty || values(position + 1).isEmpty then "\n" else " ")
       else value
-    }.mkString
+    }.mkString("")
 
   private def splitLines(input: String): Vector[Line] =
     def walk(cursor: Int, start: Int, line: Int, offset: Int, result: Vector[Line]): Vector[Line] =

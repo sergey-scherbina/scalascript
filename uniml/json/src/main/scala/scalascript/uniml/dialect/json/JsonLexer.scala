@@ -46,7 +46,7 @@ private final case class JsonLexState(
   * [[JsonLexState]] record threaded `step(state, chunk)`-style — the shape the
   * portable-program decision names — with NO `var` anywhere: the former local
   * imperative shell is a tail-recursive walk. The in-progress lexeme buffer
-  * stays a `Vector[String]` of code-point lexemes joined with `.mkString`.
+  * stays a `Vector[String]` of code-point lexemes joined with `.mkString("")`.
   * Uses only v2-supported constructs (no `StringBuilder`). */
 private object JsonLexer:
   def scan(source: SourceId, text: String, limits: JsonLimits): JsonLexResult =
@@ -56,7 +56,7 @@ private object JsonLexer:
       else s
 
     def complete(s: JsonLexState, kind: String, channel: TokenChannel): JsonLexState =
-      val lexeme = s.current.mkString
+      val lexeme = s.current.mkString("")
       s.copy(
         completed = s.completed :+ JsonLexToken(
           SourceToken(
@@ -119,7 +119,7 @@ private object JsonLexer:
       complete(start(s, JsonMode.Atom, lexeme, rawSurrogate = false), kind, TokenChannel.Syntax)
 
     def completeAtom(s: JsonLexState): JsonLexState =
-      val lexeme = s.current.mkString
+      val lexeme = s.current.mkString("")
       if s.currentIssue.nonEmpty then complete(s, "json.invalid", TokenChannel.Error)
       else lexeme match
         case "true"  => complete(s, "json.true", TokenChannel.Syntax)

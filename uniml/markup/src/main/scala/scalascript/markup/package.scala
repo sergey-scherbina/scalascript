@@ -15,7 +15,7 @@ package object markup:
         case other             => XmlEscape.escape(String.valueOf(other))
       }
       val src = sc.parts.iterator.zipAll(escaped.iterator, "", "")
-                   .map((p, a) => p + a).mkString
+                   .map((p, a) => p + a).mkString("")
       MarkupCodec.default.parse(src, Dialect.Xml1_0) match
         case Right(doc) => doc
         case Left(e)    => throw e

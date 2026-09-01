@@ -4925,7 +4925,13 @@ object RustCodeWalk:
           // value each pass. Neither needs cloning; anything else bound outside does.
           || (ctx.inWhileLoop &&
                 (ctx.defParams.contains(r) ||
-                 (looksLikeBinding(r) && !ctx.loopExempt.contains(r)))))
+                 (looksLikeBinding(r) && !ctx.loopExempt.contains(r))))
+          // A name any LIFTED LOCAL DEF captures is read again at every call of that def --
+          // invisibly to collectMultiUse, which counts occurrences in the SOURCE where the
+          // call spells no such argument. emit's single visible `source` read moved the value
+          // the appended walk(..., source.clone()) capture still needed (E0382,
+          // ssc-perf-port-to-main). Conservative: an extra clone for a capture-named value.
+          || ctx.liftedDefExtraArgs.valuesIterator.exists(_.contains(r)))
     arg match
       // `Stepped { state: VmState { stack: stack, … } }` — a LOCAL's textually LAST use MOVES
       // instead of cloning (`ssc-local-last-use-move`). Keyed by exact source position, so every
@@ -5022,8 +5028,22 @@ object RustCodeWalk:
     var fieldReads   = Map.empty[(String, String), Int]
     var firstFieldAt = Map.empty[(String, String), Int]
     var lastBareAt   = Map.empty[String, Int]
+    // A param a LIFTED LOCAL DEF's body mentions is disqualified outright: the lift turns that
+    // mention into a CAPTURE, appended at every call site invisibly to this walk — so a "single
+    // field read, no bare use" verdict here can be wrong at runtime (`emit`'s `source.value`
+    // moved while `walk(...)`'s appended `source` capture still needed it, E0382 —
+    // ssc-perf-port-to-main). The lifted body's OWN param of the same name shadows anyway.
+    var capturedByLift = Set.empty[String]
     def walk(t: m.Tree): Unit =
       t match
+        case d: m.Defn.Def =>
+          def names(x: m.Tree): Unit =
+            x match
+              case m.Term.Name(nm) => if params.contains(nm) then capturedByLift = capturedByLift + nm
+              case _               => ()
+            x.children.foreach(names)
+          names(d.body)
+          d.children.foreach(walk)
         case sel @ m.Term.Select(m.Term.Name(p), m.Term.Name(f)) if params.contains(p) =>
           fieldReads = fieldReads.updated((p, f), fieldReads.getOrElse((p, f), 0) + 1)
           if !firstFieldAt.contains((p, f)) then firstFieldAt = firstFieldAt.updated((p, f), sel.pos.start)
@@ -5037,7 +5057,8 @@ object RustCodeWalk:
     // underlying pattern-match quirk is, the imperative spelling is the one whose behaviour was
     // verified.
     fieldReads.filter { kv =>
-      kv._2 == 1 && lastBareAt.getOrElse(kv._1._1, -1) < firstFieldAt.getOrElse(kv._1, Int.MaxValue)
+      kv._2 == 1 && !capturedByLift.contains(kv._1._1) &&
+      lastBareAt.getOrElse(kv._1._1, -1) < firstFieldAt.getOrElse(kv._1, Int.MaxValue)
     }.keySet.toSet
 
   /** LOCALS a def may MOVE at their textually LAST use: local name -> `pos.start` of that one
@@ -8185,7 +8206,7 @@ object RustCodeWalk:
             val (ferrs, fok) = fills.partitionMap(identity)
             if ferrs.nonEmpty then ok else ok ++ fok
           case _ => ok
-        Right(s"$n(${(filledOk ++ extra ++ selfArg).mkString(", ")})")
+        Right(s"${rustIdent(n)}(${(filledOk ++ extra ++ selfArg).mkString(", ")})")
 
     case m.Term.Name(n) =>
       // A top-level val (and given instance) is bound once as `let n = init;` in every
@@ -13438,8 +13459,8 @@ object RustCodeWalk:
       // rustc a unary closure for a binary fn and never compiled. Same captures either way.
       val extraTxt = if extra.isEmpty then "" else ", " + extra.mkString(", ")
       val closure =
-        if method == "foldLeft" then s"|__fa, __fb| $n(__fa, __fb$extraTxt)"
-        else s"|__x| $n(__x$extraTxt)"
+        if method == "foldLeft" then s"|__fa, __fb| ${rustIdent(n)}(__fa, __fb$extraTxt)"
+        else s"|__x| ${rustIdent(n)}(__x$extraTxt)"
       Right(method match
         case "foreach"  => s"$q.iter().cloned().for_each($closure);"
         case "map"      => s"$q.iter().cloned().map($closure).collect::<Vec<_>>()"

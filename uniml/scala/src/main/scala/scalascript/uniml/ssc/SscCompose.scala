@@ -77,7 +77,7 @@ object SscCompose:
 
   /** concat the lexemes of the direct edges carrying `role`, in order — lossless. */
   private def textOfRole(b: UniNode.Branch, role: String): String =
-    b.edges.collect { case UniEdge(Some(r), UniNode.Token(t)) if r == role => t.lexeme }.mkString
+    b.edges.collect { case UniEdge(Some(r), UniNode.Token(t)) if r == role => t.lexeme }.mkString("")
 
   /** drop the single fence-artifact line terminator that closes a fence body. */
   private def stripTrailingEol(s: String): String = s.stripSuffix("\n").stripSuffix("\r")

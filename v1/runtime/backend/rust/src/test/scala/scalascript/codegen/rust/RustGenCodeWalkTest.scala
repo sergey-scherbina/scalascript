@@ -4293,7 +4293,11 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(g.contains("fn emit(lexeme: String, out: &mut Vec<Tok>, source: SourceId) {") &&
-             g.contains("Tok { source: source, lexeme: lexeme }"),
+             // `source.clone()` since the capture-aware `needs` clause (ssc-perf-port-to-main): a name
+             // any lifted def captures is re-read at every call of that def, invisibly to the
+             // source-level occurrence count — one conservative clone, and what this golden
+             // actually pins (the NON-self-field read) is unchanged.
+             g.contains("Tok { source: source.clone(), lexeme: lexeme }"),
       s"a lifted def's OWN body must read a captured self-field as its new plain parameter, not self.field:\n$g")
     assert(g.contains("emit((*text).clone(), &mut out, self.source.clone());"),
       s"the CALL SITE (still inside the enclosing self-aware method) must pass the self-field as self.field:\n$g")

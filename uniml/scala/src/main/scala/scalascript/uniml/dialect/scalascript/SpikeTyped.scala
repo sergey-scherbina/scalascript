@@ -60,7 +60,7 @@ object SpikeTyped:
     * (`ScalaSpike.captureType`), so concatenating is exactly how the reference reads them. */
   private def text(n: UniNode): String = n match
     case UniNode.Token(t)  => touch(n); t.lexeme
-    case b: UniNode.Branch => touch(n); b.edges.map(e => text(e.child)).mkString
+    case b: UniNode.Branch => touch(n); b.edges.map(e => text(e.child)).mkString("")
 
   private def typeRef(n: UniNode): TypeRef = TypeRef(text(n), span(n))
 
@@ -416,7 +416,7 @@ object SpikeTyped:
                   byRole(b, "range.rhs").map(expr).getOrElse(Unsupported("missing.rhs", span(b))), span(b))
         // The WHOLE type application, joined without separators — `Show[Int]`, not `Show`. The
         // reference is explicit that keeping only the head never matches an instance.
-        case "spike.summon"  => Summon(allByRole(b, "summon.tok").map(lex).mkString, span(b))
+        case "spike.summon"  => Summon(allByRole(b, "summon.tok").map(lex).mkString(""), span(b))
         case "spike.pfblock" => PartialFn(kids(b).collect { case (_, c) if kind(c) == "spike.arm" => arm(c) }, span(b))
         case "spike.quote"   => Quote(byRole(b, "quote.body").map(expr).getOrElse(UnitLit(span(b))), span(b))
         case "spike.splice"  => Splice(byRole(b, "splice.body").map(expr).getOrElse(UnitLit(span(b))), span(b))

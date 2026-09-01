@@ -24,7 +24,7 @@ object YamlProjection:
       if cstDiagnostics.nonEmpty then YamlProjectionResult(None, result.diagnostics ++ cstDiagnostics)
       else
         val source = tokens.headOption.map(_.span.source).getOrElse(SourceId("memory:yaml"))
-        val text = tokens.iterator.map(_.lexeme).mkString
+        val text = tokens.iterator.map(_.lexeme).mkString("")
         val parsed = YamlSemanticParser.parse(source, text, options.schema)
         val validationDiagnostics = validate(parsed.stream)
         val diagnostics = result.diagnostics ++ parsed.diagnostics ++ validationDiagnostics

@@ -108,7 +108,8 @@ private[markdown] object MdLine:
     // pays that conversion ONCE, and every index after it is a vector index. Identical
     // semantics on both lanes: `Vector[Char]` is code UNITS, exactly what `charAt` yields, so
     // surrogate pairs still arrive as two elements and `chars.length == text.length`.
-    val chars = text.toVector
+    // annotated: captured by the lifted `split` (Rust lane)
+    val chars: Vector[Char] = text.toVector
     // Tail recursion over (index, lineStart, lines) — the same walk, and CRITICALLY the same
     // complexity: every access is still a Vector index (O(1)) and every slice per LINE, so the
     // O(n²) this comment block describes cannot come back through this conversion. Tail-position
@@ -117,12 +118,12 @@ private[markdown] object MdLine:
       if index >= chars.length then (lines, lineStart)
       else chars(index) match
         case '\n' =>
-          split(index + 1, index + 1, lines :+ MdLine(chars.slice(lineStart, index).mkString, "\n"))
+          split(index + 1, index + 1, lines :+ MdLine(chars.slice(lineStart, index).mkString(""), "\n"))
         case '\r' =>
           if index + 1 < chars.length && chars(index + 1) == '\n' then
-            split(index + 2, index + 2, lines :+ MdLine(chars.slice(lineStart, index).mkString, "\r\n"))
+            split(index + 2, index + 2, lines :+ MdLine(chars.slice(lineStart, index).mkString(""), "\r\n"))
           else
-            split(index + 1, index + 1, lines :+ MdLine(chars.slice(lineStart, index).mkString, "\r"))
+            split(index + 1, index + 1, lines :+ MdLine(chars.slice(lineStart, index).mkString(""), "\r"))
         case _ => split(index + 1, lineStart, lines)
     val splitResult = split(0, 0, Vector.empty)
     val lines = splitResult._1
@@ -144,7 +145,7 @@ private[markdown] object MdLine:
     // text still comes from the source, never from a Char) while calling `substring` once per
     // line, which is what takes the total from O(n²) to O(n) on a backend whose `substring` is
     // not O(1). It also drops the per-line `mkString` and the `Vector[String]` accumulator.
-    if lineStart < chars.length then lines :+ MdLine(chars.drop(lineStart).mkString, "") else lines
+    if lineStart < chars.length then lines :+ MdLine(chars.drop(lineStart).mkString(""), "") else lines
 
 /** Shared character classification following CommonMark 0.31.2 §2.1. */
 private[markdown] object MdChars:
@@ -168,13 +169,17 @@ private[markdown] object MdChars:
   def asciiLower(s: String): String =
     // The no-uppercase fast path RETURNS THE INPUT UNALLOCATED, exactly as before — an `exists`
     // over the chars is the same early-exit scan the while spelled out.
-    val needs = (0 until s.length).exists { i =>
-      val c = s.charAt(i)
-      c >= 'A' && c <= 'Z'
-    }
+    // A WHILE, not `(0 until n).exists { … }`: `.exists` on a Range does not lower on the
+    // Rust lane (E0599), same early-exit scan.
+    var needs = false
+    var ni = 0
+    while ni < s.length && !needs do
+      val c = s.charAt(ni)
+      if c >= 'A' && c <= 'Z' then needs = true
+      ni += 1
     if !needs then s
     else
-      // `Vector[String]` + `.mkString`, not `StringBuilder`: v2 has no StringBuilder, and this is
+      // `Vector[String]` + `.mkString("")`, not `StringBuilder`: v2 has no StringBuilder, and this is
       // the accumulation shape `specs/uniml-portable-gapmap.md` settled on and `JsonLexer` already
       // ships. `Char.toString` is the portable char→String step — `String.valueOf(c)` is NOT: a
       // capitalized receiver lowers to an effect operation on v2 and yields
@@ -182,7 +187,7 @@ private[markdown] object MdChars:
       (0 until s.length).foldLeft(Vector.empty[String]) { (out, k) =>
         val c = s.charAt(k)
         out :+ (if c >= 'A' && c <= 'Z' then (c + 32).toChar else c).toString
-      }.mkString
+      }.mkString("")
 
   /** CommonMark's link-label fold: Unicode, but NOT locale-dependent.
     *
@@ -206,7 +211,7 @@ private[markdown] object MdChars:
         if c >= 'A' && c <= 'Z' then (c + 32).toChar
         else if c < 128 then c
         else Character.toLowerCase(c)).toString
-    }.mkString
+    }.mkString("")
 
   def isAsciiWhitespace(c: Char): Boolean =
     c == ' ' || c == '\t' || c == '\n' || c == VerticalTab || c == FormFeed || c == '\r'
@@ -231,17 +236,20 @@ private[markdown] object MdChars:
     isAsciiPunctuation(c) || (c.toInt >= 0x80 && bmpPunct(c.toInt))
 
   private def bmpPunct(cp: Int): Boolean =
-    // Binary search as tail recursion on (lo, hi) — the loop's exact halving, same O(log n).
-    def search(lo: Int, hi: Int): Boolean =
-      if lo > hi then false
-      else
-        val mid = (lo + hi) / 2
-        val start = punctRanges(mid * 2)
-        val end = punctRanges(mid * 2 + 1)
-        if cp < start then search(lo, mid - 1)
-        else if cp > end then search(mid + 1, hi)
-        else true
-    search(0, punctRanges.length / 2 - 1)
+    // Binary search as a WHILE loop, not a tail-recursive local def: the Rust lane lifts a
+    // local def to a top-level `fn`, and a `fn` item cannot capture `punctRanges` (a module
+    // val) — `error[E0434]`. Identical halving, same O(log n).
+    var lo = 0
+    var hi = punctRanges.length / 2 - 1
+    var found = false
+    while lo <= hi && !found do
+      val mid = (lo + hi) / 2
+      val start = punctRanges(mid * 2)
+      val end = punctRanges(mid * 2 + 1)
+      if cp < start then hi = mid - 1
+      else if cp > end then lo = mid + 1
+      else found = true
+    found
 
   // 199 BMP ranges (Unicode Pc Pd Pe Pf Pi Po Ps + Sc Sk Sm So), sorted, as
   // [start0, end0, start1, end1, …]. Generated from java.lang.Character.getType.
