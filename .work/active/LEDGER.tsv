@@ -1,3 +1,2 @@
-# generation: 3298
+# generation: 3299
 #slug	agent	started	items	paths
-uniml-demut-yaml-semantic	claude-code	2026-09-01T07:56:37Z	uniml-yaml-semantic-parser-becomes-a-fold	file:uniml/yaml/src/main/scala/scalascript/uniml/dialect/yaml/YamlSemanticParser.scala file:uniml/SPRINT.md
