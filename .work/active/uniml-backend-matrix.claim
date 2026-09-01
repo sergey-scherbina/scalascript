@@ -1,0 +1,11 @@
+slug: uniml-backend-matrix
+branch: feature/uniml-backend-matrix
+agent: claude-code
+started: 2026-09-01T05:59:53Z
+heartbeat: 2026-09-01T05:59:53Z
+status: claimed-before-planning
+items: uniml-compiles-on-every-backend-status-matrix
+paths: file:uniml/SPRINT.md file:uniml/BACKLOG.md file:UNIML-RUST-BACKEND-SESSION.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
