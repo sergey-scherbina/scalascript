@@ -63,6 +63,27 @@ Fourth entry on one road: `native-release-qualify-chmods-a-binary-the-release-no
 `native-release-qualify-probes-the-removed-search-spelling`, then this — every one living in a path
 that executes only at release time.
 
+## smoke-printer-glues-a-long-check-name-to-its-duration — a 34+-char name fills the column and the time sticks to it
+
+<!-- status: fixed
+     lane: tests
+     area: build
+     kind: bug
+     gate: tests/smoke-baseline-harvest.sh --self-test (glued-line case; negative control: the old parser exits 1 on it)
+     found-by: claude-code
+     found-at: 2026-09-02
+     fixed-in: 4afbd9129 -->
+
+`scripts/smoke-ci.ssc` pads a check name to a 34-wide column and a name of 34+ characters FILLS
+it — the duration glues to the name (`claim-activity-overrides-heartbeat0.0s`), and no
+whitespace-splitting reader can parse the line. Found because `smoke-baseline-harvest` silently
+produced no row for exactly the two checks whose names overflow (`claim-activity-overrides-heartbeat`,
+`check-accepts-what-the-runtime-rejects`): they were charged their measured time and could never
+fail the run, while every shorter sibling was budgeted — an instrument whose blind spot selects
+precisely the rows it exists to measure. Fixed at both ends in `4afbd9129`: the printer guarantees
+one separating space (short names keep the historic column byte-for-byte), and the harvest regex
+parses the glued form too, so CI logs written before the fix still harvest.
+
 ## native-release-qualify-probes-the-removed-search-spelling — the third defect between v0.2.0 and a publishable v0.3.0
 
 <!-- status: fixed

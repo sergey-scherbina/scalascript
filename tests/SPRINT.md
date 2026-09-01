@@ -3,6 +3,15 @@
 This module's queue. **Two states and no third:** `[~]` in progress, `[x]` done. Anything not being
 worked on belongs in `tests/BACKLOG.md`. Layout: [`../specs/work-tracking-layout.md`](../specs/work-tracking-layout.md).
 
+- [x] **smoke-baseline refresh + the glued-name printer fix** (claim `smoke-baseline-refresh`,
+      BUGS `smoke-printer-glues-a-long-check-name-to-its-duration`). LANDED 2026-09-02 as
+      `4afbd9129`. Both local smoke runs complained "7 check(s) have no baseline row"; 5 of 7 were
+      simply new, the last two could NEVER harvest — their 34+-char names fill the printer's
+      column and the duration glues on. Printer guarantees a separator, harvest parses both forms
+      (self-test gains the glued case; the OLD regex fails it — negative control run), baseline
+      refreshed from 12 CI runs: 135 rows, all 7 previously-unbaselined checks measured. Full
+      local smoke exit 0, complaint gone.
+
 - [x] **v0.3.0 SHIPPED NO RELEASE — the qualify step chmods a binary the release no longer ships**
       (claim `native-release-qualify-stale-chmod`, BUGS
       `native-release-qualify-chmods-a-binary-the-release-no-longer-ships`). Tag run 33473746204:
