@@ -1,4 +1,4 @@
-# generation: 3361
+# generation: 3362
 #slug	agent	started	items	paths
-v3-jvm-backend-data	claude-code	2026-09-02T11:22:36Z	SSC3-JVM-STAGE2	file:v3/src/JvmBackend.scala file:v3/src/Main.scala file:v3/jvm-backend-gate.sh file:v3/specs/70-jvm-backend.md file:v3/SPRINT.md file:v3/tests/jvm/data.ssir file:v3/tests/jvm/data.expected file:v3/tests/jvm/arr.ssir file:v3/tests/jvm/arr.expected file:v3/tests/jvm/glob.ssir file:v3/tests/jvm/glob.expected file:v3/jvm-backend-census.sh
+v3-jvm-backend-data	claude-code	2026-09-02T11:22:36Z	SSC3-JVM-STAGE2	file:v3/src/JvmBackend.scala file:v3/src/Main.scala file:v3/jvm-backend-gate.sh file:v3/specs/70-jvm-backend.md file:v3/SPRINT.md file:v3/tests/jvm/data.ssir file:v3/tests/jvm/data.expected file:v3/tests/jvm/arr.ssir file:v3/tests/jvm/arr.expected file:v3/tests/jvm/glob.ssir file:v3/tests/jvm/glob.expected file:v3/jvm-backend-census.sh file:.github/workflows/v3.yml
 v1-jit-size-renderterm-freeze-raise	claude-code	2026-09-02T11:24:12Z	v1-jit-size-renderterm-freeze-raise	file:tests/e2e/v1-jit-size.sh file:tests/SPRINT.md
