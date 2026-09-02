@@ -4748,3 +4748,85 @@ GREEN. `v3/selftest.sh` and `v3/bridge-gate.sh` GREEN with the driver change in.
 compatibility claim, and there is no N against the corpus yet — stage 1 cannot compile a corpus file
 at all. The parity gate the backlog requires before the bridge stops serving JVM is §8 step 7, and
 nothing before it should be read as progress toward retiring the bridge.
+
+## [x] v3-jvm-backend-data (claim `v3-jvm-backend-data`) — stage 12, step 2: the straight-line instructions
+
+`v3/specs/70-jvm-backend.md` §8 step 2 — `MkData Field NewArr ArrGet ArrSet ArrLen GlobGet GlobSet`
+on top of stage 1's `Const Move Un Bin`, and **the first N against the corpus**.
+
+- [x] **The value representation changed, and it was the actual work of this step.** Stage 1 put
+  every register in two JVM slots as a raw `long`. Nothing that holds a record or an array fits
+  there, so every register is now ONE slot of `Ljava/lang/Object;` and an `I64` is a
+  `java.lang.Long`. The price is a box/unbox around every arithmetic instruction, paid knowingly.
+  What it buys is not only stage 2:
+  **step 3's `StackMapTable` computer becomes nearly trivial**, because a local's verification type
+  is `java/lang/Object` at every branch target in every branch — the type MERGE that makes a frame
+  computer a dataflow analysis has nothing left to merge. Boxing is therefore the design, not a
+  shortcut to be undone later; when it is unboxed it will be as an optimisation with a number.
+  *Regression instrument for the change:* stage 1's two fixtures still answer **294** and **71**,
+  and neither their source nor their expectation moved to make that true.
+- [x] **Layout, chosen so a wrong receiver fails LOUDLY.** A record is an `Object[]` of length
+  `fields + 1` with the tag (a `java.lang.Long`) at index 0 and field `i` at `i + 1`. An array is a
+  `java.util.ArrayList`. They are DIFFERENT JVM types on purpose: `Verify` checks only index
+  bounds — it does not type registers, measured at `v3/src/Verify.scala:107-131` — so nothing
+  upstream stops a `Field` whose receiver is an array. The executor throws `field read on …` there;
+  with one shared representation this backend would have read element `idx+1` and answered a
+  plausible wrong value. Two types make it a `ClassCastException` instead.
+- [x] **`Tag` moved to step 3, and the spec says why.** `Exec` makes `Tag` TOTAL — `-1` on a
+  non-record, deliberately, because a nested pattern tests the tag of a field — and emitting that
+  needs an `instanceof` and a branch, i.e. the first branch target, i.e. the frame computer that
+  step 3 exists for. `Tag` without `Switch` also has no consumer. So this step delivered 12 of the
+  13 instructions §8 listed for it and step 3 gained the 13th; `70-jvm-backend.md` §8 was edited,
+  not silently diverged from.
+- [x] **`NewArr` fills with `Long 0` to match the executor**, via `Collections.nCopies` +
+  `new ArrayList(Collection)` — two calls, no loop, so no branch target entered this step through
+  the back door. Globals are static fields of `Ljava/lang/Object;`; the JVM zero-initialises them
+  to `null` and stage 2 represents `VUnit` as `null`, so the two lanes agree on the only thing
+  stage 2 can observe about an unwritten global.
+- [x] **The harness stays honest without a branch.** `main` calls `entry`, then
+  `checkcast java/lang/Long` before `longValue`. An entry that returns a record or an array is a
+  `ClassCastException` — loud — rather than `[Ljava.lang.Object;@1b6d3586` printed as if it were an
+  answer.
+- [x] **`v3/jvm-backend-census.sh`** — see the numbers below. It is not wired into CI: every file
+  is one JVM start, so a full census is ~12 minutes, and it is run when a stage lands.
+- [x] **Gate: three new fixtures and a self-test with a plant in the NEW code.** `data` → 312 (two
+  nested records, both fields read back), `arr` → 704 (set, get, the fill, the length), `glob` →
+  103 (two globals, so a wrong index cannot pass). The self-test now plants TWO defects and
+  requires red for each: stage 1's `ladd`→`lsub` (measured 266 vs 294) and stage 2's *"NewArr fills
+  with 1, not 0"* (measured 705 vs 704). **Both still VERIFY and still RUN** — that is the point,
+  and it is why only comparing the answer catches them. Source restored on every exit path.
+  Expectations computed by Python from `Exec.scala`'s rules, never read off the emitter.
+
+**A LATENT DEFECT IN STAGE 1, found by the new fixture and fixed here.** `pushLong` interned its
+constant but appended the `long` entry's mandatory filler UNCONDITIONALLY — including on the path
+where the constant already existed and nothing was added. `constant_pool_count` was then one too
+high, the class-file reader ran past the pool into `access_flags`, and the JVM refused the class
+with `ClassFormatError: Unknown constant tag 0`. It needed a module that mentions one number twice;
+stage 1's two fixtures happen not to, `arr.ssir` does. Recorded here rather than in `v3/BUGS.md`
+because it was fixed in the same push that exposed it and `arr.ssir` now pins it — the choice is
+stated so it reads as a decision, not an omission.
+
+**THE FIRST N, measured 2026-09-02 on the uniml dialect front (`v3/.jars/uniml.cp` present):**
+
+```
+EMITS a class file: 0 / 420
+   148 Call          42 MkClos      37 an LFloat literal   20 >255 local slots
+    14 Prim          11 TailCall     9 Invoke               6 Switch
+     6 Dyn arithmetic 4 Block        3 Handle               2 CallV
+```
+
+**Zero, and it is the honest number.** Every corpus program calls something; a backend without
+`Call` compiles none of them. The value of the census is the histogram, not the N.
+
+**READ THE HISTOGRAM AS A LOWER BOUND PER CONSTRUCT, because a refusal short-circuits.** The
+emitter stops at the FIRST instruction it cannot translate, so a file counted under `Call` may also
+need `If`, `Switch` and `Prim`, and `Call`'s 148 partly reflects that a call comes early in most
+programs. It cannot on its own reorder the stages. What it does say is worth having: `Call` and
+`MkClos` (§8 step 4) block more files than control flow does, an `LFloat` literal blocks 37 —
+F64 arithmetic is a cheap win no stage currently owns — and 20 files already exceed the 255 local
+slots this backend refuses, so `wide` is a real item and not a theoretical one. A census that
+counted every blocker per file, rather than the first, needs a driver mode that walks the IR
+without emitting; that is the honest way to make this histogram authoritative and it is not built.
+
+**Nothing here is progress toward retiring the bridge.** That is §8 step 7 and it needs parity on
+the full corpus; steps 2-6 are the constructs that make such a comparison possible at all.
