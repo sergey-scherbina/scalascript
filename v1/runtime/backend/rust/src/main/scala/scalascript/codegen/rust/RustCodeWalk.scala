@@ -1672,6 +1672,10 @@ object RustCodeWalk:
   // `stepped` in TWO sibling loops, and a name key would see that as shadowing and drop both.
   // See `collectSingleReadLocalFields` for the scope rule that makes this sound in loops.
   private var _localFieldMovePos: Map[String, Set[Int]] = Map.empty
+  // Positions of `p.copy(..., f = p.f :+ x, ...)` calls (`p` a def PARAM) where it is sound to
+  // MOVE `p.f` out and spread the rest via `..p` instead of the general struct-copy's blanket
+  // `..p.clone()` — see `collectCopySelfAppendMoves` (`ssc-main-base-perf-parity`).
+  private var _copySelfAppendMoves: Map[String, Set[Int]] = Map.empty
 
   /** `(ownerName, memberName) -> mapped Rust return type` — the OWNER-QUALIFIED twin of
    *  `_returnTypes` above, for a call whose CALLEE is itself qualified (`PureMarkupCodec.
@@ -4260,6 +4264,8 @@ object RustCodeWalk:
                             name, collectLocalLastUses(d.body, ps))
                           _localFieldMovePos = _localFieldMovePos.updated(
                             name, collectSingleReadLocalFields(d.body, ps))
+                          _copySelfAppendMoves = _copySelfAppendMoves.updated(
+                            name, collectCopySelfAppendMoves(d.body, ps))
                           ps
                         },
                         rustFnNames = rustFnNames,
@@ -5085,6 +5091,19 @@ object RustCodeWalk:
         (arm(pa), arm(pb)) match
           case (Some(x), Some(y)) => x ne y
           case _                  => false
+      // The LCA for TWO ARM occurrences (neither touching the scrutinee) is the `CasesBlock`
+      // itself, not the `Match` — `Term.Match(expr, casesBlock)` makes `casesBlock` its own
+      // real tree node, so two leaves both inside DIFFERENT `Case`s under it converge there,
+      // one level short of the case just above (which only fires when one side is the
+      // scrutinee, `mt.expr`, a DIRECT child of the Match). Missing this case is why the very
+      // first per-arm-move golden for a match with no scrutinee-adjacent comparison passed
+      // while a three-way (scrutinee + two arms) comparison silently fell through to `false`
+      // (`ssc-main-base-perf-parity`).
+      case Some((_: m.Term.CasesBlock, pa, pb)) =>
+        def arm(p: List[m.Tree]): Option[m.Case] = p.reverse.headOption.collect { case c: m.Case => c }
+        (arm(pa), arm(pb)) match
+          case (Some(x), Some(y)) => x ne y
+          case _                  => false
       case _ => false
 
   /** Does the (non-bare) occurrence `v` sit in a CONDITION that is fully evaluated — its clone
@@ -5295,10 +5314,10 @@ object RustCodeWalk:
           val movable = us.filter { u =>
             u.bare && u.safe && us.forall { v =>
               (v eq u) || {
+                // A LATER occurrence on the same path means this one is not the last; one
+                // on the other side of an if/else, or in another match arm, never runs
+                // together with it (`branchExclusive`).
                 if v.pos > u.pos then
-                  // A LATER occurrence on the same path means this one is not the last; one
-                  // on the other side of an if/else, or in another match arm, never runs
-                  // together with it (`branchExclusive`).
                   branchExclusive(u.node, v.node)
                 else
                   // An EARLIER occurrence has taken its own clone — except inside the same
@@ -5311,8 +5330,8 @@ object RustCodeWalk:
                     (!v.bare && condShields(u.node, v.node))
               }
             }
-          }.map(_.pos)
-          if movable.nonEmpty then out = out.updated(n, movable.toSet)
+          }
+          if movable.nonEmpty then out = out.updated(n, movable.map(_.pos).toSet)
       }
       out
 
@@ -5593,6 +5612,95 @@ object RustCodeWalk:
       case _ => x.children.foreach(walk)
     walk(t)
     found.toSet
+
+  /** Positions of `p.copy(..., f = p.f :+ x, ...)` calls (`p` a def PARAM) safe to lower as a
+   *  MOVE of `p.f` plus `..p` (not `..p.clone()`) instead of the general struct-copy's blanket
+   *  clone — `ssc-main-base-perf-parity`'s dominant finding: `MarkdownBlocks.emit`'s
+   *  `st.copy(pos = …, out = st.out :+ VmToken(…))` alone was 94% of one profiled run (`sample`),
+   *  because the general `:+` lowering is `[&(st.out)[..], &[x][..]].concat()` — an O(document)
+   *  copy on every token, O(document²) over a file — and the self-append optimisation just above
+   *  only matches a bare `xs = xs :+ x` reassignment, never `p.copy(f = p.f :+ x)`: a `.copy()`
+   *  call is a method Apply, not an Assign, so the two shapes never met.
+   *
+   *  Sound under the SAME reasoning the bare-name self-append case already gives (the old value
+   *  is discarded the instant the new one is built), PLUS one more requirement that shape never
+   *  needed: `..p` moves every field of `p` NOT explicitly given, so `p` as a WHOLE must have no
+   *  use after this `.copy()` call — a bare `p`, or `p.otherField`, anywhere else disqualifies it
+   *  UNLESS that occurrence is provably on a mutually exclusive control-flow path
+   *  ([[branchExclusive]]) or provably BEFORE this call in program order (an earlier read has
+   *  already happened by the time the move fires). Loops and lambdas can re-run a body, which
+   *  defeats "textually before is always before" — so a def containing one is refused outright,
+   *  the same conservative call `collectLocalLastUses` already makes for the same reason. */
+  private def collectCopySelfAppendMoves(body: m.Term, params: Set[String]): Set[Int] =
+    // Whether `t` sits inside a construct that can re-run — a loop or a lambda body — which
+    // defeats "textually before is always before". SCOPED to `t`'s own ancestor chain, not a
+    // whole-body prescan: `track`'s CLOSE arm has an unrelated `expected.forall(_ == …)`
+    // lambda, and a whole-body scan disqualified the OPEN/REFRAME arms' `counted.copy(...)`
+    // over it even though the two never interact (a lesson the whole-body version of this
+    // guard cost a round to find).
+    def insideRepeat(t: m.Tree): Boolean =
+      ancestorsOf(t).exists {
+        case _: m.Term.While | _: m.Term.For | _: m.Term.ForYield |
+             _: m.Term.Function | _: m.Term.PartialFunction => true
+        case _ => false
+      }
+    locally:
+      // `val counted: BlockState = countOpens(st, 1); counted.copy(frames = counted.frames :+ k)`
+      // (`uniml/markdown`'s `MarkdownBlocks.scala`'s `track`) — the SAME pattern, on a LOCAL
+      // rather than a param. Every top-level `val`/`var` name declared in the body (a nested
+      // def's own locals are a different scope, excluded) joins `params` as a candidate
+      // receiver — WITHOUT requiring a single declaration: `track` declares `counted` once per
+      // match arm (`Open` and `Reframe`), and the per-occurrence check below already rejects
+      // anything unsound on its own — an occurrence belonging to a SIBLING arm's declaration is,
+      // by construction, on a branch EXCLUSIVE from this arm's `.copy()` call, so it passes the
+      // same `branchExclusive` gate a genuinely unrelated occurrence would fail. Requiring
+      // uniqueness here would only reject the exact multi-arm shape this fix exists for.
+      var locals = Set.empty[String]
+      def scanDecls(t: m.Tree): Unit =
+        t match
+          case _: m.Defn.Def => () // a nested def's own locals are a different scope
+          case v: m.Defn.Val =>
+            locals = locals ++ v.pats.collect { case m.Pat.Var(m.Term.Name(n)) => n }
+            v.children.foreach(scanDecls)
+          case v: m.Defn.Var =>
+            locals = locals ++ v.pats.collect { case m.Pat.Var(m.Term.Name(n)) => n }
+            v.children.foreach(scanDecls)
+          case other => other.children.foreach(scanDecls)
+      scanDecls(body)
+      val candidates = params ++ (locals -- params)
+      var out = Set.empty[Int]
+      def occurrencesOf(p: String): List[m.Tree] =
+        var acc = List.empty[m.Tree]
+        def w(x: m.Tree): Unit =
+          x match
+            case sel @ m.Term.Select(m.Term.Name(n), _) if n == p => acc = sel :: acc
+            case nm @ m.Term.Name(n) if n == p                    => acc = nm :: acc
+            case _                                                 => x.children.foreach(w)
+        w(body)
+        acc
+      def visit(t: m.Tree): Unit =
+        t match
+          case call @ m.Term.Apply.After_4_6_0(m.Term.Select(m.Term.Name(p), m.Term.Name("copy")), args)
+              if candidates.contains(p) =>
+            val named = args.values.toList.collect { case m.Term.Assign(m.Term.Name(f), v) => f -> v }
+            val hasSelfAppend = named.exists {
+              case (f, m.Term.ApplyInfix.After_4_6_0(
+                  m.Term.Select(m.Term.Name(p2), m.Term.Name(f2)), m.Term.Name(":+"), _, _)) =>
+                p2 == p && f2 == f
+              case _ => false
+            }
+            if hasSelfAppend && !insideRepeat(call) then
+              val occs = occurrencesOf(p)
+              val safe = occs.forall { o =>
+                ancestorsOf(o).exists(_ eq call) || branchExclusive(o, call) ||
+                  (o.pos.start < call.pos.start && !insideRepeat(o))
+              }
+              if safe then out = out + call.pos.start
+
+            args.values.foreach(visit)
+          case other => other.children.foreach(visit)
+      visit(body)
+      out
 
   /** Which of `names` does `body` directly WRITE (a bare reassignment `n = …`, or a subscript
    *  assignment `n(i) = …`) — narrow and syntactic, matching every other pre-pass in this file:
@@ -7766,6 +7874,18 @@ object RustCodeWalk:
               d.body,
               d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value).toSet,
               extraPoison = captures.valuesIterator.flatten.toSet ++ myCaptures))
+          // Same table `collectCopySelfAppendMoves` fills for a top-level def (see that site's
+          // own comment) — a LIFTED local def needs its own entry too, keyed the same way
+          // `_localLastUseMoves` just above is: by the lift's OWN name, since its body renders
+          // under `ctx.liftedSelfName` (the lookup on the consuming side follows suit). Params
+          // are the lift's own — `st` here, not a capture — which is exactly what
+          // `MarkdownBlocks.emit`'s `st.copy(pos = …, out = st.out :+ …)` needs: `st` is a
+          // parameter of `emit` itself, captures play no part in this pattern.
+          _copySelfAppendMoves = _copySelfAppendMoves.updated(
+            d.name.value,
+            collectCopySelfAppendMoves(
+              d.body,
+              d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value).toSet))
           val childCtx = baseCtx.copy(
             defParams = ctx.defParams ++ ownParamNames ++ myCaptures.toSet,
             byRefMut  = myByRefMut ++ myRefCaptures,
@@ -9666,6 +9786,49 @@ object RustCodeWalk:
     // DECLARED type in `ctorMap` — `element: Markup.Element` -> `.name` is declared `QName` ->
     // `ctorMap("QName")` exists, so `element.name` resolves to `QName` the same way a bare `qname`
     // parameter already would.
+    // `st.copy(pos = …, out = st.out :+ VmToken(…))` — flagged sound by
+    // `collectCopySelfAppendMoves`: MOVE the self-appended field out of `st` (an O(1) `push`,
+    // not the general `:+` lowering's O(n) `.concat()`) and spread the rest via `..(st)` — no
+    // `.clone()`, since `st.$field` already left the struct and `..(st)` is what actually gives
+    // ownership of everything else. This case must come BEFORE the general struct-copy case
+    // just below it, which every other `.copy()` call still falls through to.
+    case call @ m.Term.Apply.After_4_6_0(m.Term.Select(m.Term.Name(p), m.Term.Name("copy")), args)
+        if ctorNameOfExpr(m.Term.Name(p), ctx).flatMap(ctx.ctorMap.get).exists(_.isStruct) &&
+           _copySelfAppendMoves.getOrElse(ctx.liftedSelfName.getOrElse(ctx.defName), Set.empty)
+             .contains(call.pos.start) =>
+      val ec = ctx.ctorMap(ctorNameOfExpr(m.Term.Name(p), ctx).get)
+      val named = args.values.toList.collect {
+        case m.Term.Assign(m.Term.Name(field), value) if ec.fieldNames.contains(field) => field -> value
+      }
+      val selfAppend = named.collectFirst {
+        case (f, m.Term.ApplyInfix.After_4_6_0(m.Term.Select(m.Term.Name(p2), m.Term.Name(f2)), m.Term.Name(":+"), _, rargs))
+            if p2 == p && f2 == f =>
+          (f, if rargs.values.sizeIs == 1 then rargs.values.head else m.Term.Tuple(rargs.values))
+      }
+      selfAppend match
+        case None =>
+          // The collector's own guard should make this unreachable — kept as a hard refusal
+          // rather than silently falling through to a shape this case's rendering doesn't build.
+          Left(List(unsupported(
+            s"def `${ctx.defName}` — `$p.copy(...)` was flagged as a self-append move but no " +
+            "field argument matches `p.f = p.f :+ x`"
+          )))
+        case Some((apField, apAppended)) =>
+          val otherNamed = named.filterNot(_._1 == apField)
+          for
+            otherR <- otherNamed.map { (f, v) => renderTerm(v, ctx).map(vr => s"$f: ${cloneIfMoved(v, vr, ctx)}") }
+              .partitionMap(identity) match
+              case (errs, _) if errs.nonEmpty => Left(errs.flatten)
+              case (_, ok)                    => Right(ok)
+            apR <- renderTerm(apAppended, ctx)
+          yield
+            val pushed = cloneIfMoved(apAppended, apR, ctx)
+            // No trailing/leading stray comma when `otherR` is empty (a `.copy()` whose ONLY
+            // field is the self-appended one — `VmWork.roots =`, `VmWork.diags =` both do this).
+            val rest = if otherR.isEmpty then "" else otherR.mkString("", ", ", ", ")
+            s"{ let mut __ap = ($p).$apField; __ap.push($pushed); " +
+              s"${ec.enumName} { $apField: __ap, $rest..($p) } }"
+
     case m.Term.Apply.After_4_6_0(m.Term.Select(recv, m.Term.Name("copy")), args)
         if ctorNameOfExpr(recv, ctx).flatMap(ctx.ctorMap.get).exists(_.isStruct) =>
       val ec = ctx.ctorMap(ctorNameOfExpr(recv, ctx).get)

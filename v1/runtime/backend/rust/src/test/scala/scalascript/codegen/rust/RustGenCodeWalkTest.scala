@@ -5906,3 +5906,101 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     val g = fnBody(assets(src)("src/generated/ssc_program.rs"), "drive")
     assert(g.contains("handleBlank(step.state)") && g.contains("handleText(step.state, "),
       s"the field is read once per exclusive arm and must move out on each path:\n$g")
+
+  // ── ssc-main-base-perf-parity, round 2: `p.copy(f = p.f :+ x)` and a Match-arm LCA bug ──────
+
+  test("a by-value param's field self-append-in-copy moves instead of the general :+ concat"):
+    // `st.copy(pos = …, out = st.out :+ VmToken(…))` (`uniml/markdown`'s `MarkdownBlocks.scala`'s
+    // `emit`) profiled at 94% of one run: the general `:+` lowering is `.concat()`, an O(n) copy
+    // on every call. `.copy()` is a method Apply, not an Assign, so the self-append rule above
+    // (which matches `xs = xs :+ x` only) never saw it.
+    val src =
+      """```scalascript
+        |case class Acc(items: Vector[String], n: Long)
+        |
+        |def bump(st: Acc): Acc = st.copy(n = st.n + 1L, items = st.items :+ "x")
+        |```
+        |""".stripMargin
+    val g = fnBody(assets(src)("src/generated/ssc_program.rs"), "bump")
+    assert(g.contains("let mut __ap = (st).items;") && g.contains("__ap.push("),
+      s"the self-appended field must move out and push, not concat:\n$g")
+    assert(!g.contains(".concat()") && !g.contains("(st).clone()"),
+      s"no concat and no whole-struct clone once the field is moved:\n$g")
+
+  test("a LOCAL receiver's field self-append-in-copy moves, even declared once per match arm"):
+    // `val counted: BlockState = countOpens(st, 1); counted.copy(frames = counted.frames :+ k)`
+    // (`track`) — the local-receiver twin of the param case, and `counted` is declared ONCE PER
+    // ARM (`Open` and `Reframe`) — requiring a single declaration site would reject exactly the
+    // shape this test exists for.
+    val src =
+      """```scalascript
+        |enum Instr:
+        |  case Open(k: String)
+        |  case Close
+        |
+        |case class Acc(items: Vector[String], n: Long)
+        |
+        |def bump(n: Long): Acc = Acc(Vector(), n)
+        |
+        |def track(st: Acc, instr: Instr): Acc = instr match
+        |  case Instr.Open(k) =>
+        |    val counted: Acc = bump(st.n + 1L)
+        |    counted.copy(items = counted.items :+ k)
+        |  case Instr.Close => st
+        |```
+        |""".stripMargin
+    val g = fnBody(assets(src)("src/generated/ssc_program.rs"), "track")
+    assert(g.contains("let mut __ap = (counted).items;") && g.contains("__ap.push("),
+      s"the local's self-appended field must move out and push:\n$g")
+
+  test("an unrelated lambda in a SIBLING match arm does not block a self-append move"):
+    // The whole-body loop/lambda prescan this fix first shipped with disqualified `track`'s
+    // Open/Reframe arms over an UNRELATED `expected.forall(_ == …)` lambda living in the Close
+    // arm — found only by profiling the real corpus, not by this narrower repro alone. The guard
+    // is now scoped to the call's own ancestor chain (`insideRepeat`), not the whole def body.
+    val src =
+      """```scalascript
+        |case class Acc(items: Vector[String], n: Long)
+        |
+        |def grow(st: Acc): Acc = st
+        |
+        |def step(st: Acc, tags: Vector[String], mode: Long): Acc =
+        |  if mode == 0L then st.copy(items = st.items :+ "x")
+        |  else if tags.forall(_ == "y") then grow(st)
+        |  else st
+        |```
+        |""".stripMargin
+    val g = fnBody(assets(src)("src/generated/ssc_program.rs"), "step")
+    assert(g.contains("let mut __ap = (st).items;") && g.contains("__ap.push("),
+      s"a lambda in an unrelated, later branch must not block the earlier self-append move:\n$g")
+
+  test("two match arms both move a by-value param — the CasesBlock-as-LCA case"):
+    // The bug this golden pins: `branchExclusive`'s `Term.Match` case only fires when one
+    // compared occurrence IS the scrutinee (a direct child of the Match) — two occurrences BOTH
+    // inside DIFFERENT arms (neither touching the scrutinee) converge one level short of that,
+    // at the `CasesBlock` itself, which had no case at all and silently fell through to `false`.
+    // A three-arm-ish comparison (scrutinee vs one arm, PLUS arm vs arm) is what exposed it; a
+    // narrower two-occurrence repro (the `EVERY match arm` golden above it) can pass by accident
+    // depending on `uses`' iteration order, which is why this one compares three positions.
+    val src =
+      """```scalascript
+        |enum Mode:
+        |  case A, B, C
+        |
+        |case class Acc(items: Vector[String], mode: Mode)
+        |
+        |def grow(st: Acc, x: String): Acc = Acc(st.items :+ x, Mode.B)
+        |def reset(st: Acc): Acc = Acc(Vector(), Mode.A)
+        |def hold(st: Acc): Acc = st
+        |
+        |def step(st: Acc, x: String): Acc =
+        |  st.mode match
+        |    case Mode.A => grow(st, x)
+        |    case Mode.B => reset(st)
+        |    case Mode.C => hold(st)
+        |```
+        |""".stripMargin
+    val g = fnBody(assets(src)("src/generated/ssc_program.rs"), "step")
+    assert(g.contains("grow(st, ") && g.contains("reset(st)") && g.contains("hold(st)"),
+      s"every arm is the accumulator's last use on its own path and must move it:\n$g")
+    assert(!g.contains("st.clone()"), s"no whole-state clone in any arm:\n$g")
