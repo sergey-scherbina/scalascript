@@ -285,10 +285,38 @@ backend must match the bridge on the full corpus before the bridge stops serving
    watch it go red before trusting it. **No `StackMapTable` yet, and that is not a shortcut:** this
    stage emits no branches, and the probe in §3 measured that a method with no jump targets verifies
    without frames at every version including 52.
-2. **The straight-line instructions** — `Const Move Un Bin MkData Field Tag NewArr ArrGet ArrSet
-   ArrLen GlobGet GlobSet`. Measure N against the corpus after this stage; it will be small and
-   that is the honest starting number.
-3. **Control flow, and the `StackMapTable` computer with it** — `Block Loop If Br BrIf Switch Ret`.
+2. **DONE 2026-09-02 (`v3/src/JvmBackend.scala`).** The straight-line instructions —
+   `Const Move Un Bin MkData Field NewArr ArrGet ArrSet ArrLen GlobGet GlobSet`. Original text:
+   *"…`Tag`… Measure N against the corpus after this stage; it will be small and that is the honest
+   starting number."* Three things this stage settled that the plan did not know:
+   - **The value representation changed, and it is the load-bearing decision.** Stage 1 kept every
+     register as a raw `long` in two JVM slots; nothing holding a record or an array fits there.
+     Every register is now ONE slot of `Ljava/lang/Object;` and a number is a `java.lang.Long`, at
+     the cost of a box/unbox around every arithmetic instruction. **That price buys stage 3.** A
+     `StackMapTable` is hard because it MERGES each local's verification type across the branches
+     reaching a target; when every local is `java/lang/Object` in every branch, there is nothing to
+     merge. Unboxing later is an optimisation with a number, not a correction.
+   - **`Tag` moved to stage 3**, and the reason is a semantic one rather than a scheduling one.
+     `Exec` makes `Tag` TOTAL — `-1` on a non-record, deliberately, because a nested pattern tests
+     the tag of a field and a field is routinely not a record — so emitting it needs an `instanceof`
+     and a branch, i.e. the first branch target, i.e. the frame computer stage 3 exists for. It also
+     has no consumer before `Switch`, which is stage 3's.
+   - **A record and an array are DIFFERENT JVM types on purpose** — `Object[]` with the tag at index
+     0, and `java.util.ArrayList`. `Verify` checks index bounds and does not type registers
+     (`v3/src/Verify.scala:107-131`), so nothing upstream stops a `Field` whose receiver is an
+     array; the executor throws there, and one shared representation would have read element
+     `idx+1` and answered a plausible wrong value instead. `NewArr` fills with `Long 0` to match the
+     executor via `Collections.nCopies` — two calls, no loop, so no branch target enters this stage
+     through the back door.
+
+   **The first N, measured by `v3/jvm-backend-census.sh`:** see `v3/SPRINT.md` for the figure and
+   the refusal histogram, which is what orders steps 3-6. **There is no second number and there
+   cannot be one yet:** the obvious companion — "of those that emit, how many RUN to the same answer
+   as `ssc3 run`" — needs a shared observable, and `run` prints through `io.println` while this
+   backend's harness prints the entry's return value. `Prim` is step 6; the fixture gate becomes a
+   differential there and not before.
+3. **Control flow, and the `StackMapTable` computer with it** — `Block Loop If Br BrIf Switch Ret`,
+   plus `Tag` and the comparison operators, which step 2 handed here because each needs a branch.
    §2 of the IR spec says the emission is one walk; if it is not, that is a finding about the IR and
    belongs back in `10-ssc-ir.md`. The frame computer arrives HERE because this is the first stage
    that creates a branch target, which is the only thing that requires one. Its own gate is a class

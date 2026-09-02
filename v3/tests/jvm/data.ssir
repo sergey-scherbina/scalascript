@@ -1,0 +1,24 @@
+(module
+  (consts
+    (int 30)
+    (int 12)
+    (int 10))
+  (types
+    (type "Pair" 2)
+    (type "Box" 1))
+  (globals)
+  (prims)
+  (funcs
+    (func "main" 0 9
+      (const 0 0)
+      (const 1 1)
+      (mkdata 2 0 0 1)
+      (mkdata 3 1 2)
+      (field 4 3 1 0)
+      (field 5 4 0 1)
+      (field 6 4 0 0)
+      (const 7 2)
+      (bin mul i64 8 6 7)
+      (bin add i64 8 8 5)
+      (ret 8)))
+  (entry 0))

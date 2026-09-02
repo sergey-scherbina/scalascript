@@ -1,0 +1,27 @@
+(module
+  (consts
+    (int 4)
+    (int 2)
+    (int 7)
+    (int 0)
+    (int 100))
+  (types)
+  (globals)
+  (prims)
+  (funcs
+    (func "main" 0 10
+      (const 0 0)
+      (newarr 1 0)
+      (const 2 1)
+      (const 3 2)
+      (arrset 1 2 3)
+      (arrget 4 1 2)
+      (const 5 3)
+      (arrget 6 1 5)
+      (arrlen 7 1)
+      (const 8 4)
+      (bin mul i64 9 4 8)
+      (bin add i64 9 9 6)
+      (bin add i64 9 9 7)
+      (ret 9)))
+  (entry 0))

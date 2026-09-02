@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# v3's OWN JVM backend — stage 1 of v3/specs/70-jvm-backend.md §8.
+# v3's OWN JVM backend — stages 1-2 of v3/specs/70-jvm-backend.md §8.
 #
 #   ./v3/jvm-backend-gate.sh              the fixtures
 #   ./v3/jvm-backend-gate.sh --self-test  plant a defect and require this gate to catch it
@@ -10,7 +10,9 @@
 #
 # THIS IS A FIXTURE GATE, NOT A DIFFERENTIAL, AND THE DIFFERENCE MATTERS. Every other v3 gate
 # compares two lanes; this one compares against a number written by hand. It has to, for now: the
-# executor's output comes from `io.println`, `Prim` is stage 6, and stage 1 refuses `Prim` by name.
+# executor's output comes from `io.println`, `Prim` is stage 6, and stage 2 refuses `Prim` by name.
+# Measured 2026-09-02: `ssc3 exec <f.ssir>` prints NOTHING — it returns the entry's value and does
+# not render it — so there is no second lane to compare against yet even for these fixtures.
 # A hand-written expectation is weaker evidence than a differential — it can only catch a backend
 # that disagrees with ME, not one that disagrees with v3 — and the honest reading is that this gate
 # proves the class file is well-formed and the arithmetic is right, not that the two lanes agree.
@@ -63,32 +65,57 @@ run_one() {
 }
 
 if [ "${1:-}" = "--self-test" ]; then
-  echo "── self-test: a planted opcode defect must turn this gate RED ─────────────"
+  echo "── self-test: planted defects must turn this gate RED ─────────────────────"
   src="v3/src/JvmBackend.scala"
   backup="$sandbox/JvmBackend.scala.orig"
   cp "$src" "$backup" || exit 2
   restore_src() { cp "$backup" "$src"; }
   trap 'restore_src; rm -rf "$sandbox"' EXIT HUP INT TERM
 
-  # `ladd` (0x61) becomes `lsub` (0x65). It still VERIFIES — both are long-to-long — so a gate that
-  # only checked "the JVM loaded it" would stay green. Only comparing the VALUE catches this, which
-  # is exactly the property being tested.
-  perl -0pi -e 's/case BinOp\.Add  => 0x61/case BinOp.Add  => 0x65/' "$src"
-  if ! grep -q 'BinOp.Add  => 0x65' "$src"; then
-    echo "  FAIL — could not plant the defect; the self-test proves nothing" >&2
+  # EVERY PLANT HERE STILL VERIFIES AND STILL RUNS. That is the point: a gate that only checked
+  # "the JVM loaded it" would stay green on all of them, so only comparing the VALUE catches them.
+  # One plant per stage, because a self-test that exercises stage 1's arithmetic says nothing about
+  # whether stage 2's data path is being looked at.
+  #
+  #   name | perl s/// | proof it landed | fixture | class
+  plant_one() {
+    local what="$1" subst="$2" proof="$3" fixture="$4" cls="$5"
     restore_src
+    perl -0pi -e "$subst" "$src"
+    if ! grep -q "$proof" "$src"; then
+      echo "  FAIL — could not plant '$what'; this self-test proves nothing" >&2
+      restore_src
+      return 1
+    fi
+    local out rc
+    out="$(run_one "$ROOT/v3/tests/jvm/$fixture.ssir" "$(cat "$ROOT/v3/tests/jvm/$fixture.expected")" "$cls" 2>&1)"
+    rc=$?
+    restore_src
+    if [ "$rc" -eq 0 ]; then
+      echo "  FAIL — the gate PASSED with '$what' planted. It is not checking the answer." >&2
+      echo "$out" >&2
+      return 1
+    fi
+    echo "  ok   '$what' was caught:"
+    echo "$out" | sed 's/^/       /'
+    return 0
+  }
+
+  st_fails=0
+  # Stage 1: `ladd` becomes `lsub`. Both are long-to-long, so the verifier is content.
+  plant_one "ladd -> lsub" \
+    's/case BinOp\.Add  => 0x61/case BinOp.Add  => 0x65/' \
+    'BinOp.Add  => 0x65' arith Arith || st_fails=$((st_fails + 1))
+  # Stage 2: a new array is filled with 1 instead of the executor's 0. Same types, same shape, no
+  # exception — the class loads and runs and answers 705 where 704 is right.
+  plant_one "NewArr fills with 1, not 0" \
+    's/val zero = pushBoxedLong\(n\._1, 0L\)/val zero = pushBoxedLong(n._1, 1L)/' \
+    'pushBoxedLong(n._1, 1L)' arr Arr || st_fails=$((st_fails + 1))
+
+  if [ "$st_fails" -ne 0 ]; then
+    echo "== v3 jvm-backend gate self-test: RED ($st_fails plant(s) went undetected) ==" >&2
     exit 1
   fi
-  planted_out="$(run_one "$ROOT/v3/tests/jvm/arith.ssir" "$(cat "$ROOT/v3/tests/jvm/arith.expected")" Arith 2>&1)"
-  planted_rc=$?
-  restore_src
-  if [ "$planted_rc" -eq 0 ]; then
-    echo "  FAIL — the gate PASSED with ladd replaced by lsub. It is not checking the answer." >&2
-    echo "$planted_out" >&2
-    exit 1
-  fi
-  echo "  ok   the planted lsub was caught:"
-  echo "$planted_out" | sed 's/^/       /'
   echo "== v3 jvm-backend gate self-test: GREEN (it can fail) =="
   exit 0
 fi
@@ -118,4 +145,4 @@ if [ "$fails" -ne 0 ]; then
   echo "== v3 jvm-backend gate: RED ($fails of $ran) ==" >&2
   exit 1
 fi
-echo "== v3 jvm-backend gate: GREEN ($ran fixture(s), stage 1: straight-line I64) =="
+echo "== v3 jvm-backend gate: GREEN ($ran fixture(s), stage 2: straight-line I64 + data) =="
