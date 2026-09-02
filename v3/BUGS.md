@@ -6,16 +6,49 @@ belong in the repository-root `BUGS.md` instead, not here.
 
 Query: `scripts/bugs-report --module v3`.
 
-## v3-front-does-not-parse-an-anonymous-given — `given T with` becomes three stray name statements
+## v3-summon-matches-the-trait-head-only — two instances of one trait are indistinguishable
 
 <!-- status: open
      lane: v3
+     kind: feature
+     area: codegen
+     gate: none yet — repro is tests/conformance/kr-summon-anonymous-given.ssc under `ssc3 run`
+     found-by: claude-code
+     found-at: 2026-09-02 -->
+
+Both fronts lower `summon[Combiner[Int]]` to `__summon__("Combiner")` — the HEAD only
+(`UniFront.scala:722`, `Parser.scala:968`) — and `Lower.resolveSummons` matches instances by that
+head, so a module with `given Combiner[String]` AND `given Combiner[Int]` refuses every summon of
+either: "`summon[Combiner[…]]` has 2 instances to choose from". Found the moment the anonymous
+`given` landed (`v3-front-does-not-parse-an-anonymous-given`) and `kr-summon-anonymous-given` —
+which deliberately declares both spellings on one trait family — could be run end-to-end; the
+conformance case does not list v3 in its backends, so nothing is red, but the F lane resolves this
+shape (fsub's `findGivenF` matches `(tc, inner)` with a `*` wildcard) and v3 should too.
+
+Candidate fix: carry the FULL declared type in `__summon__` (both fronts build it from the same
+tokens), match `instances` on the whole of `givenOf` first and fall back to the head, mirroring
+`findGivenF`. NOT ambiguity-by-design: with two same-trait instances the named form fails
+identically, so this is a resolver gap, not an anonymous-given one.
+
+## v3-front-does-not-parse-an-anonymous-given — `given T with` becomes three stray name statements
+
+<!-- status: fixed
+     lane: v3
      area: front
      kind: bug
-     gate: v3/front-diff.sh
+     gate: v3/front-diff.sh (KNOWN_CONF_DISAGREE is EMPTY); v3/tests/front/anonymous-given-instance.ssc; SpikeGivenSpec
      reported-by: claude-code
      reported-at: 2026-08-31
-     confirmed: yes -->
+     confirmed: yes
+     fixed-in: 4503701dc -->
+
+**FIXED 2026-09-02 in `4503701dc`, BOTH fronts.** Each synthesizes Scala's own name
+(`given_Combiner_Int`; fsub's `anonG` is the canon — `Parser.anonGivenName` the kernel copy,
+the dialect's `anonGivenObjName` the other, each citing the rest) and reuses the NAMED machinery,
+the fsub fix's own lesson. `kr-summon-anonymous-given` prints byte-identically on both fronts;
+`KNOWN_CONF_DISAGREE` is EMPTY (corpus agree 360/360 both-printed). Running the kr case
+end-to-end exposed the resolver gap filed above (`v3-summon-matches-the-trait-head-only`) —
+the head-only summon fails two same-trait instances in either spelling.
 
 v3's own front does not recognise the ANONYMOUS `given` form. `given Combiner[Int] with` is emitted
 as three unrelated statements:

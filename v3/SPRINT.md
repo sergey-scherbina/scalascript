@@ -9,6 +9,40 @@ Pipeline: `source → AST → SSC IR → execute | translate`.
 **The order is deliberate: the IR is designed and verified before a front is written against it.**
 A compiler built on an IR that turns out to be wrong is work thrown away twice.
 
+## [x] v3-front-does-not-parse-an-anonymous-given (claim `v3-front-does-not-parse-an-anonymous-given`)
+
+**BUGS:** `v3/BUGS.md` `v3-front-does-not-parse-an-anonymous-given`. `given Combiner[Int] with`
+is silently three stray name-statements on v3's own front (the dispatch requires `given <name> :`)
+and a diagnostic + two strays on the uniml dialect (the `with` arm deliberately not consumed —
+"zero corpus files write it", which stopped being true when `kr-summon-anonymous-given` landed).
+The LAST declared row in `KNOWN_CONF_DISAGREE`.
+
+**The name is already canon.** `specs/v2.2-p6.5-fsub.ssc` `anonG` (landed 5d665bb07, BUGS
+`interp-summon-over-an-anonymous-given`): `given TC[Inner]` → `given_TC_<inner sanitized to
+[A-Za-z0-9_] char-by-char>`; bare `given TC` → `given_TC`. Every copy must cite the others —
+the kernel cannot see uniml and neither can see fsub, so there are three by construction.
+
+**LANDED 2026-09-02 as `4503701dc`**, plan executed; extras the plan did not know: the gate's
+empty-declared-list comparison was itself broken (`printf` over an empty array prints one empty
+line) and is fixed in the same commit; the end-to-end run exposed
+`v3-summon-matches-the-trait-head-only` (filed, open); `SpikeGivenSpec`'s inverted guard
+("the anonymous one models nothing") dissolved and was flipped to guard the drop it stood
+against. Final: corpus agree 360/360, fixtures 89/90, unimlScala 229/229, smoke-ci exit 0.
+
+**Plan (as executed):**
+1. v3 kernel: `anonGivenName(typeText)` helper + a dispatch arm `given <type> … with` →
+   `ObjectDef(anonGivenName, members, vals, p, givenOf)` — summon already resolves via `givenOf`,
+   so the named path is reused untouched (the fsub fix's own lesson).
+2. uniml `ScalaSpike.parseGiven`: the anonymous `with` arm builds a real `spike.givenobj`
+   (given.type + obj.member via memberLoop, NO given.name role) instead of the loud diagnostic.
+3. `SpikeTyped` already types a nameless GivenObject (Option). `UniFront`'s GivenObject arm and
+   `SpikeProject.givenObjNode` both synthesize the same name for the absent role.
+4. Fixture in v3/tests/front (anonymous + named control); roles-spec test; `ssc3 run` of the
+   kr shape end-to-end on v3. front-diff: the row comes OUT — expect agree 360/360 both-printed,
+   an EMPTY KNOWN_CONF_DISAGREE.
+5. Gates: unimlScala suite (projection censuses see the new node), front-diff fresh-classpath,
+   smoke-ci.
+
 ## [x] uniml-extern-class-members-hoist-to-top-level (claim `uniml-extern-class-members-hoist-to-top-level`)
 
 **BUGS:** `v3/BUGS.md` `uniml-extern-class-members-hoist-to-top-level`. The filed entry says "the
