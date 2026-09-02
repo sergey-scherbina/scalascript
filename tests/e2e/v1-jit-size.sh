@@ -1208,10 +1208,22 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # source text + offset. Also one `SSC_DEBUG_LIFT` stderr println inside renderTerm — a debug
 # leftover flagged to the owner in rozum, worth pulling out with the next real shrink.
 # RAISED, NOT REVERTED, same terms as every entry above.
+# renderTerm 43272 -> 43948 (+676), from `rozum-perf-parity-prototype` (`cc39d29c6`, merged to
+# main directly at the operator's request -- a rozum session's landing, same pattern as the
+# entry above). One new match arm: `p.copy(f = p.f :+ x)` (a def PARAM or a local declared once
+# per match arm) moves the self-appended field out and spreads the rest via `..p`, instead of
+# the general `:+` lowering's `.concat()` -- measured at 94% of one profiled run inside
+# `MarkdownBlocks.emit`'s `st.copy(pos = ..., out = st.out :+ VmToken(...))`. The new arm's own
+# soundness check (`collectCopySelfAppendMoves`, a fourth per-def move table alongside
+# `_ownedFieldMoves`/`_localLastUseMoves`/`_localFieldMovePos`) lives OUTSIDE `renderTerm`; only
+# the ~25-line render case itself landed inline in the match, which is the whole growth. Not
+# extracted to its own function this round -- the same next-real-shrink debt the entry above
+# names, not made worse by this one. Full 526-test `RustGenCodeWalkTest` suite green pre-merge.
+# RAISED, NOT REVERTED, same terms as every entry above.
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25540 scalascript.codegen.JsGen::genExpr
-43272 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+43948 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF
