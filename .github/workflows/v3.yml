@@ -304,6 +304,14 @@ jobs:
       - name: jvm backend
         if: ${{ !cancelled() }}
         run: v3/jvm-backend-gate.sh
+      # The corpus census (v3/specs/70-jvm-backend.md §8 step 2) is NOT the gate above: it is a
+      # measurement over ~420 corpus files, one JVM start each, ~12 minutes. Tier 2 — schedule and
+      # workflow_dispatch only — for the same reason ci.yml keeps its own drained-orphan sweep off
+      # the push path: this suite already builds an sbt project before its first gate and a push
+      # verdict is read fast or not at all (`v3.yml`'s own header measures a 26-minute median).
+      - name: jvm backend corpus census
+        if: ${{ !cancelled() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
+        run: v3/jvm-backend-census.sh
       - name: parity
         if: ${{ !cancelled() }}
         run: v3/parity-gate.sh
