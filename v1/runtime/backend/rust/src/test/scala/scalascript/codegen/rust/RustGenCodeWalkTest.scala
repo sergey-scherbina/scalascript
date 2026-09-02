@@ -5819,3 +5819,90 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(!g.contains("let opening = opening.clone()") && !g.contains("let closing = closing.clone()") &&
            !g.contains("let range = range.clone()") && !g.contains("let role = role.clone()"),
       s"a name declared or bound inside the closure must never appear in its own clone-prelude:\n$g")
+
+  // ── ssc-main-base-perf-parity: last use is decided PER CONTROL-FLOW PATH ──────────────────
+  // The fold-style markdown parser forwards its accumulator in every arm of an if/else or a
+  // match (`if blank then handleBlank(st) else dispatchLeaf(st)`); the textual-max rule moved it
+  // in the last arm only and the statement-unique gate then kept the clone in ALL of them — a
+  // whole-state deep copy per line, ×180 against the imperative source at 3,200 lines.
+
+  private def fnBody(g: String, name: String): String =
+    val at = g.indexOf(s"fn $name(")
+    assert(at >= 0, s"no fn $name in:\n$g")
+    val next = g.indexOf("\n        fn ", at + 1)
+    if next < 0 then g.substring(at) else g.substring(at, next)
+
+  test("a by-value param moves in BOTH arms of an if/else, the condition's field read notwithstanding"):
+    val src =
+      """```scalascript
+        |case class Acc(items: Vector[String], n: Long)
+        |
+        |def grow(st: Acc, x: String): Acc = Acc(st.items :+ x, st.n + 1L)
+        |def shrink(st: Acc, x: String): Acc = Acc(st.items, st.n - 1L)
+        |
+        |def step(st: Acc, x: String): Acc =
+        |  if st.n > 3L then grow(st, x) else shrink(st, x)
+        |```
+        |""".stripMargin
+    val g = fnBody(assets(src)("src/generated/ssc_program.rs"), "step")
+    assert(g.contains("grow(st, ") && g.contains("shrink(st, "),
+      s"each arm is the accumulator's last use on its own path and must move it:\n$g")
+    assert(!g.contains("st.clone()"), s"no whole-state clone in either arm:\n$g")
+
+  test("a by-value param moves in EVERY match arm, the scrutinee's field read notwithstanding"):
+    val src =
+      """```scalascript
+        |enum Mode:
+        |  case A, B
+        |
+        |case class Acc(items: Vector[String], mode: Mode)
+        |
+        |def grow(st: Acc, x: String): Acc = Acc(st.items :+ x, Mode.B)
+        |def reset(st: Acc): Acc = Acc(Vector(), Mode.A)
+        |
+        |def step(st: Acc, x: String): Acc =
+        |  st.mode match
+        |    case Mode.A => grow(st, x)
+        |    case Mode.B => reset(st)
+        |```
+        |""".stripMargin
+    val g = fnBody(assets(src)("src/generated/ssc_program.rs"), "step")
+    assert(g.contains("grow(st, ") && g.contains("reset(st)"),
+      s"each arm is the accumulator's last use on its own path and must move it:\n$g")
+    assert(!g.contains("st.clone()"), s"no whole-state clone in any arm:\n$g")
+
+  test("two uses in the SAME arm still clone — the E0505 shape is per path, not per statement"):
+    val src =
+      """```scalascript
+        |case class Acc(items: Vector[String], n: Long)
+        |
+        |def merge(a: Acc, b: Acc): Acc = Acc(a.items ++ b.items, a.n + b.n)
+        |def shrink(st: Acc, x: String): Acc = Acc(st.items, st.n - 1L)
+        |
+        |def both(st: Acc, x: String): Acc =
+        |  if st.n > 3L then merge(st, st) else shrink(st, x)
+        |```
+        |""".stripMargin
+    val g = fnBody(assets(src)("src/generated/ssc_program.rs"), "both")
+    assert(g.contains("merge(st.clone(), st.clone())"),
+      s"two reads on one path race each other and must both keep the clone:\n$g")
+    assert(g.contains("shrink(st, "), s"the other arm's single read still moves:\n$g")
+
+  test("a local's field moves out in BOTH arms of an if/else when each arm reads it once"):
+    val src =
+      """```scalascript
+        |case class Acc(items: Vector[String], n: Long)
+        |case class Step(state: Acc, rest: String)
+        |
+        |def advance(st: Acc, line: String): Step = Step(Acc(st.items :+ line, st.n + 1L), line)
+        |def handleBlank(st: Acc): Acc = Acc(st.items, st.n + 1L)
+        |def handleText(st: Acc, text: String): Acc = Acc(st.items :+ text, st.n)
+        |
+        |def drive(st: Acc, line: String): Acc =
+        |  val step = advance(st, line)
+        |  if step.n > 0L then handleBlank(step.state) else handleText(step.state, line)
+        |```
+        |""".stripMargin
+    val g = fnBody(assets(src)("src/generated/ssc_program.rs"), "drive")
+    assert(g.contains("handleBlank(step.state)") && g.contains("handleText(step.state, "),
+      s"the field is read once per exclusive arm and must move out on each path:\n$g")

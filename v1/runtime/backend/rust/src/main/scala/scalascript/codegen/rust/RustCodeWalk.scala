@@ -1660,11 +1660,11 @@ object RustCodeWalk:
   // precedent) rather than a Ctx field: the Ctx that reaches `cloneIfMoved` is rebuilt/copied
   // along enough paths that a threaded field proved lossy in practice.
   private var _ownedFieldMoves: Map[String, Set[(String, String)]] = Map.empty
-  // Per-def LOCALS safe to MOVE at their textually LAST use: local name -> `pos.start` of the
-  // ONE occurrence allowed to drop its clone (`ssc-local-last-use-move`) — see
-  // `collectLocalLastUses`. Same keying and same module-level-table reasoning as
+  // Per-def LOCALS safe to MOVE at their LAST use on each control-flow path: local name ->
+  // `pos.start` of every occurrence allowed to drop its clone (`ssc-local-last-use-move`; one per
+  // if/else side or match arm since ssc-main-base-perf-parity) — see `collectLocalLastUses`. Same keying and same module-level-table reasoning as
   // `_ownedFieldMoves` just above.
-  private var _localLastUseMoves: Map[String, Map[String, Int]] = Map.empty
+  private var _localLastUseMoves: Map[String, Map[String, Set[Int]]] = Map.empty
   // Per-def POSITIONS of field reads safe to MOVE out of an owned LOCAL — the local-variable twin
   // of `_ownedFieldMoves`, for `val stepped = vm.step(…); vmState = stepped.state` inside the
   // parse driver's per-token loop: `stepped.state.clone()` deep-copied the whole accumulated
@@ -4959,7 +4959,7 @@ object RustCodeWalk:
       // name, and a closure/while body may run again after this position has "passed").
       case nm @ m.Term.Name(n)
           if _localLastUseMoves.getOrElse(ctx.liftedSelfName.getOrElse(ctx.defName), Map.empty)
-              .get(n).contains(nm.pos.start)
+              .get(n).exists(_.contains(nm.pos.start))
             && !ctx.byRefMut.contains(n)
             && !ctx.closureParams.contains(n)
             && !ctx.inClosure && !ctx.inWhileLoop
@@ -5040,6 +5040,76 @@ object RustCodeWalk:
    *  field is read at most once. Conservative on purpose: one bare use of the param, or a second
    *  read of the same field, disqualifies the param entirely. `byRefMut`/`refValueParams` roots
    *  are excluded at the USE site (`cloneIfMoved`) since those are not owned here. */
+  /** `t` and its ancestors, nearest first. */
+  private def ancestorsOf(t: m.Tree): List[m.Tree] =
+    var out = List.empty[m.Tree]
+    var cur: Option[m.Tree] = Some(t)
+    while cur.isDefined do
+      out = cur.get :: out
+      cur = cur.get.parent
+    out.reverse
+
+  /** The lowest common ancestor of two nodes, with each side's path from the node up to (not
+   *  including) that ancestor, nearest first — so `path.last` is the ancestor's own child on
+   *  that side. Reference identity throughout: scalameta trees are compared by reference. */
+  private def lowestCommonAncestor(a: m.Tree, b: m.Tree): Option[(m.Tree, List[m.Tree], List[m.Tree])] =
+    val aa = ancestorsOf(a)
+    val bb = ancestorsOf(b)
+    aa.find(x => bb.exists(_ eq x)).map { lca =>
+      (lca, aa.takeWhile(_ ne lca), bb.takeWhile(_ ne lca))
+    }
+
+  /** Are two occurrences on MUTUALLY EXCLUSIVE control-flow paths? True when their lowest
+   *  common ancestor is an if/else with one occurrence under `thenp` and the other under
+   *  `elsep`, or a match with the two under different arms. Textual order over-approximates
+   *  execution order everywhere else; here it is simply wrong — at most one of the two ever
+   *  runs, so neither is "after" the other. This is what lets a fold-style parser forward its
+   *  accumulator by value in EVERY arm (`if blank then handleBlank(st) else dispatchLeaf(st)`)
+   *  instead of cloning the whole accumulated state in all but the textually last one
+   *  (ssc-main-base-perf-parity: 141 s → linear on a 3,200-line document). */
+  private def branchExclusive(a: m.Tree, b: m.Tree): Boolean =
+    lowestCommonAncestor(a, b) match
+      case Some((i: m.Term.If, pa, pb)) =>
+        def side(p: List[m.Tree]): Option[m.Tree] =
+          p.lastOption.filter(x => (x eq i.thenp) || (x eq i.elsep))
+        (side(pa), side(pb)) match
+          case (Some(x), Some(y)) => x ne y
+          case _                  => false
+      case Some((mt: m.Term.Match, pa, pb)) =>
+        // The path runs node → … → Case → casesBlock; the arm is the element just below the
+        // block on each side (a Case deeper down belongs to a NESTED match and is not the arm).
+        def arm(p: List[m.Tree]): Option[m.Case] =
+          p.reverse match
+            case cb :: (c: m.Case) :: _ if cb eq mt.casesBlock => Some(c)
+            case _                                             => None
+        (arm(pa), arm(pb)) match
+          case (Some(x), Some(y)) => x ne y
+          case _                  => false
+      case _ => false
+
+  /** Does the (non-bare) occurrence `v` sit in a CONDITION that is fully evaluated — its clone
+   *  taken, its borrow over — before the branch holding `u` starts? The `if` condition of an
+   *  `if` whose then/else holds `u`; the scrutinee of a `match` whose arm holds `u`; the guard
+   *  of `u`'s own arm. Such a `v` is no E0505 partner for a move at `u`, even inside the one
+   *  statement they share (`match st.open { … => matchContainers(st, …) }`). */
+  private def condShields(u: m.Tree, v: m.Tree): Boolean =
+    lowestCommonAncestor(u, v) match
+      case Some((i: m.Term.If, pu, pv)) =>
+        pv.lastOption.exists(_ eq i.cond) &&
+          pu.lastOption.exists(x => (x eq i.thenp) || (x eq i.elsep))
+      case Some((mt: m.Term.Match, pu, pv)) =>
+        pv.lastOption.exists(_ eq mt.expr) && pu.lastOption.exists(_ eq mt.casesBlock)
+      case Some((c: m.Case, pu, pv)) =>
+        c.cond.exists(g => pv.lastOption.exists(_ eq g)) && pu.lastOption.exists(_ eq c.body)
+      case _ => false
+
+  /** Every pair of the given occurrences is [[branchExclusive]] — a field read once per arm. */
+  private def pairwiseExclusive(ns: List[m.Tree]): Boolean =
+    ns.combinations(2).forall {
+      case List(a, b) => branchExclusive(a, b)
+      case _          => true
+    }
+
   private def collectSingleReadOwnedFields(body: m.Term, params: Set[String]): Set[(String, String)] =
     // Positions matter: a BARE use that comes AFTER a field read would see a partially moved
     // value, so it disqualifies the param — but a bare use BEFORE every field read (the tree
@@ -5047,6 +5117,7 @@ object RustCodeWalk:
     // clone by the time any move happens, and partial moves after it are fine.
     var fieldReads   = Map.empty[(String, String), Int]
     var firstFieldAt = Map.empty[(String, String), Int]
+    var readNodes    = Map.empty[(String, String), List[m.Tree]]
     var lastBareAt   = Map.empty[String, Int]
     // A param a LIFTED LOCAL DEF's body mentions is disqualified outright: the lift turns that
     // mention into a CAPTURE, appended at every call site invisibly to this walk — so a "single
@@ -5066,6 +5137,7 @@ object RustCodeWalk:
           d.children.foreach(walk)
         case sel @ m.Term.Select(m.Term.Name(p), m.Term.Name(f)) if params.contains(p) =>
           fieldReads = fieldReads.updated((p, f), fieldReads.getOrElse((p, f), 0) + 1)
+          readNodes  = readNodes.updated((p, f), sel :: readNodes.getOrElse((p, f), Nil))
           if !firstFieldAt.contains((p, f)) then firstFieldAt = firstFieldAt.updated((p, f), sel.pos.start)
         case nm @ m.Term.Name(p) if params.contains(p) =>
           lastBareAt = lastBareAt.updated(p, math.max(lastBareAt.getOrElse(p, -1), nm.pos.start))
@@ -5076,8 +5148,11 @@ object RustCodeWalk:
     // only the second survived), while this filter over the same map returns both. Whatever the
     // underlying pattern-match quirk is, the imperative spelling is the one whose behaviour was
     // verified.
+    // One read, OR one read per mutually exclusive branch (`pairwiseExclusive`): each arm then
+    // moves the field out of its own copy of the flow, and no arm sees another's move.
     fieldReads.filter { kv =>
-      kv._2 == 1 && !capturedByLift.contains(kv._1._1) &&
+      (kv._2 == 1 || pairwiseExclusive(readNodes.getOrElse(kv._1, Nil))) &&
+      !capturedByLift.contains(kv._1._1) &&
       lastBareAt.getOrElse(kv._1._1, -1) < firstFieldAt.getOrElse(kv._1, Int.MaxValue)
     }.keySet.toSet
 
@@ -5096,7 +5171,7 @@ object RustCodeWalk:
    *  not at all. A later WRITE is no obstacle in Rust (assigning into a moved-out local is
    *  legal), but an assignment LHS is still recorded as a non-bare use — conservative, it only
    *  ever suppresses a move. */
-  private def collectLocalLastUses(body: m.Term, params: Set[String], extraPoison: Set[String] = Set.empty): Map[String, Int] =
+  private def collectLocalLastUses(body: m.Term, params: Set[String], extraPoison: Set[String] = Set.empty): Map[String, Set[Int]] =
     // Pass 1: declarations, shadowing, and the lifted local defs.
     var declCount  = Map.empty[String, Int]
     var disqual    = Set.empty[String]
@@ -5158,19 +5233,21 @@ object RustCodeWalk:
       // Pass 3: occurrences OUTSIDE nested-def bodies, flagged by loop/lambda context. Keep only
       // the max-position use per name; a position tie (a call-site charge landing on the same
       // offset) collapses to non-bare, which suppresses the move.
-      final case class Use(pos: Int, bare: Boolean, safe: Boolean, stmt: Int)
-      var uses   = Map.empty[String, Use]
-      var usesInStmt = Map.empty[(String, Int), Int]
+      // EVERY occurrence is kept (not only the textually last one): which of them is a last
+      // use is decided per control-flow path below, so an if/else or a match can move the
+      // value in each of its arms. A position tie (a call-site charge landing on the same
+      // offset) still collapses to non-bare, which suppresses the move.
+      final case class Use(node: m.Tree, pos: Int, bare: Boolean, safe: Boolean, stmt: Int)
+      var uses   = Map.empty[String, List[Use]]
       var curStmt = -1
       var poison = Set.empty[String]
-      def record(n: String, pos: Int, bare: Boolean, safe: Boolean): Unit =
+      def record(n: String, node: m.Tree, pos: Int, bare: Boolean, safe: Boolean): Unit =
         if candidates.contains(n) then
-          usesInStmt = usesInStmt.updated((n, curStmt), usesInStmt.getOrElse((n, curStmt), 0) + 1)
-          uses.get(n) match
-            case None                    => uses = uses.updated(n, Use(pos, bare, safe, curStmt))
-            case Some(u) if u.pos < pos  => uses = uses.updated(n, Use(pos, bare, safe, curStmt))
-            case Some(u) if u.pos == pos => uses = uses.updated(n, Use(pos, bare = false, safe = false, curStmt))
-            case _                       => ()
+          val (same, rest) = uses.getOrElse(n, Nil).partition(_.pos == pos)
+          val merged =
+            if same.isEmpty then Use(node, pos, bare, safe, curStmt)
+            else Use(node, pos, bare = false, safe = false, curStmt)
+          uses = uses.updated(n, merged :: rest)
       def walkUses(t: m.Tree, safe: Boolean): Unit =
         t match
           case b: m.Term.Block =>
@@ -5194,11 +5271,11 @@ object RustCodeWalk:
           case a: m.Term.Assign =>
             a.lhs match
               case nm @ m.Term.Name(n) =>
-                record(n, nm.pos.start, bare = false, safe)
+                record(n, nm, nm.pos.start, bare = false, safe)
                 walkUses(a.rhs, safe)
               case _ => a.children.foreach(walkUses(_, safe))
           case sel @ m.Term.Select(m.Term.Name(root), _) =>
-            record(root, sel.pos.start, bare = false, safe)
+            record(root, sel, sel.pos.start, bare = false, safe)
             sel.children.drop(1).foreach(walkUses(_, safe))
           case nm @ m.Term.Name(n) =>
             if nestedDefs.contains(n) then
@@ -5207,18 +5284,35 @@ object RustCodeWalk:
                 case _                => false
               }
               if isCallee then
-                captures.getOrElse(n, Set.empty).foreach(c => record(c, nm.pos.start, bare = false, safe))
+                captures.getOrElse(n, Set.empty).foreach(c => record(c, nm, nm.pos.start, bare = false, safe))
               else poison = poison ++ captures.getOrElse(n, Set.empty)
-            else record(n, nm.pos.start, bare = true, safe)
+            else record(n, nm, nm.pos.start, bare = true, safe)
           case other => other.children.foreach(walkUses(_, safe))
       walkUses(body, safe = true)
-      var out = Map.empty[String, Int]
-      uses.foreach { (n, u) =>
-        // A second use of the same name inside ONE statement is the E0505 shape
-        // (`substring(&rest, f(rest))`): the move races the borrow — keep the clone.
-        if u.bare && u.safe && !poison.contains(n) && !extraPoison.contains(n)
-           && usesInStmt.getOrElse((n, u.stmt), 0) <= 1
-        then out = out.updated(n, u.pos)
+      var out = Map.empty[String, Set[Int]]
+      uses.foreach { (n, us) =>
+        if !poison.contains(n) && !extraPoison.contains(n) then
+          val movable = us.filter { u =>
+            u.bare && u.safe && us.forall { v =>
+              (v eq u) || {
+                if v.pos > u.pos then
+                  // A LATER occurrence on the same path means this one is not the last; one
+                  // on the other side of an if/else, or in another match arm, never runs
+                  // together with it (`branchExclusive`).
+                  branchExclusive(u.node, v.node)
+                else
+                  // An EARLIER occurrence has taken its own clone — except inside the same
+                  // statement, which is the E0505 shape (`substring(&rest, f(rest))`: the
+                  // move races the borrow), so there the clone stays. Two exemptions, both
+                  // exact: a sibling branch never executes alongside this one, and a field
+                  // read in the `if` condition / `match` scrutinee is complete — clone taken,
+                  // borrow over — before the branch holding this occurrence runs.
+                  v.stmt != u.stmt || branchExclusive(u.node, v.node) ||
+                    (!v.bare && condShields(u.node, v.node))
+              }
+            }
+          }.map(_.pos)
+          if movable.nonEmpty then out = out.updated(n, movable.toSet)
       }
       out
 
@@ -5312,6 +5406,7 @@ object RustCodeWalk:
       }
     var fieldReads   = Map.empty[(Int, String), Int]
     var firstFieldAt = Map.empty[(Int, String), Int]
+    var readNodes    = Map.empty[(Int, String), List[m.Tree]]
     var scopeOk      = Map.empty[(Int, String), Boolean]
     var lastBareAt   = Map.empty[Int, Int]
     def walkU(t: m.Tree): Unit =
@@ -5322,6 +5417,7 @@ object RustCodeWalk:
             case Some(dp) =>
               val key = (dp, f)
               fieldReads = fieldReads.updated(key, fieldReads.getOrElse(key, 0) + 1)
+              readNodes  = readNodes.updated(key, sel :: readNodes.getOrElse(key, Nil))
               if !firstFieldAt.contains(key) then firstFieldAt = firstFieldAt.updated(key, sel.pos.start)
               val ok = innermost(sel.pos.start) == innermost(dp)
               scopeOk = scopeOk.updated(key, scopeOk.getOrElse(key, true) && ok)
@@ -5336,11 +5432,14 @@ object RustCodeWalk:
     var out = Set.empty[Int]
     fieldReads.foreach { (key, count) =>
       val n = declName.get(key._1)
-      if count == 1
+      // One read, OR one read per mutually exclusive branch — `handleBlank(step.state)` in the
+      // then-side and `dispatchLeaf(step.state)` in the else-side each move the field out on
+      // their own path (`pairwiseExclusive`).
+      if (count == 1 || pairwiseExclusive(readNodes.getOrElse(key, Nil)))
          && n.exists(nm => !disqual.contains(nm) && !params.contains(nm) && looksLikeBinding(nm))
          && scopeOk.getOrElse(key, false)
          && lastBareAt.getOrElse(key._1, -1) < firstFieldAt.getOrElse(key, Int.MaxValue)
-      then out = out + firstFieldAt(key)
+      then out = out ++ readNodes.getOrElse(key, Nil).map(_.pos.start)
     }
     out
 
