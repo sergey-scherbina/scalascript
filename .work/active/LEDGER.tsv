@@ -1,4 +1,3 @@
-# generation: 3357
+# generation: 3358
 #slug	agent	started	items	paths
-uniml-extern-class-members-hoist-to-top-level	claude-code	2026-09-01T22:52:16Z	uniml-extern-class-members-hoist-to-top-level	file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/ScalaSpike.scala file:uniml/scala/src/test-jvm/scala/scalascript/uniml/dialect/scalascript/SpikeTypedRolesSpec.scala file:v3/uniml/UniFront.scala file:v3/front-diff.sh file:v3/BUGS.md file:v3/SPRINT.md
 v3-front-does-not-parse-an-anonymous-given	claude-code	2026-09-01T23:29:14Z	v3-front-does-not-parse-an-anonymous-given kr-summon-anonymous-given	file:v3/src/Parser.scala file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/ScalaSpike.scala file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/SpikeTyped.scala file:uniml/scala/src/test-jvm/scala/scalascript/uniml/dialect/scalascript/SpikeTypedRolesSpec.scala file:uniml/scala/src/test-jvm/scala/scalascript/uniml/dialect/scalascript/SpikeGivenSpec.scala file:v3/uniml/UniFront.scala file:v3/front-diff.sh file:v3/BUGS.md file:v3/SPRINT.md mod:v3/tests/front
