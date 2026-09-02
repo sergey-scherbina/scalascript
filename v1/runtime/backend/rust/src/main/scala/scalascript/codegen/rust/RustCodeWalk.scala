@@ -3544,6 +3544,10 @@ object RustCodeWalk:
       enclosingLocalTypes: Map[String, String] = Map.empty,
       // Local-def lambda-lifting: def name -> its captured names, in the FIXED canonical order used
       // both at its own (lifted) parameter list and at every call site that must append them.
+      // The name of the LIFTED def whose body is currently rendering (ctx.defName stays the
+      // ENCLOSING def through a lift) — position-keyed move tables key on it, so a lift's own
+      // last-use analysis can apply inside its body (ssc-perf-port-to-main).
+      liftedSelfName: Option[String] = None,
       liftedDefExtraArgs: Map[String, List[String]] = Map.empty,
       // Per-CALLEE: which of its captures its lifted signature takes as `&Vec<…>` — the call
       // site must agree with THAT signature, not with any scope-global notion of the name
@@ -4939,8 +4943,9 @@ object RustCodeWalk:
       // because the collector cannot see it (a lifted def's body renders under the OUTER def's
       // name, and a closure/while body may run again after this position has "passed").
       case nm @ m.Term.Name(n)
-          if _localLastUseMoves.getOrElse(ctx.defName, Map.empty).get(n).contains(nm.pos.start)
-            && !ctx.defParams.contains(n) && !ctx.byRefMut.contains(n)
+          if _localLastUseMoves.getOrElse(ctx.liftedSelfName.getOrElse(ctx.defName), Map.empty)
+              .get(n).contains(nm.pos.start)
+            && !ctx.byRefMut.contains(n)
             && !ctx.closureParams.contains(n)
             && !ctx.inClosure && !ctx.inWhileLoop
             && !rendered.contains("(") && !rendered.contains(".") =>
@@ -5076,7 +5081,7 @@ object RustCodeWalk:
    *  not at all. A later WRITE is no obstacle in Rust (assigning into a moved-out local is
    *  legal), but an assignment LHS is still recorded as a non-bare use — conservative, it only
    *  ever suppresses a move. */
-  private def collectLocalLastUses(body: m.Term, params: Set[String]): Map[String, Int] =
+  private def collectLocalLastUses(body: m.Term, params: Set[String], extraPoison: Set[String] = Set.empty): Map[String, Int] =
     // Pass 1: declarations, shadowing, and the lifted local defs.
     var declCount  = Map.empty[String, Int]
     var disqual    = Set.empty[String]
@@ -5109,8 +5114,8 @@ object RustCodeWalk:
         case other => other.children.foreach(collectDecls(_, inNested))
     collectDecls(body, inNested = false)
     val candidates: Set[String] =
-      declCount.filter { kv => kv._2 == 1 }.keySet.toSet
-        .diff(disqual).diff(params).filter(looksLikeBinding)
+      (declCount.filter { kv => kv._2 == 1 }.keySet.toSet ++ params)
+        .diff(disqual).filter(looksLikeBinding)
     if candidates.isEmpty then Map.empty
     else
       // Pass 2: each lifted def's captured candidates, transitively through nested-def mentions.
@@ -5138,18 +5143,23 @@ object RustCodeWalk:
       // Pass 3: occurrences OUTSIDE nested-def bodies, flagged by loop/lambda context. Keep only
       // the max-position use per name; a position tie (a call-site charge landing on the same
       // offset) collapses to non-bare, which suppresses the move.
-      final case class Use(pos: Int, bare: Boolean, safe: Boolean)
+      final case class Use(pos: Int, bare: Boolean, safe: Boolean, stmt: Int)
       var uses   = Map.empty[String, Use]
+      var usesInStmt = Map.empty[(String, Int), Int]
+      var curStmt = -1
       var poison = Set.empty[String]
       def record(n: String, pos: Int, bare: Boolean, safe: Boolean): Unit =
         if candidates.contains(n) then
+          usesInStmt = usesInStmt.updated((n, curStmt), usesInStmt.getOrElse((n, curStmt), 0) + 1)
           uses.get(n) match
-            case None                    => uses = uses.updated(n, Use(pos, bare, safe))
-            case Some(u) if u.pos < pos  => uses = uses.updated(n, Use(pos, bare, safe))
-            case Some(u) if u.pos == pos => uses = uses.updated(n, Use(pos, bare = false, safe = false))
+            case None                    => uses = uses.updated(n, Use(pos, bare, safe, curStmt))
+            case Some(u) if u.pos < pos  => uses = uses.updated(n, Use(pos, bare, safe, curStmt))
+            case Some(u) if u.pos == pos => uses = uses.updated(n, Use(pos, bare = false, safe = false, curStmt))
             case _                       => ()
       def walkUses(t: m.Tree, safe: Boolean): Unit =
         t match
+          case b: m.Term.Block =>
+            b.stats.foreach { st1 => curStmt += 1; walkUses(st1, safe) }
           case _: m.Defn.Def             => ()
           // BINDER positions are not uses — and they cannot be skipped by TYPE (`case _: m.Pat`),
           // because `Term.Name` itself extends `Pat` (the compiler proves it: that spelling made
@@ -5188,7 +5198,13 @@ object RustCodeWalk:
           case other => other.children.foreach(walkUses(_, safe))
       walkUses(body, safe = true)
       var out = Map.empty[String, Int]
-      uses.foreach { (n, u) => if u.bare && u.safe && !poison.contains(n) then out = out.updated(n, u.pos) }
+      uses.foreach { (n, u) =>
+        // A second use of the same name inside ONE statement is the E0505 shape
+        // (`substring(&rest, f(rest))`): the move races the borrow — keep the clone.
+        if u.bare && u.safe && !poison.contains(n) && !extraPoison.contains(n)
+           && usesInStmt.getOrElse((n, u.stmt), 0) <= 1
+        then out = out.updated(n, u.pos)
+      }
       out
 
   /** The LOCAL-variable twin of `collectSingleReadOwnedFields`: POSITIONS of `local.field` reads
@@ -7625,6 +7641,17 @@ object RustCodeWalk:
           // and is forwarded bare, while a val capture is owned there and needs `&`.
           val myRefCaptures = myCaptures.filter(c =>
             !myByRefMut.contains(c) && captureTypes.get(c).exists(_.startsWith("Vec<"))).toSet
+          // Position-keyed last-use moves INSIDE this lift's own body (its scala params are
+          // candidates too): the accumulator-typed param a body reads once and forwards —
+          // `matchContainers(st, …)` per line — otherwise clones the whole accumulated state
+          // (ssc-perf-port-to-main). Names any sibling lift CAPTURES are poisoned: their calls
+          // re-read them invisibly (the `emit`/`source` E0382 class).
+          _localLastUseMoves = _localLastUseMoves.updated(
+            d.name.value,
+            collectLocalLastUses(
+              d.body,
+              d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value).toSet,
+              extraPoison = captures.valuesIterator.flatten.toSet ++ myCaptures))
           val childCtx = baseCtx.copy(
             defParams = ctx.defParams ++ ownParamNames ++ myCaptures.toSet,
             byRefMut  = myByRefMut ++ myRefCaptures,
@@ -7745,6 +7772,7 @@ object RustCodeWalk:
               collectLocalSeqs(d.body, ownSeqParams ++ baseCtx.localSeqs, Map.empty)._1 ++ ownSeqParams
             },
             inLiftedFn = true,
+            liftedSelfName = Some(d.name.value),
             // `val char = input.charAt(cursor)` DECLARED INSIDE a lifted local def's OWN body
             // (`scanDoctype`, `uniml/xml`'s `Doc.scala`) — `ctx.localSscChars` was computed ONCE,
             // from the ENCLOSING function's body, BEFORE `liftLocalDefs` ever split `scanDoctype`
