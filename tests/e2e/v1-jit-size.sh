@@ -1193,10 +1193,25 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # `renderOptionPred`), leaving only the call sites; the residual +4 is the ApplyType arm passing
 # `Some(targs)` where it previously bound nothing. Measured on the merged demutabilized
 # uniml/core: cargo 18 errors -> 0. RAISED, NOT REVERTED, same terms as every entry above.
+# renderTerm 43040 -> 43272 (+232), from the perf/correctness port merge (`6c185ca03`,
+# ssc-perf-port-to-main — a sibling session's landing; raised HERE by the agent that found main's
+# smoke red on it, with the growth attributed by diffing renderTerm between `683688d0b` and the
+# merge). New/widened arms, every one a fix the port's cargo/corpus evidence paid for: the
+# owned-capture wrap now also recognises `ctx.refValueParams` names (a read-only `&Vec` param
+# forwarded into a lifted def's `&Vec` param was wrapped into `&(*x).clone()`, 25 E0308s in
+# RustLexer's TCO'd scan alone); lifted-call args decide by the CALLEE's signature first
+# (`liftedDefValRefCaptures` — reference forwards bare, owned takes `&`); lifted call names pass
+# through `rustIdent`; a for-generator's body now renders under `inWhileLoop` + `loopExempt`
+# (an outer local read by value was moved on iteration one, E0382 on two); a NEW code-unit
+# `.size|length|len` arm renders `Vec::len as i64` BEFORE the String arm claims it (21 E0308s
+# when MarkdownInlines went code-unit); the collection-member refusal now prints the receiver's
+# source text + offset. Also one `SSC_DEBUG_LIFT` stderr println inside renderTerm — a debug
+# leftover flagged to the owner in rozum, worth pulling out with the next real shrink.
+# RAISED, NOT REVERTED, same terms as every entry above.
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25540 scalascript.codegen.JsGen::genExpr
-43040 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+43272 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

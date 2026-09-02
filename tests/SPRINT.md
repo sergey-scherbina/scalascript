@@ -3,6 +3,17 @@
 This module's queue. **Two states and no third:** `[~]` in progress, `[x]` done. Anything not being
 worked on belongs in `tests/BACKLOG.md`. Layout: [`../specs/work-tracking-layout.md`](../specs/work-tracking-layout.md).
 
+- [~] **v1-jit-size: raise the renderTerm freeze 43040 → 43272 for the perf-port merge**
+      (claim `v1-jit-size-renderterm-freeze-raise`). Main smoke is RED on `6c185ca03`
+      (run 33589605015): the ssc-perf-port-to-main merge grew frozen
+      `RustCodeWalk$::renderTerm` by +232 bytecodes and the gate caught it, exactly as designed.
+      The arms are real fixes (verified by diffing renderTerm between `683688d0b` and the merge):
+      refValueParams in the capture wrap, callee-first `liftedDefValRefCaptures` branch,
+      `rustIdent` at lifted calls, for-generator loopExempt ctx, a code-unit `.len` arm, an
+      enriched collection-member refusal, and one `SSC_DEBUG_LIFT` debug println (flagged to the
+      owner in rozum). Plan: journal the growth in the gate's own style with this attribution,
+      bump FROZEN, rebuild, run the gate + self-test locally, land, verify CI smoke green.
+
 - [x] **smoke-baseline refresh + the glued-name printer fix** (claim `smoke-baseline-refresh`,
       BUGS `smoke-printer-glues-a-long-check-name-to-its-duration`). LANDED 2026-09-02 as
       `4afbd9129`. Both local smoke runs complained "7 check(s) have no baseline row"; 5 of 7 were
