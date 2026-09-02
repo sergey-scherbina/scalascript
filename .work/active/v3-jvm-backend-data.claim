@@ -1,0 +1,11 @@
+slug: v3-jvm-backend-data
+branch: feature/v3-jvm-backend-data
+agent: claude-code
+started: 2026-09-02T11:22:36Z
+heartbeat: 2026-09-02T11:22:36Z
+status: claimed-before-planning
+items: SSC3-JVM-STAGE2
+paths: file:v3/src/JvmBackend.scala file:v3/src/Main.scala file:v3/jvm-backend-gate.sh file:v3/specs/70-jvm-backend.md file:v3/SPRINT.md file:v3/tests/jvm/data.ssir file:v3/tests/jvm/data.expected file:v3/tests/jvm/arr.ssir file:v3/tests/jvm/arr.expected file:v3/tests/jvm/glob.ssir file:v3/tests/jvm/glob.expected file:v3/jvm-backend-census.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
