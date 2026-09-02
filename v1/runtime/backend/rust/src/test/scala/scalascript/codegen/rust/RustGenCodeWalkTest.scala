@@ -1682,16 +1682,44 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     // FIELD projection, not a bare name) partially moves `name`, and the struct-update's own
     // `..name` spread — reading `name` as a whole right after — can no longer borrow it:
     // `error[E0382]: borrow of partially moved value: name`.
+    // The WHOLE-VALUE read AFTER the field read is the premise (the real site reads `..name`
+    // last), so the fixture orders it that way: the owned-field-move pass rightly lets a field
+    // MOVE when every bare use of the param comes BEFORE it, so an early bare use would no
+    // longer pin this clone.
     val src =
       """```scalascript
         |case class QName(localName: String, prefix: Option[String])
         |
         |def resolve(name: QName, bindings: Map[String, String]): QName =
-        |  QName(localName = name.localName, prefix = name.prefix.flatMap(bindings.get))
+        |  val pfx = name.prefix.flatMap(bindings.get)
+        |  val keep = name
+        |  QName(localName = keep.localName, prefix = pfx)
         |```
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(g.contains("name.prefix.clone().and_then"), s"the field-select receiver must be cloned:\n$g")
+
+  test("a single-read field of a never-read-whole owned param MOVES instead of cloning"):
+    // `var topEdges = state.topEdges` in the tree VM's `step` (`ssc-owned-field-move`): the
+    // generated code cloned an accumulated edge list on entry and again on exit — per token —
+    // which kept single-frame parses quadratic AFTER the source-side hot-top fix. Each field of
+    // `state` is read exactly once and `state` is never read whole, so a partial move is what an
+    // owner would write by hand.
+    val src =
+      """```scalascript
+        |case class St(stack: Vector[String], count: Long)
+        |
+        |def step(state: St): St =
+        |  var stack = state.stack
+        |  var count = state.count
+        |  stack = stack :+ "x"
+        |  count += 1L
+        |  St(stack, count)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(!g.contains("state.stack.clone()"),
+      s"a single-read owned field must move, not clone:\n$g")
 
   test("a call to a lifted local def clones a multi-use argument"):
     // `emitKnownRange(start, lexeme, …)` then `lexeme` read again at the tail of the SAME function
@@ -1717,6 +1745,246 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(g.contains("emit(lexeme.clone()"), s"the lifted-def call must clone a multi-use argument:\n$g")
+
+  test("a local's textually LAST use MOVES instead of cloning"):
+    // `Stepped { state: VmState { stack: stack.clone(), topEdges: topEdges.clone(), … } }` in the
+    // tree VM's `step` (`ssc-local-last-use-move`): the returned constructor cloned every local it
+    // hands back AT ITS LAST USE — two O(document) copies per token that bought nothing. The move
+    // is keyed by exact source position: the mid-body append still works on the owned value, and
+    // only the final constructor read drops its clone.
+    val src =
+      """```scalascript
+        |case class Res(items: Vector[String], n: Long)
+        |
+        |def wrap(x: String): Res =
+        |  var items: Vector[String] = Vector()
+        |  items = items :+ x
+        |  Res(items, 1L)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("items: items,"),
+      s"a local's last use in the returned constructor must move, not clone:\n$g")
+
+  test("a lifted-def call AFTER a local's last plain read keeps the clone"):
+    // The soundness case for `ssc-local-last-use-move`: `flush()` captures `acc` (rendered as a
+    // `&mut` parameter the CALL SITE supplies), so the call is a USE of `acc` at the call's
+    // position — later than the constructor read. Moving at the read would hand `flush` a
+    // moved-out local: `error[E0382]`. The call-site charge keeps the read cloning.
+    val src =
+      """```scalascript
+        |case class Snap(items: Vector[String], n: Long)
+        |
+        |def scan(text: String): Long =
+        |  var acc: Vector[String] = Vector()
+        |  var total: Long = 0
+        |
+        |  def flush(): Unit =
+        |    total += acc.length
+        |
+        |  acc = acc :+ text
+        |  val snapshot = Snap(acc, 0L)
+        |  flush()
+        |  total + snapshot.n
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("acc.clone()"),
+      s"a local read before a capturing lifted-def call must keep its clone:\n$g")
+
+  test("a local whose last use sits inside a `while` body keeps the clone"):
+    // A loop body runs again after its textual position has "passed", so the max-position use
+    // being inside `while` disqualifies the move — the same "may run many times" fact
+    // `cloneIfMoved`'s own `inWhileLoop` clause guards, re-checked in the collector.
+    val src =
+      """```scalascript
+        |case class Box(items: Vector[String])
+        |
+        |def spin(x: String): Long =
+        |  var buf: Vector[String] = Vector()
+        |  buf = buf :+ x
+        |  var i: Long = 0
+        |  var n: Long = 0
+        |  while i < 3 do
+        |    val b = Box(buf)
+        |    n += b.items.length
+        |    i += 1
+        |  n
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("buf.clone()") || g.contains("(buf).clone()"),
+      s"a by-value read inside a loop must keep its clone:\n$g")
+
+  test("a single-read field of a loop-local MOVES when decl and read share the loop body"):
+    // `val stepped = vm.step(vmState, token); vmState = stepped.state` in `UniML.parse`'s
+    // per-token driver loop (`ssc-local-last-use-move`, quadratic #4): `stepped.state.clone()`
+    // deep-copied the whole accumulated VmState per token. `stepped` is fresh each iteration and
+    // never read whole, so the partial move is safe INSIDE the loop — position-keyed, since the
+    // real driver declares `stepped` in two sibling loops and a name key would drop both.
+    val src =
+      """```scalascript
+        |case class St(items: Vector[String])
+        |case class Out(state: St, emitted: Vector[String])
+        |
+        |def advance(s: St, x: String): Out =
+        |  Out(St(s.items :+ x), Vector(x))
+        |
+        |def drive(xs: Vector[String]): St =
+        |  var st = St(Vector())
+        |  var seen: Vector[String] = Vector()
+        |  for x <- xs do
+        |    val stepped = advance(st, x)
+        |    st = stepped.state
+        |    seen = seen ++ stepped.emitted
+        |  st
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(!g.contains("stepped.state.clone()"),
+      s"a single-read field of a loop-local must move, not clone:\n$g")
+
+  test("a field read inside a loop of a local declared OUTSIDE it keeps the clone"):
+    // The scope rule of the case above: read one loop deeper than the declaration would see
+    // iteration N's moved-out value on iteration N+1 — `error[E0382]` — so it must keep cloning
+    // even though the field is read only once syntactically. Spelled with `while`, not `for`:
+    // the `for`-loop rendering has a PRE-EXISTING clone gap for outer locals read by value
+    // (`needs`'s own comment names it — loopExempt widened only the `while` site), so a `for`
+    // spelling would pin that latent bug, not this pass's scope rule.
+    val src =
+      """```scalascript
+        |case class St(items: Vector[String])
+        |
+        |def leak(xs: Vector[String]): Long =
+        |  val boxed = St(Vector("a"))
+        |  var n: Long = 0
+        |  var i: Long = 0
+        |  while i < 3 do
+        |    val cur = St(boxed.items)
+        |    n += cur.items.length
+        |    i += 1
+        |  n
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("boxed.items.clone()") || g.contains("(boxed.items).clone()"),
+      s"a field read in a deeper loop than its decl must keep its clone:\n$g")
+
+  test("a Vector[Char] PARAM slices to TEXT, not decimal code points"):
+    // `content.slice(a, b).mkString("")` inside a helper RECEIVING the code-unit vector printed
+    // every unit as its decimal code point ("Same" -> "8397109101"): `collectLocalCharSeqs` only
+    // scanned local bindings, never the parameter list. A param declared `Vector[Char]` is the
+    // same sequence of code units a `val chars = text.toVector` local is.
+    val src =
+      """```scalascript
+        |def sliceOf(content: Vector[Char], a: Int, b: Int): String =
+        |  content.slice(a, b).mkString("")
+        |
+        |def firstWord(text: String): String =
+        |  sliceOf(text.toVector, 0, 4)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("SscChar"),
+      s"a Vector[Char] param's mkString must print code units as text:\n$g")
+
+  test("a `for … do` body clones an outer local read by value"):
+    // The latent gap `ssc-local-last-use-move`'s negative golden exposed: the for-do body
+    // rendered with a PLAIN ctx, so `St(boxed.items)` moved `boxed.items` on iteration one and
+    // read it again on iteration two — non-compiling Rust (`error[E0382]`). The body now takes
+    // the same `inWhileLoop` + `loopExempt` context `while` has had all along.
+    val src =
+      """```scalascript
+        |case class St(items: Vector[String])
+        |
+        |def leak(xs: Vector[String]): Long =
+        |  val boxed = St(Vector("a"))
+        |  var n: Long = 0
+        |  for x <- xs do
+        |    val cur = St(boxed.items)
+        |    n += cur.items.length
+        |  n
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("boxed.items.clone()") || g.contains("(boxed.items).clone()"),
+      s"an outer local's field read in a for-do body must clone:\n$g")
+
+  test("a `for … do` body does not clone the generator variable or names it declares/reassigns"):
+    // The exempt half of the fix — `loopExempt` semantics verbatim: the generator variable is
+    // fresh each pass like a closure param, a declared local is rebound, a reassigned var is
+    // overwritten. None may gain a clone, or the hot parse loops regress.
+    val src =
+      """```scalascript
+        |case class Wrap(s: String)
+        |
+        |def consume(w: Wrap): Long =
+        |  w.s.length
+        |
+        |def spin(xs: Vector[String]): Long =
+        |  var n: Long = 0
+        |  for x <- xs do
+        |    val w = Wrap(x)
+        |    n += consume(w)
+        |  n
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(!g.contains("w.clone()") && !g.contains("(w).clone()"),
+      s"a loop-declared local must not gain a clone:\n$g")
+
+  test("a `for … yield` body clones a non-Copy capture read by value"):
+    // The for-yield half: the body IS a `move` closure running once per element, so a captured
+    // non-Copy value read by value must clone at the use — `enteringClosure`, like every other
+    // lambda body.
+    val src =
+      """```scalascript
+        |case class Tag(name: String)
+        |
+        |def label(t: Tag, x: String): String =
+        |  t.name + x
+        |
+        |def tagAll(xs: Vector[String]): Vector[String] =
+        |  val tag = Tag("v")
+        |  for x <- xs yield label(tag, x)
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("tag.clone()") || g.contains("(tag).clone()"),
+      s"a non-Copy capture in a for-yield body must clone at the use:\n$g")
+
+  test("a lifted local def's declared return type drives Option/Vec/String lowerings on its calls"):
+    // `ssc-rust-lifted-def-return-types`, found twice in the corpus before this: `_returnTypes`
+    // never heard of nested defs, so `val picked = pick(xs); picked.nonEmpty` REFUSED as
+    // "collection member, not a field" (the Vec half), and `tag.length` took Rust's byte-`len`
+    // path (the String half) — while the Option half worked only because `isOptionExpr` had
+    // been patched around locally (`nestedLocalDefDecltpe`). Nested defs now join the pool
+    // under the same bare-name collision discipline.
+    val src =
+      """```scalascript
+        |def scan(xs: Vector[String]): Long =
+        |  def findFirst(v: Vector[String]): Option[String] =
+        |    if v.isEmpty then None else Some(v(0))
+        |  def pick(v: Vector[String]): Vector[String] =
+        |    v
+        |  def label(v: Vector[String]): String =
+        |    "n=" + v.length
+        |  val hit = findFirst(xs)
+        |  val picked = pick(xs)
+        |  val tag = label(xs)
+        |  val a: Long = if hit.isDefined then hit.get.length else 0
+        |  val b: Long = if picked.nonEmpty then picked.length else 0
+        |  val c: Long = tag.length
+        |  a + b + c
+        |```
+        |""".stripMargin
+    compileResult(src) match
+      case CompileResult.Failed(ds) => fail(s"REFUSED: ${ds.mkString(" ||| ")}")
+      case _ => ()
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("hit.is_some()"), s"Option lowering must fire on a lifted-def-call val:\n$g")
+    assert(g.contains("!picked.is_empty()"), s"Vec lowering must fire on a lifted-def-call val:\n$g")
+    assert(g.contains("_str_length(&tag)"), s"String length must fire on a lifted-def-call val:\n$g")
 
   test("`xs :+ x` clones a multi-use appended element"):
     // `attributes = attributes :+ attribute` then `attribute` read again afterward (`uniml/xml`'s
@@ -2552,6 +2820,10 @@ class RustGenCodeWalkTest extends AnyFunSuite:
       s"a ctor field declared Char must unwrap .0:\n$g")
     assert(g.contains("Some((c.clone()).0)"),
       s"Some(...) around an SscChar value must unwrap .0:\n$g")
+    // Back to `((c.clone()).0, i)`: the statement-unique gate (ssc-perf-port-to-main) keeps
+    // the clone whenever a name is used more than once in ONE statement — the E0505
+    // borrow-races-move guard (`substring(&rest, f(rest))`) — and this three-use tuple is
+    // inside that conservative net. The unwrap itself is still what this test pins.
     assert(g.contains("((c.clone()).0, i)"),
       s"a tuple-literal element yielding SscChar must unwrap .0:\n$g")
 
@@ -4022,7 +4294,11 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(g.contains("fn emit(lexeme: String, out: &mut Vec<Tok>, source: SourceId) {") &&
-             g.contains("Tok { source: source, lexeme: lexeme }"),
+             // `source.clone()` since the capture-aware `needs` clause (ssc-perf-port-to-main): a name
+             // any lifted def captures is re-read at every call of that def, invisibly to the
+             // source-level occurrence count — one conservative clone, and what this golden
+             // actually pins (the NON-self-field read) is unchanged.
+             g.contains("Tok { source: source.clone(), lexeme: lexeme }"),
       s"a lifted def's OWN body must read a captured self-field as its new plain parameter, not self.field:\n$g")
     assert(g.contains("emit((*text).clone(), &mut out, self.source.clone());"),
       s"the CALL SITE (still inside the enclosing self-aware method) must pass the self-field as self.field:\n$g")

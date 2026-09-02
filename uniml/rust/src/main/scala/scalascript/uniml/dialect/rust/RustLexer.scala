@@ -143,7 +143,8 @@ object RustLexer:
     * concatenating their lexemes still reproduces the source byte for byte.
     */
   def lex(text: String): Vector[RustLexToken] =
-    val total = text.length
+    // annotated: captured by the lifted `place` (Rust lane)
+    val total: Int = text.length
     def place(pos: Int, span: Int, out: Vector[RustLexToken]): Vector[RustLexToken] =
       if pos >= total then out
       else
@@ -165,7 +166,8 @@ object RustLexer:
     // INDEX THE CODE UNITS, NOT THE STRING: `charAt`/`length` are O(1) on the JVM but O(i) on the
     // Rust backend, so an index-based scan written the ordinary way is quadratic there. One
     // `toVector` pays that conversion once and every index after it is a vector index.
-    val chars = text.toVector
+    // annotated: captured by lifted local defs (Rust lane)
+    val chars: Vector[Char] = text.toVector
     val n = chars.length
     def spaceEnd(i: Int): Int = if i < n && isSpace(chars(i)) then spaceEnd(i + 1) else i
     def lineCommentEnd(i: Int): Int = if i < n && chars(i) != '\n' then lineCommentEnd(i + 1) else i

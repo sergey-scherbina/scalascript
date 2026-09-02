@@ -5,7 +5,7 @@
     "checkCommand": "python3 uniml/corpus/markdown/generate.py --check",
     "writeCommand": "python3 uniml/corpus/markdown/generate.py --write",
     "baselineRows": "uniml/corpus/markdown/BASELINE.tsv",
-    "baselineRowsSha256": "2e7d25d68a3c04fb834432b7e2bdce166772748661cc4912c5bc33921ae7aca6"
+    "baselineRowsSha256": "d200180b26c179ca04bc3d49d1839a03d584c50c1306ec259c3e2cebf9bb181c"
   },
   "corpora": [
     {
@@ -61,8 +61,8 @@
       {
         "path": "uniml/corpus/markdown/BASELINE.tsv",
         "role": "complete-axis-baseline",
-        "size": 1137902,
-        "sha256": "2e7d25d68a3c04fb834432b7e2bdce166772748661cc4912c5bc33921ae7aca6"
+        "size": 1137901,
+        "sha256": "d200180b26c179ca04bc3d49d1839a03d584c50c1306ec259c3e2cebf9bb181c"
       },
       {
         "path": "uniml/corpus/markdown/LICENSE.commonmark.txt",
@@ -86,7 +86,7 @@
         "path": "uniml/corpus/markdown/MANIFEST.json",
         "role": "integrity-manifest",
         "size": 21150,
-        "normalizedSha256": "bce35d1268f37e65d4f26cbb2f875d764f01a34d82d53789680f01af8b351639"
+        "normalizedSha256": "22f4ef10ff2ac3bc0f2be62acd1eeb9ab07b46e8ccba48fbda92635d905cdc6e"
       },
       {
         "path": "uniml/corpus/markdown/README.md",
@@ -104,7 +104,7 @@
         "path": "uniml/corpus/markdown/generate.py",
         "role": "generator",
         "size": 32005,
-        "sha256": "f5305d2dd727880892348e8f5d25258baf94eb46139eb486a9e0c4251b230db2"
+        "sha256": "66c8881147b9e64f628396011c07161b3785e9d2bc7838d4f565893e73bb4f1d"
       },
       {
         "path": "uniml/corpus/markdown/gfm-0.29-enabled-extensions.json",
@@ -146,7 +146,7 @@
         "path": "uniml/markdown/src/test/scala/scalascript/uniml/dialect/markdown/corpus/generated/MarkdownCorpusGenerated.scala",
         "role": "generated-corpus",
         "size": 3745,
-        "sha256": "f71c89f4e99ec4a601dc862f6c6b2715bbfe4f8232ecfd5fff6d8f4d350219f3"
+        "sha256": "e57da7179168ed8eb7b4cb46fb3108e34d566cbc6c53510807a62807fd642f9c"
       },
       {
         "path": "uniml/markdown/src/test/scala/scalascript/uniml/dialect/markdown/corpus/generated/MarkdownCorpusGeneratedBaseline00.scala",
@@ -199,14 +199,14 @@
       {
         "path": "uniml/markdown/src/test/scala/scalascript/uniml/dialect/markdown/corpus/generated/MarkdownCorpusGeneratedBaseline08.scala",
         "role": "generated-complete-baseline",
-        "size": 49604,
-        "sha256": "b7be05019ba96e959db019c8557aba391c3a7da2e23cfea5d140fc5f284e51f4"
+        "size": 49603,
+        "sha256": "62e5d9f1c1a6fff326ce027eb3980823d002cee9e44b2fe54a72cc7a0a246a50"
       },
       {
         "path": "uniml/markdown/src/test/scala/scalascript/uniml/dialect/markdown/corpus/generated/MarkdownCorpusGeneratedBaseline09.scala",
         "role": "generated-complete-baseline",
         "size": 48727,
-        "sha256": "f7b5f5dfcfbc674e2e958d71ea5e1c663d90e6a5715455457b0adfd3d5483c6b"
+        "sha256": "a1745941bbf84e247c7d11b7991be847bf86fe481b3a18327db7eb59ce39e5d4"
       },
       {
         "path": "uniml/markdown/src/test/scala/scalascript/uniml/dialect/markdown/corpus/generated/MarkdownCorpusGeneratedBaseline10.scala",

@@ -39,11 +39,19 @@ object MarkdownProjection:
       node match
         case b @ UniNode.Branch(MdBranch.Definition, _, _, _) =>
           definitionOf(b) match
-            case Some(defn) =>
-              val key = MarkdownInlines.normalizeLabel(defn.label)
+            // Destructured, not `defn.label`: `LinkDefinition` is an ENUM VARIANT, and a field
+            // read off the enum-typed binder does not lower on the Rust lane (E0609); the
+            // pattern hands the fields over typed. `.get(key).isEmpty`, not `.contains` — Map
+            // membership on this shape does not lower either.
+            // full destructure + reconstruct — a `defn @ …{…}` bind-and-extract is a PARTIAL
+            // MOVE on the Rust lane's by-value match (E0382)
+            case Some(MarkdownBlock.LinkDefinition(dLabel, dDest, dTitle)) =>
+              val key = MarkdownInlines.normalizeLabel(dLabel)
               // CommonMark: the FIRST definition of a label wins
-              if map.contains(key) then map else map + (key -> defn)
-            case None => map
+              if map.get(key).isEmpty then
+                map + (key -> MarkdownBlock.LinkDefinition(dLabel, dDest, dTitle))
+              else map
+            case _ => map
         case UniNode.Branch(_, edges, _, _) => edges.foldLeft(map)((m, e) => walk(m, e.child))
         case _                              => map
     roots.foldLeft(Map.empty[String, MarkdownBlock.LinkDefinition])((m, root) => walk(m, root))
@@ -151,14 +159,14 @@ object MarkdownProjection:
     edges.collect {
       case UniEdge(_, UniNode.Token(t)) if t.kind == MdKind.CodeContent || (t.kind == MdKind.LineBreak && t.channel == TokenChannel.Embedded) =>
         t.lexeme
-    }.mkString
+    }.mkString("")
 
   private def concatTokens(edges: Vector[UniEdge], kind: String): String =
     def walk(buf: Vector[String], node: UniNode): Vector[String] = node match
       case UniNode.Token(t) if t.kind == kind || (t.kind == MdKind.LineBreak && t.channel == TokenChannel.Embedded) => buf :+ t.lexeme
       case UniNode.Branch(_, es, _, _) => es.foldLeft(buf)((b, e) => walk(b, e.child))
       case _ => buf
-    edges.foldLeft(Vector.empty[String])((b, e) => walk(b, e.child)).mkString
+    edges.foldLeft(Vector.empty[String])((b, e) => walk(b, e.child)).mkString("")
 
   private def projectTable(edges: Vector[UniEdge]): MarkdownBlock =
     val rows = edges.collect { case UniEdge(_, UniNode.Token(t)) if t.kind == MdKind.TableRow => t.lexeme }
@@ -344,8 +352,13 @@ object MarkdownProjection:
   private def rawLabel(edges: Vector[UniEdge]): String =
     def walk(buf: Vector[String], node: UniNode): Vector[String] = node match
       case UniNode.Token(t)            => buf :+ t.lexeme
-      case UniNode.Branch(_, es, _, _) => es.foldLeft(buf)((b, e) => walk(b, e.child))
-    edges.filterNot(isLinkStructural).foldLeft(Vector.empty[String])((b, e) => walk(b, e.child)).mkString
+      case UniNode.Branch(_, es, _, _) =>
+        // Imperative accumulation: a fold whose ZERO is the `&Vec` parameter tries to move out
+        // of the borrow on the Rust lane (E0507); the reassigned local is owned.
+        var acc: Vector[String] = buf
+        es.foreach(e => acc = walk(acc, e.child))
+        acc
+    edges.filterNot(isLinkStructural).foldLeft(Vector.empty[String])((b, e) => walk(b, e.child)).mkString("")
 
   // ── decoding helpers ────────────────────────────────────────────────────
 
@@ -381,7 +394,7 @@ object MarkdownProjection:
           if semi >= 0 && decoded != s.substring(i, semi + 1) then walk(semi + 1, buf :+ decoded)
           else walk(i + 1, buf :+ "&")
         else walk(i + 1, buf :+ s.substring(i, i + 1))
-      walk(0, Vector.empty).mkString
+      walk(0, Vector.empty).mkString("")
 
   private def unescape(s: String): String =
     if !s.contains('\\') then s
@@ -391,7 +404,7 @@ object MarkdownProjection:
         else if s.charAt(i) == '\\' && i + 1 < s.length && MdChars.isAsciiPunctuation(s.charAt(i + 1)) then
           walk(i + 2, buf :+ s.substring(i + 1, i + 2))
         else walk(i + 1, buf :+ s.substring(i, i + 1))
-      walk(0, Vector.empty).mkString
+      walk(0, Vector.empty).mkString("")
 
   /** The WHATWG HTML5 named character references, generated from the pinned
     * snapshot in `uniml/corpus/markdown/whatwg-entities.json`. It replaced a

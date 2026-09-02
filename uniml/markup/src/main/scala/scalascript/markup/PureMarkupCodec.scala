@@ -32,7 +32,7 @@ object PureMarkupCodec extends MarkupCodec:
         Vector(">") ++ (if opts.pretty then Vector("\n") else Vector.empty)
     }
     (declParts ++ docTypeParts ++ serializeNode(doc.root, opts, depth = 0) ++
-      doc.trailing.toVector.flatMap(n => serializeNode(n, opts, depth = 0))).mkString
+      doc.trailing.toVector.flatMap(n => serializeNode(n, opts, depth = 0))).mkString("")
 
   private def serializeNode(node: Markup.Node, opts: SerializeOpts, depth: Int): Vector[String] =
     val pad = if opts.pretty then opts.indent * depth else ""
@@ -260,7 +260,7 @@ object PureMarkupCodec extends MarkupCodec:
           loop(cE, pieces :+ entity)
         else loop(advance(c), pieces :+ src.substring(c.pos, c.pos + 1))
       val (cEnd, pieces) = loop(c0, Vector.empty)
-      (cEnd, Markup.Text(pieces.mkString))
+      (cEnd, Markup.Text(pieces.mkString("")))
 
     private def readEntity(c0: Cursor): (Cursor, String) =
       val c1 = advance(c0)  // skip &

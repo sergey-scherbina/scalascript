@@ -120,7 +120,7 @@ object JsonProjection:
                 case Some(value) => decode(index + 6, result :+ value.toChar.toString)
                 case None        => None
             case _ => None
-      decode(1, Vector.empty).map(_.mkString)
+      decode(1, Vector.empty).map(_.mkString(""))
 
   private def parseHex(value: String): Option[Int] =
     value.foldLeft(Option(0)) { (acc, char) =>

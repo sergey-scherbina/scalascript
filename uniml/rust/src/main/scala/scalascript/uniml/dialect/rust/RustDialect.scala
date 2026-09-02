@@ -281,7 +281,8 @@ private final case class RustProcessor(source: SourceId) extends Processor[Strin
           val itemLimit =
             if st.nextItem < items.length && items(st.nextItem).start < lexed.length then items(st.nextItem).start
             else lexed.length
-          val limit = if st.open.nonEmpty && st.open.last < itemLimit then st.open.last else itemLimit
+          // annotated: captured by the lifted `gather` (Rust lane needs the declared type)
+          val limit: Int = if st.open.nonEmpty && st.open.last < itemLimit then st.open.last else itemLimit
           if limit <= i then emit(st, lexed(i).kind, lexed(i).lexeme, VmInstruction.Emit(), i + 1)
           else
             // Accumulated as pieces and joined once: `s = s + piece` in a loop would copy the whole
@@ -289,6 +290,6 @@ private final case class RustProcessor(source: SourceId) extends Processor[Strin
             // remove.
             def gather(k: Int, pieces: Vector[String]): Vector[String] =
               if k < limit then gather(k + 1, pieces :+ lexed(k).lexeme) else pieces
-            emit(st, "rust.span", gather(i, Vector.empty).mkString, VmInstruction.Emit(), limit)
+            emit(st, "rust.span", gather(i, Vector.empty).mkString(""), VmInstruction.Emit(), limit)
     val done = walk(RustEmit(Vector.empty, SourcePosition.Start, 0L, 0, Vector.empty, Vector.empty), 0)
     ProcessBatch(done.out, Vector.empty)

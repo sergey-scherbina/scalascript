@@ -16,7 +16,7 @@ object XmlEscape:
       case '"'  => "&quot;"
       case '\'' => "&apos;"
       case c    => c.toString
-    }.mkString
+    }.mkString("")
 
   def escapeText(s: String): String =
     s.iterator.map {
@@ -24,7 +24,7 @@ object XmlEscape:
       case '<' => "&lt;"
       case '>' => "&gt;"
       case c   => c.toString
-    }.mkString
+    }.mkString("")
 
   def escapeAttr(s: String): String =
     s.iterator.map {
@@ -32,7 +32,7 @@ object XmlEscape:
       case '<'  => "&lt;"
       case '"'  => "&quot;"
       case c    => c.toString
-    }.mkString
+    }.mkString("")
 
   def unescape(s: String): String =
     s.replace("&amp;", "&")

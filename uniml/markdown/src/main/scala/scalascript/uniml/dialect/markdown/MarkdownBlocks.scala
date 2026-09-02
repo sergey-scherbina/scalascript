@@ -105,7 +105,9 @@ private[markdown] final case class ParaEmitStep(state: BlockState, breakCount: I
 private[markdown] final case class PendingFold(state: BlockState, instruction: VmInstruction)
 /** The reference pre-pass in flight (fence tracking keeps definitions inside
   * code blocks from registering; paragraph tracking keeps continuations out). */
-private[markdown] final case class RefsAcc(inFence: Boolean, fenceChar: Char, inParagraph: Boolean, refs: Map[String, MarkdownInlines.LinkRef])
+// `fenceChar` as Int CODE POINT: a Char field written from `charAt` inside the TCO loop
+// missed the SscChar unwrap on the Rust lane (E0308)
+private[markdown] final case class RefsAcc(inFence: Boolean, fenceChar: Int, inParagraph: Boolean, refs: Map[String, MarkdownInlines.LinkRef])
 
 private[markdown] final class MarkdownBlocks(
     source: SourceId,
@@ -136,6 +138,9 @@ private[markdown] final class MarkdownBlocks(
           s"delimiter run exceeds the ${limits.maxDelimiterRun} code-point limit")))
       else run(lines, collectReferences(lines))
 
+  private def replaceContainers(st: BlockState, cs: Vector[Container]): BlockState =
+    st.copy(containers = cs)
+
   private def run(lines: Vector[MdLine], refs: Map[String, LinkRef]): MarkdownBlockResult =
 
     // ── token cursor: emits VmTokens in source order via one advancing pos ────
@@ -159,15 +164,15 @@ private[markdown] final class MarkdownBlocks(
 
     def track(st: BlockState, instruction: VmInstruction): BlockState = instruction match
       case VmInstruction.Open(k, _) =>
-        val counted = countOpens(st, 1)
+        val counted: BlockState = countOpens(st, 1)
         counted.copy(frames = counted.frames :+ k)
       case VmInstruction.Close(expected, _) =>
         if st.frames.nonEmpty && expected.forall(_ == st.frames.last) then st.copy(frames = st.frames.dropRight(1)) else st
       case VmInstruction.Reframe(closeBefore, opens, closeAfter, _) =>
-        val afterCloseBefore = closeBefore.foldLeft(st.frames)((f, _) => if f.nonEmpty then f.dropRight(1) else f)
-        val counted = countOpens(st.copy(frames = afterCloseBefore), opens.size)
+        val afterCloseBefore = closeBefore.foldLeft(st.frames)((f, _) => f.dropRight(1))
+        val counted: BlockState = countOpens(st.copy(frames = afterCloseBefore), opens.size)
         val afterOpens = opens.foldLeft(counted.frames)((f, spec) => f :+ spec.kind)
-        counted.copy(frames = closeAfter.foldLeft(afterOpens)((f, _) => if f.nonEmpty then f.dropRight(1) else f))
+        counted.copy(frames = closeAfter.foldLeft(afterOpens)((f, _) => f.dropRight(1)))
       case _ => st
 
     /** Rewrites the final token so it also closes every still-open frame
@@ -203,7 +208,7 @@ private[markdown] final class MarkdownBlocks(
     // ── main line loop ────────────────────────────────────────────────────────
 
     def processLine(st: BlockState, index: Int): BlockStep =
-      val line = lines(index)
+      val line: MdLine = lines(index)
       st.open match
         case OpenLeaf.FencedCode(fchar, flen) =>
           // A fence body inside a container still carries that container's
@@ -216,7 +221,7 @@ private[markdown] final class MarkdownBlocks(
         case _ =>
           // match / adjust containers, get the content portion of the line
           val matchStep = matchContainers(st, line)
-          val content = matchStep.rest
+          val content: String = matchStep.rest
           val indentWidth = MdChars.indentWidth(content)
           if content.forall(c => c == ' ' || c == '\t') then
             BlockStep(handleBlank(matchStep.state, line, content), index + 1)
@@ -227,7 +232,7 @@ private[markdown] final class MarkdownBlocks(
         st0: BlockState, index: Int, line: MdLine,
         content: String, indentWidth: Int,
     ): BlockStep =
-      val trimmed = content.substring(MdChars.indentPrefixLength(content))
+      val trimmed: String = content.substring(MdChars.indentPrefixLength(content))
       // indented code (4+ spaces) only when not continuing a paragraph
       val isIndentedCode = indentWidth >= 4 && st0.open != OpenLeaf.Paragraph && !startsListOrQuote(trimmed)
       // any other leaf ends an open indented block; the branches below that do not
@@ -235,7 +240,7 @@ private[markdown] final class MarkdownBlocks(
       // ORDER IS THE WHOLE POINT: held blanks first (they precede this line in
       // the source), then this line's container prefix, then the line itself.
       val held = if isIndentedCode then releaseInteriorBlanks(st0) else finishIndentedCode(st0)
-      val st = emitIndentedCodePrefix(held)
+      val st: BlockState = emitIndentedCodePrefix(held)
       if isIndentedCode then
         BlockStep(handleIndentedCode(st, line, content), index + 1)
       else if st.open == OpenLeaf.Paragraph && isSetextUnderline(trimmed) then
@@ -288,38 +293,43 @@ private[markdown] final class MarkdownBlocks(
       // walks the container stack; stops at the first unsatisfied container
       def walk(st: BlockState, i: Int, rest: String, matched: Int, prefix: Vector[String]): ContainerScan =
         if i >= st.containers.size then ContainerScan(st, rest, matched, prefix)
-        else st.containers(i) match
+        else
+          // TWO steps: apply-on-a-FIELD (`st.containers(i)`) does not lower as indexing on
+          // the Rust lane (it emitted a method call, E0599) — index a typed LOCAL instead.
+          val containersHere: Vector[Container] = st.containers
+          val containerAt: Container = containersHere(i)
+          containerAt match
           case _: Blockquote =>
             stripBlockquoteMarker(rest) match
               case Some((marker, remainder)) =>
-                val step = consume(st, prefix, MdKind.BlockquoteMarker, marker)
+                val step: ConsumeStep = consume(st, prefix, MdKind.BlockquoteMarker, marker)
                 walk(step.state, i + 1, remainder, matched + 1, step.prefix)
               case None => ContainerScan(st, rest, matched, prefix)
           case item: ListItemFrame =>
             if MdChars.indentWidth(rest) >= item.contentIndent || rest.forall(c => c == ' ' || c == '\t') then
-              val take = consumeIndent(rest, item.contentIndent)
+              val take: String = consumeIndent(rest, item.contentIndent)
               val step = if take.nonEmpty then consume(st, prefix, MdKind.Indent, take) else ConsumeStep(st, prefix)
               walk(step.state, i + 1, rest.substring(take.length), matched + 1, step.prefix)
             else ContainerScan(st, rest, matched, prefix)
           case _: ListFrame => walk(st, i + 1, rest, matched + 1, prefix) // list frame matches whenever its item does
-      val scan = walk(st0, 0, line.content, 0, Vector.empty)
+      val scan: ContainerScan = walk(st0, 0, line.content, 0, Vector.empty)
       val st1 = scan.state
       val rest = scan.rest
       if scan.matched >= st1.containers.size then
         // full match: hand the continuation prefix to whichever leaf is open
-        if st1.open == OpenLeaf.IndentedCode then ContainerMatch(st1.copy(indentedCodePendingPrefix = scan.prefix.mkString), rest)
-        else if buffering then ContainerMatch(st1.copy(paragraphPendingPrefix = scan.prefix.mkString), rest)
+        if st1.open == OpenLeaf.IndentedCode then ContainerMatch(st1.copy(indentedCodePendingPrefix = scan.prefix.mkString("")), rest)
+        else if buffering then ContainerMatch(st1.copy(paragraphPendingPrefix = scan.prefix.mkString("")), rest)
         else ContainerMatch(st1, rest)
       else if buffering && st1.open == OpenLeaf.Paragraph && isLazyContinuation(rest) then
         // lazy paragraph continuation: a plain paragraph-text line continues the
         // open paragraph even though a container marker is missing; keep the
         // unmatched containers open so the paragraph stays inside them
-        ContainerMatch(st1.copy(paragraphPendingPrefix = scan.prefix.mkString), rest)
+        ContainerMatch(st1.copy(paragraphPendingPrefix = scan.prefix.mkString("")), rest)
       else
         // fewer containers matched — the paragraph (if any) ends here
-        val st2 = finishParagraph(st1)
+        val st2: BlockState = finishParagraph(st1)
         val st3 =
-          if scan.prefix.nonEmpty then flushPending(st2, MdKind.Indent, scan.prefix.mkString, Vector.empty, Some("continuation"), TokenChannel.Trivia)
+          if scan.prefix.nonEmpty then flushPending(st2, MdKind.Indent, scan.prefix.mkString(""), Vector.empty, Some("continuation"), TokenChannel.Trivia)
           else st2
         ContainerMatch(scheduleContainerClose(st3, listAwareKeep(st3, scan.matched, rest)), rest)
 
@@ -333,9 +343,11 @@ private[markdown] final class MarkdownBlocks(
     def listAwareKeep(st: BlockState, matched: Int, rest: String): Int =
       if matched <= 0 || matched > st.containers.size then matched
       else
-        st.containers(matched - 1) match
+        val containersAll: Vector[Container] = st.containers
+        val lastMatched: Container = containersAll(matched - 1)
+        lastMatched match
           case lf: ListFrame =>
-            val trimmed = rest.substring(MdChars.indentPrefixLength(rest))
+            val trimmed: String = rest.substring(MdChars.indentPrefixLength(rest))
             startsListItem(trimmed) match
               case Some(item) if item._1 == lf.ordered => matched
               case _                                   => matched - 1
@@ -366,8 +378,8 @@ private[markdown] final class MarkdownBlocks(
           indentedCodeBlanks = st.indentedCodeBlanks :+ ((st.indentedCodePendingPrefix + content, line.ending)),
           indentedCodePendingPrefix = "")
       else
-        val finished = finishParagraph(st)
-        val lexeme = content + line.ending
+        val finished: BlockState = finishParagraph(st)
+        val lexeme: String = content + line.ending
         if lexeme.nonEmpty then flushPending(finished, MdKind.Blank, lexeme, Vector.empty, Some("blank"), TokenChannel.Trivia)
         else finished
 
@@ -384,13 +396,13 @@ private[markdown] final class MarkdownBlocks(
       // the single "close whatever leaf is open" hook — all twelve call sites get
       // indented-code termination for free, and it must run before the paragraph
       // branch below so the two states never overlap
-      val st = finishIndentedCode(st0)
-      val afterPara =
+      val st: BlockState = finishIndentedCode(st0)
+      val afterPara: BlockState =
         if st.open == OpenLeaf.Paragraph then
           val segs = st.paragraphSegs
           // inline content is the de-prefixed lines joined by their exact endings —
           // no container markers, so multi-line inline spans resolve cleanly
-          val content = segs.iterator.map(s => s.content + s.ending).mkString
+          val content: String = segs.iterator.map(s => s"${s.content}${s.ending}").mkString("")
           val pieces = MarkdownInlines.parse(content, refs, profile)
           emitParagraphWithSegments(st.copy(open = OpenLeaf.None, paragraphSegs = Vector.empty), pieces, segs)
         else st
@@ -408,7 +420,7 @@ private[markdown] final class MarkdownBlocks(
     def emitParagraphWithSegments(st: BlockState, pieces: Vector[InlinePiece], segs: Vector[ParaSeg]): BlockState =
       if pieces.isEmpty then st
       else
-        val n = pieces.size
+        val n: Int = pieces.size
         def step(cur: ParaEmitStep, i: Int): ParaEmitStep =
           if i >= n then cur
           else
@@ -445,22 +457,24 @@ private[markdown] final class MarkdownBlocks(
       val h = countRun(body, '#')
       val marker = body.substring(0, h)
       // open heading on the marker
-      val st2 = flushPending(st1, MdKind.AtxMarker, marker, Vector(FrameSpec(MdBranch.Heading)), Some("marker"), TokenChannel.Syntax)
+      val st2: BlockState = flushPending(st1, MdKind.AtxMarker, marker, Vector(FrameSpec(MdBranch.Heading)), Some("marker"), TokenChannel.Syntax)
       val afterMarker = body.substring(h)
       // leading spaces of the heading text
-      val restLead = afterMarker.takeWhile(c => c == ' ' || c == '\t')
-      val st3 = if restLead.nonEmpty then leaf(st2, MdKind.Indent, restLead, Some("space"), TokenChannel.Trivia) else st2
+      val restLead: String = afterMarker.takeWhile(c => c == ' ' || c == '\t')
+      val st3: BlockState = if restLead.nonEmpty then leaf(st2, MdKind.Indent, restLead, Some("space"), TokenChannel.Trivia) else st2
       val rest = afterMarker.substring(restLead.length)
       // optional closing sequence of #'s
-      val (rawText, closing) = splitAtxClosing(rest)
+      val atxSplit = splitAtxClosing(rest)
+      val rawText: String = atxSplit._1
+      val closing: String = atxSplit._2
       // trailing whitespace of the heading text is trivia, not content
       val textEnd = trailingWsStart(rawText)
       val hText = rawText.substring(0, textEnd)
-      val trailWs = rawText.substring(textEnd)
+      val trailWs: String = rawText.substring(textEnd)
       val pieces = MarkdownInlines.parse(hText, refs, profile)
       val st4 = pieces.foldLeft(st3)((s, p) => replay(s, p))
-      val st5 = if trailWs.nonEmpty then leaf(st4, MdKind.Indent, trailWs, Some("space"), TokenChannel.Trivia) else st4
-      val st6 = if closing.nonEmpty then leaf(st5, MdKind.AtxClose, closing, Some("close"), TokenChannel.Syntax) else st5
+      val st5: BlockState = if trailWs.nonEmpty then leaf(st4, MdKind.Indent, trailWs, Some("space"), TokenChannel.Trivia) else st4
+      val st6: BlockState = if closing.nonEmpty then leaf(st5, MdKind.AtxClose, closing, Some("close"), TokenChannel.Syntax) else st5
       // close heading on the line ending (or dangling at EOF)
       if line.ending.nonEmpty then close(st6, MdBranch.Heading, MdKind.LineBreak, line.ending, Some("trailing"), TokenChannel.Trivia)
       else st6
@@ -471,25 +485,26 @@ private[markdown] final class MarkdownBlocks(
       // reinterpret the just-open paragraph as a setext heading. Setext headings
       // are almost always single-line; for the rare multi-line-in-container case
       // the continuation prefix is woven into the text (kept lossless).
-      val segs = st0.paragraphSegs
-      val st = st0.copy(open = OpenLeaf.None, paragraphSegs = Vector.empty)
-      val content = segs.iterator.zipWithIndex.map { (s, idx) =>
+      // annotated: the Rust lane needs the declared type for member reads below
+      val segs: Vector[ParaSeg] = st0.paragraphSegs
+      val st: BlockState = st0.copy(open = OpenLeaf.None, paragraphSegs = Vector.empty)
+      val content: String = segs.iterator.zipWithIndex.map { (s, idx) =>
         val pfx = if idx == 0 then "" else s.prefix
         val end = if idx == segs.size - 1 then "" else s.ending
         pfx + s.content + end
-      }.mkString
-      val interior = segs.lastOption.map(_.ending).getOrElse("")
+      }.mkString("")
+      val interior: String = segs.lastOption.map(_.ending).getOrElse("")
       val pieces = MarkdownInlines.parse(content, refs, profile)
       if pieces.isEmpty then
-        val st1 = flushPending(st, MdKind.SetextUnderline, line.content, Vector(FrameSpec(MdBranch.Heading)), Some("underline"), TokenChannel.Syntax)
+        val st1: BlockState = flushPending(st, MdKind.SetextUnderline, line.content, Vector(FrameSpec(MdBranch.Heading)), Some("underline"), TokenChannel.Syntax)
         if line.ending.nonEmpty then close(st1, MdBranch.Heading, MdKind.LineBreak, line.ending, Some("trailing"), TokenChannel.Trivia)
         else st1
       else
-        val st1 = emitInlineOpenOnly(st, MdBranch.Heading, pieces)
+        val st1: BlockState = emitInlineOpenOnly(st, MdBranch.Heading, pieces)
         // the newline that ended the heading text, then the underline line
-        val st2 = if interior.nonEmpty then leaf(st1, MdKind.SoftBreak, interior, Some("space"), TokenChannel.Trivia) else st1
+        val st2: BlockState = if interior.nonEmpty then leaf(st1, MdKind.SoftBreak, interior, Some("space"), TokenChannel.Trivia) else st1
         if line.ending.nonEmpty then
-          val st3 = leaf(st2, MdKind.SetextUnderline, line.content, Some("underline"), TokenChannel.Syntax)
+          val st3: BlockState = leaf(st2, MdKind.SetextUnderline, line.content, Some("underline"), TokenChannel.Syntax)
           close(st3, MdBranch.Heading, MdKind.LineBreak, line.ending, Some("trailing"), TokenChannel.Trivia)
         else
           close(st2, MdBranch.Heading, MdKind.SetextUnderline, line.content, Some("underline"), TokenChannel.Syntax)
@@ -497,7 +512,7 @@ private[markdown] final class MarkdownBlocks(
     // ── thematic break ────────────────────────────────────────────────────
 
     def emitThematicBreak(st: BlockState, line: MdLine): BlockState =
-      val st1 = flushPending(st, MdKind.ThematicMarker, line.content, Vector(FrameSpec(MdBranch.ThematicBreak)), Some("marker"), TokenChannel.Syntax)
+      val st1: BlockState = flushPending(st, MdKind.ThematicMarker, line.content, Vector(FrameSpec(MdBranch.ThematicBreak)), Some("marker"), TokenChannel.Syntax)
       if line.ending.nonEmpty then close(st1, MdBranch.ThematicBreak, MdKind.LineBreak, line.ending, Some("trailing"), TokenChannel.Trivia)
       else st1.copy(pendingClose = st1.pendingClose :+ MdBranch.ThematicBreak)
 
@@ -511,21 +526,21 @@ private[markdown] final class MarkdownBlocks(
       val body = content.substring(lead)
       val flen = fence._2
       val fenceLex = body.substring(0, flen)
-      val st2 = flushPending(st1, MdKind.FenceOpen, fenceLex, Vector(FrameSpec(MdBranch.CodeBlock)), Some("fence.open"), TokenChannel.Syntax)
-      val info = body.substring(flen)
-      val st3 = if info.nonEmpty then leaf(st2, MdKind.Info, info, Some("info"), TokenChannel.Embedded) else st2
-      val st4 = if line.ending.nonEmpty then leaf(st3, MdKind.LineBreak, line.ending, Some("trailing"), TokenChannel.Trivia) else st3
+      val st2: BlockState = flushPending(st1, MdKind.FenceOpen, fenceLex, Vector(FrameSpec(MdBranch.CodeBlock)), Some("fence.open"), TokenChannel.Syntax)
+      val info: String = body.substring(flen)
+      val st3: BlockState = if info.nonEmpty then leaf(st2, MdKind.Info, info, Some("info"), TokenChannel.Embedded) else st2
+      val st4: BlockState = if line.ending.nonEmpty then leaf(st3, MdKind.LineBreak, line.ending, Some("trailing"), TokenChannel.Trivia) else st3
       st4.copy(fenceCp = 0L, open = OpenLeaf.FencedCode(fence._1, flen))
 
     def handleFenceBody(st: BlockState, line: MdLine, fchar: Char, flen: Int): BlockState =
-      val trimmed = line.content.substring(MdChars.indentPrefixLength(line.content))
+      val trimmed: String = line.content.substring(MdChars.indentPrefixLength(line.content))
       val closes = trimmed.nonEmpty && trimmed.forall(_ == fchar) && countRun(trimmed, fchar) >= flen &&
         MdChars.indentWidth(line.content) <= 3
       if closes then
         val lead = MdChars.indentPrefixLength(line.content)
         val st1 = st.copy(open = OpenLeaf.None)
-        val st2 = if lead > 0 then leaf(st1, MdKind.Indent, line.content.substring(0, lead), Some("indent"), TokenChannel.Trivia) else st1
-        val st3 = close(st2, MdBranch.CodeBlock, MdKind.FenceClose, line.content.substring(lead), Some("fence.close"), TokenChannel.Syntax)
+        val st2: BlockState = if lead > 0 then leaf(st1, MdKind.Indent, line.content.substring(0, lead), Some("indent"), TokenChannel.Trivia) else st1
+        val st3: BlockState = close(st2, MdBranch.CodeBlock, MdKind.FenceClose, line.content.substring(lead), Some("fence.close"), TokenChannel.Syntax)
         if line.ending.nonEmpty then leaf(st3, MdKind.LineBreak, line.ending, Some("trailing"), TokenChannel.Trivia) else st3
       else
         val counted = st.fenceCp + Unicode.codePointCount(line.raw)
@@ -535,7 +550,7 @@ private[markdown] final class MarkdownBlocks(
               s"fenced code block exceeds the ${limits.maxFenceCodePoints} code-point limit"))
           else st.fenceLimitHit
         val st1 = st.copy(fenceCp = counted, fenceLimitHit = hit)
-        val st2 = if line.content.nonEmpty then leaf(st1, MdKind.CodeContent, line.content, Some("code"), TokenChannel.Embedded) else st1
+        val st2: BlockState = if line.content.nonEmpty then leaf(st1, MdKind.CodeContent, line.content, Some("code"), TokenChannel.Embedded) else st1
         if line.ending.nonEmpty then leaf(st2, MdKind.LineBreak, line.ending, Some("code"), TokenChannel.Embedded) else st2
 
     // ── indented code ────────────────────────────────────────────────────────
@@ -549,15 +564,16 @@ private[markdown] final class MarkdownBlocks(
       // A tab straddling column 4 would have to be split into spaces to be cut.
       // No token can hold half a tab, so keep the whole run as trivia and let the
       // literal start after it — the case is recorded, not silently approximated.
-      val indent = if cut >= 0 then content.substring(0, cut) else content.take(MdChars.indentPrefixLength(content))
+      val indent: String = if cut >= 0 then content.substring(0, cut) else content.take(MdChars.indentPrefixLength(content))
       val code = content.substring(indent.length)
       val opened =
         if st.open != OpenLeaf.IndentedCode then
-          val finished = finishParagraph(st).copy(open = OpenLeaf.IndentedCode)
+          val finishedBase: BlockState = finishParagraph(st)
+          val finished: BlockState = finishedBase.copy(open = OpenLeaf.IndentedCode)
           flushPending(finished, MdKind.Indent, indent, Vector(FrameSpec(MdBranch.CodeBlock)), Some("indent"), TokenChannel.Trivia)
         else
           leaf(st, MdKind.Indent, indent, Some("indent"), TokenChannel.Trivia)
-      val withCode = leaf(opened, MdKind.CodeContent, code, Some("code"), TokenChannel.Embedded)
+      val withCode: BlockState = leaf(opened, MdKind.CodeContent, code, Some("code"), TokenChannel.Embedded)
       if line.ending.nonEmpty then leaf(withCode, MdKind.LineBreak, line.ending, Some("code"), TokenChannel.Embedded)
       else withCode
 
@@ -573,11 +589,11 @@ private[markdown] final class MarkdownBlocks(
       val held = st.indentedCodeBlanks
       held.foldLeft(st.copy(indentedCodeBlanks = Vector.empty)) { (s, blank) =>
         val blankContent = blank._1
-        val ending = blank._2
+        val ending: String = blank._2
         // up to four columns of a blank line are the block's indentation, not content
         val cut = MdChars.indentCut(blankContent, 4)
-        val trivia = if cut >= 0 then blankContent.substring(0, cut) else blankContent
-        val keep = if cut >= 0 then blankContent.substring(cut) else ""
+        val trivia: String = if cut >= 0 then blankContent.substring(0, cut) else blankContent
+        val keep: String = if cut >= 0 then blankContent.substring(cut) else ""
         val s1 = if trivia.nonEmpty then leaf(s, MdKind.Indent, trivia, Some("indent"), TokenChannel.Trivia) else s
         val s2 = if keep.nonEmpty then leaf(s1, MdKind.CodeContent, keep, Some("code"), TokenChannel.Embedded) else s1
         if ending.nonEmpty then leaf(s2, MdKind.LineBreak, ending, Some("code"), TokenChannel.Embedded) else s2
@@ -594,7 +610,7 @@ private[markdown] final class MarkdownBlocks(
           pendingClose = st.pendingClose :+ MdBranch.CodeBlock,
           indentedCodeBlanks = Vector.empty)
         held.foldLeft(closed) { (s, blank) =>
-          val lexeme = blank._1 + blank._2
+          val lexeme: String = s"${blank._1}${blank._2}"
           if lexeme.nonEmpty then flushPending(s, MdKind.Blank, lexeme, Vector.empty, Some("blank"), TokenChannel.Trivia)
           else s
         }
@@ -615,17 +631,20 @@ private[markdown] final class MarkdownBlocks(
       def loop(st: BlockState, i: Int, first: Boolean): BlockStep =
         if i >= lines.size then BlockStep(st, i)
         else
-          val l = lines(i)
-          endMarkers match
-            case None =>
-              if l.isBlank then BlockStep(st, i)
-              else loop(emitHtmlLine(st, l, first), i + 1, false)
-            case Some(markers) =>
-              val emitted = emitHtmlLine(st, l, first)
-              val lc = MdChars.asciiLower(l.content)
-              if markers.exists(lc.contains) then BlockStep(emitted, i + 1)
-              else loop(emitted, i + 1, false)
-      val ended = loop(st0, index, true)
+          val l: MdLine = lines(i)
+          // `getOrElse` + emptiness, not `match Some(markers)`: destructuring the CAPTURED
+          // Option partially moves it on the Rust lane while the self-call still needs it
+          // (E0382); the extracted copy is per-iteration and small.
+          val markers: Vector[String] = endMarkers.getOrElse(Vector.empty)
+          if markers.isEmpty then
+            if l.isBlank then BlockStep(st, i)
+            else loop(emitHtmlLine(st, l, first), i + 1, false)
+          else
+            val emitted: BlockState = emitHtmlLine(st, l, first)
+            val lc = MdChars.asciiLower(l.content)
+            if markers.exists(lc.contains) then BlockStep(emitted, i + 1)
+            else loop(emitted, i + 1, false)
+      val ended: BlockStep = loop(st0, index, true)
       BlockStep(ended.state.copy(pendingClose = ended.state.pendingClose :+ MdBranch.HtmlBlock), ended.index)
 
     def emitHtmlLine(st: BlockState, l: MdLine, first: Boolean): BlockState =
@@ -640,19 +659,19 @@ private[markdown] final class MarkdownBlocks(
 
     def emitTable(st0: BlockState, index: Int): BlockStep =
       // open the table on the header row's content
-      val header = lines(index)
-      val st1 = flushPending(st0, MdKind.TableRow, header.content, Vector(FrameSpec(MdBranch.Table)), Some("header"), TokenChannel.Syntax)
-      val st2 = if header.ending.nonEmpty then leaf(st1, MdKind.LineBreak, header.ending, Some("trailing"), TokenChannel.Trivia) else st1
-      val delim = lines(index + 1)
-      val st3 = leaf(st2, MdKind.TableDelim, delim.content, Some("delimiter"), TokenChannel.Syntax)
-      val st4 = if delim.ending.nonEmpty then leaf(st3, MdKind.LineBreak, delim.ending, Some("trailing"), TokenChannel.Trivia) else st3
+      val header: MdLine = lines(index)
+      val st1: BlockState = flushPending(st0, MdKind.TableRow, header.content, Vector(FrameSpec(MdBranch.Table)), Some("header"), TokenChannel.Syntax)
+      val st2: BlockState = if header.ending.nonEmpty then leaf(st1, MdKind.LineBreak, header.ending, Some("trailing"), TokenChannel.Trivia) else st1
+      val delim: MdLine = lines(index + 1)
+      val st3: BlockState = leaf(st2, MdKind.TableDelim, delim.content, Some("delimiter"), TokenChannel.Syntax)
+      val st4: BlockState = if delim.ending.nonEmpty then leaf(st3, MdKind.LineBreak, delim.ending, Some("trailing"), TokenChannel.Trivia) else st3
       def rows(st: BlockState, i: Int): BlockStep =
         if i < lines.size && !lines(i).isBlank && lines(i).content.contains('|') then
-          val a = leaf(st, MdKind.TableRow, lines(i).content, Some("row"), TokenChannel.Syntax)
+          val a: BlockState = leaf(st, MdKind.TableRow, lines(i).content, Some("row"), TokenChannel.Syntax)
           val b = if lines(i).ending.nonEmpty then leaf(a, MdKind.LineBreak, lines(i).ending, Some("trailing"), TokenChannel.Trivia) else a
           rows(b, i + 1)
         else BlockStep(st, i)
-      val ended = rows(st4, index + 2)
+      val ended: BlockStep = rows(st4, index + 2)
       // close the table on the next structural token (or at EOF via closeDangling)
       BlockStep(ended.state.copy(pendingClose = ended.state.pendingClose :+ MdBranch.Table), ended.index)
 
@@ -660,9 +679,19 @@ private[markdown] final class MarkdownBlocks(
 
     def openBlockquoteAndReprocess(
         st0: BlockState, index: Int, line: MdLine, content: String): BlockStep =
-      val st1 = finishParagraph(st0)
-      val stripped = stripBlockquoteMarker(content).get
-      val st2 = flushPending(st1, MdKind.BlockquoteMarker, stripped._1, Vector(FrameSpec(MdBranch.Blockquote)), Some("marker"), TokenChannel.Syntax)
+      val st1: BlockState = finishParagraph(st0)
+      // The gate that routed here checked `startsBlockquote(trimmed)` — indent removed —
+      // while `stripBlockquoteMarker` re-checks `indentWidth(content) <= 3` on the RAW line,
+      // and `isIndentedCode` deliberately exempts quote-starting lines. A deeply indented `>`
+      // (scalascript's own tests/SPRINT.md) passed the gate and panicked on the `.get`. The
+      // marker token absorbs its indentation (lossless); the inner strip is on the trimmed
+      // line, whose first char the gate proved is `>`.
+      val stripped = stripBlockquoteMarker(content).getOrElse {
+        val leadLen = MdChars.indentPrefixLength(content)
+        val inner = stripBlockquoteMarker(content.substring(leadLen)).get
+        (content.substring(0, leadLen) + inner._1, inner._2)
+      }
+      val st2: BlockState = flushPending(st1, MdKind.BlockquoteMarker, stripped._1, Vector(FrameSpec(MdBranch.Blockquote)), Some("marker"), TokenChannel.Syntax)
       val st3 = st2.copy(containers = st2.containers :+ Blockquote())
       // reprocess the remainder of the line as inner content by rebuilding a line
       reprocessInner(st3, index, MdLine(stripped._2, line.ending))
@@ -670,7 +699,7 @@ private[markdown] final class MarkdownBlocks(
     def openListItemAndReprocess(
         st0: BlockState, index: Int, line: MdLine, content: String,
         item: (Boolean, String, Int)): BlockStep =
-      val st1 = finishParagraph(st0)
+      val st1: BlockState = finishParagraph(st0)
       val lead = MdChars.indentPrefixLength(content)
       val (ordered, marker, contentIndent) = item
       // open a list frame if the parent isn't already the matching list
@@ -692,11 +721,17 @@ private[markdown] final class MarkdownBlocks(
       val opens =
         if needList then Vector(FrameSpec(MdBranch.List), FrameSpec(MdBranch.ListItem))
         else Vector(FrameSpec(MdBranch.ListItem))
-      val withList = if needList then st3.copy(containers = st3.containers :+ ListFrame(ordered)) else st3
+      // `replaceContainers` (a one-field rebuild) instead of `.copy(containers = …)`: this
+      // ONE copy site kept lowering positionally whatever its spelling (E0599) — a named
+      // method sidesteps the copy machinery entirely. The no-list branch passes identical
+      // containers — same semantics.
+      val withFrame: Vector[Container] =
+        if needList then st3.containers :+ ListFrame(ordered) else st3.containers
+      val withList: BlockState = replaceContainers(st3, withFrame)
       val st4 = withList.copy(containers = withList.containers :+ ListItemFrame(ordered, contentIndent + lead))
       val body = content.substring(lead)
       val markerLex = body.substring(0, marker.length)
-      val st5 = flushPending(st4, MdKind.ListMarker, markerLex, opens, Some("marker"), TokenChannel.Syntax)
+      val st5: BlockState = flushPending(st4, MdKind.ListMarker, markerLex, opens, Some("marker"), TokenChannel.Syntax)
       // GFM task marker
       val remainder0 = body.substring(marker.length)
       val (st6, remainder) =
@@ -708,10 +743,10 @@ private[markdown] final class MarkdownBlocks(
     /** Re-runs leaf detection on the content remaining after a container marker
       * on the same physical line. */
     def reprocessInner(st: BlockState, index: Int, innerLine: MdLine): BlockStep =
-      val content = innerLine.content
+      val content: String = innerLine.content
       val indentWidth = MdChars.indentWidth(content)
       if innerLine.isBlank then
-        val finished = finishParagraph(st)
+        val finished: BlockState = finishParagraph(st)
         val emitted =
           if innerLine.ending.nonEmpty then leaf(finished, MdKind.LineBreak, innerLine.ending, Some("blank"), TokenChannel.Trivia)
           else finished
@@ -727,7 +762,7 @@ private[markdown] final class MarkdownBlocks(
         val i = findClose(index + 1)
         if i < lines.size then
           // open front-matter on the opening fence
-          val st1 = openBranch(st0, MdBranch.FrontMatter, MdKind.FrontMatterFence, lines(index).content, Some("open"), TokenChannel.Syntax)
+          val st1: BlockState = openBranch(st0, MdBranch.FrontMatter, MdKind.FrontMatterFence, lines(index).content, Some("open"), TokenChannel.Syntax)
           val st2 =
             if lines(index).ending.nonEmpty then leaf(st1, MdKind.LineBreak, lines(index).ending, Some("open"), TokenChannel.Trivia)
             else st1
@@ -737,8 +772,8 @@ private[markdown] final class MarkdownBlocks(
               val a = if lines(j).content.nonEmpty then leaf(st, MdKind.CodeContent, lines(j).content, Some("yaml"), TokenChannel.Embedded) else st
               val b = if lines(j).ending.nonEmpty then leaf(a, MdKind.LineBreak, lines(j).ending, Some("yaml"), TokenChannel.Embedded) else a
               emitYaml(b, j + 1)
-          val st3 = emitYaml(st2, index + 1)
-          val st4 = close(st3, MdBranch.FrontMatter, MdKind.FrontMatterFence, lines(i).content, Some("close"), TokenChannel.Syntax)
+          val st3: BlockState = emitYaml(st2, index + 1)
+          val st4: BlockState = close(st3, MdBranch.FrontMatter, MdKind.FrontMatterFence, lines(i).content, Some("close"), TokenChannel.Syntax)
           val st5 =
             if lines(i).ending.nonEmpty then leaf(st4, MdKind.LineBreak, lines(i).ending, Some("close"), TokenChannel.Trivia)
             else st4
@@ -770,13 +805,13 @@ private[markdown] final class MarkdownBlocks(
       val st1 =
         if defn.indent.nonEmpty then flushPending(st0, MdKind.Indent, defn.indent, Vector.empty, Some("indent"), TokenChannel.Trivia)
         else st0
-      val st2 = flushPending(st1, MdKind.ReferenceLabel, defn.labelLex, Vector(FrameSpec(MdBranch.Definition)), Some("label"), TokenChannel.Syntax)
-      val st3 = leaf(st2, MdKind.Colon, defn.colon, Some("colon"), TokenChannel.Syntax)
+      val st2: BlockState = flushPending(st1, MdKind.ReferenceLabel, defn.labelLex, Vector(FrameSpec(MdBranch.Definition)), Some("label"), TokenChannel.Syntax)
+      val st3: BlockState = leaf(st2, MdKind.Colon, defn.colon, Some("colon"), TokenChannel.Syntax)
       // whitespace between the parts may CROSS A LINE ENDING; it stays trivia
-      val st4 = leaf(st3, MdKind.Indent, defn.afterColon, Some("space"), TokenChannel.Trivia)
-      val st5 = leaf(st4, MdKind.Destination, defn.destLex, Some("destination"), TokenChannel.Syntax)
-      val st6 = leaf(st5, MdKind.Indent, defn.betweenDestTitle, Some("space"), TokenChannel.Trivia)
-      val st7 = leaf(st6, MdKind.Title, defn.titleLex, Some("title"), TokenChannel.Syntax)
+      val st4: BlockState = leaf(st3, MdKind.Indent, defn.afterColon, Some("space"), TokenChannel.Trivia)
+      val st5: BlockState = leaf(st4, MdKind.Destination, defn.destLex, Some("destination"), TokenChannel.Syntax)
+      val st6: BlockState = leaf(st5, MdKind.Indent, defn.betweenDestTitle, Some("space"), TokenChannel.Trivia)
+      val st7: BlockState = leaf(st6, MdKind.Title, defn.titleLex, Some("title"), TokenChannel.Syntax)
       if defn.trailing.nonEmpty then
         close(st7, MdBranch.Definition, MdKind.LineBreak, defn.trailing, Some("trailing"), TokenChannel.Trivia)
       else st7.copy(pendingClose = st7.pendingClose :+ MdBranch.Definition)
@@ -840,7 +875,7 @@ private[markdown] final class MarkdownBlocks(
       PendingFold(st.copy(pendingClose = Vector.empty), reframe.copy(closeBefore = st.pendingClose ++ reframe.closeBefore))
 
     def finishOpenBlocks(st0: BlockState): BlockState =
-      val st = finishParagraph(st0)
+      val st: BlockState = finishParagraph(st0)
       st.open match
         case OpenLeaf.FencedCode(_, _) =>
           // unterminated fence: close it, record a diagnostic
@@ -868,9 +903,9 @@ private[markdown] final class MarkdownBlocks(
     def walkLines(st: BlockState, index: Int): BlockState =
       if index >= lines.size then st
       else
-        val step = processLine(st, index)
+        val step: BlockStep = processLine(st, index)
         walkLines(step.state, step.index)
-    val ended = closeDangling(finishOpenBlocks(walkLines(afterFront.state, afterFront.index)))
+    val ended: BlockState = closeDangling(finishOpenBlocks(walkLines(afterFront.state, afterFront.index)))
     // A block-count overflow is only knowable DURING the parse, so it is reported here rather
     // than as a pre-check. Same shape as the source and line limits: no tokens plus one fatal
     // diagnostic, because a truncated token stream would sit in a tree that looks complete.
@@ -894,27 +929,31 @@ private[markdown] final class MarkdownBlocks(
     def step(acc: RefsAcc, i: Int): Map[String, LinkRef] =
       if i >= lines.size then acc.refs
       else
-        val content = lines(i).content
-        val trimmed = content.substring(MdChars.indentPrefixLength(content))
+        val content: String = lines(i).content
+        val trimmed: String = content.substring(MdChars.indentPrefixLength(content))
         if acc.inFence then
-          if trimmed.nonEmpty && trimmed.forall(_ == acc.fenceChar) && trimmed.length >= 3 then
+          if trimmed.nonEmpty && trimmed.forall(_.toInt == acc.fenceChar) && trimmed.length >= 3 then
             step(acc.copy(inFence = false), i + 1)
           else step(acc, i + 1)
         else if trimmed.startsWith("```") || trimmed.startsWith("~~~") then
-          step(acc.copy(inFence = true, fenceChar = trimmed.charAt(0), inParagraph = false), i + 1)
+          step(acc.copy(inFence = true, fenceChar = trimmed.charAt(0).toInt, inParagraph = false), i + 1)
         else if lines(i).isBlank then step(acc.copy(inParagraph = false), i + 1)
         else if !acc.inParagraph && MdChars.indentWidth(content) < 4 && trimmed.startsWith("[") then
           scanRefDef(lines, i) match
-            case Some(defn) =>
+            case Some(defn0) =>
+              // typed re-bind: the Rust lane mis-resolved the bare binder's type (E0609), and
+              // `.get(k).nonEmpty` instead of `.contains(k)` — Map.contains does not lower on
+              // an accumulator field
+              val defn: RefDef = defn0
               val norm = MarkdownInlines.normalizeLabel(defn.label)
               val updated =
-                if !acc.refs.contains(norm) && acc.refs.size < limits.maxReferences then
+                if acc.refs.get(norm).isEmpty && acc.refs.size < limits.maxReferences then
                   acc.refs + (norm -> LinkRef(defn.destination, defn.title))
                 else acc.refs
               step(acc.copy(refs = updated), i + defn.linesConsumed)
             case None => step(acc.copy(inParagraph = true), i + 1)
         else step(acc.copy(inParagraph = true), i + 1)
-    step(RefsAcc(inFence = false, fenceChar = ' ', inParagraph = false, refs = Map.empty), 0)
+    step(RefsAcc(inFence = false, fenceChar = ' '.toInt, inParagraph = false, refs = Map.empty), 0)
 
   /** The ONE scan of a link reference definition, in slices whose concatenation
     * is exactly the source it consumed. Three call sites used to decide this
@@ -973,8 +1012,9 @@ private[markdown] final class MarkdownBlocks(
     val last = lastAt(index)
     if last == index then return None
     val window = lines.slice(index, last)
-    val joined = window.iterator.map(_.raw).mkString
-    val n = joined.length
+    // annotated: captured by lifted local defs (Rust lane)
+    val joined: String = window.iterator.map(_.raw).mkString("")
+    val n: Int = joined.length
 
     def isSpace(c: Char): Boolean = c == ' ' || c == '\t'
     def isBreakChar(c: Char): Boolean = c == '\n' || c == '\r'
@@ -1064,9 +1104,13 @@ private[markdown] final class MarkdownBlocks(
     val titleStart = skipWs(destEnd, 1)
     val titleEnd =
       if titleStart > destEnd && titleStart < n then
-        val open = joined.charAt(titleStart)
-        val close = if open == '(' then ')' else open
-        if open == '"' || open == '\'' || open == '(' then
+        // As Int CODE POINTS, not Char: the lifted `titleClose` captures these, so they need
+        // explicit types (Rust lane) — and a `Char`-annotated val desyncs the lane's SscChar
+        // handling (`(open).0` on an `i64`, E0610). `.toInt` is the portable spelling MdChars
+        // already uses.
+        val open: Int = joined.charAt(titleStart).toInt
+        val close: Int = if open == '('.toInt then ')'.toInt else open
+        if open == '"'.toInt || open == '\''.toInt || open == '('.toInt then
           def titleClose(j: Int): Int = // -1: never closed, or the attempt failed
             if j >= n then -1
             else
@@ -1075,8 +1119,8 @@ private[markdown] final class MarkdownBlocks(
               else if c == '\n' then
                 // a blank line inside a title ends the definition attempt
                 if j + 1 < n && lineIsBlankAt(joined, j + 1) then -1 else titleClose(j + 1)
-              else if c == close then j
-              else if c == open && open == '(' then -1
+              else if c.toInt == close then j
+              else if c.toInt == open && open == '('.toInt then -1
               else titleClose(j + 1)
           val found = titleClose(titleStart + 1)
           if found >= 0 && onlySpacesTo(found + 1, endOfLine(found)) then found + 1 else -1
@@ -1122,7 +1166,7 @@ private[markdown] final class MarkdownBlocks(
   private def isLazyContinuation(rest: String): Boolean =
     if rest.forall(c => c == ' ' || c == '\t') then false
     else
-      val t = rest.substring(MdChars.indentPrefixLength(rest))
+      val t: String = rest.substring(MdChars.indentPrefixLength(rest))
       !(startsAtxHeading(t) || isThematicBreak(t) || startsFence(t).isDefined ||
         startsBlockquote(t) || startsListItem(t).isDefined ||
         htmlBlockType(t, paragraphOpen = true).isDefined || isSetextUnderline(t))
@@ -1158,10 +1202,10 @@ private[markdown] final class MarkdownBlocks(
       segs: Vector[ParaSeg],
       breaksSoFar: Int
   ): (InlinePiece, Int) =
-    val lexeme = pieceLexeme(piece)
+    val lexeme: String = pieceLexeme(piece)
     if isBreakPiece(piece) || lexeme.indexOf('\n') < 0 then (piece, breaksSoFar)
     else
-      // `Vector[String]` + `.mkString` — the portable accumulator (`specs/uniml-portable-gapmap.md`);
+      // `Vector[String]` + `.mkString("")` — the portable accumulator (`specs/uniml-portable-gapmap.md`);
       // v2 has no StringBuilder. This one appends BOTH single chars and whole segment prefixes, and
       // a Vector of strings takes either without the two cases needing different code.
       def walk(i: Int, k: Int, out: Vector[String]): (Vector[String], Int) =
@@ -1174,7 +1218,7 @@ private[markdown] final class MarkdownBlocks(
             walk(i + 1, k1, withPrefix)
           else walk(i + 1, k, out :+ c.toString)
       val walked = walk(0, breaksSoFar, Vector.empty)
-      (withLexeme(piece, walked._1.mkString), walked._2)
+      (withLexeme(piece, walked._1.mkString("")), walked._2)
 
   private def pieceLexeme(piece: InlinePiece): String = piece match
     case InlinePiece.Tok(_, lexeme, _, _)      => lexeme
@@ -1285,7 +1329,8 @@ private[markdown] final class MarkdownBlocks(
 
   /** Length of a single complete open/close HTML tag at position 0, else None. */
   private def completeTagLength(t: String): Option[Int] =
-    val n = t.length
+    // annotated: captured by the lifted `nameEnd` (Rust lane needs the declared type)
+    val n: Int = t.length
     if n < 2 || t.charAt(0) != '<' then None
     else
       val nameStart = if 1 < n && t.charAt(1) == '/' then 2 else 1
@@ -1309,7 +1354,7 @@ private[markdown] final class MarkdownBlocks(
     content.contains('|') && index + 1 < lines.size && isTableDelimiter(lines(index + 1).content)
 
   private def isTableDelimiter(content: String): Boolean =
-    val t = content.trim
+    val t: String = content.trim
     t.nonEmpty && t.forall(c => c == '|' || c == '-' || c == ':' || c == ' ' || c == '\t') &&
       t.contains('-') && t.count(_ == '|') >= 1
 

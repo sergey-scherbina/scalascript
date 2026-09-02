@@ -455,7 +455,7 @@ private[scalascript] object SpikeStr:
             val stepped = hole(i + 2, 1, acc :+ "${")
             walk(stepped._1, stepped._2)
           else walk(i + 1, acc :+ c.toString)
-      walk(0, Vector.empty).mkString
+      walk(0, Vector.empty).mkString("")
 
 object SpikeParse:
   final case class Parsed(tree: Node, diagnostics: Vector[Diagnostic])
@@ -3713,7 +3713,7 @@ object SpikeProject:
 
   // concatenate a spike.cctype frame's token lexemes (no spaces) → the full field type string
   private def concatType(n: UniNode): String = n match
-    case b: UniNode.Branch => kids(b).map((_, c) => lexeme(c)).mkString
+    case b: UniNode.Branch => kids(b).map((_, c) => lexeme(c)).mkString("")
     case UniNode.Token(t)  => t.lexeme
 
   private def consList(xs: Vector[String]): String =
@@ -3792,7 +3792,7 @@ object SpikeProject:
       // empty statement list (ssc1-front.ssc0:1987). The frame carries the `=>` token only so it survives
       // the Node→UniNode emit; the token itself is not projected.
       case "spike.summon" => // payload = the whole type application, joined with NO separator (joinStrs)
-        s"""Pair("summon", "${esc(kids(b).collect { case (Some("summon.tok"), c) => lexeme(c) }.mkString)}")"""
+        s"""Pair("summon", "${esc(kids(b).collect { case (Some("summon.tok"), c) => lexeme(c) }.mkString(""))}")"""
       case "spike.pre" =>
         val op  = kids(b).collectFirst { case (Some("pre.op"), c) => lexeme(c) }.getOrElse("-")
         val sub = kids(b).collectFirst { case (Some("pre.sub"), c) => expr(c) }.getOrElse(hole)
@@ -3838,12 +3838,12 @@ object SpikeProject:
         s"""mkApp(mkSel($lhs, "${esc(word)}"), ${consList(Vector(rhs))})"""
       case "spike.unitlit" => "mkTup(Nil)" // abstract-def placeholder body (ignored by effect/trait lowering)
       case "spike.direct" => // direct[F] { block } → Pair("direct", Pair(typeArgs, block)) — lowerer → flatMap
-        val ty  = kids(b).collect { case (Some("ta.tok"), c) => lexeme(c) }.mkString
+        val ty  = kids(b).collect { case (Some("ta.tok"), c) => lexeme(c) }.mkString("")
         val blk = kids(b).collectFirst { case (Some("direct.block"), c) => expr(c) }.getOrElse(hole)
         s"""Pair("direct", Pair("${esc(ty)}", $blk))"""
       case "spike.focusmarker" => """Pair("focus_marker", "")""" // Focus[T](_.a.b) — type args unused for focus
       case "spike.prism" => // Prism[Super, Case](…) — the variant name (after the last comma) drives the lowering
-        val ty = kids(b).collect { case (Some("ta.tok"), c) => lexeme(c) }.mkString
+        val ty = kids(b).collect { case (Some("ta.tok"), c) => lexeme(c) }.mkString("")
         s"""Pair("prism", "${esc(ty)}")"""
       case "spike.error" => """mkVar("_err")""" // error-recovery for a stray/unparseable token (ssc1-front _err)
       case _             => hole

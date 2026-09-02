@@ -111,7 +111,7 @@ object Xml:
   private val XmlnsNamespaceUri = "http://www.w3.org/2000/xmlns/"
 
   private def parseMarkup(result: ParseResult): Either[Diagnostic, Markup.Doc] =
-    val source = result.roots.flatMap(UniNode.sourceTokens).sortBy(_.id).map(_.lexeme).mkString
+    val source = result.roots.flatMap(UniNode.sourceTokens).sortBy(_.id).map(_.lexeme).mkString("")
     PureMarkupCodec.parse(source).left.map(error => Diagnostic(
       "uniml.xml.projection-invalid-cst",
       error.getMessage,
