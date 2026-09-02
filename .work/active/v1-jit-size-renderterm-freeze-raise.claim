@@ -1,0 +1,11 @@
+slug: v1-jit-size-renderterm-freeze-raise
+branch: feature/v1-jit-size-renderterm-freeze-raise
+agent: claude-code
+started: 2026-09-02T11:24:12Z
+heartbeat: 2026-09-02T11:24:12Z
+status: claimed-before-planning
+items: v1-jit-size-renderterm-freeze-raise
+paths: file:tests/e2e/v1-jit-size.sh file:tests/SPRINT.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
