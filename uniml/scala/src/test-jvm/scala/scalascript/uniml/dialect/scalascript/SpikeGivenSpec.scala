@@ -59,29 +59,25 @@ final class SpikeGivenSpec extends AnyFunSuite:
     assert(ks.contains("spike.given"), s"the named given lost its node: $ks")
   }
 
-  test("a NAMED `given … with` keeps its members; the ANONYMOUS one models nothing") {
+  test("a NAMED `given … with` keeps its members; the ANONYMOUS one now models the same node") {
     val named = kinds("given bc: C[Book] with\n  def one(): Int = 1\n")
     assert(named.contains("spike.givenobj"), s"the named `with` lost its node: $named")
 
-    // The anonymous `with` form is deliberately NOT handled by the branch this fix added, and the
-    // measurement is why. I wrote a `with` arm there first: it would parse the members and DISCARD
-    // them, since `spike.sealed` carries nothing — the shape §5b item 3 exists to name, where a
-    // construct swallowed into a contentless node is invisible to the diagnostic count, the drop
-    // census and coverage at once. Removed, and ZERO corpus files write the form, so nothing was
-    // bought with it.
-    //
-    // What is asserted is the state as MEASURED, not as I first assumed. It parses cleanly — and it
-    // did so BEFORE this change too, checked by reverting: another path already accepts it. So the
-    // trade was never "a diagnostic for a silent drop"; it was "a silent drop for a silent drop",
-    // and declining it costs nothing. Whether those members ought to reach the typed AST is an
-    // open question this pins rather than answers: if the shape below ever changes, that is the
-    // question to settle first.
+    // This assertion used to be INVERTED — "the anonymous `with` models nothing" — pinning an open
+    // question: "whether those members ought to reach the typed AST … if the shape below ever
+    // changes, that is the question to settle first." Settled 2026-09-02:
+    // `kr-summon-anonymous-given` put the idiomatic spelling in the corpus, and BOTH v3 fronts now
+    // model it as a name-less given-object whose consumers synthesize fsub's canonical name
+    // (v3/BUGS.md `v3-front-does-not-parse-an-anonymous-given`). What the old guard actually
+    // stood against — members swallowed into a contentless node — is asserted directly below.
     val r = UniML.parse(SourceInput.fromString(src,
       "given C[Book] with\n  def one(): Int = 1\n"), SpikeDialect)
     assert(r.diagnostics.isEmpty, s"it stopped parsing: ${r.diagnostics.map(_.message)}")
     val anon = kinds("given C[Book] with\n  def one(): Int = 1\n")
-    assert(!anon.contains("spike.givenobj"),
-      s"the anonymous `with` gained a given-object node — decide where its members go first: $anon")
+    assert(anon.contains("spike.givenobj"),
+      s"the anonymous `with` lost its given-object node: $anon")
+    assert(anon.contains("spike.def"),
+      s"the anonymous instance's members were swallowed — the exact drop the old guard stood against: $anon")
   }
 
   test("a dot that is NOT part of a type is left alone") {

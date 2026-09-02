@@ -354,6 +354,20 @@ final class SpikeTypedRolesSpec extends AnyFunSuite:
     assert(!e.multi, "a plain effect is not multi-shot")
   }
 
+  test("an ANONYMOUS given with members is a GivenObject with no name and its type") {
+    // `given Combiner[Int] with` used to be a diagnostic plus stray statements — the arm was
+    // deliberately unconsumed while zero corpus files wrote the form, and
+    // kr-summon-anonymous-given ended that. The name is absent HERE by design: consumers
+    // synthesize `given_Combiner_Int` (fsub's anonG is the canon).
+    // (v3/BUGS.md v3-front-does-not-parse-an-anonymous-given.)
+    val g = firstOf("given Combiner[Int] with\n  def combine(a: Int, b: Int): Int = a + b\ndef main(): Int = 0") {
+      case g: SpikeAst.GivenObject => g
+    }
+    assert(g.name.isEmpty, s"an anonymous given must carry NO name, got ${g.name}")
+    assert(g.tpe.exists(_.text.startsWith("Combiner")), s"the declared type was lost: ${g.tpe}")
+    assert(g.members.nonEmpty, "the anonymous instance's methods were dropped")
+  }
+
   test("a given instance with members keeps them") {
     val g = firstOf("given g: Show with\n  def show(): Int = 1\ndef main(): Int = 0") {
       case g: SpikeAst.GivenObject => g

@@ -1872,6 +1872,25 @@ object Parser:
     val (members, vals, t2) = parseMembers(ts, "object")
     (ObjectDef(name, members, vals, p), t2)
 
+  /** The synthesized name of an ANONYMOUS `given` — `given Combiner[Int] with` becomes
+    * `given_Combiner_Int`. THE CANON IS fsub's `anonG` (specs/v2.2-p6.5-fsub.ssc, landed
+    * `5d665bb07` for BUGS `interp-summon-over-an-anonymous-given`): `given_TC` for a bare head,
+    * `given_TC_<inner>` with the inner text sanitized CHAR-BY-CHAR to `[A-Za-z0-9_]` (so
+    * `Map[String,Int]` still yields one legal identifier). Three copies exist by construction —
+    * this one (the kernel; `UniFront` calls it too), the uniml dialect's (`ScalaSpike`'s
+    * projection cannot see the kernel), and fsub's own — and each cites the others: they must
+    * agree, or the two v3 fronts print different object names for the same program and the
+    * F lane resolves a different global than the bridge emits.
+    */
+  def anonGivenName(typeText: String): String =
+    def wordCh(c: Char): Boolean =
+      (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_'
+    val head = typeText.takeWhile(_ != '[')
+    if head.length == typeText.length then "given_" + head
+    else
+      val inner = typeText.substring(head.length + 1, typeText.length - 1)
+      "given_" + head + "_" + inner.map(c => if wordCh(c) then c else '_')
+
   /** `given name: T with` and its members, as an `ObjectDef`.
     *
     * The shape is `name`, `:`, a type, then the word `with` and an indented block — so the type is
@@ -2304,6 +2323,22 @@ object Parser:
         val (o, t) = parseGiven(ts.tail, posOf(ts))
         objects = o :: objects
         ts = t
+      // The ANONYMOUS spelling — `given Combiner[Int] with` — the idiomatic Scala 3 one and the
+      // one every typeclass module in std/ writes. It used to fall through to the expression
+      // parser as three stray name statements, SILENTLY (BUGS
+      // `v3-front-does-not-parse-an-anonymous-given`). The name is synthesized (`anonGivenName`)
+      // and the named path's shape is reused untouched — the fsub fix's own lesson: everything
+      // downstream is keyed by name, so a synthesized name buys the whole named machinery.
+      // `given` stays an ordinary word everywhere else: the lookahead requires a type-shaped
+      // token run followed by `with`, or the arm does not fire.
+      else if isId(peek(ts), "given") && ts.tail.nonEmpty && isPlainName(peek(ts.tail)) &&
+              isId(peek(skipType(ts.tail)), "with") then
+        val afterTy = skipType(ts.tail)
+        val tyText = typeTextOf(ts.tail, afterTy)
+        val (members, vals, t2) = parseMembers(afterTy.tail, "object")
+        objects = ObjectDef(anonGivenName(tyText), members, vals, posOf(ts),
+                            if tyText.isEmpty then None else Some(tyText)) :: objects
+        ts = t2
       // `extension` — REFUSED BY NAME, in the words the other front already uses.
       //
       // It was not refused, it was UNPARSEABLE: `extension (s: String)` reached the expression

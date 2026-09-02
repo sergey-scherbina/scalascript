@@ -2877,18 +2877,27 @@ object SpikeParse:
       if ty.c.peekKind == "spike.eq" then
         val body = parseExpr(ty.c.bump, 1)
         St(body.c, sealedNoop(t0))
+      else if isWord(ty.c, "with") then
+        // An anonymous `given T with { defs }` — MODELLED now, as a `spike.givenobj` with NO
+        // `given.name` role. An earlier version of this arm was deliberately removed with the note
+        // "ZERO files write an anonymous `given … with`" — true then, and
+        // `tests/conformance/kr-summon-anonymous-given.ssc` ended it: the idiomatic Scala 3
+        // spelling is in the corpus and both v3 fronts must read it
+        // (BUGS `v3-front-does-not-parse-an-anonymous-given`). The old fear was consuming members
+        // into a contentless node; this arm keeps them, exactly as the NAMED arm above does.
+        // Consumers synthesize the missing name from the type (`given_TC_Inner` — fsub's `anonG`
+        // is the canon; `Parser.anonGivenName` is the kernel's copy, `anonGivenObjName` below is
+        // this dialect's).
+        val c1 = ty.c.bump // `with`
+        val braced = c1.peekKind == "spike.lbrace"
+        val c2 = (if braced then c1.bump else c1).skipSemis
+        val bodyCol = c2.peekCol
+        val members = memberLoop(c2, "obj.member", braced, bodyCol, hasBody = true, eraseModifiers = true, kids0 :+ ty.v)
+        val closed = if braced && members.c.peekKind == "spike.rbrace" then members.c.bump else members.c
+        St(closed, Node.Frame("spike.givenobj", None, members.v))
       else
-        // ONLY THE `= body` FORM IS CONSUMED, and an anonymous `given … with` deliberately is NOT.
-        //
-        // I wrote the `with` arm first and then removed it. Consuming a `with` body here would parse
-        // its members and DISCARD them — `sealedNoop` carries nothing — which is the exact shape
-        // `40-front-on-uniml.md` §5b item 3 is about: a construct swallowed into a contentless node
-        // is invisible to the diagnostic count, to the drop census and to coverage, all at once.
-        // Trading a loud diagnostic for a silent drop is the wrong direction, and the corpus does
-        // not ask for it: ZERO files write an anonymous `given … with`.
-        //
-        // So the cursor goes back and the form keeps its diagnostic. Half-consuming would be worse
-        // than either — it would move the complaint onto whatever followed.
+        // ONLY the `= body` and `with` forms are consumed; anything else keeps its diagnostic —
+        // the cursor goes back so the complaint lands on the construct, not on what follows it.
         St(ty.c.resetTo(kw.c), sealedNoop(t0))
 
   // `extern def f(…): T` / `extern class C { … }` — external signatures, erased to a no-op (ssc1-front:2738).
@@ -3608,11 +3617,28 @@ object SpikeProject:
     val body = ks.collectFirst { case (Some("given.body"), c) => expr(c) }.getOrElse(hole)
     s"""Pair("given", Pair("${esc(name)}", Pair("${esc(ty)}", $body)))"""
 
+  /** The synthesized name of an ANONYMOUS given — `Combiner[Int]` → `given_Combiner_Int`.
+    * THE CANON IS fsub's `anonG` (specs/v2.2-p6.5-fsub.ssc, `5d665bb07`): `given_TC` bare,
+    * `given_TC_<inner sanitized char-by-char to [A-Za-z0-9_]>`. `ssc3.Parser.anonGivenName` is
+    * the kernel's copy (this dialect cannot see the kernel, the kernel cannot see fsub); the
+    * three must agree or the two v3 fronts print different names for one program. */
+  private def anonGivenObjName(typeText: String): String =
+    def wordCh(c: Char): Boolean =
+      (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_'
+    val head = typeText.takeWhile(_ != '[')
+    if head.length == typeText.length then "given_" + head
+    else
+      val inner = typeText.substring(head.length + 1, typeText.length - 1)
+      "given_" + head + "_" + inner.map(c => if wordCh(c) then c else '_')
+
   // `given name: T with { members }` → Pair("given_obj", Pair(name, Pair(typeStr, [member-stmts])))
   private def givenObjNode(n: UniNode): String =
     val ks = kids(n)
-    val name = ks.collectFirst { case (Some("given.name"), c) => lexeme(c) }.getOrElse("_")
     val ty   = ks.collectFirst { case (Some("given.type"), c) => concatType(c) }.getOrElse("_")
+    // An ANONYMOUS given has no `given.name` role; the name is synthesized from the type so the
+    // projection emits the same global the F lane resolves — `anonGivenObjName`'s comment names
+    // the canon and the other copies.
+    val name = ks.collectFirst { case (Some("given.name"), c) => lexeme(c) }.getOrElse(anonGivenObjName(ty))
     val members = ks.collect { case (Some("obj.member"), c) => c }.toVector.flatMap(memberNodes)
     s"""Pair("given_obj", Pair("${esc(name)}", Pair("${esc(ty)}", ${consList(members)})))"""
 

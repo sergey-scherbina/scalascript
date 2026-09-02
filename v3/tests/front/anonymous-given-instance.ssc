@@ -1,0 +1,23 @@
+// An ANONYMOUS `given Combiner[Int] with` — the idiomatic Scala 3 spelling and the one every
+// typeclass module in std/ writes. It used to be three stray name statements on v3's own front
+// (the dispatch required `given <name> :`) and a diagnostic on the uniml dialect — silently
+// dropped instance, program refused. Both fronts now synthesize Scala's own name for it
+// (`given_Combiner_Int`; fsub's `anonG` is the canon), so `summon` reaches it through the same
+// named machinery the control below uses. (v3/BUGS.md v3-front-does-not-parse-an-anonymous-given.)
+
+trait Combiner[A]:
+  def combine(a: A, b: A): A
+
+given Combiner[Int] with
+  def combine(a: Int, b: Int): Int = a + b
+
+// The NAMED control: proves the machinery, so a fix that only reaches one spelling cannot go green.
+trait Prefixer[A]:
+  def prefix(a: A): String
+
+given namedPrefixer: Prefixer[String] with
+  def prefix(a: String): String = "p:" + a
+
+def main(): Unit =
+  println(summon[Combiner[Int]].combine(2, 3))
+  println(summon[Prefixer[String]].prefix("x"))

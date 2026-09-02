@@ -341,11 +341,15 @@ object UniFront:
     // resolution that would ask — and carrying an unread field is how a projection grows state that
     // no gate can falsify. G2 is where it starts being read, and that is the commit that adds it.
     //
-    // An ANONYMOUS `given T with` refuses, because the only way to use an instance here is to name
-    // it. `name.getOrElse` would invent one and make the program mean something it does not say.
+    // An ANONYMOUS `given T with` used to refuse here ("an instance is reached BY NAME") — and
+    // then `summon` learnt to resolve by the DECLARED TYPE (`givenOf`), which is exactly how the
+    // anonymous form is reached; the name synthesis below is not inventing a meaning, it is
+    // Scala's own (`given_Combiner_Int`), the same one the F lane resolves (fsub's `anonG` is the
+    // canon — `Parser.anonGivenName`'s comment lists the copies). BUGS
+    // `v3-front-does-not-parse-an-anonymous-given`.
     case U.GivenObject(nameOpt, tpeOpt, members, s) =>
-      nameOpt match
-        case None => no("an anonymous `given … with` — at Tier 0 an instance is reached BY NAME", s)
+      nameOpt.orElse(tpeOpt.map(t => Parser.anonGivenName(t.text.replace(" ", "")))) match
+        case None => no("an anonymous `given … with` that declares no type", s)
         case Some(n) =>
           var ds: List[Def] = Nil
           var vs: List[Stmt.Val] = Nil

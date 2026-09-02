@@ -225,17 +225,9 @@ if [ "${SSC3_FRONT_DIFF_CORPUS:-1}" = 1 ] && [ "$nfronts" -ge 2 ]; then
   #   `uniml-extern-class-members-hoist-to-top-level` has the measured story. Both fronts now
   #   print `McpClient` byte-identically.)
   #
-  #   kr-summon-anonymous-given   NEITHER front handles an ANONYMOUS `given T with`, and they fail
-  #                               DIFFERENTLY, which is why it lands here rather than in the
-  #                               one-front bucket. v3's own front does not recognise the form at
-  #                               all and emits the tokens as three stray statements —
-  #                               `(do (name "given")) (do (name "Combiner")) (do (name "with"))`;
-  #                               uniml emits two of the three. So this row records a defect in
-  #                               v3's OWN front, not a dialect gap, and the disagreement is a
-  #                               second-order symptom of it. `v3-front-does-not-parse-an-
-  #                               anonymous-given`. NOTE the conformance case itself is GREEN on
-  #                               every ssc lane — this is v3's front reading it, not the program
-  #                               being wrong.
+  #   (2026-09-02: `kr-summon-anonymous-given` came out — BOTH fronts now parse the anonymous
+  #   `given T with`, synthesizing fsub's canonical name (`given_Combiner_Int`), and print it
+  #   byte-identically. The list is EMPTY for the first time; may it stay so.)
   #
   #   (2026-09-01: `curried-def-member-methods`, `kr-hk-field-arity` and `kr-hk-field-arity-lib`
   #   came OUT together — `SpikeAst.TraitDecl` carries the constructor clause now
@@ -243,10 +235,16 @@ if [ "${SSC3_FRONT_DIFF_CORPUS:-1}" = 1 ] && [ "$nfronts" -ge 2 ]; then
   #
   # Closing either gap makes this gate RED with the row named — drop it in the same commit.
   declare -a KNOWN_CONF_DISAGREE=(
-    kr-summon-anonymous-given
   )
   cdactual="$(cut -f1 "$cdiffs" | sort | tr '\n' ' ')"
-  cddecl="$(printf '%s\n' "${KNOWN_CONF_DISAGREE[@]}" | sort | tr '\n' ' ')"
+  # An EMPTY declared list must compare equal to an empty actual — `printf '%s\n'` with zero
+  # arguments still prints ONE empty line, so the naive pipe yields " " and the gate went RED on
+  # the day the last row came out (2026-09-02), reporting `declared:` vs `actual: (none)` over two
+  # spellings of nothing.
+  cddecl=""
+  if [ "${#KNOWN_CONF_DISAGREE[@]}" -gt 0 ]; then
+    cddecl="$(printf '%s\n' "${KNOWN_CONF_DISAGREE[@]}" | sort | tr '\n' ' ')"
+  fi
   if [ -n "${SSC3_FRONT_CORPUS_DIFF_CEILING:-}" ]; then
     # The numeric override stays, for bisecting a tree where the names are in flux.
     if [ "$cdiff" -gt "$SSC3_FRONT_CORPUS_DIFF_CEILING" ]; then
