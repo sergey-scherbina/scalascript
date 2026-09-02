@@ -2820,11 +2820,12 @@ class RustGenCodeWalkTest extends AnyFunSuite:
       s"a ctor field declared Char must unwrap .0:\n$g")
     assert(g.contains("Some((c.clone()).0)"),
       s"Some(...) around an SscChar value must unwrap .0:\n$g")
-    // `((c).0, i)`, not `((c.clone()).0, i)`: the tuple's third element is `c`'s textually LAST
-    // use, so `ssc-local-last-use-move` drops that one clone (tuples evaluate left-to-right; the
-    // two earlier reads above keep theirs) — the unwrap itself is still what this test pins.
-    assert(g.contains("((c).0, i)"),
-      s"a tuple-literal element yielding SscChar must unwrap .0 (and may move at last use):\n$g")
+    // Back to `((c.clone()).0, i)`: the statement-unique gate (ssc-perf-port-to-main) keeps
+    // the clone whenever a name is used more than once in ONE statement — the E0505
+    // borrow-races-move guard (`substring(&rest, f(rest))`) — and this three-use tuple is
+    // inside that conservative net. The unwrap itself is still what this test pins.
+    assert(g.contains("((c.clone()).0, i)"),
+      s"a tuple-literal element yielding SscChar must unwrap .0:\n$g")
 
   test("`opt.exists(p)` clones a multi-use Option before the consuming is_some_and"):
     // `tag.exists(...)`, read again LATER in the same `if/else` chain (`plainScalar`,
