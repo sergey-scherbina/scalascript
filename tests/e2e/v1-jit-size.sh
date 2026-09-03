@@ -1220,10 +1220,29 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # extracted to its own function this round -- the same next-real-shrink debt the entry above
 # names, not made worse by this one. Full 526-test `RustGenCodeWalkTest` suite green pre-merge.
 # RAISED, NOT REVERTED, same terms as every entry above.
+# renderTerm 43948 -> 44841 (+893), from the rozum perf-parity round 4 session (same pattern as
+# the two entries above: a rozum session's landing). TWO new match arms, both in `renderTerm`
+# itself while their soundness checks live outside it:
+#   - `acc.f ++ xs` inside the lambda that BINDS `acc` moves the accumulator field and extends it
+#     in place, instead of the general `++` lowering's `[&(acc.f)[..], &(xs)[..]].concat()`.
+#     `UniML.parse`'s VM fold concats `acc.roots` per token and `roots` holds built subtrees, so
+#     that one line deep-cloned the whole partially-built tree on every token -- 93% of all
+#     allocations at 1600 lines.
+#   - `p.copy(...)` at `p`'s LAST USE spreads by move with no self-append required, generalising
+#     the arm the entry above added. `countOpens` cloned a whole `BlockState`, token vector
+#     included, to change two scalars. Whole-state spread clones in the emitted markdown crate:
+#     18 -> 2.
+# Measured together on rozum's vendored uniml/markdown crate: 1600 lines 1.337s -> 0.243s (5.5x),
+# allocations 64.6M -> 11.9M, chunk output byte-identical across 70 real documents. 532-test
+# `RustGenCodeWalkTest` suite green (526 pre-existing + 6 new, three of them NEGATIVE cases --
+# the guards that keep the arms from being a miscompile).
+# The same next-real-shrink debt the two entries above name is not made worse by this one: both
+# collectors (`collectLambdaParamFieldConcats`, `collectCopySpreadMoves`) are outside renderTerm.
+# RAISED, NOT REVERTED, same terms as every entry above.
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25540 scalascript.codegen.JsGen::genExpr
-43948 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+44841 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

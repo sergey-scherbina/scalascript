@@ -1676,6 +1676,12 @@ object RustCodeWalk:
   // MOVE `p.f` out and spread the rest via `..p` instead of the general struct-copy's blanket
   // `..p.clone()` — see `collectCopySelfAppendMoves` (`ssc-main-base-perf-parity`).
   private var _copySelfAppendMoves: Map[String, Set[Int]] = Map.empty
+  // Positions of `acc.f ++ xs` INFIX nodes (`acc` a LAMBDA's own parameter) safe to lower as a
+  // move of `acc.f` plus `extend` — see `collectLambdaParamFieldConcats`.
+  private var _lambdaParamFieldConcats: Map[String, Set[Int]] = Map.empty
+  // Positions of `p.copy(...)` calls safe to spread by MOVE (`..p`) rather than `..p.clone()`,
+  // with no self-append involved — see `collectCopyReceiverMoves`.
+  private var _copySpreadMoves: Map[String, Set[Int]] = Map.empty
 
   /** `(ownerName, memberName) -> mapped Rust return type` — the OWNER-QUALIFIED twin of
    *  `_returnTypes` above, for a call whose CALLEE is itself qualified (`PureMarkupCodec.
@@ -4262,10 +4268,15 @@ object RustCodeWalk:
                             name, collectSingleReadOwnedFields(d.body, ps))
                           _localLastUseMoves = _localLastUseMoves.updated(
                             name, collectLocalLastUses(d.body, ps))
+                          val (lamInfixes, lamSelects) = collectLambdaParamFieldConcats(d.body)
+                          _lambdaParamFieldConcats =
+                            _lambdaParamFieldConcats.updated(name, lamInfixes)
                           _localFieldMovePos = _localFieldMovePos.updated(
-                            name, collectSingleReadLocalFields(d.body, ps))
+                            name, collectSingleReadLocalFields(d.body, ps) ++ lamSelects)
                           _copySelfAppendMoves = _copySelfAppendMoves.updated(
                             name, collectCopySelfAppendMoves(d.body, ps))
+                          _copySpreadMoves = _copySpreadMoves.updated(
+                            name, collectCopySpreadMoves(d.body, ps))
                           ps
                         },
                         rustFnNames = rustFnNames,
@@ -5014,7 +5025,9 @@ object RustCodeWalk:
       // precisely because the collector required the declaration to sit in the SAME innermost
       // body, where the binding is fresh per pass — hence no `inWhileLoop`/`inClosure` guard.
       case sel @ m.Term.Select(m.Term.Name(root), m.Term.Name(_))
-          if _localFieldMovePos.getOrElse(ctx.defName, Set.empty).contains(sel.pos.start)
+          if _localFieldMovePos
+               .getOrElse(ctx.liftedSelfName.getOrElse(ctx.defName), Set.empty)
+               .contains(sel.pos.start)
             && !ctx.byRefMut.contains(root)
             && !rendered.contains("(") =>
         rendered
@@ -5631,7 +5644,105 @@ object RustCodeWalk:
    *  already happened by the time the move fires). Loops and lambdas can re-run a body, which
    *  defeats "textually before is always before" — so a def containing one is refused outright,
    *  the same conservative call `collectLocalLastUses` already makes for the same reason. */
+  /** Positions of `acc.f ++ xs` (`acc` a LAMBDA's OWN parameter) where `acc.f` can be MOVED and
+   *  extended in place instead of the general `++` lowering's `[&(acc.f)[..], &(xs)[..]].concat()`
+   *  — an O(acc.f) copy every time the lambda runs, which for a FOLD is once per element and so
+   *  O(n²) over the sequence.
+   *
+   *  This is the second of the two quadratic terms measured in `ssc-main-base-perf-parity` round 4,
+   *  and the bigger one: `UniML.parse`'s VM fold is
+   *  `VmAcc(stepped.state, acc.roots ++ stepped.batch.values, …)`, where `roots: Vector[UniNode]`
+   *  holds the subtrees built so far — so that `++` deep-clones the whole partially-built TREE on
+   *  every token. 93% of all allocations at 1600 lines traced to it. The lexer fold above it has
+   *  the identical shape.
+   *
+   *  Why a lambda parameter is sound where [[collectLocalLastUses]] refuses one outright: that
+   *  collector's `insideRepeat` guard exists because a construct that can RE-RUN defeats
+   *  "textually before is always before" for names bound OUTSIDE it. A lambda's own parameter is
+   *  not such a name — it is a FRESH binding per invocation, so a move out of it can no more
+   *  happen twice than a def param's can. What must still hold is the ordinary within-one-run
+   *  condition, checked here:
+   *    - `acc` is never used BARE (as a whole value) in the lambda body: `..acc`-style whole reads
+   *      and a move of one field cannot both be right, and a bare read is also how `acc` escapes;
+   *    - `acc.f` occurs exactly ONCE, so no later read can observe the moved-out field (a
+   *      DIFFERENT field of `acc` is fine and is exactly the fold shape — `state`, `roots` and
+   *      `diagnostics` are three disjoint partial moves);
+   *    - the occurrence's innermost enclosing lambda is the one that BINDS `acc`: a nested lambda
+   *      may run many times per outer invocation, which would move the same field repeatedly;
+   *    - the right operand does not itself read `acc.f`.
+   *  Returns the infix positions; the LHS select positions are folded into `_localFieldMovePos`
+   *  by the caller so the existing, tested clone-suppression path handles the operand itself. */
+  private def collectLambdaParamFieldConcats(body: m.Term): (Set[Int], Set[Int]) =
+    var infixes = Set.empty[Int]
+    var selects = Set.empty[Int]
+    def innermostFunctionOf(t: m.Tree): Option[m.Term.Function] =
+      ancestorsOf(t).collectFirst { case f: m.Term.Function => f }
+    def visit(t: m.Tree): Unit =
+      t match
+        case fn: m.Term.Function =>
+          val ps = fn.paramClause.values.map(_.name.value).toSet
+          if ps.nonEmpty then
+            // Every occurrence of each parameter inside this lambda's body, split into bare
+            // reads (which disqualify the parameter entirely) and field selects.
+            var bare = Set.empty[String]
+            var fieldOccs = List.empty[(String, String, m.Term.Select)]
+            def scan(x: m.Tree): Unit =
+              x match
+                case sel @ m.Term.Select(m.Term.Name(p), m.Term.Name(f)) if ps.contains(p) =>
+                  fieldOccs = (p, f, sel) :: fieldOccs
+                case m.Term.Name(p) if ps.contains(p) => bare = bare + p
+                case other => other.children.foreach(scan)
+            scan(fn.body)
+            def visitInfix(x: m.Tree): Unit =
+              x match
+                case inf @ m.Term.ApplyInfix.After_4_6_0(
+                       sel @ m.Term.Select(m.Term.Name(p), m.Term.Name(f)),
+                       m.Term.Name("++"), _, rargs)
+                    if ps.contains(p) && !bare.contains(p) && rargs.values.sizeIs == 1 &&
+                       fieldOccs.count { case (p2, f2, _) => p2 == p && f2 == f } == 1 &&
+                       innermostFunctionOf(sel).exists(_ eq fn) &&
+                       !rargs.values.exists(readsFieldAsValue(_, p, f)) =>
+                  infixes = infixes + inf.pos.start
+                  selects = selects + sel.pos.start
+                  rargs.values.foreach(visitInfix)
+                case other => other.children.foreach(visitInfix)
+            visitInfix(fn.body)
+          fn.children.foreach(visit)
+        case other => other.children.foreach(visit)
+    visit(body)
+    (infixes, selects)
+
+  /** Whether `t` reads `p.f` as a value — the right-operand guard for the collector above. */
+  private def readsFieldAsValue(t: m.Tree, p: String, f: String): Boolean =
+    var found = false
+    def walk(x: m.Tree): Unit =
+      x match
+        case m.Term.Select(m.Term.Name(p2), m.Term.Name(f2)) if p2 == p && f2 == f => found = true
+        case other => other.children.foreach(walk)
+    walk(t)
+    found
+
   private def collectCopySelfAppendMoves(body: m.Term, params: Set[String]): Set[Int] =
+    collectCopyReceiverMoves(body, params, requireSelfAppend = true)
+
+  /** The same analysis with the self-append requirement DROPPED: `p.copy(f = v, …)` at `p`'s last
+   *  use spreads by MOVE regardless of what the named fields are.
+   *
+   *  Round 2 required a self-append because that was the shape it was chasing. The requirement was
+   *  never what made the move sound — the soundness is entirely "`..p` moves every field not named,
+   *  so `p` must have no later use", which this shares. Round 4 measured what the narrower rule
+   *  left behind: `countOpens` ends `st.copy(blocksOpened = opened, blockLimitHit = hit)`, two
+   *  scalars, and cloned a whole `BlockState` (including the growing token vector) to change them —
+   *  once per opened block. `track`'s Close and Reframe arms are the same shape.
+   *
+   *  Worth ~5–7% of allocations on its own in that corpus, so it is a constant factor and not the
+   *  quadratic — but it is a constant factor on the whole struct, and the analysis was already
+   *  written and already trusted. */
+  private def collectCopySpreadMoves(body: m.Term, params: Set[String]): Set[Int] =
+    collectCopyReceiverMoves(body, params, requireSelfAppend = false)
+
+  private def collectCopyReceiverMoves(
+      body: m.Term, params: Set[String], requireSelfAppend: Boolean): Set[Int] =
     // Whether `t` sits inside a construct that can re-run — a loop or a lambda body — which
     // defeats "textually before is always before". SCOPED to `t`'s own ancestor chain, not a
     // whole-body prescan: `track`'s CLOSE arm has an unrelated `expected.forall(_ == …)`
@@ -5689,7 +5800,7 @@ object RustCodeWalk:
                 p2 == p && f2 == f
               case _ => false
             }
-            if hasSelfAppend && !insideRepeat(call) then
+            if (hasSelfAppend || !requireSelfAppend) && !insideRepeat(call) then
               val occs = occurrencesOf(p)
               val safe = occs.forall { o =>
                 ancestorsOf(o).exists(_ eq call) || branchExclusive(o, call) ||
@@ -7886,6 +7997,32 @@ object RustCodeWalk:
             collectCopySelfAppendMoves(
               d.body,
               d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value).toSet))
+          _copySpreadMoves = _copySpreadMoves.updated(
+            d.name.value,
+            collectCopySpreadMoves(
+              d.body,
+              d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value).toSet))
+          // The fold-accumulator table, keyed the same way and for the same reason: a fold whose
+          // lambda sits inside a LIFTED local def would otherwise silently keep the copying
+          // lowering, since the consuming side looks the entry up under `liftedSelfName`. Both
+          // halves are filled together — the infix positions and the LHS select positions that
+          // suppress the operand's clone — because a half-filled pair would move nothing while
+          // claiming to.
+          locally:
+            val (lamInfixes, lamSelects) = collectLambdaParamFieldConcats(d.body)
+            _lambdaParamFieldConcats =
+              _lambdaParamFieldConcats.updated(d.name.value, lamInfixes)
+            // `val scan = walk(…); val st1 = scan.state` (`matchContainers`) — the single-read
+            // local field move. Its table was the only one of the four NOT filled for a lifted
+            // def, and the collector skips a nested def's own locals when it runs on the
+            // enclosing body, so `scan` was invisible from both directions and the field cloned
+            // a whole BlockState per line. Keyed by the lift's own name, like every sibling.
+            _localFieldMovePos = _localFieldMovePos.updated(
+              d.name.value,
+              collectSingleReadLocalFields(
+                d.body,
+                d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
+                  .map(_.name.value).toSet) ++ lamSelects)
           val childCtx = baseCtx.copy(
             defParams = ctx.defParams ++ ownParamNames ++ myCaptures.toSet,
             byRefMut  = myByRefMut ++ myRefCaptures,
@@ -9828,6 +9965,32 @@ object RustCodeWalk:
             val rest = if otherR.isEmpty then "" else otherR.mkString("", ", ", ", ")
             s"{ let mut __ap = ($p).$apField; __ap.push($pushed); " +
               s"${ec.enumName} { $apField: __ap, $rest..($p) } }"
+
+    // `st.copy(blocksOpened = opened, blockLimitHit = hit)` at `st`'s LAST use — spread by MOVE.
+    // The general case just below always clones the receiver, which for a struct holding a growing
+    // collection means copying that collection to change two scalars beside it. Same soundness as
+    // the self-append case above and the same analysis, with the self-append requirement dropped:
+    // `..(p)` moves every field not named, so all that is needed is that `p` has no later use.
+    case call @ m.Term.Apply.After_4_6_0(m.Term.Select(m.Term.Name(p), m.Term.Name("copy")), args)
+        if ctorNameOfExpr(m.Term.Name(p), ctx).flatMap(ctx.ctorMap.get).exists(_.isStruct) &&
+           _copySpreadMoves.getOrElse(ctx.liftedSelfName.getOrElse(ctx.defName), Set.empty)
+             .contains(call.pos.start) =>
+      val ec = ctx.ctorMap(ctorNameOfExpr(m.Term.Name(p), ctx).get)
+      val named = args.values.toList.collect {
+        case m.Term.Assign(m.Term.Name(field), value) if ec.fieldNames.contains(field) => field -> value
+      }
+      if named.size != args.values.size then
+        Left(List(unsupported(
+          s"def `${ctx.defName}` calls `${ec.enumName}.copy(...)` with an argument that is not a " +
+          s"`field = value` naming a real field — only that form is lowered"
+        )))
+      else
+        for
+          rendered = named.map { (f, v) => renderTerm(v, ctx).map(vr => s"$f: ${cloneIfMoved(v, vr, ctx)}") }
+          oks <- rendered.partitionMap(identity) match
+            case (errs, _) if errs.nonEmpty => Left(errs.flatten)
+            case (_, ok)                    => Right(ok)
+        yield s"${ec.enumName} { ${oks.mkString(", ")}, ..($p) }"
 
     case m.Term.Apply.After_4_6_0(m.Term.Select(recv, m.Term.Name("copy")), args)
         if ctorNameOfExpr(recv, ctx).flatMap(ctx.ctorMap.get).exists(_.isStruct) =>
@@ -12012,6 +12175,30 @@ object RustCodeWalk:
         l <- renderTerm(lhs, ctx)
         r <- renderTerm(rargs.values.head, ctx)
       yield s"{ let mut __m = ($l).clone(); __m.extend($r); __m }"
+
+    // `acc.roots ++ batch` inside a FOLD lambda — MOVE the accumulator field and extend it in
+    // place, instead of the general slice-concat below which copies every element already in it.
+    // See `collectLambdaParamFieldConcats` for why a lambda's own parameter is safe to move out
+    // of where an ordinary local inside a lambda is not. `.iter().cloned()` on the right operand
+    // matches what the concat form did, so a right operand that stays live keeps working.
+    case infix @ m.Term.ApplyInfix.After_4_6_0(
+           lhs @ m.Term.Select(m.Term.Name(accName), m.Term.Name(accField)),
+           m.Term.Name("++"), _, rargs)
+        if rargs.values.sizeIs == 1 &&
+           _lambdaParamFieldConcats
+             .getOrElse(ctx.liftedSelfName.getOrElse(ctx.defName), Set.empty)
+             .contains(infix.pos.start) &&
+           // A SEQUENCE, checked rather than assumed: `++` is also Scala's Map union and String
+           // concat, and neither takes this `extend`. The Map case above already claims its own
+           // shape, but a String field would reach here and emit `String::extend` over an
+           // element iterator — a compile error in the emitted crate rather than a wrong answer,
+           // still not something to leave to the corpus to catch.
+           (ctx.seqFields.get(accName).exists(_.contains(accField)) ||
+              isKnownVecReceiver(lhs, ctx)) =>
+      for
+        l <- renderTerm(lhs, ctx)
+        r <- renderTerm(rargs.values.head, ctx)
+      yield s"{ let mut __acc = $l; __acc.extend(($r).iter().cloned()); __acc }"
 
     // Infix `++` for tuple literals: flatten tuple-literal concat chains.
     // `(a, b) ++ (c, d) == (a, b, c, d)`, also right-recursive.

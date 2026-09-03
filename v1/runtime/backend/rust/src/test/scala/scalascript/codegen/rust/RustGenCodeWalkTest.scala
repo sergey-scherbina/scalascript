@@ -3825,7 +3825,10 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |```
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
-    assert(g.contains("m2[((((*out).len() as i64) - 1i64)) as usize] = VmToken { instruction: rewritten, ..(last).clone() };"),
+    // `..(last)`, not `..(last).clone()`, since round 4 generalised the copy-receiver move to any
+    // `p.copy(...)` at `p`'s last use — `last` is declared here and read once. What this test
+    // exists for is the INDEX ASSIGNMENT, which is unchanged.
+    assert(g.contains("m2[((((*out).len() as i64) - 1i64)) as usize] = VmToken { instruction: rewritten, ..(last) };"),
       s"Vec.updated must replace at the given index, not fall to a Map-style .insert (which shifts elements):\n$g")
 
   test("a Vec closure param's element STRUCT type resolves through `.iterator` and through a captured var's own alias inside a lifted local def"):
@@ -4721,7 +4724,11 @@ class RustGenCodeWalkTest extends AnyFunSuite:
         |```
         |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
-    assert(g.contains("VmToken { instruction: rewritten, ..(last).clone() }"),
+    // The spread MOVES since round 4 (`last` is read twice, but the earlier read is the match
+    // subject, which is cloned — see the next assertion — so `last` is whole at the copy and has
+    // no use after it). The partial-move guard this test was written for is that next assertion,
+    // and it is untouched: were the match subject to stop cloning, `..(last)` would not compile.
+    assert(g.contains("VmToken { instruction: rewritten, ..(last) }"),
       s"last.copy(instruction = rewritten) must resolve VmToken specifically via a struct-update:\n$g")
     assert(g.contains("match (last.instruction).clone() {"),
       s"a multi-use field-select match subject must be cloned to avoid a partial move:\n$g")
@@ -6004,3 +6011,124 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     assert(g.contains("grow(st, ") && g.contains("reset(st)") && g.contains("hold(st)"),
       s"every arm is the accumulator's last use on its own path and must move it:\n$g")
     assert(!g.contains("st.clone()"), s"no whole-state clone in any arm:\n$g")
+
+  // ── ssc-main-base-perf-parity, round 4: `acc.f ++ xs` inside a fold lambda ───────────────────
+
+  test("a fold lambda's accumulator field moves and extends instead of concatenating"):
+    // `VmAcc(stepped.state, acc.roots ++ stepped.batch.values, …)` (`uniml/core`'s `UniML.scala`'s
+    // `parse`). `roots` holds the subtrees built so far, so the general `++` lowering
+    // (`[&(acc.roots)[..], &(xs)[..]].concat()`) deep-clones the whole partially-built TREE on
+    // every token — 93% of all allocations at 1600 lines, and the larger of the two quadratic
+    // terms measured in round 4.
+    val src =
+      """```scalascript
+        |case class Acc(n: Long, items: Vector[String], notes: Vector[String])
+        |
+        |def run(xs: Vector[String]): Acc =
+        |  xs.foldLeft(Acc(0L, Vector(), Vector())) { (acc, x) =>
+        |    Acc(acc.n + 1L, acc.items ++ Vector(x), acc.notes ++ Vector(x))
+        |  }
+        |```
+        |""".stripMargin
+    val g = fnBody(assets(src)("src/generated/ssc_program.rs"), "run")
+    assert(g.contains("let mut __acc = acc.items;") && g.contains("__acc.extend("),
+      s"the accumulator field must move out and extend, not concat:\n$g")
+    assert(!g.contains("[&(acc.items)[..]"),
+      s"no slice-concat of the accumulator once it moves:\n$g")
+    // Three DISJOINT fields of one parameter: `n` is read, the other two move independently.
+    assert(g.contains("let mut __acc = acc.notes;"),
+      s"a second field of the same accumulator moves too (disjoint partial moves):\n$g")
+
+  test("a field read twice in the fold body is NOT moved"):
+    // The move is sound only because the field occurs once: a second read would observe it
+    // moved out. This is the guard that keeps the optimisation from being a miscompile.
+    val src =
+      """```scalascript
+        |case class Acc(n: Long, items: Vector[String])
+        |
+        |def run(xs: Vector[String]): Acc =
+        |  xs.foldLeft(Acc(0L, Vector())) { (acc, x) =>
+        |    Acc(acc.n + acc.items.length, acc.items ++ Vector(x))
+        |  }
+        |```
+        |""".stripMargin
+    val g = fnBody(assets(src)("src/generated/ssc_program.rs"), "run")
+    assert(!g.contains("let mut __acc = acc.items;"),
+      s"a field read elsewhere in the same body must keep the copying lowering:\n$g")
+
+  test("a whole-value use of the accumulator disqualifies the move"):
+    // `..acc`-style whole reads and a move of one field cannot both be right, and a bare read is
+    // also how the accumulator escapes the lambda.
+    val src =
+      """```scalascript
+        |case class Acc(n: Long, items: Vector[String])
+        |
+        |def size(a: Acc): Long = a.n
+        |
+        |def run(xs: Vector[String]): Acc =
+        |  xs.foldLeft(Acc(0L, Vector())) { (acc, x) =>
+        |    Acc(size(acc), acc.items ++ Vector(x))
+        |  }
+        |```
+        |""".stripMargin
+    val g = fnBody(assets(src)("src/generated/ssc_program.rs"), "run")
+    assert(!g.contains("let mut __acc = acc.items;"),
+      s"a bare use of the accumulator must keep the copying lowering:\n$g")
+
+  test("a `.copy(...)` at the receiver's last use spreads by MOVE, with no self-append involved"):
+    // `st.copy(blocksOpened = opened, blockLimitHit = hit)` (`uniml/markdown`'s
+    // `MarkdownBlocks.scala`'s `countOpens`) — two scalars, and the general struct-copy cloned a
+    // whole `BlockState` (token vector included) to change them, once per opened block. Round 2's
+    // rule required a self-append because that was the shape it was chasing; the self-append was
+    // never what made the move sound.
+    val src =
+      """```scalascript
+        |case class Acc(items: Vector[String], n: Long, flag: Boolean)
+        |
+        |def bump(st: Acc, k: Long): Acc =
+        |  val opened = st.n + k
+        |  st.copy(n = opened, flag = true)
+        |```
+        |""".stripMargin
+    val g = fnBody(assets(src)("src/generated/ssc_program.rs"), "bump")
+    assert(g.contains("..(st) }"), s"the receiver must be spread by move at its last use:\n$g")
+    assert(!g.contains("..(st).clone()"), s"no whole-struct clone once the receiver moves:\n$g")
+
+  test("a receiver read AFTER the copy keeps the clone"):
+    // The guard, stated as a test: `..p` moves every field not named, so a later use of `p` —
+    // here a plain read on the same path — must keep the copying form.
+    val src =
+      """```scalascript
+        |case class Acc(items: Vector[String], n: Long)
+        |
+        |def bump(st: Acc): Long =
+        |  val next: Acc = st.copy(n = st.n + 1L)
+        |  next.n + st.n
+        |```
+        |""".stripMargin
+    val g = fnBody(assets(src)("src/generated/ssc_program.rs"), "bump")
+    assert(g.contains("..(st).clone()"),
+      s"a receiver still read after the copy must not be moved out of:\n$g")
+
+  test("a single-read local field moves inside a LIFTED local def"):
+    // `val scan = walk(st0, …); val st1 = scan.state` (`matchContainers`, a local def lifted out
+    // of `parse`). `_localFieldMovePos` was the one move table not filled for a lifted def, and
+    // the collector skips a nested def's own locals when it runs on the enclosing body — so this
+    // field was invisible from both directions and cloned a whole state per line.
+    val src =
+      """```scalascript
+        |case class St(items: Vector[String], n: Long)
+        |case class Scan(state: St, rest: String, matched: Long)
+        |
+        |def parse(seed: St, lines: Vector[String]): St =
+        |  def walk(s: St): Scan = Scan(s, "r", 1L)
+        |  def matchOne(s0: St): St =
+        |    val scan: Scan = walk(s0)
+        |    val st1 = scan.state
+        |    if scan.matched > 0L then st1.copy(n = st1.n + 1L) else st1
+        |  lines.foldLeft(seed) { (acc, _) => matchOne(acc) }
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("let st1 = scan.state;"),
+      s"a single-read local field must move inside a lifted def too:\n$g")
